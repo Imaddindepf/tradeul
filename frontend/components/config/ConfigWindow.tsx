@@ -116,68 +116,68 @@ function filtersToDisplay(filters: Record<string, any>): string[] {
     min_bid_size: 'Bid >', max_bid_size: 'Bid <',
     min_ask_size: 'Ask >', max_ask_size: 'Ask <',
     min_distance_from_nbbo: 'NBBO >', max_distance_from_nbbo: 'NBBO <',
-    min_change_percent: 'Chg% >', max_change_percent: 'Chg% <',
-    min_change_from_open: 'Open >', max_change_from_open: 'Open <',
-    min_gap_percent: 'Gap% >', max_gap_percent: 'Gap% <',
-    min_premarket_change_percent: 'PreMkt >', max_premarket_change_percent: 'PreMkt <',
-    min_postmarket_change_percent: 'PostMkt >', max_postmarket_change_percent: 'PostMkt <',
-    min_price_from_high: 'FrHigh >', max_price_from_high: 'FrHigh <',
-    min_price_from_low: 'FrLow >', max_price_from_low: 'FrLow <',
-    min_price_from_intraday_high: 'FrHi >', max_price_from_intraday_high: 'FrHi <',
-    min_price_from_intraday_low: 'FrLo >', max_price_from_intraday_low: 'FrLo <',
-    min_change_from_open_dollars: 'Open$ >', max_change_from_open_dollars: 'Open$ <',
+    min_change_percent: 'Change % >', max_change_percent: 'Change % <',
+    min_change_from_open: 'From Open >', max_change_from_open: 'From Open <',
+    min_gap_percent: 'Gap % >', max_gap_percent: 'Gap % <',
+    min_premarket_change_percent: 'Pre-Market >', max_premarket_change_percent: 'Pre-Market <',
+    min_postmarket_change_percent: 'Post-Market >', max_postmarket_change_percent: 'Post-Market <',
+    min_price_from_high: 'From High >', max_price_from_high: 'From High <',
+    min_price_from_low: 'From Low >', max_price_from_low: 'From Low <',
+    min_price_from_intraday_high: 'From Intra Hi >', max_price_from_intraday_high: 'From Intra Hi <',
+    min_price_from_intraday_low: 'From Intra Lo >', max_price_from_intraday_low: 'From Intra Lo <',
+    min_change_from_open_dollars: 'Open $ >', max_change_from_open_dollars: 'Open $ <',
     min_rvol: 'RVOL >', max_rvol: 'RVOL <',
     min_volume: 'Vol >', max_volume: 'Vol <',
-    min_avg_volume_5d: 'AvgV5D >', max_avg_volume_5d: 'AvgV5D <',
-    min_avg_volume_10d: 'AvgV10D >', max_avg_volume_10d: 'AvgV10D <',
-    min_avg_volume_3m: 'AvgV3M >', max_avg_volume_3m: 'AvgV3M <',
-    min_dollar_volume: '$Vol >', max_dollar_volume: '$Vol <',
-    min_volume_today_pct: 'VPct >', max_volume_today_pct: 'VPct <',
-    min_vol_1min: 'V1m >', max_vol_1min: 'V1m <',
-    min_vol_5min: 'V5m >', max_vol_5min: 'V5m <',
-    min_vol_1min_pct: 'V1m% >', max_vol_1min_pct: 'V1m% <',
-    min_vol_5min_pct: 'V5m% >', max_vol_5min_pct: 'V5m% <',
-    min_vol_10min_pct: 'V10m% >', max_vol_10min_pct: 'V10m% <',
-    min_vol_15min_pct: 'V15m% >', max_vol_15min_pct: 'V15m% <',
-    min_vol_30min_pct: 'V30m% >', max_vol_30min_pct: 'V30m% <',
-    min_range_2min: 'R2m$ >', max_range_2min: 'R2m$ <',
-    min_range_5min: 'R5m$ >', max_range_5min: 'R5m$ <',
-    min_range_15min: 'R15m$ >', max_range_15min: 'R15m$ <',
-    min_range_30min: 'R30m$ >', max_range_30min: 'R30m$ <',
-    min_range_60min: 'R60m$ >', max_range_60min: 'R60m$ <',
-    min_range_120min: 'R120m$ >', max_range_120min: 'R120m$ <',
-    min_range_2min_pct: 'R2m% >', max_range_2min_pct: 'R2m% <',
-    min_range_5min_pct: 'R5m% >', max_range_5min_pct: 'R5m% <',
-    min_range_15min_pct: 'R15m% >', max_range_15min_pct: 'R15m% <',
-    min_range_30min_pct: 'R30m% >', max_range_30min_pct: 'R30m% <',
-    min_range_60min_pct: 'R60m% >', max_range_60min_pct: 'R60m% <',
-    min_range_120min_pct: 'R120m% >', max_range_120min_pct: 'R120m% <',
-    min_chg_1min: '1m >', max_chg_1min: '1m <',
-    min_chg_5min: '5m >', max_chg_5min: '5m <',
-    min_chg_10min: '10m >', max_chg_10min: '10m <',
-    min_chg_15min: '15m >', max_chg_15min: '15m <',
-    min_chg_30min: '30m >', max_chg_30min: '30m <',
+    min_avg_volume_5d: 'Avg Vol 5D >', max_avg_volume_5d: 'Avg Vol 5D <',
+    min_avg_volume_10d: 'Avg Vol 10D >', max_avg_volume_10d: 'Avg Vol 10D <',
+    min_avg_volume_3m: 'Avg Vol 3M >', max_avg_volume_3m: 'Avg Vol 3M <',
+    min_dollar_volume: 'Dollar Vol >', max_dollar_volume: 'Dollar Vol <',
+    min_volume_today_pct: 'Vol Today % >', max_volume_today_pct: 'Vol Today % <',
+    min_vol_1min: 'Vol 1m >', max_vol_1min: 'Vol 1m <',
+    min_vol_5min: 'Vol 5m >', max_vol_5min: 'Vol 5m <',
+    min_vol_1min_pct: 'Vol 1m % >', max_vol_1min_pct: 'Vol 1m % <',
+    min_vol_5min_pct: 'Vol 5m % >', max_vol_5min_pct: 'Vol 5m % <',
+    min_vol_10min_pct: 'Vol 10m % >', max_vol_10min_pct: 'Vol 10m % <',
+    min_vol_15min_pct: 'Vol 15m % >', max_vol_15min_pct: 'Vol 15m % <',
+    min_vol_30min_pct: 'Vol 30m % >', max_vol_30min_pct: 'Vol 30m % <',
+    min_range_2min: 'Range 2m $ >', max_range_2min: 'Range 2m $ <',
+    min_range_5min: 'Range 5m $ >', max_range_5min: 'Range 5m $ <',
+    min_range_15min: 'Range 15m $ >', max_range_15min: 'Range 15m $ <',
+    min_range_30min: 'Range 30m $ >', max_range_30min: 'Range 30m $ <',
+    min_range_60min: 'Range 60m $ >', max_range_60min: 'Range 60m $ <',
+    min_range_120min: 'Range 120m $ >', max_range_120min: 'Range 120m $ <',
+    min_range_2min_pct: 'Range 2m % >', max_range_2min_pct: 'Range 2m % <',
+    min_range_5min_pct: 'Range 5m % >', max_range_5min_pct: 'Range 5m % <',
+    min_range_15min_pct: 'Range 15m % >', max_range_15min_pct: 'Range 15m % <',
+    min_range_30min_pct: 'Range 30m % >', max_range_30min_pct: 'Range 30m % <',
+    min_range_60min_pct: 'Range 60m % >', max_range_60min_pct: 'Range 60m % <',
+    min_range_120min_pct: 'Range 120m % >', max_range_120min_pct: 'Range 120m % <',
+    min_chg_1min: 'Chg 1m >', max_chg_1min: 'Chg 1m <',
+    min_chg_5min: 'Chg 5m >', max_chg_5min: 'Chg 5m <',
+    min_chg_10min: 'Chg 10m >', max_chg_10min: 'Chg 10m <',
+    min_chg_15min: 'Chg 15m >', max_chg_15min: 'Chg 15m <',
+    min_chg_30min: 'Chg 30m >', max_chg_30min: 'Chg 30m <',
     min_atr: 'ATR >', max_atr: 'ATR <',
-    min_atr_percent: 'ATR% >', max_atr_percent: 'ATR% <',
-    min_volatility: 'Vola >', max_volatility: 'Vola <',
+    min_atr_percent: 'ATR % >', max_atr_percent: 'ATR % <',
+    min_volatility: 'Volatility >', max_volatility: 'Volatility <',
     min_rsi: 'RSI >', max_rsi: 'RSI <',
     min_ema_20: 'EMA20 >', max_ema_20: 'EMA20 <',
     min_ema_50: 'EMA50 >', max_ema_50: 'EMA50 <',
-    min_market_cap: 'MCap >', max_market_cap: 'MCap <',
+    min_market_cap: 'Market Cap >', max_market_cap: 'Market Cap <',
     min_float_shares: 'Float >', max_float_shares: 'Float <',
-    min_shares_outstanding: 'ShOut >', max_shares_outstanding: 'ShOut <',
+    min_shares_outstanding: 'Shares Out >', max_shares_outstanding: 'Shares Out <',
     min_sma_5: 'SMA5 >', max_sma_5: 'SMA5 <',
     min_sma_8: 'SMA8 >', max_sma_8: 'SMA8 <',
     min_sma_20: 'SMA20 >', max_sma_20: 'SMA20 <',
     min_sma_50: 'SMA50 >', max_sma_50: 'SMA50 <',
     min_sma_200: 'SMA200 >', max_sma_200: 'SMA200 <',
     min_macd_line: 'MACD >', max_macd_line: 'MACD <',
-    min_macd_hist: 'MACDh >', max_macd_hist: 'MACDh <',
-    min_stoch_k: 'StK >', max_stoch_k: 'StK <',
-    min_stoch_d: 'StD >', max_stoch_d: 'StD <',
+    min_macd_hist: 'MACD Hist >', max_macd_hist: 'MACD Hist <',
+    min_stoch_k: 'Stoch %K >', max_stoch_k: 'Stoch %K <',
+    min_stoch_d: 'Stoch %D >', max_stoch_d: 'Stoch %D <',
     min_adx_14: 'ADX >', max_adx_14: 'ADX <',
-    min_bb_upper: 'BBU >', max_bb_upper: 'BBU <',
-    min_bb_lower: 'BBL >', max_bb_lower: 'BBL <',
+    min_bb_upper: 'BB Upper >', max_bb_upper: 'BB Upper <',
+    min_bb_lower: 'BB Lower >', max_bb_lower: 'BB Lower <',
   };
   return Object.entries(filters)
     .filter(([, v]) => v != null && (typeof v === 'number' || typeof v === 'string'))
@@ -667,28 +667,28 @@ export function ConfigWindow({
   }, [activeTab]);
 
   return (
-    <div className="h-full flex flex-col bg-white text-slate-700 text-xs">
+    <div className="h-full flex flex-col bg-surface text-foreground text-xs">
       {/* Mode toggle + Tabs */}
-      <div className="flex-shrink-0 border-b border-slate-200 bg-slate-50">
+      <div className="flex-shrink-0 border-b border-border bg-surface-hover">
         {/* Mode selector */}
         <div className="flex items-center gap-1 px-3 pt-1.5 pb-1">
-          <div className="flex bg-slate-200/80 rounded-md p-0.5 gap-0.5">
+          <div className="flex bg-muted rounded-md p-0.5 gap-0.5">
             <button
               onClick={() => handleModeSwitch('strategy')}
               className={`px-2.5 py-[3px] text-[10px] font-semibold rounded transition-all ${builderMode === 'strategy'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-surface text-primary shadow-sm'
+                  : 'text-muted-fg hover:text-foreground'
                 }`}
             >Strategy</button>
             <button
               onClick={() => handleModeSwitch('toplist')}
               className={`px-2.5 py-[3px] text-[10px] font-semibold rounded transition-all ${builderMode === 'toplist'
-                  ? 'bg-white text-emerald-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-surface text-emerald-600 shadow-sm'
+                  : 'text-muted-fg hover:text-foreground'
                 }`}
             >Top List</button>
           </div>
-          <span className="text-[9px] text-slate-400 ml-1.5">
+          <span className="text-[9px] text-muted-fg ml-1.5">
             {builderMode === 'strategy' ? 'Events + Filters' : 'Filters only → Scanner'}
           </span>
         </div>
@@ -697,8 +697,8 @@ export function ConfigWindow({
           {tabs.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`px-3 py-1.5 text-xs border-b-2 transition-colors ${activeTab === tab.id
-                ? (builderMode === 'toplist' ? 'border-emerald-600 text-emerald-600 bg-emerald-50/50' : 'border-blue-600 text-blue-600 bg-blue-50/50')
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                ? (builderMode === 'toplist' ? 'border-emerald-600 text-emerald-600 bg-emerald-500/10' : 'border-primary text-primary bg-primary/10')
+                : 'border-transparent text-muted-fg hover:text-foreground hover:bg-surface-hover'
                 }`}
             >{tab.label}</button>
           ))}
@@ -711,9 +711,9 @@ export function ConfigWindow({
         {activeTab === 'saved' && builderMode === 'strategy' && (
           <div className="h-full flex">
             {/* Left: folder tree */}
-            <div className="w-52 border-r border-slate-200 flex flex-col overflow-hidden">
+            <div className="w-52 border-r border-border flex flex-col overflow-hidden">
               <button onClick={handleStartFromScratch}
-                className="w-full text-left px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50/50 border-b border-slate-100 transition-colors flex-shrink-0">
+                className="w-full text-left px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 border-b border-border-subtle transition-colors flex-shrink-0">
                 Start from Scratch
               </button>
               <div className="flex-1 overflow-y-auto">
@@ -721,23 +721,23 @@ export function ConfigWindow({
                   const items = folderData[folder.id] || [];
                   const exp = expandedFolders.has(folder.id);
                   return (
-                    <div key={folder.id} className="border-b border-slate-100">
+                    <div key={folder.id} className="border-b border-border-subtle">
                       <button onClick={() => toggleFolder(folder.id)}
-                        className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-slate-50 transition-colors">
-                        <span className="text-[10px] text-slate-400">{exp ? '\u25BC' : '\u25B6'}</span>
-                        <span className="text-xs font-semibold text-slate-600 flex-1">{folder.label}</span>
-                        {items.length > 0 && <span className="text-[10px] text-slate-400">{items.length}</span>}
+                        className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-surface-hover transition-colors">
+                        <span className="text-[10px] text-muted-fg">{exp ? '\u25BC' : '\u25B6'}</span>
+                        <span className="text-xs font-semibold text-foreground/80 flex-1">{folder.label}</span>
+                        {items.length > 0 && <span className="text-[10px] text-muted-fg">{items.length}</span>}
                       </button>
                       {exp && items.length === 0 && (
-                        <div className="px-5 py-1 text-[10px] text-slate-300">Empty</div>
+                        <div className="px-5 py-1 text-[10px] text-muted-fg/50">Empty</div>
                       )}
                       {exp && items.map(s => (
                         <button key={s.id}
                           onClick={() => setSelectedStrategy(s)}
                           onDoubleClick={() => handleLoadUserStrategy(s)}
                           className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'id' in selectedStrategy && selectedStrategy.id === s.id
-                            ? 'bg-blue-50 text-blue-700 font-medium'
-                            : 'text-slate-600 hover:bg-slate-50'
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-foreground/80 hover:bg-surface-hover'
                             }`}
                         >{s.name}</button>
                       ))}
@@ -745,26 +745,26 @@ export function ConfigWindow({
                   );
                 })}
                 {/* Built-in strategies folder */}
-                <div className="border-b border-slate-100">
+                <div className="border-b border-border-subtle">
                   <button onClick={() => toggleFolder('builtin')}
-                    className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-slate-50 transition-colors">
-                    <span className="text-[10px] text-slate-400">{expandedFolders.has('builtin') ? '\u25BC' : '\u25B6'}</span>
-                    <span className="text-xs font-semibold text-slate-600 flex-1">Built-in</span>
-                    <span className="text-[10px] text-slate-400">{BUILT_IN_PRESETS.length}</span>
+                    className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-surface-hover transition-colors">
+                    <span className="text-[10px] text-muted-fg">{expandedFolders.has('builtin') ? '\u25BC' : '\u25B6'}</span>
+                    <span className="text-xs font-semibold text-foreground/80 flex-1">Built-in</span>
+                    <span className="text-[10px] text-muted-fg">{BUILT_IN_PRESETS.length}</span>
                   </button>
                   {expandedFolders.has('builtin') && BUILT_IN_PRESETS.map(p => (
                     <button key={p.id}
                       onClick={() => setSelectedStrategy(p)}
                       onDoubleClick={() => handleLoadBuiltIn(p)}
                       className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'isBuiltIn' in selectedStrategy && selectedStrategy.id === p.id
-                        ? 'bg-blue-50 text-blue-700 font-medium'
-                        : 'text-slate-600 hover:bg-slate-50'
+                        ? 'bg-blue-500/10 text-blue-700 font-medium'
+                        : 'text-foreground/80 hover:bg-surface-hover'
                         }`}
                     >{p.name}</button>
                   ))}
                 </div>
               </div>
-              {loading && <div className="px-3 py-1 text-[10px] text-slate-400 text-center flex-shrink-0">Loading...</div>}
+              {loading && <div className="px-3 py-1 text-[10px] text-muted-fg text-center flex-shrink-0">Loading...</div>}
             </div>
             {/* Right: strategy detail */}
             <div className="flex-1 flex flex-col overflow-hidden">
@@ -773,22 +773,22 @@ export function ConfigWindow({
                   <div className="flex-1 overflow-y-auto p-3">
                     {'isBuiltIn' in selectedStrategy ? (
                       <>
-                        <div className="text-xs font-bold text-slate-800 mb-1">{selectedStrategy.name}</div>
-                        <p className="text-[11px] text-slate-500 mb-3">{selectedStrategy.description}</p>
+                        <div className="text-xs font-bold text-foreground mb-1">{selectedStrategy.name}</div>
+                        <p className="text-[11px] text-muted-fg mb-3">{selectedStrategy.description}</p>
                         <div className="mb-2">
-                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Alerts</div>
+                          <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Alerts</div>
                           <div className="flex flex-wrap gap-1">
                             {selectedStrategy.eventTypes.map(et => (
-                              <span key={et} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600">{alertTypeLabel(et)}</span>
+                              <span key={et} className="px-1.5 py-0.5 bg-surface-hover border border-border rounded text-[10px] text-foreground/80">{alertTypeLabel(et)}</span>
                             ))}
                           </div>
                         </div>
                         {Object.keys(selectedStrategy.filters).length > 0 && (
                           <div>
-                            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters</div>
+                            <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Filters</div>
                             <div className="flex flex-wrap gap-1">
                               {filtersToDisplay(selectedStrategy.filters).map(f => (
-                                <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                                <span key={f} className="px-1.5 py-0.5 bg-surface-hover border border-border rounded text-[10px] font-mono text-foreground/80">{f}</span>
                               ))}
                             </div>
                           </div>
@@ -797,36 +797,36 @@ export function ConfigWindow({
                     ) : (
                       <>
                         <div className="flex items-center justify-between mb-1">
-                          <div className="text-xs font-bold text-slate-800">{(selectedStrategy as AlertStrategy).name}</div>
+                          <div className="text-xs font-bold text-foreground">{(selectedStrategy as AlertStrategy).name}</div>
                           <div className="flex items-center gap-1">
                             <button onClick={() => toggleFavorite((selectedStrategy as AlertStrategy).id)}
-                              className={`text-[11px] ${(selectedStrategy as AlertStrategy).isFavorite ? 'text-blue-600' : 'text-slate-300 hover:text-slate-500'}`}
+                              className={`text-[11px] ${(selectedStrategy as AlertStrategy).isFavorite ? 'text-primary' : 'text-muted-fg/50 hover:text-muted-fg'}`}
                             >{'\u2605'}</button>
                             <button onClick={async () => { await deleteStrategy((selectedStrategy as AlertStrategy).id); setSelectedStrategy(null); }}
-                              className="text-[10px] text-slate-300 hover:text-rose-500">x</button>
+                              className="text-[10px] text-muted-fg/50 hover:text-rose-500">x</button>
                           </div>
                         </div>
                         {(selectedStrategy as AlertStrategy).description && (
-                          <p className="text-[11px] text-slate-500 mb-2">{(selectedStrategy as AlertStrategy).description}</p>
+                          <p className="text-[11px] text-muted-fg mb-2">{(selectedStrategy as AlertStrategy).description}</p>
                         )}
-                        <div className="text-[10px] text-slate-400 mb-3">
+                        <div className="text-[10px] text-muted-fg mb-3">
                           {(selectedStrategy as AlertStrategy).useCount > 0 && `Used ${(selectedStrategy as AlertStrategy).useCount}x`}
                           {(selectedStrategy as AlertStrategy).lastUsedAt && ` \u00b7 Last: ${new Date((selectedStrategy as AlertStrategy).lastUsedAt!).toLocaleDateString()}`}
                         </div>
                         <div className="mb-2">
-                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Alerts ({(selectedStrategy as AlertStrategy).eventTypes.length})</div>
+                          <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Alerts ({(selectedStrategy as AlertStrategy).eventTypes.length})</div>
                           <div className="flex flex-wrap gap-1">
                             {(selectedStrategy as AlertStrategy).eventTypes.map(et => (
-                              <span key={et} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600">{alertTypeLabel(et)}</span>
+                              <span key={et} className="px-1.5 py-0.5 bg-surface-hover border border-border rounded text-[10px] text-foreground/80">{alertTypeLabel(et)}</span>
                             ))}
                           </div>
                         </div>
                         {Object.keys((selectedStrategy as AlertStrategy).filters).length > 0 && (
                           <div>
-                            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters</div>
+                            <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Filters</div>
                             <div className="flex flex-wrap gap-1">
                               {filtersToDisplay((selectedStrategy as AlertStrategy).filters).map(f => (
-                                <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                                <span key={f} className="px-1.5 py-0.5 bg-surface-hover border border-border rounded text-[10px] font-mono text-foreground/80">{f}</span>
                               ))}
                             </div>
                           </div>
@@ -834,18 +834,18 @@ export function ConfigWindow({
                       </>
                     )}
                   </div>
-                  <div className="flex-shrink-0 p-2 border-t border-slate-200 bg-slate-50">
+                  <div className="flex-shrink-0 p-2 border-t border-border bg-surface-hover">
                     <button
                       onClick={() => {
                         if ('isBuiltIn' in selectedStrategy) handleLoadBuiltIn(selectedStrategy as AlertPreset);
                         else handleLoadUserStrategy(selectedStrategy as AlertStrategy);
                       }}
-                      className="w-full py-1.5 text-xs font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                      className="w-full py-1.5 text-xs font-semibold bg-primary text-white rounded hover:bg-primary-hover transition-colors"
                     >Load Settings</button>
                   </div>
                 </>
               ) : (
-                <div className="h-full flex items-center justify-center text-slate-400 text-[11px] p-4 text-center">
+                <div className="h-full flex items-center justify-center text-muted-fg text-[11px] p-4 text-center">
                   Select a strategy to see details, or double-click to load
                 </div>
               )}
@@ -857,9 +857,9 @@ export function ConfigWindow({
         {activeTab === 'saved' && builderMode === 'toplist' && (
           <div className="h-full flex">
             {/* Left: folder tree */}
-            <div className="w-52 border-r border-slate-200 flex flex-col overflow-hidden">
+            <div className="w-52 border-r border-border flex flex-col overflow-hidden">
               <button onClick={handleStartFromScratch}
-                className="w-full text-left px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50/50 border-b border-slate-100 transition-colors flex-shrink-0">
+                className="w-full text-left px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-500/10 border-b border-border-subtle transition-colors flex-shrink-0">
                 Start from Scratch
               </button>
               <div className="flex-1 overflow-y-auto">
@@ -867,27 +867,27 @@ export function ConfigWindow({
                   const items = topListFolderData[folder.id] || [];
                   const exp = expandedFolders.has(folder.id);
                   return (
-                    <div key={folder.id} className="border-b border-slate-100">
+                    <div key={folder.id} className="border-b border-border-subtle">
                       <button onClick={() => toggleFolder(folder.id)}
-                        className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-slate-50 transition-colors">
-                        <span className="text-[10px] text-slate-400">{exp ? '\u25BC' : '\u25B6'}</span>
-                        <span className="text-xs font-semibold text-slate-600 flex-1">{folder.label}</span>
-                        {items.length > 0 && <span className="text-[10px] text-slate-400">{items.length}</span>}
+                        className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-surface-hover transition-colors">
+                        <span className="text-[10px] text-muted-fg">{exp ? '\u25BC' : '\u25B6'}</span>
+                        <span className="text-xs font-semibold text-foreground/80 flex-1">{folder.label}</span>
+                        {items.length > 0 && <span className="text-[10px] text-muted-fg">{items.length}</span>}
                       </button>
                       {exp && items.length === 0 && (
-                        <div className="px-5 py-1 text-[10px] text-slate-300">Empty</div>
+                        <div className="px-5 py-1 text-[10px] text-muted-fg/50">Empty</div>
                       )}
                       {exp && items.map(scan => (
                         <button key={scan.id}
                           onClick={() => setSelectedStrategy(scan as any)}
                           onDoubleClick={() => handleLoadScan(scan)}
                           className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'userId' in selectedStrategy && (selectedStrategy as any).id === scan.id
-                            ? 'bg-emerald-50 text-emerald-700 font-medium'
-                            : 'text-slate-600 hover:bg-slate-50'
+                            ? 'bg-emerald-500/10 text-emerald-700 font-medium'
+                            : 'text-foreground/80 hover:bg-surface-hover'
                             }`}
                         >
                           <span className="flex items-center gap-1">
-                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${scan.enabled ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${scan.enabled ? 'bg-emerald-400' : 'bg-muted'}`} />
                             {scan.name}
                           </span>
                         </button>
@@ -896,26 +896,26 @@ export function ConfigWindow({
                   );
                 })}
                 {/* Built-in top lists */}
-                <div className="border-b border-slate-100">
+                <div className="border-b border-border-subtle">
                   <button onClick={() => toggleFolder('builtin')}
-                    className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-slate-50 transition-colors">
-                    <span className="text-[10px] text-slate-400">{expandedFolders.has('builtin') ? '\u25BC' : '\u25B6'}</span>
-                    <span className="text-xs font-semibold text-slate-600 flex-1">Built-in</span>
-                    <span className="text-[10px] text-slate-400">{BUILT_IN_TOP_LISTS.length}</span>
+                    className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-surface-hover transition-colors">
+                    <span className="text-[10px] text-muted-fg">{expandedFolders.has('builtin') ? '\u25BC' : '\u25B6'}</span>
+                    <span className="text-xs font-semibold text-foreground/80 flex-1">Built-in</span>
+                    <span className="text-[10px] text-muted-fg">{BUILT_IN_TOP_LISTS.length}</span>
                   </button>
                   {expandedFolders.has('builtin') && BUILT_IN_TOP_LISTS.map(p => (
                     <button key={p.id}
                       onClick={() => setSelectedStrategy(p as any)}
                       onDoubleClick={() => handleLoadBuiltInTopList(p)}
                       className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'isTopList' in selectedStrategy && (selectedStrategy as any).id === p.id
-                        ? 'bg-emerald-50 text-emerald-700 font-medium'
-                        : 'text-slate-600 hover:bg-slate-50'
+                        ? 'bg-emerald-500/10 text-emerald-700 font-medium'
+                        : 'text-foreground/80 hover:bg-surface-hover'
                         }`}
                     >{p.name}</button>
                   ))}
                 </div>
               </div>
-              {loadingScans && <div className="px-3 py-1 text-[10px] text-slate-400 text-center flex-shrink-0">Loading...</div>}
+              {loadingScans && <div className="px-3 py-1 text-[10px] text-muted-fg text-center flex-shrink-0">Loading...</div>}
             </div>
             {/* Right: top list detail */}
             <div className="flex-1 flex flex-col overflow-hidden">
@@ -925,13 +925,13 @@ export function ConfigWindow({
                     {'isTopList' in selectedStrategy ? (
                       // Built-in top list preset
                       <>
-                        <div className="text-xs font-bold text-slate-800 mb-1">{(selectedStrategy as any).name}</div>
-                        <p className="text-[11px] text-slate-500 mb-3">{(selectedStrategy as any).description}</p>
+                        <div className="text-xs font-bold text-foreground mb-1">{(selectedStrategy as any).name}</div>
+                        <p className="text-[11px] text-muted-fg mb-3">{(selectedStrategy as any).description}</p>
                         <div>
-                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters</div>
+                          <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Filters</div>
                           <div className="flex flex-wrap gap-1">
                             {filtersToDisplay((selectedStrategy as any).filters).map(f => (
-                              <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                              <span key={f} className="px-1.5 py-0.5 bg-surface-hover border border-border rounded text-[10px] font-mono text-foreground/80">{f}</span>
                             ))}
                           </div>
                         </div>
@@ -940,33 +940,33 @@ export function ConfigWindow({
                       // User scanner filter
                       <>
                         <div className="flex items-center justify-between mb-1">
-                          <div className="text-xs font-bold text-slate-800">{(selectedStrategy as any).name}</div>
+                          <div className="text-xs font-bold text-foreground">{(selectedStrategy as any).name}</div>
                           <button onClick={async () => { await deleteScanFilter((selectedStrategy as any).id); setSelectedStrategy(null); }}
-                            className="text-[10px] text-slate-300 hover:text-rose-500">x</button>
+                            className="text-[10px] text-muted-fg/50 hover:text-rose-500">x</button>
                         </div>
                         <div className="flex items-center gap-2 mb-3">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${(selectedStrategy as any).enabled ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-slate-50 text-slate-400 border border-slate-200'}`}>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${(selectedStrategy as any).enabled ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-200' : 'bg-surface-hover text-muted-fg border border-border'}`}>
                             {(selectedStrategy as any).enabled ? 'Active' : 'Inactive'}
                           </span>
-                          <span className="text-[10px] text-slate-400">
+                          <span className="text-[10px] text-muted-fg">
                             {new Date((selectedStrategy as any).createdAt).toLocaleDateString()}
                           </span>
                         </div>
                         <div>
-                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters</div>
+                          <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Filters</div>
                           <div className="flex flex-wrap gap-1">
                             {filtersToDisplay((selectedStrategy as any).parameters || {}).map(f => (
-                              <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                              <span key={f} className="px-1.5 py-0.5 bg-surface-hover border border-border rounded text-[10px] font-mono text-foreground/80">{f}</span>
                             ))}
                           </div>
                         </div>
                       </>
                     ) : (
                       // Fallback: could be a strategy loaded while in toplist mode
-                      <div className="text-[11px] text-slate-400">Select a top list</div>
+                      <div className="text-[11px] text-muted-fg">Select a top list</div>
                     )}
                   </div>
-                  <div className="flex-shrink-0 p-2 border-t border-slate-200 bg-slate-50">
+                  <div className="flex-shrink-0 p-2 border-t border-border bg-surface-hover">
                     <button
                       onClick={() => {
                         if ('isTopList' in selectedStrategy) handleLoadBuiltInTopList(selectedStrategy as TopListPreset);
@@ -977,7 +977,7 @@ export function ConfigWindow({
                   </div>
                 </>
               ) : (
-                <div className="h-full flex items-center justify-center text-slate-400 text-[11px] p-4 text-center">
+                <div className="h-full flex items-center justify-center text-muted-fg text-[11px] p-4 text-center">
                   Select a top list to see details, or double-click to load
                 </div>
               )}
@@ -988,15 +988,15 @@ export function ConfigWindow({
         {/* ====== ALERTS TAB ====== */}
         {activeTab === 'alerts' && (
           <div className="h-full flex flex-col">
-            <div className="flex-shrink-0 px-2 pt-1.5 pb-1 border-b border-slate-200 flex items-center gap-2">
+            <div className="flex-shrink-0 px-2 pt-1.5 pb-1 border-b border-border flex items-center gap-2">
               <input type="text" value={alertSearch} onChange={(e) => setAlertSearch(e.target.value)}
                 placeholder="Search..."
-                className="flex-1 px-1.5 py-0.5 text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
-              <span className="text-[10px] text-slate-400 tabular-nums">{selectedAlerts.size}</span>
+                className="flex-1 px-1.5 py-0.5 text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)] text-foreground" />
+              <span className="text-[10px] text-muted-fg tabular-nums">{selectedAlerts.size}</span>
               <button onClick={() => setSelectedAlerts(new Set(ALERT_CATALOG.filter(a => a.active).map(a => a.eventType)))}
-                className="text-[10px] text-blue-600 hover:text-blue-800">all</button>
+                className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">all</button>
               <button onClick={() => setSelectedAlerts(new Set())}
-                className="text-[10px] text-slate-400 hover:text-slate-600">clear</button>
+                className="text-[10px] text-muted-fg hover:text-foreground/80">clear</button>
             </div>
             <div className="flex-1 overflow-y-auto">
               {alertGroups.map(({ category, alerts }) => {
@@ -1007,12 +1007,12 @@ export function ConfigWindow({
                 return (
                   <div key={category.id}>
                     <button onClick={() => toggleAlertCatExpand(category.id)}
-                      className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-slate-50/80 transition-colors border-b border-slate-100/80">
-                      <span className="text-[9px] text-slate-300 w-3">{exp ? '\u25BC' : '\u25B6'}</span>
-                      <span className="text-[11px] font-medium text-slate-600 flex-1">{category.name}</span>
-                      {selCount > 0 && <span className="text-[9px] text-blue-600 font-semibold tabular-nums">{selCount}/{catTypes.length}</span>}
+                      className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-surface-hover/80 transition-colors border-b border-border-subtle">
+                      <span className="text-[9px] text-muted-fg w-3">{exp ? '\u25BC' : '\u25B6'}</span>
+                      <span className="text-[11px] font-medium text-foreground/90 flex-1">{category.name}</span>
+                      {selCount > 0 && <span className="text-[9px] text-blue-600 dark:text-blue-400 font-semibold tabular-nums">{selCount}/{catTypes.length}</span>}
                       <button onClick={(e) => { e.stopPropagation(); toggleAlertCat(catTypes); }}
-                        className="text-[9px] text-slate-400 hover:text-blue-600 px-1">
+                        className="text-[9px] text-muted-fg hover:text-blue-600 dark:hover:text-blue-400 px-1">
                         {allSel ? 'none' : 'all'}
                       </button>
                     </button>
@@ -1020,9 +1020,9 @@ export function ConfigWindow({
                       <div className="px-2 py-1 flex flex-wrap gap-[3px]">
                         {alerts.map(a => (
                           <button key={a.eventType} onClick={() => toggleAlert(a.eventType)}
-                            className={`px-1.5 py-[1px] text-[10px] rounded border transition-colors ${selectedAlerts.has(a.eventType)
-                              ? 'bg-blue-50/80 border-blue-200 text-blue-600 font-medium'
-                              : 'border-slate-200/80 text-slate-500 hover:bg-slate-50'
+                            className={`px-1.5 py-[2px] text-[11px] rounded border transition-colors ${selectedAlerts.has(a.eventType)
+                              ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 font-medium'
+                              : 'border-border-subtle text-foreground/80 hover:bg-surface-hover hover:text-foreground'
                               }`}
                           >{a.name}</button>
                         ))}
@@ -1045,37 +1045,37 @@ export function ConfigWindow({
                 { label: 'Spread', minK: 'min_spread', maxK: 'max_spread', suf: '%', phMin: '0.01', phMax: '1' },
                 { label: 'Bid Size', minK: 'min_bid_size', maxK: 'max_bid_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
                 { label: 'Ask Size', minK: 'min_ask_size', maxK: 'max_ask_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-                { label: 'NBBO Dist', minK: 'min_distance_from_nbbo', maxK: 'max_distance_from_nbbo', suf: '%', phMin: '0', phMax: '1' },
+                { label: 'NBBO Distance', minK: 'min_distance_from_nbbo', maxK: 'max_distance_from_nbbo', suf: '%', phMin: '0', phMax: '1' },
               ]
             },
             {
               id: 'change', group: 'Change', filters: [
                 { label: 'Change %', minK: 'min_change_percent', maxK: 'max_change_percent', suf: '%', phMin: '-10', phMax: '50' },
-                { label: 'From Open', minK: 'min_change_from_open', maxK: 'max_change_from_open', suf: '%', phMin: '-5', phMax: '20' },
+                { label: 'Change from Open', minK: 'min_change_from_open', maxK: 'max_change_from_open', suf: '%', phMin: '-5', phMax: '20' },
                 { label: 'Gap %', minK: 'min_gap_percent', maxK: 'max_gap_percent', suf: '%', phMin: '-10', phMax: '30' },
-                { label: 'Pre-Mkt %', minK: 'min_premarket_change_percent', maxK: 'max_premarket_change_percent', suf: '%', phMin: '-5', phMax: '20' },
-                { label: 'Post-Mkt %', minK: 'min_postmarket_change_percent', maxK: 'max_postmarket_change_percent', suf: '%', phMin: '-5', phMax: '10' },
-                { label: 'From High', minK: 'min_price_from_high', maxK: 'max_price_from_high', suf: '%', phMin: '-20', phMax: '0' },
-                { label: 'From Low', minK: 'min_price_from_low', maxK: 'max_price_from_low', suf: '%', phMin: '0', phMax: '50' },
-                { label: 'Open $', minK: 'min_change_from_open_dollars', maxK: 'max_change_from_open_dollars', suf: '$', phMin: '-5', phMax: '10' },
-                { label: 'From Intra Hi', minK: 'min_price_from_intraday_high', maxK: 'max_price_from_intraday_high', suf: '%', phMin: '-10', phMax: '0' },
-                { label: 'From Intra Lo', minK: 'min_price_from_intraday_low', maxK: 'max_price_from_intraday_low', suf: '%', phMin: '0', phMax: '20' },
+                { label: 'Pre-Market %', minK: 'min_premarket_change_percent', maxK: 'max_premarket_change_percent', suf: '%', phMin: '-5', phMax: '20' },
+                { label: 'Post-Market %', minK: 'min_postmarket_change_percent', maxK: 'max_postmarket_change_percent', suf: '%', phMin: '-5', phMax: '10' },
+                { label: 'From High %', minK: 'min_price_from_high', maxK: 'max_price_from_high', suf: '%', phMin: '-20', phMax: '0' },
+                { label: 'From Low %', minK: 'min_price_from_low', maxK: 'max_price_from_low', suf: '%', phMin: '0', phMax: '50' },
+                { label: 'Change Open $', minK: 'min_change_from_open_dollars', maxK: 'max_change_from_open_dollars', suf: '$', phMin: '-5', phMax: '10' },
+                { label: 'From Intraday High', minK: 'min_price_from_intraday_high', maxK: 'max_price_from_intraday_high', suf: '%', phMin: '-10', phMax: '0' },
+                { label: 'From Intraday Low', minK: 'min_price_from_intraday_low', maxK: 'max_price_from_intraday_low', suf: '%', phMin: '0', phMax: '20' },
               ]
             },
             {
               id: 'volume', group: 'Volume', filters: [
                 { label: 'RVOL', minK: 'min_rvol', maxK: 'max_rvol', suf: 'x', phMin: '1', phMax: '10' },
                 { label: 'Volume', minK: 'min_volume', maxK: 'max_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-                { label: 'Vol 1m', minK: 'min_vol_1min', maxK: 'max_vol_1min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '50' },
-                { label: 'Vol 5m', minK: 'min_vol_5min', maxK: 'max_vol_5min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '100' },
-                { label: 'Vol 10m', minK: 'min_vol_10min', maxK: 'max_vol_10min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '5', phMax: '200' },
-                { label: 'Vol 15m', minK: 'min_vol_15min', maxK: 'max_vol_15min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-                { label: 'Vol 30m', minK: 'min_vol_30min', maxK: 'max_vol_30min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '20', phMax: '1000' },
-                { label: 'Vol 1m %', minK: 'min_vol_1min_pct', maxK: 'max_vol_1min_pct', suf: '%', phMin: '100', phMax: '500' },
-                { label: 'Vol 5m %', minK: 'min_vol_5min_pct', maxK: 'max_vol_5min_pct', suf: '%', phMin: '100', phMax: '500' },
-                { label: 'Vol 10m %', minK: 'min_vol_10min_pct', maxK: 'max_vol_10min_pct', suf: '%', phMin: '100', phMax: '500' },
-                { label: 'Vol 15m %', minK: 'min_vol_15min_pct', maxK: 'max_vol_15min_pct', suf: '%', phMin: '100', phMax: '500' },
-                { label: 'Vol 30m %', minK: 'min_vol_30min_pct', maxK: 'max_vol_30min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Volume 1 Min', minK: 'min_vol_1min', maxK: 'max_vol_1min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '50' },
+                { label: 'Volume 5 Min', minK: 'min_vol_5min', maxK: 'max_vol_5min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '100' },
+                { label: 'Volume 10 Min', minK: 'min_vol_10min', maxK: 'max_vol_10min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '5', phMax: '200' },
+                { label: 'Volume 15 Min', minK: 'min_vol_15min', maxK: 'max_vol_15min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
+                { label: 'Volume 30 Min', minK: 'min_vol_30min', maxK: 'max_vol_30min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '20', phMax: '1000' },
+                { label: 'Volume 1m %', minK: 'min_vol_1min_pct', maxK: 'max_vol_1min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Volume 5m %', minK: 'min_vol_5min_pct', maxK: 'max_vol_5min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Volume 10m %', minK: 'min_vol_10min_pct', maxK: 'max_vol_10min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Volume 15m %', minK: 'min_vol_15min_pct', maxK: 'max_vol_15min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Volume 30m %', minK: 'min_vol_30min_pct', maxK: 'max_vol_30min_pct', suf: '%', phMin: '100', phMax: '500' },
                 { label: 'Range 2m $', minK: 'min_range_2min', maxK: 'max_range_2min', suf: '$', phMin: '0.10', phMax: '2' },
                 { label: 'Range 5m $', minK: 'min_range_5min', maxK: 'max_range_5min', suf: '$', phMin: '0.20', phMax: '5' },
                 { label: 'Range 15m $', minK: 'min_range_15min', maxK: 'max_range_15min', suf: '$', phMin: '0.50', phMax: '10' },
@@ -1088,17 +1088,17 @@ export function ConfigWindow({
                 { label: 'Range 30m %', minK: 'min_range_30min_pct', maxK: 'max_range_30min_pct', suf: '%', phMin: '50', phMax: '300' },
                 { label: 'Range 60m %', minK: 'min_range_60min_pct', maxK: 'max_range_60min_pct', suf: '%', phMin: '50', phMax: '300' },
                 { label: 'Range 120m %', minK: 'min_range_120min_pct', maxK: 'max_range_120min_pct', suf: '%', phMin: '50', phMax: '300' },
-                { label: 'Vol Today %', minK: 'min_volume_today_pct', maxK: 'max_volume_today_pct', suf: '%', phMin: '50', phMax: '500' },
+                { label: 'Volume Today %', minK: 'min_volume_today_pct', maxK: 'max_volume_today_pct', suf: '%', phMin: '50', phMax: '500' },
               ]
             },
             {
               id: 'windows', group: 'Time Windows', filters: [
-                { label: 'Chg 1m', minK: 'min_chg_1min', maxK: 'max_chg_1min', suf: '%', phMin: '-2', phMax: '5' },
-                { label: 'Chg 5m', minK: 'min_chg_5min', maxK: 'max_chg_5min', suf: '%', phMin: '-5', phMax: '10' },
-                { label: 'Chg 10m', minK: 'min_chg_10min', maxK: 'max_chg_10min', suf: '%', phMin: '-5', phMax: '15' },
-                { label: 'Chg 15m', minK: 'min_chg_15min', maxK: 'max_chg_15min', suf: '%', phMin: '-8', phMax: '20' },
-                { label: 'Chg 30m', minK: 'min_chg_30min', maxK: 'max_chg_30min', suf: '%', phMin: '-10', phMax: '25' },
-                { label: 'Chg 60m', minK: 'min_chg_60min', maxK: 'max_chg_60min', suf: '%', phMin: '-15', phMax: '30' },
+                { label: 'Change 1 Min', minK: 'min_chg_1min', maxK: 'max_chg_1min', suf: '%', phMin: '-2', phMax: '5' },
+                { label: 'Change 5 Min', minK: 'min_chg_5min', maxK: 'max_chg_5min', suf: '%', phMin: '-5', phMax: '10' },
+                { label: 'Change 10 Min', minK: 'min_chg_10min', maxK: 'max_chg_10min', suf: '%', phMin: '-5', phMax: '15' },
+                { label: 'Change 15 Min', minK: 'min_chg_15min', maxK: 'max_chg_15min', suf: '%', phMin: '-8', phMax: '20' },
+                { label: 'Change 30 Min', minK: 'min_chg_30min', maxK: 'max_chg_30min', suf: '%', phMin: '-10', phMax: '25' },
+                { label: 'Change 60 Min', minK: 'min_chg_60min', maxK: 'max_chg_60min', suf: '%', phMin: '-15', phMax: '30' },
               ]
             },
             {
@@ -1112,7 +1112,7 @@ export function ConfigWindow({
             },
             {
               id: 'tech', group: 'Intraday Technical', filters: [
-                { label: 'ATR', minK: 'min_atr', maxK: 'max_atr', suf: '$', phMin: '0.1', phMax: '5' },
+                { label: 'ATR (14)', minK: 'min_atr', maxK: 'max_atr', suf: '$', phMin: '0.1', phMax: '5' },
                 { label: 'ATR %', minK: 'min_atr_percent', maxK: 'max_atr_percent', suf: '%', phMin: '2', phMax: '10' },
                 { label: 'RSI', minK: 'min_rsi', maxK: 'max_rsi', suf: '', phMin: '20', phMax: '80' },
                 { label: 'EMA 20', minK: 'min_ema_20', maxK: 'max_ema_20', suf: '$', phMin: '5', phMax: '500' },
@@ -1124,18 +1124,18 @@ export function ConfigWindow({
                 { label: 'SMA 200', minK: 'min_sma_200', maxK: 'max_sma_200', suf: '$', phMin: '5', phMax: '500' },
                 { label: 'MACD', minK: 'min_macd_line', maxK: 'max_macd_line', suf: '', phMin: '-5', phMax: '5' },
                 { label: 'MACD Hist', minK: 'min_macd_hist', maxK: 'max_macd_hist', suf: '', phMin: '-2', phMax: '2' },
-                { label: 'Stoch %K', minK: 'min_stoch_k', maxK: 'max_stoch_k', suf: '', phMin: '20', phMax: '80' },
-                { label: 'Stoch %D', minK: 'min_stoch_d', maxK: 'max_stoch_d', suf: '', phMin: '20', phMax: '80' },
+                { label: 'Stochastic %K', minK: 'min_stoch_k', maxK: 'max_stoch_k', suf: '', phMin: '20', phMax: '80' },
+                { label: 'Stochastic %D', minK: 'min_stoch_d', maxK: 'max_stoch_d', suf: '', phMin: '20', phMax: '80' },
                 { label: 'ADX', minK: 'min_adx_14', maxK: 'max_adx_14', suf: '', phMin: '20', phMax: '50' },
-                { label: 'BB Upper', minK: 'min_bb_upper', maxK: 'max_bb_upper', suf: '$', phMin: '', phMax: '' },
-                { label: 'BB Lower', minK: 'min_bb_lower', maxK: 'max_bb_lower', suf: '$', phMin: '', phMax: '' },
+                { label: 'Bollinger Upper', minK: 'min_bb_upper', maxK: 'max_bb_upper', suf: '$', phMin: '', phMax: '' },
+                { label: 'Bollinger Lower', minK: 'min_bb_lower', maxK: 'max_bb_lower', suf: '$', phMin: '', phMax: '' },
               ]
             },
             {
               id: 'daily', group: 'Daily Indicators', filters: [
-                { label: 'D SMA 20', minK: 'min_daily_sma_20', maxK: 'max_daily_sma_20', suf: '$', phMin: '', phMax: '' },
-                { label: 'D SMA 50', minK: 'min_daily_sma_50', maxK: 'max_daily_sma_50', suf: '$', phMin: '', phMax: '' },
-                { label: 'D SMA 200', minK: 'min_daily_sma_200', maxK: 'max_daily_sma_200', suf: '$', phMin: '', phMax: '' },
+                { label: 'Daily SMA 20', minK: 'min_daily_sma_20', maxK: 'max_daily_sma_20', suf: '$', phMin: '', phMax: '' },
+                { label: 'Daily SMA 50', minK: 'min_daily_sma_50', maxK: 'max_daily_sma_50', suf: '$', phMin: '', phMax: '' },
+                { label: 'Daily SMA 200', minK: 'min_daily_sma_200', maxK: 'max_daily_sma_200', suf: '$', phMin: '', phMax: '' },
                 { label: 'Daily RSI', minK: 'min_daily_rsi', maxK: 'max_daily_rsi', suf: '', phMin: '20', phMax: '80' },
                 { label: '52w High', minK: 'min_high_52w', maxK: 'max_high_52w', suf: '$', phMin: '', phMax: '' },
                 { label: '52w Low', minK: 'min_low_52w', maxK: 'max_low_52w', suf: '$', phMin: '', phMax: '' },
@@ -1143,9 +1143,9 @@ export function ConfigWindow({
             },
             {
               id: 'fund', group: 'Fundamentals', filters: [
-                { label: 'Mkt Cap', minK: 'min_market_cap', maxK: 'max_market_cap', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '50', phMax: '10' },
+                { label: 'Market Cap', minK: 'min_market_cap', maxK: 'max_market_cap', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '50', phMax: '10' },
                 { label: 'Float', minK: 'min_float_shares', maxK: 'max_float_shares', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '100' },
-                { label: 'Shares Out', minK: 'min_shares_outstanding', maxK: 'max_shares_outstanding', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '500' },
+                { label: 'Shares Outstanding', minK: 'min_shares_outstanding', maxK: 'max_shares_outstanding', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '500' },
               ]
             },
             {
@@ -1164,25 +1164,25 @@ export function ConfigWindow({
                 { label: '$ Volume', minK: 'min_dollar_volume', maxK: 'max_dollar_volume', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '100' },
                 { label: 'Range $', minK: 'min_todays_range', maxK: 'max_todays_range', suf: '$', phMin: '0.1', phMax: '10' },
                 { label: 'Range %', minK: 'min_todays_range_pct', maxK: 'max_todays_range_pct', suf: '%', phMin: '1', phMax: '20' },
-                { label: 'B/A Ratio', minK: 'min_bid_ask_ratio', maxK: 'max_bid_ask_ratio', suf: '', phMin: '0.5', phMax: '3' },
-                { label: 'Float Turn', minK: 'min_float_turnover', maxK: 'max_float_turnover', suf: 'x', phMin: '0.01', phMax: '5' },
-                { label: 'Pos Range', minK: 'min_pos_in_range', maxK: 'max_pos_in_range', suf: '%', phMin: '0', phMax: '100' },
-                { label: 'Below Hi', minK: 'min_below_high', maxK: 'max_below_high', suf: '$', phMin: '0', phMax: '5' },
-                { label: 'Above Lo', minK: 'min_above_low', maxK: 'max_above_low', suf: '$', phMin: '0', phMax: '5' },
-                { label: 'Pos Open', minK: 'min_pos_of_open', maxK: 'max_pos_of_open', suf: '%', phMin: '0', phMax: '100' },
-                { label: 'Prev Vol', minK: 'min_prev_day_volume', maxK: 'max_prev_day_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '10000' },
+                { label: 'Bid/Ask Ratio', minK: 'min_bid_ask_ratio', maxK: 'max_bid_ask_ratio', suf: '', phMin: '0.5', phMax: '3' },
+                { label: 'Float Turnover', minK: 'min_float_turnover', maxK: 'max_float_turnover', suf: 'x', phMin: '0.01', phMax: '5' },
+                { label: 'Position in Range', minK: 'min_pos_in_range', maxK: 'max_pos_in_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Below High', minK: 'min_below_high', maxK: 'max_below_high', suf: '$', phMin: '0', phMax: '5' },
+                { label: 'Above Low', minK: 'min_above_low', maxK: 'max_above_low', suf: '$', phMin: '0', phMax: '5' },
+                { label: 'Position of Open', minK: 'min_pos_of_open', maxK: 'max_pos_of_open', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Previous Volume', minK: 'min_prev_day_volume', maxK: 'max_prev_day_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '10000' },
               ]
             },
             {
               id: 'dist', group: 'Distance %', filters: [
-                { label: 'Dist VWAP', minK: 'min_dist_from_vwap', maxK: 'max_dist_from_vwap', suf: '%', phMin: '-10', phMax: '10' },
-                { label: 'Dist SMA5', minK: 'min_dist_sma_5', maxK: 'max_dist_sma_5', suf: '%', phMin: '-5', phMax: '5' },
-                { label: 'Dist SMA8', minK: 'min_dist_sma_8', maxK: 'max_dist_sma_8', suf: '%', phMin: '-5', phMax: '5' },
-                { label: 'Dist SMA20', minK: 'min_dist_sma_20', maxK: 'max_dist_sma_20', suf: '%', phMin: '-10', phMax: '10' },
-                { label: 'Dist SMA50', minK: 'min_dist_sma_50', maxK: 'max_dist_sma_50', suf: '%', phMin: '-20', phMax: '20' },
-                { label: 'Dist SMA200', minK: 'min_dist_sma_200', maxK: 'max_dist_sma_200', suf: '%', phMin: '-50', phMax: '50' },
-                { label: 'Dist D.SMA20', minK: 'min_dist_daily_sma_20', maxK: 'max_dist_daily_sma_20', suf: '%', phMin: '-10', phMax: '10' },
-                { label: 'Dist D.SMA50', minK: 'min_dist_daily_sma_50', maxK: 'max_dist_daily_sma_50', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Distance VWAP', minK: 'min_dist_from_vwap', maxK: 'max_dist_from_vwap', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Distance SMA 5', minK: 'min_dist_sma_5', maxK: 'max_dist_sma_5', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Distance SMA 8', minK: 'min_dist_sma_8', maxK: 'max_dist_sma_8', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Distance SMA 20', minK: 'min_dist_sma_20', maxK: 'max_dist_sma_20', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Distance SMA 50', minK: 'min_dist_sma_50', maxK: 'max_dist_sma_50', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Distance SMA 200', minK: 'min_dist_sma_200', maxK: 'max_dist_sma_200', suf: '%', phMin: '-50', phMax: '50' },
+                { label: 'Dist Daily SMA 20', minK: 'min_dist_daily_sma_20', maxK: 'max_dist_daily_sma_20', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Dist Daily SMA 50', minK: 'min_dist_daily_sma_50', maxK: 'max_dist_daily_sma_50', suf: '%', phMin: '-20', phMax: '20' },
               ]
             },
             {
@@ -1196,19 +1196,19 @@ export function ConfigWindow({
             },
             {
               id: 'avgvol', group: 'Avg Volume', filters: [
-                { label: 'Avg 5D', minK: 'min_avg_volume_5d', maxK: 'max_avg_volume_5d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
-                { label: 'Avg 10D', minK: 'min_avg_volume_10d', maxK: 'max_avg_volume_10d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
-                { label: 'Avg 20D', minK: 'min_avg_volume_20d', maxK: 'max_avg_volume_20d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
-                { label: 'Avg 3M', minK: 'min_avg_volume_3m', maxK: 'max_avg_volume_3m', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Average 5 Day', minK: 'min_avg_volume_5d', maxK: 'max_avg_volume_5d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Average 10 Day', minK: 'min_avg_volume_10d', maxK: 'max_avg_volume_10d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Average 20 Day', minK: 'min_avg_volume_20d', maxK: 'max_avg_volume_20d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Average 3 Month', minK: 'min_avg_volume_3m', maxK: 'max_avg_volume_3m', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
               ]
             },
             {
               id: '52wextra', group: '52W / Daily Extra', filters: [
-                { label: 'From 52H %', minK: 'min_from_52w_high', maxK: 'max_from_52w_high', suf: '%', phMin: '-80', phMax: '0' },
-                { label: 'From 52L %', minK: 'min_from_52w_low', maxK: 'max_from_52w_low', suf: '%', phMin: '0', phMax: '500' },
-                { label: 'D. ADX', minK: 'min_daily_adx_14', maxK: 'max_daily_adx_14', suf: '', phMin: '20', phMax: '50' },
-                { label: 'D. ATR %', minK: 'min_daily_atr_percent', maxK: 'max_daily_atr_percent', suf: '%', phMin: '1', phMax: '15' },
-                { label: 'D. BB Pos', minK: 'min_daily_bb_position', maxK: 'max_daily_bb_position', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'From 52W High %', minK: 'min_from_52w_high', maxK: 'max_from_52w_high', suf: '%', phMin: '-80', phMax: '0' },
+                { label: 'From 52W Low %', minK: 'min_from_52w_low', maxK: 'max_from_52w_low', suf: '%', phMin: '0', phMax: '500' },
+                { label: 'Daily ADX', minK: 'min_daily_adx_14', maxK: 'max_daily_adx_14', suf: '', phMin: '20', phMax: '50' },
+                { label: 'Daily ATR %', minK: 'min_daily_atr_percent', maxK: 'max_daily_atr_percent', suf: '%', phMin: '1', phMax: '15' },
+                { label: 'Daily BB Position', minK: 'min_daily_bb_position', maxK: 'max_daily_bb_position', suf: '%', phMin: '0', phMax: '100' },
               ]
             },
           ] as const;
@@ -1222,13 +1222,13 @@ export function ConfigWindow({
 
           return (
             <div className="h-full flex flex-col">
-              <div className="flex-shrink-0 px-2 pt-1.5 pb-1 border-b border-slate-200 flex items-center gap-2">
+              <div className="flex-shrink-0 px-2 pt-1.5 pb-1 border-b border-border flex items-center gap-2">
                 <input type="text" value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)}
                   placeholder="Search filters..."
-                  className="flex-1 px-1.5 py-0.5 text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
-                <span className="text-[10px] text-slate-400 tabular-nums">{activeFilterCount}</span>
+                  className="flex-1 px-1.5 py-0.5 text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface" />
+                <span className="text-[10px] text-muted-fg tabular-nums">{activeFilterCount}</span>
                 {activeFilterCount > 0 && (
-                  <button onClick={() => { setFilters({}); setFilterUnits({}); }} className="text-[10px] text-slate-400 hover:text-blue-600">clear</button>
+                  <button onClick={() => { setFilters({}); setFilterUnits({}); }} className="text-[10px] text-muted-fg hover:text-blue-600">clear</button>
                 )}
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -1238,10 +1238,10 @@ export function ConfigWindow({
                   return (
                     <div key={g.id}>
                       <button onClick={() => toggleFilterGroup(g.id)}
-                        className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-slate-50/80 transition-colors border-b border-slate-100/80">
-                        <span className="text-[9px] text-slate-300 w-3">{exp ? '\u25BC' : '\u25B6'}</span>
-                        <span className="text-[11px] font-medium text-slate-600 flex-1">{g.group}</span>
-                        {activeInGroup > 0 && <span className="text-[9px] text-blue-600 font-semibold tabular-nums">{activeInGroup}</span>}
+                        className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-surface-hover transition-colors border-b border-border-subtle">
+                        <span className="text-[9px] text-muted-fg/50 w-3">{exp ? '\u25BC' : '\u25B6'}</span>
+                        <span className="text-[11px] font-medium text-foreground/80 flex-1">{g.group}</span>
+                        {activeInGroup > 0 && <span className="text-[9px] text-primary font-semibold tabular-nums">{activeInGroup}</span>}
                       </button>
                       {exp && (
                         <div className="px-2 py-1 space-y-[3px]">
@@ -1254,25 +1254,25 @@ export function ConfigWindow({
                             const toRaw = (v: number | undefined) => v !== undefined ? v * m : undefined;
                             return (
                               <div key={f.label} className="flex items-center gap-1">
-                                <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">{f.label}</span>
+                                <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">{f.label}</span>
                                 <FmtNum
                                   value={toDisp(filters[f.minK] as number | undefined)}
                                   onChange={v => setFilter(f.minK, toRaw(v))}
                                   placeholder={f.phMin}
-                                  className="w-[68px] px-1.5 py-[2px] text-[10px] font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-right tabular-nums" />
-                                <span className="text-slate-300 text-[8px]">-</span>
+                                  className="w-[72px] px-1.5 py-[3px] text-[11px] font-mono border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)] text-foreground text-right tabular-nums" />
+                                <span className="text-muted-fg/50 text-[8px]">-</span>
                                 <FmtNum
                                   value={toDisp(filters[f.maxK] as number | undefined)}
                                   onChange={v => setFilter(f.maxK, toRaw(v))}
                                   placeholder={f.phMax}
-                                  className="w-[68px] px-1.5 py-[2px] text-[10px] font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-right tabular-nums" />
+                                  className="w-[72px] px-1.5 py-[3px] text-[11px] font-mono border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)] text-foreground text-right tabular-nums" />
                                 {wu ? (
                                   <select value={curUnit} onChange={e => setUnitFor(uid, e.target.value)}
-                                    className="w-8 py-[1px] text-[9px] text-slate-500 border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer appearance-none text-center">
+                                    className="w-8 py-[1px] text-[9px] text-muted-fg border border-border rounded bg-[var(--color-input-bg)] focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer appearance-none text-center">
                                     {f.units.map(u => <option key={u} value={u}>{u || 'sh'}</option>)}
                                   </select>
                                 ) : (
-                                  f.suf ? <span className="text-[9px] text-slate-300 w-3 text-center">{f.suf}</span> : <span className="w-3" />
+                                  f.suf ? <span className="text-[9px] text-muted-fg/50 w-3 text-center">{f.suf}</span> : <span className="w-3" />
                                 )}
                               </div>
                             );
@@ -1285,17 +1285,17 @@ export function ConfigWindow({
                 {/* String filters (not min/max) */}
                 <div>
                   <button onClick={() => toggleFilterGroup('strings')}
-                    className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-slate-50/80 transition-colors border-b border-slate-100/80">
-                    <span className="text-[9px] text-slate-300 w-3">{expandedFilterGroups.has('strings') ? '\u25BC' : '\u25B6'}</span>
-                    <span className="text-[11px] font-medium text-slate-600 flex-1">Classification</span>
-                    {(filters.security_type || filters.sector || filters.industry) && <span className="text-[9px] text-blue-600 font-semibold">active</span>}
+                    className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-surface-hover/80 transition-colors border-b border-border-subtle/80">
+                    <span className="text-[9px] text-muted-fg/50 w-3">{expandedFilterGroups.has('strings') ? '\u25BC' : '\u25B6'}</span>
+                    <span className="text-[11px] font-medium text-foreground/80 flex-1">Classification</span>
+                    {(filters.security_type || filters.sector || filters.industry) && <span className="text-[9px] text-blue-600 dark:text-blue-400 font-semibold">active</span>}
                   </button>
                   {expandedFilterGroups.has('strings') && (
                     <div className="px-2 py-1 space-y-[3px]">
                       <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Type</span>
+                        <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">Type</span>
                         <select value={(filters.security_type as string) || ''} onChange={e => setFilter('security_type', e.target.value || undefined)}
-                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)]">
                           <option value="">All Types</option>
                           {SECURITY_TYPES.map(st => (
                             <option key={st.value} value={st.value}>{st.label}</option>
@@ -1303,9 +1303,9 @@ export function ConfigWindow({
                         </select>
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Sector</span>
+                        <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">Sector</span>
                         <select value={(filters.sector as string) || ''} onChange={e => setFilter('sector', e.target.value || undefined)}
-                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)]">
                           <option value="">All Sectors</option>
                           {SECTORS.map(s => (
                             <option key={s.value} value={s.value}>{s.label}</option>
@@ -1313,9 +1313,9 @@ export function ConfigWindow({
                         </select>
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Industry</span>
+                        <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">Industry</span>
                         <select value={(filters.industry as string) || ''} onChange={e => setFilter('industry', e.target.value || undefined)}
-                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)]">
                           <option value="">All Industries</option>
                           {INDUSTRIES.map(i => (
                             <option key={i.value} value={i.value}>{i.label}</option>
@@ -1334,17 +1334,17 @@ export function ConfigWindow({
         {activeTab === 'symbols' && (
           <div className="h-full p-3 space-y-3">
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Include only</label>
+              <label className="block text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Include only</label>
               <textarea value={symbolsInclude} onChange={(e) => setSymbolsInclude(e.target.value)}
                 placeholder="AAPL, TSLA, NVDA..."
-                className="w-full h-16 px-2 py-1 text-xs font-mono border border-slate-300 rounded resize-none focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
-              <p className="text-[10px] text-slate-400">Empty = all symbols</p>
+                className="w-full h-16 px-2 py-1 text-xs font-mono border border-border rounded resize-none focus:outline-none focus:ring-1 focus:ring-primary bg-surface" />
+              <p className="text-[10px] text-muted-fg">Empty = all symbols</p>
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Exclude</label>
+              <label className="block text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Exclude</label>
               <textarea value={symbolsExclude} onChange={(e) => setSymbolsExclude(e.target.value)}
                 placeholder="SPY, QQQ, IWM..."
-                className="w-full h-16 px-2 py-1 text-xs font-mono border border-slate-300 rounded resize-none focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+                className="w-full h-16 px-2 py-1 text-xs font-mono border border-border rounded resize-none focus:outline-none focus:ring-1 focus:ring-primary bg-surface" />
             </div>
           </div>
         )}
@@ -1354,79 +1354,79 @@ export function ConfigWindow({
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               <div>
-                <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Strategy Name</label>
+                <label className="block text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Strategy Name</label>
                 <input type="text" value={strategyName} onChange={(e) => setStrategyName(e.target.value)}
                   placeholder="My Strategy..."
-                  className="w-full px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+                  className="w-full px-2 py-1 text-xs border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface" />
               </div>
               <div>
-                <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Category</label>
+                <label className="block text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Category</label>
                 <select value={saveCategory} onChange={e => setSaveCategory(e.target.value)}
-                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                  className="w-full px-2 py-1 text-xs border border-border rounded bg-surface text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary">
                   <option value="custom">Custom</option>
                   <option value="bullish">Bullish</option>
                   <option value="bearish">Bearish</option>
                   <option value="neutral">Neutral</option>
                 </select>
               </div>
-              <div className="py-1 border-t border-slate-100">
-                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Alerts ({selectedAlerts.size})</div>
+              <div className="py-1 border-t border-border-subtle">
+                <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Alerts ({selectedAlerts.size})</div>
                 {selectedAlerts.size === 0
-                  ? <span className="text-[10px] text-slate-300">none selected</span>
+                  ? <span className="text-[10px] text-muted-fg/50">none selected</span>
                   : <div className="flex flex-wrap gap-1">
                     {Array.from(selectedAlerts).map(et => (
-                      <span key={et} className="px-1.5 py-0.5 bg-blue-50 border border-blue-200 rounded text-[10px] text-blue-600">{alertTypeLabel(et)}</span>
+                      <span key={et} className="px-1.5 py-0.5 bg-primary/10 border border-border rounded text-[10px] text-primary">{alertTypeLabel(et)}</span>
                     ))}
                   </div>
                 }
               </div>
-              <div className="py-1 border-t border-slate-100">
-                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters ({activeFilterCount})</div>
+              <div className="py-1 border-t border-border-subtle">
+                <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Filters ({activeFilterCount})</div>
                 {activeFilterCount === 0
-                  ? <span className="text-[10px] text-slate-300">none</span>
+                  ? <span className="text-[10px] text-muted-fg/50">none</span>
                   : <div className="flex flex-wrap gap-1">
                     {filtersToDisplay(filters).map(f => (
-                      <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                      <span key={f} className="px-1.5 py-0.5 bg-surface-hover border border-border rounded text-[10px] font-mono text-foreground/80">{f}</span>
                     ))}
                   </div>
                 }
               </div>
               {(symbolsInclude.trim() || symbolsExclude.trim()) && (
-                <div className="py-1 border-t border-slate-100">
-                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Symbols</div>
-                  {symbolsInclude.trim() && <div className="text-[10px] text-slate-600 font-mono">+ {symbolsInclude.trim()}</div>}
-                  {symbolsExclude.trim() && <div className="text-[10px] text-slate-600 font-mono">- {symbolsExclude.trim()}</div>}
+                <div className="py-1 border-t border-border-subtle">
+                  <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Symbols</div>
+                  {symbolsInclude.trim() && <div className="text-[10px] text-foreground/80 font-mono">+ {symbolsInclude.trim()}</div>}
+                  {symbolsExclude.trim() && <div className="text-[10px] text-foreground/80 font-mono">- {symbolsExclude.trim()}</div>}
                 </div>
               )}
             </div>
             {/* Strategy action buttons */}
-            <div className="flex-shrink-0 p-2 border-t border-slate-200 bg-slate-50 space-y-1.5">
+            <div className="flex-shrink-0 p-2 border-t border-border bg-surface-hover space-y-1.5">
               {loadedStrategyId && !isDirty ? (
                 <button onClick={handleOpenDirect} disabled={selectedAlerts.size === 0}
-                  className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${selectedAlerts.size > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                  className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${selectedAlerts.size > 0 ? 'bg-primary text-white hover:bg-primary-hover' : 'bg-muted text-muted-fg cursor-not-allowed'}`}>
                   Open
                 </button>
               ) : loadedStrategyId && isDirty ? (
                 <>
                   <button onClick={handleUpdate} disabled={saving || selectedAlerts.size === 0}
-                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${!saving && selectedAlerts.size > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${!saving && selectedAlerts.size > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-muted text-muted-fg cursor-not-allowed'}`}>
                     {saving ? 'Saving...' : 'Update & Open'}
                   </button>
                   <div className="flex gap-1.5">
                     <button onClick={handleCreate} disabled={!canCreate || saving}
-                      className="flex-1 py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">Save as new</button>
+                      className="flex-1 py-1 text-xs text-muted-fg border border-border rounded hover:bg-surface-hover disabled:opacity-40 transition-colors">Save as new</button>
                     <button onClick={handleOpenDirect} disabled={selectedAlerts.size === 0}
-                      className="flex-1 py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">Open only</button>
+                      className="flex-1 py-1 text-xs text-muted-fg border border-border rounded hover:bg-surface-hover disabled:opacity-40 transition-colors">Open only</button>
                   </div>
                 </>
               ) : (
                 <>
                   <button onClick={handleCreate} disabled={!canCreate || saving}
-                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${canCreate && !saving ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${canCreate && !saving ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-muted text-muted-fg cursor-not-allowed'}`}>
                     {saving ? 'Saving...' : 'Save & Open'}
                   </button>
                   <button onClick={handleOpenDirect} disabled={selectedAlerts.size === 0}
-                    className="w-full py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">
+                    className="w-full py-1 text-xs text-muted-fg border border-border rounded hover:bg-surface-hover disabled:opacity-40 transition-colors">
                     Open without saving
                   </button>
                 </>
@@ -1437,12 +1437,12 @@ export function ConfigWindow({
                   filters: { ...filters },
                   name: strategyName.trim() || 'Strategy Backtest',
                 })}
-                  className="w-full py-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 font-medium transition-colors">
+                  className="w-full py-1 text-xs text-amber-700 bg-amber-500/10 border border-amber-200 rounded hover:bg-amber-500/15 font-medium transition-colors">
                   Backtest Strategy
                 </button>
               )}
               {selectedAlerts.size === 0 && (
-                <p className="text-[10px] text-slate-400 text-center">Select alerts first</p>
+                <p className="text-[10px] text-muted-fg text-center">Select alerts first</p>
               )}
             </div>
           </div>
@@ -1453,30 +1453,30 @@ export function ConfigWindow({
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               <div>
-                <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Top List Name</label>
+                <label className="block text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Top List Name</label>
                 <input type="text" value={strategyName} onChange={(e) => setStrategyName(e.target.value)}
                   placeholder="My Top List..."
-                  className="w-full px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white" />
+                  className="w-full px-2 py-1 text-xs border border-border rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-surface" />
               </div>
 
               {/* Mode indicator */}
-              <div className="py-1 border-t border-slate-100">
+              <div className="py-1 border-t border-border-subtle">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded text-[10px] font-semibold text-emerald-600">
+                  <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 rounded text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                     Scanner / Top List
                   </span>
-                  <span className="text-[10px] text-slate-400">Real-time ticker list updated every scan cycle</span>
+                  <span className="text-[10px] text-muted-fg">Real-time ticker list updated every scan cycle</span>
                 </div>
               </div>
 
               {/* Filters summary */}
-              <div className="py-1 border-t border-slate-100">
-                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters ({activeFilterCount})</div>
+              <div className="py-1 border-t border-border-subtle">
+                <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Filters ({activeFilterCount})</div>
                 {activeFilterCount === 0
                   ? <span className="text-[10px] text-amber-500">Add at least 1 filter</span>
                   : <div className="flex flex-wrap gap-1">
                     {filtersToDisplay(filters).map(f => (
-                      <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                      <span key={f} className="px-1.5 py-0.5 bg-surface-hover border border-border rounded text-[10px] font-mono text-foreground/80">{f}</span>
                     ))}
                   </div>
                 }
@@ -1484,16 +1484,16 @@ export function ConfigWindow({
 
               {/* Symbols summary */}
               {(symbolsInclude.trim() || symbolsExclude.trim()) && (
-                <div className="py-1 border-t border-slate-100">
-                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Symbols</div>
-                  {symbolsInclude.trim() && <div className="text-[10px] text-slate-600 font-mono">+ {symbolsInclude.trim()}</div>}
-                  {symbolsExclude.trim() && <div className="text-[10px] text-slate-600 font-mono">- {symbolsExclude.trim()}</div>}
+                <div className="py-1 border-t border-border-subtle">
+                  <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wide mb-1">Symbols</div>
+                  {symbolsInclude.trim() && <div className="text-[10px] text-foreground/80 font-mono">+ {symbolsInclude.trim()}</div>}
+                  {symbolsExclude.trim() && <div className="text-[10px] text-foreground/80 font-mono">- {symbolsExclude.trim()}</div>}
                 </div>
               )}
             </div>
 
             {/* Top List action buttons — 3 states */}
-            <div className="flex-shrink-0 p-2 border-t border-slate-200 bg-slate-50 space-y-1.5">
+            <div className="flex-shrink-0 p-2 border-t border-border bg-surface-hover space-y-1.5">
               {loadedScanId && !isScanDirty ? (
                 /* Saved scan, no changes → just Open */
                 <button onClick={handleOpenScanDirect}
@@ -1504,16 +1504,16 @@ export function ConfigWindow({
                 /* Saved scan, modified → Update or Save as new */
                 <>
                   <button onClick={handleUpdateTopList} disabled={!canCreate || saving}
-                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${canCreate && !saving ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${canCreate && !saving ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-muted text-muted-fg cursor-not-allowed'}`}>
                     {saving ? 'Saving...' : 'Update & Open Scanner'}
                   </button>
                   <div className="flex gap-1.5">
                     <button onClick={handleCreateTopList} disabled={!canCreate || saving}
-                      className="flex-1 py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">
+                      className="flex-1 py-1 text-xs text-muted-fg border border-border rounded hover:bg-surface-hover disabled:opacity-40 transition-colors">
                       Save as new
                     </button>
                     <button onClick={handleOpenScanDirect}
-                      className="flex-1 py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 transition-colors">
+                      className="flex-1 py-1 text-xs text-muted-fg border border-border rounded hover:bg-surface-hover transition-colors">
                       Open only
                     </button>
                   </div>
@@ -1521,15 +1521,15 @@ export function ConfigWindow({
               ) : (
                 /* New / built-in top list → Save & Open */
                 <button onClick={handleCreateTopList} disabled={!canCreate || saving}
-                  className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${canCreate && !saving ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                  className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${canCreate && !saving ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-muted text-muted-fg cursor-not-allowed'}`}>
                   {saving ? 'Saving...' : 'Save & Open Scanner'}
                 </button>
               )}
               {activeFilterCount === 0 && !loadedScanId && (
-                <p className="text-[10px] text-slate-400 text-center">Add filters first</p>
+                <p className="text-[10px] text-muted-fg text-center">Add filters first</p>
               )}
               {!strategyName.trim() && activeFilterCount > 0 && !loadedScanId && (
-                <p className="text-[10px] text-slate-400 text-center">Enter a name</p>
+                <p className="text-[10px] text-muted-fg text-center">Enter a name</p>
               )}
             </div>
           </div>

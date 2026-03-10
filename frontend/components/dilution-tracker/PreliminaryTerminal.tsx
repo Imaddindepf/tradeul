@@ -181,7 +181,7 @@ export function PreliminaryTerminal({
         </div>
         {onClose && (
           <button onClick={onClose} className="p-1 hover:bg-slate-700 rounded transition-colors">
-            <XCircle className="w-3.5 h-3.5 text-slate-400 hover:text-slate-300" />
+            <XCircle className="w-3.5 h-3.5 text-muted-fg hover:text-muted-fg/50" />
           </button>
         )}
       </div>
@@ -227,7 +227,7 @@ export function PreliminaryTerminal({
         <span className={`text-[9px] ${isThinking ? 'text-cyan-400' : isStreaming ? 'text-amber-400' : isComplete ? 'text-emerald-400' : 'text-slate-500'}`}>
           ● {isThinking ? `Thinking (${thinkingTime}s)` : isStreaming ? 'Streaming' : isComplete ? 'Complete' : 'Ready'}
         </span>
-        <span className="text-[9px] text-slate-500">Powered by Tradeul AI</span>
+        <span className="text-[9px] text-muted-fg">Powered by Tradeul AI</span>
       </div>
     </motion.div>
   );

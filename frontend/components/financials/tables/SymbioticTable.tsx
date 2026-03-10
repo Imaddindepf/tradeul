@@ -201,7 +201,7 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
     const [displayUnit, setDisplayUnit] = useState<DisplayUnit>('millions');
 
     if (!fields || fields.length === 0 || !periods || periods.length === 0) {
-        return <div className="p-4 text-center text-slate-400 text-xs">No data available</div>;
+        return <div className="p-4 text-center text-muted-fg text-xs">No data available</div>;
     }
 
     // Agrupar campos por sección y filtrar secciones ocultas
@@ -235,34 +235,34 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
     const unitText = displayUnit === 'thousands' ? 'Thousands' : displayUnit === 'millions' ? 'Millions' : 'Billions';
 
     return (
-        <div className="overflow-x-auto bg-white">
+        <div className="overflow-x-auto bg-surface">
             {/* Header con toggle de unidad */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-hover">
                 {/* Texto informativo */}
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[10px] text-muted-fg">
                     * Annual Financials in {unitText} of {currency} from {dateRange.from} to {dateRange.to}
                 </span>
                 
                 {/* Toggle K | MM | B */}
                 <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500">Display Units</span>
-                    <div className="flex rounded border border-slate-300 overflow-hidden">
+                    <span className="text-[10px] text-muted-fg">Display Units</span>
+                    <div className="flex rounded border border-border overflow-hidden">
                         <button
                             onClick={() => setDisplayUnit('thousands')}
                             className={`px-3 py-1 text-[10px] font-medium transition-colors ${
                                 displayUnit === 'thousands'
                                     ? 'bg-blue-500 text-white'
-                                    : 'bg-white text-slate-600 hover:bg-slate-100'
+                                    : 'bg-surface text-foreground/80 hover:bg-surface-inset'
                             }`}
                         >
                             K
                         </button>
                         <button
                             onClick={() => setDisplayUnit('millions')}
-                            className={`px-3 py-1 text-[10px] font-medium border-x border-slate-300 transition-colors ${
+                            className={`px-3 py-1 text-[10px] font-medium border-x border-border transition-colors ${
                                 displayUnit === 'millions'
                                     ? 'bg-blue-500 text-white'
-                                    : 'bg-white text-slate-600 hover:bg-slate-100'
+                                    : 'bg-surface text-foreground/80 hover:bg-surface-inset'
                             }`}
                         >
                             MM
@@ -272,7 +272,7 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                             className={`px-3 py-1 text-[10px] font-medium transition-colors ${
                                 displayUnit === 'billions'
                                     ? 'bg-blue-500 text-white'
-                                    : 'bg-white text-slate-600 hover:bg-slate-100'
+                                    : 'bg-surface text-foreground/80 hover:bg-surface-inset'
                             }`}
                         >
                             B
@@ -283,14 +283,14 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
             <table className="w-full text-[11px] border-collapse">
                 {/* Header */}
                 <thead className="sticky top-0 z-10">
-                    <tr className="bg-slate-100 border-b-2 border-slate-300">
-                        <th className="text-left py-2.5 px-3 font-semibold text-slate-700 min-w-[200px] bg-slate-100">
+                    <tr className="bg-surface-inset border-b-2 border-border">
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground min-w-[200px] bg-surface-inset">
                             Metric
                         </th>
                         {periods.map((period, idx) => (
                             <th 
                                 key={idx} 
-                                className="text-right py-2.5 px-3 font-semibold text-slate-700 min-w-[90px] bg-slate-100"
+                                className="text-right py-2.5 px-3 font-semibold text-foreground min-w-[90px] bg-surface-inset"
                             >
                                 {period.startsWith('Q') ? period : `FY${period}`}
                             </th>
@@ -298,7 +298,7 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                     </tr>
                 </thead>
                 
-                <tbody className="text-slate-700">
+                <tbody className="text-foreground">
                     {groupedFields.sortedSections.map((section, sectionIdx) => {
                         const sectionFields = groupedFields.groups.get(section) || [];
                         
@@ -306,12 +306,12 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                             <React.Fragment key={section}>
                                 {/* Section Header - Espaciado superior */}
                                 <tr>
-                                    <td colSpan={periods.length + 1} className="h-3 bg-white"></td>
+                                    <td colSpan={periods.length + 1} className="h-3 bg-surface"></td>
                                 </tr>
-                                <tr className="border-y border-slate-200 bg-slate-50">
+                                <tr className="border-y border-border bg-surface-hover">
                                     <td 
                                         colSpan={periods.length + 1}
-                                        className="py-2 px-3 font-bold text-[11px] uppercase tracking-wide text-slate-600"
+                                        className="py-2 px-3 font-bold text-[11px] uppercase tracking-wide text-foreground/80"
                                     >
                                         {section}
                                     </td>
@@ -330,9 +330,9 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                                         <tr
                                             key={field.key}
                                             className={`
-                                                border-b border-slate-100 
-                                                ${isSubtotal ? 'bg-slate-50/70' : 'bg-white'} 
-                                                ${!isPercentOrYoy ? 'hover:bg-blue-50/40 cursor-pointer' : ''}
+                                                border-b border-border-subtle 
+                                                ${isSubtotal ? 'bg-surface-hover/70' : 'bg-surface'} 
+                                                ${!isPercentOrYoy ? 'hover:bg-surface-hover cursor-pointer' : ''}
                                                 transition-colors
                                             `}
                                             onClick={() => !isPercentOrYoy && handleRowClick(field)}
@@ -341,15 +341,15 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                                             <td 
                                                 className={`py-1.5 px-3 ${
                                                     isSubtotal 
-                                                        ? 'font-semibold text-slate-800' 
+                                                        ? 'font-semibold text-foreground' 
                                                         : isPercentOrYoy
-                                                            ? 'text-slate-400 text-[10px]'
-                                                            : 'text-slate-600'
+                                                            ? 'text-muted-fg text-[10px]'
+                                                            : 'text-foreground/80'
                                                 }`}
                                                 style={{ paddingLeft: `${12 + indent * 20}px` }}
                                             >
                                                 {isPercentOrYoy && (
-                                                    <span className="text-slate-300 mr-1.5">└</span>
+                                                    <span className="text-muted-fg/50 mr-1.5">└</span>
                                                 )}
                                                 {field.label}
                                             </td>
@@ -395,7 +395,7 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                     
                     {/* Espaciado final */}
                     <tr>
-                        <td colSpan={periods.length + 1} className="h-4 bg-white"></td>
+                        <td colSpan={periods.length + 1} className="h-4 bg-surface"></td>
                     </tr>
                 </tbody>
             </table>

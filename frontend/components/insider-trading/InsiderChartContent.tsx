@@ -71,7 +71,20 @@ const TX_COLORS: Record<string, string> = {
   'F': '#f59e0b', 'G': '#06b6d4', 'J': '#64748b'
 };
 
-// Chart colors - light theme (Tradeul style)
+const getVar = (v: string) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+function getChartColors() {
+  return {
+    background: getVar('--color-bg') || '#ffffff',
+    gridColor: getVar('--color-border-subtle') || '#f1f5f9',
+    borderColor: getVar('--color-border') || '#e2e8f0',
+    textColor: getVar('--color-muted-fg') || '#64748b',
+    upColor: '#10b981',
+    downColor: '#ef4444',
+    lineColor: '#3b82f6',
+  };
+}
+
 const CHART_COLORS = {
   background: '#ffffff',
   gridColor: '#f1f5f9',
@@ -229,38 +242,39 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
+    const colors = getChartColors();
     const chart = createChart(chartContainerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: CHART_COLORS.background },
-        textColor: CHART_COLORS.textColor,
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.textColor,
         fontFamily: "'JetBrains Mono', monospace",
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: CHART_COLORS.gridColor, style: LineStyle.Dotted },
-        horzLines: { color: CHART_COLORS.gridColor, style: LineStyle.Dotted },
+        vertLines: { color: colors.gridColor, style: LineStyle.Dotted },
+        horzLines: { color: colors.gridColor, style: LineStyle.Dotted },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: {
-          color: '#94a3b8',
+          color: colors.textColor,
           width: 1,
           style: LineStyle.Dashed,
           labelBackgroundColor: '#3b82f6',
         },
         horzLine: {
-          color: '#94a3b8',
+          color: colors.textColor,
           width: 1,
           style: LineStyle.Dashed,
           labelBackgroundColor: '#3b82f6',
         },
       },
       rightPriceScale: {
-        borderColor: CHART_COLORS.borderColor,
+        borderColor: colors.borderColor,
         scaleMargins: { top: 0.15, bottom: 0.15 },
       },
       timeScale: {
-        borderColor: CHART_COLORS.borderColor,
+        borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 5,
@@ -327,6 +341,23 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
     };
   }, [transactionGroups]);
 
+  // Re-apply chart colors when theme changes (dark ↔ light)
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      const chart = chartRef.current;
+      if (!chart) return;
+      const c = getChartColors();
+      chart.applyOptions({
+        layout: { background: { type: ColorType.Solid, color: c.background }, textColor: c.textColor },
+        grid: { vertLines: { color: c.gridColor }, horzLines: { color: c.gridColor } },
+        rightPriceScale: { borderColor: c.borderColor },
+        timeScale: { borderColor: c.borderColor },
+      });
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
   // Update series when chart type or data changes
   useEffect(() => {
     if (!chartRef.current || chartData.length === 0) return;
@@ -337,22 +368,23 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
       seriesRef.current = null;
     }
 
+    const colors = getChartColors();
     // Create new series based on type (v5 API)
     if (chartType === 'candlestick') {
       const series = chartRef.current.addSeries(CandlestickSeries, {
-        upColor: CHART_COLORS.upColor,
-        downColor: CHART_COLORS.downColor,
-        borderUpColor: CHART_COLORS.upColor,
-        borderDownColor: CHART_COLORS.downColor,
-        wickUpColor: CHART_COLORS.upColor,
-        wickDownColor: CHART_COLORS.downColor,
+        upColor: colors.upColor,
+        downColor: colors.downColor,
+        borderUpColor: colors.upColor,
+        borderDownColor: colors.downColor,
+        wickUpColor: colors.upColor,
+        wickDownColor: colors.downColor,
       });
       series.setData(chartData as CandlestickData<Time>[]);
       markersRef.current = createSeriesMarkers(series, markers);
       seriesRef.current = series;
     } else {
       const series = chartRef.current.addSeries(LineSeries, {
-        color: CHART_COLORS.lineColor,
+        color: colors.lineColor,
         lineWidth: 2,
         crosshairMarkerVisible: true,
         crosshairMarkerRadius: 4,
@@ -405,59 +437,59 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
 
   if (priceData.length === 0) {
     return (
-      <div className={`h-full flex items-center justify-center bg-white text-slate-500 text-sm ${fontClass}`}>
+      <div className={`h-full flex items-center justify-center bg-surface text-muted-fg text-sm ${fontClass}`}>
         No price data available
       </div>
     );
   }
 
   return (
-    <div className={`h-full flex flex-col bg-white ${fontClass}`}>
+    <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
       {/* Controls bar */}
-      <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 bg-slate-50 border-b border-slate-200">
-        <span className="text-[11px] font-mono font-bold text-slate-800">{ticker}</span>
+      <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 bg-surface-hover border-b border-border">
+        <span className="text-[11px] font-mono font-bold text-foreground">{ticker}</span>
 
-        <div className="w-px h-4 bg-slate-300" />
+        <div className="w-px h-4 bg-muted" />
 
         {/* Chart type toggle */}
-        <div className="flex items-center bg-white rounded border border-slate-200 overflow-hidden">
+        <div className="flex items-center bg-surface rounded border border-border overflow-hidden">
           <button
             onClick={() => setChartType('line')}
-            className={`p-1 transition-colors ${chartType === 'line' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-50'}`}
+            className={`p-1 transition-colors ${chartType === 'line' ? 'bg-primary text-white' : 'text-muted-fg hover:bg-surface-hover'}`}
             title="Line chart"
           >
             <LineChart className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setChartType('candlestick')}
-            className={`p-1 transition-colors ${chartType === 'candlestick' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-50'}`}
+            className={`p-1 transition-colors ${chartType === 'candlestick' ? 'bg-primary text-white' : 'text-muted-fg hover:bg-surface-hover'}`}
             title="Candlestick chart"
           >
             <CandlestickChart className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        <div className="w-px h-4 bg-slate-300" />
+        <div className="w-px h-4 bg-muted" />
 
         {/* Zoom controls */}
         <div className="flex items-center gap-0.5">
           <button
             onClick={handleZoomIn}
-            className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+            className="p-1 text-muted-fg hover:text-foreground hover:bg-surface-hover rounded transition-colors"
             title="Zoom in"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={handleZoomOut}
-            className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+            className="p-1 text-muted-fg hover:text-foreground hover:bg-surface-hover rounded transition-colors"
             title="Zoom out"
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={handleReset}
-            className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+            className="p-1 text-muted-fg hover:text-foreground hover:bg-surface-hover rounded transition-colors"
             title="Reset view"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -470,19 +502,19 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
         <div className="flex items-center gap-3 text-[9px]">
           <span className="flex items-center gap-1">
             <span className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[6px] border-l-transparent border-r-transparent border-b-emerald-500" />
-            <span className="text-slate-600">Buy</span>
+            <span className="text-foreground/80">Buy</span>
           </span>
           <span className="flex items-center gap-1">
             <span className="w-0 h-0 border-l-[4px] border-r-[4px] border-t-[6px] border-l-transparent border-r-transparent border-t-red-500" />
-            <span className="text-slate-600">Sell</span>
+            <span className="text-foreground/80">Sell</span>
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-slate-400" />
-            <span className="text-slate-600">Other</span>
+            <span className="w-2 h-2 rounded-full bg-muted-fg" />
+            <span className="text-foreground/80">Other</span>
           </span>
         </div>
 
-        <span className="text-[9px] text-slate-500">{transactions.length} tx</span>
+        <span className="text-[9px] text-muted-fg">{transactions.length} tx</span>
       </div>
 
       {/* Chart container */}
@@ -491,20 +523,20 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
 
         {/* Transaction detail popup */}
         {selectedGroup && (
-          <div className="absolute top-2 right-2 bg-white border border-slate-200 rounded-lg shadow-xl p-3 min-w-[220px] max-w-[280px] z-10">
+          <div className="absolute top-2 right-2 bg-surface border border-border rounded-lg shadow-xl p-3 min-w-[220px] max-w-[280px] z-10">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-semibold text-slate-800">
+              <span className="text-[11px] font-semibold text-foreground">
                 {formatDate(selectedGroup.date)}
               </span>
               <button
                 onClick={() => setSelectedGroup(null)}
-                className="p-0.5 text-slate-400 hover:text-slate-600"
+                className="p-0.5 text-muted-fg hover:text-foreground"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            <div className="text-[10px] text-slate-500 mb-2">
+            <div className="text-[10px] text-muted-fg mb-2">
               Price: ${selectedGroup.price.toFixed(2)}
             </div>
 
@@ -512,7 +544,7 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
               {selectedGroup.transactions.map((tx, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-2 py-1 border-b border-slate-100 last:border-0"
+                  className="flex items-center gap-2 py-1 border-b border-border-subtle last:border-0"
                 >
                   <span
                     className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white"
@@ -521,10 +553,10 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
                     {TX_LABELS[tx.code] || tx.code}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-slate-700 truncate font-medium">
+                    <div className="text-[10px] text-foreground truncate font-medium">
                       {tx.insider_name || 'Unknown'}
                     </div>
-                    <div className="text-[9px] text-slate-500">
+                    <div className="text-[9px] text-muted-fg">
                       {formatNumber(tx.shares)} shares • {formatCurrency(tx.value)}
                     </div>
                   </div>
@@ -536,7 +568,7 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
       </div>
 
       {/* Footer */}
-      <div className="flex-shrink-0 px-2 py-1 bg-slate-50 border-t border-slate-200 text-[9px] text-slate-500">
+      <div className="flex-shrink-0 px-2 py-1 bg-surface-hover border-t border-border text-[9px] text-muted-fg">
         Scroll to zoom • Drag to pan • Click markers for details
       </div>
     </div>

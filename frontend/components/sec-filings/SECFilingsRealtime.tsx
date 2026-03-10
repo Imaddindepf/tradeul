@@ -320,16 +320,16 @@ export function SECFilingsRealtime() {
             : '';
 
         return (
-            <div className="h-full flex flex-col bg-white">
-                <div className="px-2 py-1 border-b border-slate-300 bg-slate-50 flex items-center justify-between">
+            <div className="h-full flex flex-col bg-surface">
+                <div className="px-2 py-1 border-b border-border bg-surface-hover flex items-center justify-between">
                     <button
                         onClick={() => setSelectedFiling(null)}
-                        className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-medium flex items-center gap-1"
+                        className="px-2 py-0.5 bg-muted text-foreground rounded hover:bg-muted/80 text-xs font-medium flex items-center gap-1"
                     >
                         ← Back
                     </button>
-                    <div className="text-xs text-slate-600 font-mono flex items-center gap-2">
-                        <span className="font-semibold text-blue-600">{selectedFiling.ticker || 'N/A'}</span>
+                    <div className="text-xs text-foreground/80 font-mono flex items-center gap-2">
+                        <span className="font-semibold text-primary">{selectedFiling.ticker || 'N/A'}</span>
                         <span>·</span>
                         <span>{selectedFiling.formType}</span>
                         <span>·</span>
@@ -339,14 +339,14 @@ export function SECFilingsRealtime() {
                         href={filingUrl || '#'}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-2 py-0.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium flex items-center gap-1"
+                        className="px-2 py-0.5 bg-primary text-white rounded hover:bg-primary-hover text-xs font-medium flex items-center gap-1"
                     >
                         <ExternalLink className="w-3 h-3" />
                         Open Original
                     </a>
                 </div>
 
-                <div className="flex-1 bg-white">
+                <div className="flex-1 bg-surface">
                     <iframe
                         src={proxyUrl}
                         className="w-full h-full border-0"
@@ -364,16 +364,16 @@ export function SECFilingsRealtime() {
     const currentFilings = viewMode === 'realtime' ? realtimeFilings : historicalFilings;
 
     return (
-        <div className="h-full flex flex-col bg-white">
+        <div className="h-full flex flex-col bg-surface">
             {/* Header con modo selector y filtros */}
-            <div className="px-2 py-1 border-b border-slate-300 bg-slate-50 space-y-1">
+            <div className="px-2 py-1 border-b border-border bg-surface-hover space-y-1">
                 {/* Modo selector */}
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setViewMode('realtime')}
                         className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1 ${viewMode === 'realtime'
                             ? 'bg-emerald-600 text-white'
-                            : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
+                            : 'bg-surface border border-border text-foreground hover:bg-surface-hover'
                             }`}
                     >
                         <Zap className="w-3 h-3" />
@@ -384,7 +384,7 @@ export function SECFilingsRealtime() {
                         onClick={() => setViewMode('historical')}
                         className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1 ${viewMode === 'historical'
                             ? 'bg-blue-600 text-white'
-                            : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
+                            : 'bg-surface border border-border text-foreground hover:bg-surface-hover'
                             }`}
                     >
                         <Database className="w-3 h-3" />
@@ -394,7 +394,7 @@ export function SECFilingsRealtime() {
                     <div className="flex-1"></div>
 
                     {viewMode === 'realtime' && (
-                        <div className="text-xs text-slate-600 font-mono flex items-center gap-1.5">
+                        <div className="text-xs text-foreground/80 font-mono flex items-center gap-1.5">
                             <span className={`inline-block w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
                             <span>{wsConnected ? 'Connected' : 'Disconnected'}</span>
                         </div>
@@ -430,7 +430,7 @@ export function SECFilingsRealtime() {
                             }
                         }}
                         placeholder="Form"
-                        className="w-20 px-1.5 py-0.5 border border-slate-300 rounded bg-white text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-slate-400 font-mono"
+                        className="w-20 px-1.5 py-0.5 border border-border rounded bg-surface text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-fg font-mono"
                     />
                     {viewMode === 'historical' && (
                         <>
@@ -438,14 +438,14 @@ export function SECFilingsRealtime() {
                                 type="date"
                                 value={startDate}
                                 onChange={(e) => setStartDate(e.target.value)}
-                                className="w-28 px-1.5 py-0.5 border border-slate-300 rounded bg-white text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                className="w-28 px-1.5 py-0.5 border border-border rounded bg-surface text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                             />
-                            <span className="text-slate-400 text-xs">→</span>
+                            <span className="text-muted-fg text-xs">→</span>
                             <input
                                 type="date"
                                 value={endDate}
                                 onChange={(e) => setEndDate(e.target.value)}
-                                className="w-28 px-1.5 py-0.5 border border-slate-300 rounded bg-white text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                className="w-28 px-1.5 py-0.5 border border-border rounded bg-surface text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                             />
                         </>
                     )}
@@ -460,13 +460,13 @@ export function SECFilingsRealtime() {
                         type="button"
                         onClick={clearFilters}
                         disabled={loading}
-                        className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 disabled:opacity-50 text-xs font-medium flex items-center gap-1"
+                        className="px-2 py-0.5 bg-muted text-foreground rounded hover:bg-muted disabled:opacity-50 text-xs font-medium flex items-center gap-1"
                     >
                         <X className="w-3 h-3" />
                         Clear
                     </button>
                     {!loading && !error && (
-                        <div className="text-xs text-slate-600 font-mono">
+                        <div className="text-xs text-foreground/80 font-mono">
                             {currentFilings.length}
                         </div>
                     )}
@@ -475,47 +475,47 @@ export function SECFilingsRealtime() {
 
             {/* Error Message */}
             {error && (
-                <div className="mx-2 mt-1 px-2 py-1 bg-red-50 border border-red-200 rounded flex items-center gap-1.5 text-red-700">
+                <div className="mx-2 mt-1 px-2 py-1 bg-red-500/10 border border-red-500/30 rounded flex items-center gap-1.5 text-red-700 dark:text-red-400">
                     <AlertTriangle className="w-3 h-3" />
                     <span className="text-xs">{error}</span>
                 </div>
             )}
 
             {/* Table */}
-            <div className="flex-1 overflow-auto bg-white">
+            <div className="flex-1 overflow-auto bg-surface">
                 <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-slate-100 border-b border-slate-200">
+                    <thead className="sticky top-0 bg-surface-inset border-b border-border">
                         <tr>
-                            <th className="px-2 py-1 text-left text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
+                            <th className="px-2 py-1 text-left text-[10px] font-semibold text-foreground uppercase tracking-wide">
                                 {t('secFilings.tableHeaders.ticker')}
                             </th>
-                            <th className="px-2 py-1 text-left text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
+                            <th className="px-2 py-1 text-left text-[10px] font-semibold text-foreground uppercase tracking-wide">
                                 {t('secFilings.tableHeaders.form')}
                             </th>
-                            <th className="px-2 py-1 text-left text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
+                            <th className="px-2 py-1 text-left text-[10px] font-semibold text-foreground uppercase tracking-wide">
                                 {t('secFilings.tableHeaders.description')}
                             </th>
-                            <th className="px-2 py-1 text-right text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
+                            <th className="px-2 py-1 text-right text-[10px] font-semibold text-foreground uppercase tracking-wide">
                                 {t('secFilings.tableHeaders.date')}
                             </th>
-                            <th className="px-2 py-1 text-right text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
+                            <th className="px-2 py-1 text-right text-[10px] font-semibold text-foreground uppercase tracking-wide">
                                 {t('secFilings.tableHeaders.time')}
                             </th>
                         </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-slate-100">
+                    <tbody className="bg-surface divide-y divide-border-subtle">
                         {loading ? (
                             <tr>
                                 <td colSpan={5} className="px-2 py-6 text-center">
                                     <RefreshCw className="w-6 h-6 mx-auto mb-1 text-blue-500 animate-spin" />
-                                    <p className="text-slate-500 text-xs">{t('common.loading')}</p>
+                                    <p className="text-muted-fg text-xs">{t('common.loading')}</p>
                                 </td>
                             </tr>
                         ) : currentFilings.length === 0 ? (
                             <tr>
                                 <td colSpan={5} className="px-2 py-6 text-center">
-                                    <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                                    <p className="text-slate-500 font-medium text-xs">
+                                    <FileText className="w-8 h-8 mx-auto mb-2 text-muted-fg/50" />
+                                    <p className="text-muted-fg font-medium text-xs">
                                         {viewMode === 'realtime'
                                             ? 'Esperando filings en tiempo real...'
                                             : t('secFilings.noFilingsFound')}
@@ -529,30 +529,30 @@ export function SECFilingsRealtime() {
                                     <tr
                                         key={filing.accessionNo}
                                         onClick={() => handleFilingClick(filing)}
-                                        className="hover:bg-blue-50 transition-colors cursor-pointer border-b border-slate-100"
+                                        className="hover:bg-primary/10 transition-colors cursor-pointer border-b border-border-subtle"
                                     >
                                         <td className="px-2 py-0.5 whitespace-nowrap">
                                             <span className={`font-mono font-semibold text-xs ${filing.ticker
                                                 ? 'text-blue-600'
-                                                : 'text-slate-400'
+                                                : 'text-muted-fg'
                                                 }`}>
                                                 {filing.ticker || '--'}
                                             </span>
                                         </td>
                                         <td className="px-2 py-0.5 whitespace-nowrap">
-                                            <span className="text-[10px] font-mono text-slate-700">
+                                            <span className="text-[10px] font-mono text-foreground">
                                                 {filing.formType}
                                             </span>
                                         </td>
                                         <td className="px-2 py-0.5">
-                                            <span className="text-slate-600 text-[10px]">
+                                            <span className="text-foreground/80 text-[10px]">
                                                 {truncateDescription(filing.description)}
                                             </span>
                                         </td>
-                                        <td className="px-2 py-0.5 whitespace-nowrap text-right font-mono text-[10px] text-slate-600">
+                                        <td className="px-2 py-0.5 whitespace-nowrap text-right font-mono text-[10px] text-foreground/80">
                                             {date}
                                         </td>
-                                        <td className="px-2 py-0.5 whitespace-nowrap text-right font-mono text-[10px] text-slate-500">
+                                        <td className="px-2 py-0.5 whitespace-nowrap text-right font-mono text-[10px] text-muted-fg">
                                             {time}
                                         </td>
                                     </tr>
@@ -565,10 +565,10 @@ export function SECFilingsRealtime() {
 
             {/* Footer */}
             {viewMode === 'historical' && (
-                <div className="px-2 py-0.5 border-t border-slate-200 bg-slate-50 text-[10px] text-slate-600 flex items-center justify-between font-mono">
+                <div className="px-2 py-0.5 border-t border-border bg-surface-hover text-[10px] text-foreground/80 flex items-center justify-between font-mono">
                     <div className="flex items-center gap-2">
                         <span>{totalResults.toLocaleString()} total</span>
-                        <span className="text-slate-400">|</span>
+                        <span className="text-muted-fg">|</span>
                         <span>{t('secFilings.page', { current: currentPage, total: Math.ceil(totalResults / PAGE_SIZE) })}</span>
                     </div>
 
@@ -576,14 +576,14 @@ export function SECFilingsRealtime() {
                         <button
                             onClick={() => fetchHistoricalFilings(1)}
                             disabled={currentPage === 1 || loading}
-                            className="px-1.5 py-0.5 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="px-1.5 py-0.5 bg-surface border border-border rounded text-foreground hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             ««
                         </button>
                         <button
                             onClick={() => fetchHistoricalFilings(currentPage - 1)}
                             disabled={currentPage === 1 || loading}
-                            className="px-1.5 py-0.5 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="px-1.5 py-0.5 bg-surface border border-border rounded text-foreground hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             «
                         </button>
@@ -599,7 +599,7 @@ export function SECFilingsRealtime() {
                                     disabled={loading}
                                     className={`px-1.5 py-0.5 rounded ${pageNum === currentPage
                                         ? 'bg-blue-600 text-white font-semibold'
-                                        : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
+                                        : 'bg-surface border border-border text-foreground hover:bg-surface-hover'
                                         } disabled:opacity-30 disabled:cursor-not-allowed`}
                                 >
                                     {pageNum}
@@ -610,14 +610,14 @@ export function SECFilingsRealtime() {
                         <button
                             onClick={() => fetchHistoricalFilings(currentPage + 1)}
                             disabled={currentPage >= Math.ceil(totalResults / PAGE_SIZE) || loading}
-                            className="px-1.5 py-0.5 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="px-1.5 py-0.5 bg-surface border border-border rounded text-foreground hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             »
                         </button>
                         <button
                             onClick={() => fetchHistoricalFilings(Math.ceil(totalResults / PAGE_SIZE))}
                             disabled={currentPage >= Math.ceil(totalResults / PAGE_SIZE) || loading}
-                            className="px-1.5 py-0.5 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="px-1.5 py-0.5 bg-surface border border-border rounded text-foreground hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             »»
                         </button>
@@ -631,7 +631,7 @@ export function SECFilingsRealtime() {
             )}
 
             {viewMode === 'realtime' && (
-                <div className="px-2 py-0.5 border-t border-slate-200 bg-slate-50 text-[10px] text-slate-600 flex items-center justify-between font-mono">
+                <div className="px-2 py-0.5 border-t border-border bg-surface-hover text-[10px] text-foreground/80 flex items-center justify-between font-mono">
                     <div className="flex items-center gap-2">
                         <span>{realtimeFilings.length} filings</span>
                     </div>

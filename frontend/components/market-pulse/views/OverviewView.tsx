@@ -14,8 +14,8 @@ function Bar({ value, min, max, diverging }: { value: number; min: number; max: 
     const w = Math.abs(norm) * 50;
     const pos = norm >= 0;
     return (
-      <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-slate-100 relative">
-        <div className="absolute top-0 left-1/2 h-full w-px bg-slate-200" />
+      <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-surface-inset relative">
+        <div className="absolute top-0 left-1/2 h-full w-px bg-muted" />
         <div className={`absolute top-0 bottom-0 rounded-sm ${pos ? 'left-1/2' : 'right-1/2'}`}
           style={{ width: `${w}%`, backgroundColor: pos ? B : R }} />
       </div>
@@ -23,7 +23,7 @@ function Bar({ value, min, max, diverging }: { value: number; min: number; max: 
   }
   const norm = clamp((value - min) / ((max - min) || 1), 0, 1);
   return (
-    <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-slate-100">
+    <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-surface-inset">
       <div className="h-full rounded-sm" style={{ width: `${norm * 100}%`, backgroundColor: B }} />
     </div>
   );
@@ -70,45 +70,45 @@ function OverviewView({ data }: PulseViewProps) {
   }, [data]);
 
   if (!m) return (
-    <div className="flex-1 flex items-center justify-center text-[12px] text-slate-400">No data</div>
+    <div className="flex-1 flex items-center justify-center text-[12px] text-muted-fg">No data</div>
   );
 
-  const vColor = (v: number) => v >= 0 ? 'text-blue-600' : 'text-rose-500';
+  const vColor = (v: number) => v >= 0 ? 'text-primary' : 'text-rose-500';
 
   return (
     <div className="flex-1 overflow-auto px-3 py-2 space-y-2">
       {/* Market Summary */}
-      <div className="border border-slate-150 rounded-md px-3 py-2">
-        <div className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.1em] mb-1.5">Market Summary</div>
+      <div className="border border-border rounded-md px-3 py-2">
+        <div className="text-[8px] font-bold text-muted-fg uppercase tracking-[0.1em] mb-1.5">Market Summary</div>
         <div className="grid grid-cols-3 gap-x-4 gap-y-1.5">
           <div>
-            <div className="text-[8px] text-slate-400 font-medium">Cap-Weighted</div>
+            <div className="text-[8px] text-muted-fg font-medium">Cap-Weighted</div>
             <div className={`text-[16px] font-bold tabular-nums leading-tight ${vColor(m.wtdChange)}`}>{pct(m.wtdChange)}</div>
           </div>
           <div>
-            <div className="text-[8px] text-slate-400 font-medium">Equal-Weight</div>
+            <div className="text-[8px] text-muted-fg font-medium">Equal-Weight</div>
             <div className={`text-[14px] font-bold tabular-nums leading-tight ${vColor(m.eqChange)}`}>{pct(m.eqChange)}</div>
           </div>
           <div>
-            <div className="text-[8px] text-slate-400 font-medium">Spread</div>
+            <div className="text-[8px] text-muted-fg font-medium">Spread</div>
             <div className={`text-[14px] font-bold tabular-nums leading-tight ${vColor(m.spread)}`}>{pct(m.spread)}</div>
           </div>
           <div>
-            <div className="text-[8px] text-slate-400 font-medium">A/D Ratio</div>
-            <div className="text-[13px] font-bold tabular-nums leading-tight text-slate-800">{m.adRatio.toFixed(2)}</div>
-            <div className="text-[8px] text-slate-400 tabular-nums">{m.totalAdv.toLocaleString()} vs {m.totalDec.toLocaleString()}</div>
+            <div className="text-[8px] text-muted-fg font-medium">A/D Ratio</div>
+            <div className="text-[13px] font-bold tabular-nums leading-tight text-foreground">{m.adRatio.toFixed(2)}</div>
+            <div className="text-[8px] text-muted-fg tabular-nums">{m.totalAdv.toLocaleString()} vs {m.totalDec.toLocaleString()}</div>
           </div>
           <div>
-            <div className="text-[8px] text-slate-400 font-medium">Dollar Volume</div>
-            <div className="text-[13px] font-bold tabular-nums leading-tight text-slate-800">{fmtB(m.totalDv)}</div>
+            <div className="text-[8px] text-muted-fg font-medium">Dollar Volume</div>
+            <div className="text-[13px] font-bold tabular-nums leading-tight text-foreground">{fmtB(m.totalDv)}</div>
           </div>
           <div>
-            <div className="text-[8px] text-slate-400 font-medium">Vol % Done</div>
+            <div className="text-[8px] text-muted-fg font-medium">Vol % Done</div>
             <div className="flex items-center gap-1.5">
-              <div className="flex-1 h-[6px] rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full rounded-full bg-blue-500" style={{ width: `${clamp(m.volPct, 0, 100)}%` }} />
+              <div className="flex-1 h-[6px] rounded-full bg-surface-inset overflow-hidden">
+                <div className="h-full rounded-full bg-primary" style={{ width: `${clamp(m.volPct, 0, 100)}%` }} />
               </div>
-              <span className="text-[11px] font-bold tabular-nums text-slate-700">{m.volPct.toFixed(0)}%</span>
+              <span className="text-[11px] font-bold tabular-nums text-foreground">{m.volPct.toFixed(0)}%</span>
             </div>
           </div>
         </div>
@@ -117,8 +117,8 @@ function OverviewView({ data }: PulseViewProps) {
       {/* Technicals + Trend side by side */}
       <div className="grid grid-cols-2 gap-2">
         {/* Technicals */}
-        <div className="border border-slate-150 rounded-md px-3 py-2">
-          <div className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.1em] mb-1.5">Technicals</div>
+        <div className="border border-border rounded-md px-3 py-2">
+          <div className="text-[8px] font-bold text-muted-fg uppercase tracking-[0.1em] mb-1.5">Technicals</div>
           <div className="space-y-1">
             {([
               ['RSI', m.rsi, 0, 100, false, m.rsi < 30 ? 'Oversold' : m.rsi > 70 ? 'Overbought' : 'Neutral'],
@@ -128,20 +128,20 @@ function OverviewView({ data }: PulseViewProps) {
               ['SMA50', m.sma50, -15, 15, true, ''],
             ] as [string, number, number, number, boolean, string][]).map(([label, val, mn, mx, div, tag]) => (
               <div key={label} className="flex items-center gap-1.5">
-                <span className="text-[9px] font-medium text-slate-500 w-[34px] shrink-0">{label}</span>
+                <span className="text-[9px] font-medium text-muted-fg w-[34px] shrink-0">{label}</span>
                 <Bar value={val} min={mn} max={mx} diverging={div} />
-                <span className={`text-[10px] font-bold tabular-nums w-[42px] text-right shrink-0 ${div ? vColor(val) : 'text-slate-700'}`}>
+                <span className={`text-[10px] font-bold tabular-nums w-[42px] text-right shrink-0 ${div ? vColor(val) : 'text-foreground'}`}>
                   {div ? pct(val) : val.toFixed(1)}
                 </span>
-                {tag && <span className="text-[7px] font-semibold text-slate-400 w-[38px] shrink-0 truncate">{tag}</span>}
+                {tag && <span className="text-[7px] font-semibold text-muted-fg w-[38px] shrink-0 truncate">{tag}</span>}
               </div>
             ))}
           </div>
         </div>
 
         {/* Trend */}
-        <div className="border border-slate-150 rounded-md px-3 py-2">
-          <div className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.1em] mb-1.5">Trend</div>
+        <div className="border border-border rounded-md px-3 py-2">
+          <div className="text-[8px] font-bold text-muted-fg uppercase tracking-[0.1em] mb-1.5">Trend</div>
           <div className="space-y-1">
             {([
               ['Today', m.wtdChange],
@@ -153,7 +153,7 @@ function OverviewView({ data }: PulseViewProps) {
               ['vs 52wL', m.l52],
             ] as [string, number][]).map(([label, val]) => (
               <div key={label} className="flex items-center gap-1.5">
-                <span className="text-[9px] font-medium text-slate-500 w-[38px] shrink-0">{label}</span>
+                <span className="text-[9px] font-medium text-muted-fg w-[38px] shrink-0">{label}</span>
                 <Bar value={val} min={-30} max={30} diverging />
                 <span className={`text-[10px] font-bold tabular-nums w-[48px] text-right shrink-0 ${vColor(val)}`}>{pct(val)}</span>
               </div>
@@ -163,8 +163,8 @@ function OverviewView({ data }: PulseViewProps) {
       </div>
 
       {/* Sector Ranking */}
-      <div className="border border-slate-150 rounded-md px-3 py-2">
-        <div className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.1em] mb-1.5">Sectors</div>
+      <div className="border border-border rounded-md px-3 py-2">
+        <div className="text-[8px] font-bold text-muted-fg uppercase tracking-[0.1em] mb-1.5">Sectors</div>
         <div className="space-y-[3px]">
           {m.sectors.map(s => {
             const maxAbs = Math.max(...m.sectors.map(x => Math.abs(x.weighted_change)), 0.1);
@@ -173,15 +173,15 @@ function OverviewView({ data }: PulseViewProps) {
             const pos = norm >= 0;
             return (
               <div key={s.name} className="flex items-center gap-1.5 h-[18px]">
-                <span className={`w-[3px] h-[3px] rounded-full shrink-0 ${pos ? 'bg-blue-500' : 'bg-rose-400'}`} />
-                <span className="text-[10px] font-semibold text-slate-700 w-[95px] shrink-0 truncate">{s.name}</span>
-                <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-slate-100 relative">
-                  <div className="absolute top-0 left-1/2 h-full w-px bg-slate-200" />
+                <span className={`w-[3px] h-[3px] rounded-full shrink-0 ${pos ? 'bg-primary' : 'bg-rose-400'}`} />
+                <span className="text-[10px] font-semibold text-foreground w-[95px] shrink-0 truncate">{s.name}</span>
+                <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-surface-inset relative">
+                  <div className="absolute top-0 left-1/2 h-full w-px bg-muted" />
                   <div className={`absolute top-0 bottom-0 rounded-sm ${pos ? 'left-1/2' : 'right-1/2'}`}
                     style={{ width: `${w / 2}%`, backgroundColor: pos ? B : R }} />
                 </div>
                 <span className={`text-[10px] font-bold tabular-nums w-[44px] text-right shrink-0 ${vColor(s.weighted_change)}`}>{pct(s.weighted_change)}</span>
-                <span className="text-[8px] text-slate-400 tabular-nums w-[36px] text-right shrink-0">{(s.breadth * 100).toFixed(0)}% adv</span>
+                <span className="text-[8px] text-muted-fg tabular-nums w-[36px] text-right shrink-0">{(s.breadth * 100).toFixed(0)}% adv</span>
               </div>
             );
           })}

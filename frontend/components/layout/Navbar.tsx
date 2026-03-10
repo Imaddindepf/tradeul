@@ -17,17 +17,15 @@ interface NavbarProps {
 /**
  * Navbar Global Profesional
  * 
- * - Mismo nivel z-index que Sidebar (ambos son navegación global)
  * - Contenido dinámico según la página actual
  * - Se usa en el layout principal
- * - Se ajusta automáticamente cuando el sidebar colapsa
  */
 export function Navbar({ children }: NavbarProps) {
   const pathname = usePathname();
 
   return (
     <nav
-      className="fixed top-0 left-0 right-0 h-10 bg-white/80 backdrop-blur-sm border-b border-slate-150"
+      className="fixed top-0 left-0 right-0 h-10 bg-surface/80 backdrop-blur-sm border-b border-border"
       style={{
         zIndex: Z_INDEX.NAVBAR,
       }}
@@ -120,15 +118,15 @@ export function UserMenu() {
       {/* Dropdown Menu */}
       {isOpen && (
         <div
-          className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 overflow-hidden"
+          className="absolute right-0 mt-2 w-48 bg-surface rounded-lg shadow-xl border border-border py-1 overflow-hidden"
           style={{ zIndex: Z_INDEX.MODAL }}
         >
           {/* User Info Header */}
-          <div className="px-4 py-3 border-b border-slate-100">
-            <p className="text-sm font-medium text-slate-900 truncate">
+          <div className="px-4 py-3 border-b border-border-subtle">
+            <p className="text-sm font-medium text-foreground truncate">
               {user?.fullName || t('navbar.user')}
             </p>
-            <p className="text-xs text-slate-500 truncate">
+            <p className="text-xs text-muted-fg truncate">
               {user?.emailAddresses?.[0]?.emailAddress}
             </p>
           </div>
@@ -137,7 +135,7 @@ export function UserMenu() {
           <div className="py-1">
             <button
               onClick={handleOpenProfile}
-              className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 transition-colors"
+              className="w-full px-4 py-2 text-left text-sm text-foreground/80 hover:bg-surface-hover flex items-center gap-3 transition-colors"
             >
               <User className="w-4 h-4" />
               <span>{t('navbar.profile')}</span>
@@ -148,7 +146,7 @@ export function UserMenu() {
                 setIsOpen(false);
                 executeCommand('settings');
               }}
-              className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 transition-colors"
+              className="w-full px-4 py-2 text-left text-sm text-foreground/80 hover:bg-surface-hover flex items-center gap-3 transition-colors"
             >
               <Settings className="w-4 h-4" />
               <span>{t('settings.title')}</span>
@@ -156,10 +154,10 @@ export function UserMenu() {
           </div>
 
           {/* Logout */}
-          <div className="border-t border-slate-100 py-1">
+          <div className="border-t border-border-subtle py-1">
             <button
               onClick={handleLogout}
-              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors"
+              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-500/10 flex items-center gap-3 transition-colors"
             >
               <LogOut className="w-4 h-4" />
               <span>{t('navbar.signOut')}</span>
@@ -176,9 +174,9 @@ export function NavbarContent({ title, subtitle, actions, statusBadge }: NavbarC
     <div className="flex items-center justify-between h-full">
       {/* Left: Título y subtítulo */}
       <div className="flex items-center gap-2">
-        <h1 className="text-sm font-semibold text-slate-900">{title}</h1>
+        <h1 className="text-sm font-semibold text-foreground">{title}</h1>
         {subtitle && (
-          <span className="text-xs text-slate-500">{subtitle}</span>
+          <span className="text-xs text-muted-fg">{subtitle}</span>
         )}
       </div>
 

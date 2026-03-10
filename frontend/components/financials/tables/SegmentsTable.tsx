@@ -145,11 +145,11 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
   }, [data]);
 
   if (loading) {
-    return <div className="p-4 text-center text-slate-400 text-xs">Loading segment data...</div>;
+    return <div className="p-4 text-center text-muted-fg text-xs">Loading segment data...</div>;
   }
 
   if (error) {
-    return <div className="p-4 text-center text-slate-400 text-xs">{error}</div>;
+    return <div className="p-4 text-center text-muted-fg text-xs">{error}</div>;
   }
 
   if (!data) return null;
@@ -159,7 +159,7 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
   const hasProducts = data.products && Object.keys(data.products.revenue || {}).length > 0;
 
   if (!hasSegments && !hasGeography && !hasProducts) {
-    return <div className="p-4 text-center text-slate-400 text-xs">No segment data available</div>;
+    return <div className="p-4 text-center text-muted-fg text-xs">No segment data available</div>;
   }
 
   // Renderizar una sección de segmentos
@@ -182,12 +182,12 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
       <React.Fragment key={title}>
         {/* Section Header */}
         <tr>
-          <td colSpan={years.length + 2} className="h-3 bg-white"></td>
+          <td colSpan={years.length + 2} className="h-3 bg-surface"></td>
         </tr>
-        <tr className="border-y border-slate-200 bg-slate-50">
+        <tr className="border-y border-border bg-surface-hover">
           <td
             colSpan={years.length + 2}
-            className="py-2 px-3 font-bold text-[11px] uppercase tracking-wide text-slate-600"
+            className="py-2 px-3 font-bold text-[11px] uppercase tracking-wide text-foreground/80"
           >
             {title}
           </td>
@@ -201,17 +201,17 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
           return (
             <React.Fragment key={segmentName}>
               {/* Revenue row */}
-              <tr className="border-b border-slate-100 bg-white hover:bg-blue-50/40 transition-colors">
-                <td className="py-1.5 px-3 text-slate-600">
+              <tr className="border-b border-border-subtle bg-surface hover:bg-primary/10 transition-colors">
+                <td className="py-1.5 px-3 text-foreground/80">
                   {segmentName}
                 </td>
                 {years.map(year => (
-                  <td key={year} className="text-right py-1.5 px-3 tabular-nums text-slate-700">
+                  <td key={year} className="text-right py-1.5 px-3 tabular-nums text-foreground">
                     {formatValue(segmentData[year])}
                   </td>
                 ))}
                 <td className={`text-right py-1.5 px-3 tabular-nums text-[10px] ${yoy !== null && yoy > 0 ? 'text-emerald-600' :
-                    yoy !== null && yoy < 0 ? 'text-red-500' : 'text-slate-400'
+                    yoy !== null && yoy < 0 ? 'text-red-500' : 'text-muted-fg'
                   }`}>
                   {formatPercent(yoy)}
                 </td>
@@ -219,16 +219,16 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
 
               {/* Operating Income sub-row (if available) */}
               {operatingIncomeData?.[segmentName] && (
-                <tr className="border-b border-slate-100 bg-white">
-                  <td className="py-1 px-3 text-slate-400 text-[10px]" style={{ paddingLeft: '32px' }}>
-                    <span className="text-slate-300 mr-1.5">└</span>
+                <tr className="border-b border-border-subtle bg-surface">
+                  <td className="py-1 px-3 text-muted-fg text-[10px]" style={{ paddingLeft: '32px' }}>
+                    <span className="text-muted-fg/50 mr-1.5">└</span>
                     Operating Income
                   </td>
                   {years.map(year => {
                     const val = operatingIncomeData[segmentName][year];
                     const isNegative = val != null && val < 0;
                     return (
-                      <td key={year} className={`text-right py-1 px-3 tabular-nums text-[10px] ${isNegative ? 'text-red-600' : 'text-slate-400'
+                      <td key={year} className={`text-right py-1 px-3 tabular-nums text-[10px] ${isNegative ? 'text-red-600' : 'text-muted-fg'
                         }`}>
                         {formatValue(val)}
                       </td>
@@ -245,29 +245,29 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
   };
 
   return (
-    <div className="overflow-x-auto bg-white">
+    <div className="overflow-x-auto bg-surface">
       <table className="w-full text-[11px] border-collapse">
         {/* Header */}
         <thead className="sticky top-0 z-10">
-          <tr className="bg-slate-100 border-b-2 border-slate-300">
-            <th className="text-left py-2.5 px-3 font-semibold text-slate-700 min-w-[200px] bg-slate-100">
+          <tr className="bg-surface-inset border-b-2 border-border">
+            <th className="text-left py-2.5 px-3 font-semibold text-foreground min-w-[200px] bg-surface-inset">
               Segment
             </th>
             {years.map(year => (
               <th
                 key={year}
-                className="text-right py-2.5 px-3 font-semibold text-slate-700 min-w-[90px] bg-slate-100"
+                className="text-right py-2.5 px-3 font-semibold text-foreground min-w-[90px] bg-surface-inset"
               >
                 FY{year}
               </th>
             ))}
-            <th className="text-right py-2.5 px-3 font-semibold text-slate-700 min-w-[70px] bg-slate-100">
+            <th className="text-right py-2.5 px-3 font-semibold text-foreground min-w-[70px] bg-surface-inset">
               YoY
             </th>
           </tr>
         </thead>
 
-        <tbody className="text-slate-700">
+        <tbody className="text-foreground">
           {/* Business Segments */}
           {hasSegments && renderSection(
             'Business Segments',
@@ -290,7 +290,7 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
 
           {/* Espaciado final */}
           <tr>
-            <td colSpan={years.length + 2} className="h-4 bg-white"></td>
+            <td colSpan={years.length + 2} className="h-4 bg-surface"></td>
           </tr>
         </tbody>
       </table>

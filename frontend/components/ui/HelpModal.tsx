@@ -52,22 +52,22 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
       onClick={handleBackdropClick}
     >
       <div
-        className="bg-white border border-slate-200 shadow-xl w-[520px] max-h-[70vh] flex flex-col"
+        className="bg-surface border border-border shadow-xl w-[520px] max-h-[70vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
-          <span className="text-xs font-mono text-slate-600 uppercase tracking-wide">{t('help.title')}</span>
+        <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface-hover">
+          <span className="text-xs font-mono text-foreground/80 uppercase tracking-wide">{t('help.title')}</span>
           <button
             onClick={onClose}
-            className="p-0.5 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors"
+            className="p-0.5 rounded hover:bg-surface-inset text-muted-fg hover:text-foreground transition-colors"
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-200 bg-slate-50">
+        <div className="flex border-b border-border bg-surface-hover">
           <TabButton active={tab === 'start'} onClick={() => setTab('start')}>
             {t('help.tabs.gettingStarted')}
           </TabButton>
@@ -80,7 +80,7 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-3 text-slate-700 text-[11px]">
+        <div className="flex-1 overflow-y-auto p-3 text-foreground text-[11px]">
           {tab === 'start' && <GettingStartedTab />}
           {tab === 'keys' && <KeystrokesTab />}
           {tab === 'cmds' && <CommandsTab />}
@@ -104,8 +104,8 @@ function TabButton({
       onClick={onClick}
       className={`px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide transition-colors
         ${active
-          ? 'text-blue-600 border-b-2 border-blue-600 -mb-[1px]'
-          : 'text-slate-400 hover:text-slate-600'
+          ? 'text-primary border-b-2 border-primary -mb-[1px]'
+          : 'text-muted-fg hover:text-foreground'
         }`}
     >
       {children}
@@ -118,36 +118,36 @@ function GettingStartedTab() {
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-[11px] font-semibold text-slate-800 mb-1">{t('help.terminal')}</h3>
-        <p className="text-[10px] text-slate-500 leading-relaxed">
+        <h3 className="text-[11px] font-semibold text-foreground mb-1">{t('help.terminal')}</h3>
+        <p className="text-[10px] text-muted-fg leading-relaxed">
           {t('help.terminalDescription')} <Kbd>Ctrl+K</Kbd>. {t('help.useCommands')}
         </p>
       </div>
 
       <div>
-        <h3 className="text-[11px] font-semibold text-slate-800 mb-1">{t('help.syntax')}</h3>
-        <div className="bg-slate-50 border border-slate-200 rounded px-2 py-1.5 font-mono text-[10px]">
+        <h3 className="text-[11px] font-semibold text-foreground mb-1">{t('help.syntax')}</h3>
+        <div className="bg-surface-hover border border-border rounded px-2 py-1.5 font-mono text-[10px]">
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-400">{'>'}</span>
-            <span className="px-1 py-0.5 bg-amber-50 text-amber-700 rounded text-[9px]">TICKER</span>
-            <span className="px-1 py-0.5 bg-blue-50 text-blue-700 rounded text-[9px]">COMMAND</span>
+            <span className="text-muted-fg">{'>'}</span>
+            <span className="px-1 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded text-[9px]">TICKER</span>
+            <span className="px-1 py-0.5 bg-primary/10 text-primary rounded text-[9px]">COMMAND</span>
           </div>
         </div>
       </div>
 
       <div>
-        <h3 className="text-[11px] font-semibold text-slate-800 mb-1">{t('help.example')}</h3>
-        <p className="text-[10px] text-slate-500 mb-1.5">
+        <h3 className="text-[11px] font-semibold text-foreground mb-1">{t('help.example')}</h3>
+        <p className="text-[10px] text-muted-fg mb-1.5">
           {t('help.toOpenChart')}
         </p>
-        <div className="bg-slate-50 border border-slate-200 rounded px-2 py-1.5 font-mono text-[10px]">
+        <div className="bg-surface-hover border border-border rounded px-2 py-1.5 font-mono text-[10px]">
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-400">{'>'}</span>
-            <span className="px-1 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 rounded text-[9px] font-semibold">AAPL</span>
-            <span className="px-1 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded text-[9px] font-semibold">G</span>
+            <span className="text-muted-fg">{'>'}</span>
+            <span className="px-1 py-0.5 bg-surface-inset border border-border text-foreground rounded text-[9px] font-semibold">AAPL</span>
+            <span className="px-1 py-0.5 bg-primary/10 border border-primary text-primary rounded text-[9px] font-semibold">G</span>
           </div>
         </div>
-        <p className="text-[9px] text-slate-400 mt-1.5">
+        <p className="text-[9px] text-muted-fg mt-1.5">
           {t('help.exampleDescription')}
         </p>
       </div>
@@ -174,17 +174,17 @@ function KeystrokesTab() {
       {shortcuts.map((s, i) => (
         <div
           key={i}
-          className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-slate-50"
+          className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-surface-hover"
         >
           <div className="flex items-center gap-0.5">
             {s.keys.map((key, j) => (
               <span key={j} className="flex items-center">
                 <Kbd>{key}</Kbd>
-                {j < s.keys.length - 1 && <span className="text-slate-300 mx-0.5 text-[9px]">+</span>}
+                {j < s.keys.length - 1 && <span className="text-muted-fg/50 mx-0.5 text-[9px]">+</span>}
               </span>
             ))}
           </div>
-          <span className="text-[10px] text-slate-500">{s.description}</span>
+          <span className="text-[10px] text-muted-fg">{s.description}</span>
         </div>
       ))}
     </div>
@@ -197,7 +197,7 @@ function CommandsTab() {
     <div className="space-y-3">
       {/* Ticker Commands */}
       <div>
-        <h4 className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+        <h4 className="text-[9px] font-semibold text-muted-fg uppercase tracking-wide mb-1.5">
           {t('help.tickerCommands')}
         </h4>
         <div className="space-y-0.5">
@@ -213,7 +213,7 @@ function CommandsTab() {
 
       {/* Global Commands */}
       <div>
-        <h4 className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+        <h4 className="text-[9px] font-semibold text-muted-fg uppercase tracking-wide mb-1.5">
           {t('help.globalCommands')}
         </h4>
         <div className="space-y-0.5">
@@ -232,11 +232,11 @@ function CommandsTab() {
 
 function CommandRow({ label, description }: { label: string; description: string }) {
   return (
-    <div className="flex items-center gap-2 py-1 px-1.5 rounded hover:bg-slate-50">
-      <span className="px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded text-[9px] font-mono font-semibold min-w-[40px] text-center">
+    <div className="flex items-center gap-2 py-1 px-1.5 rounded hover:bg-surface-hover">
+      <span className="px-1.5 py-0.5 bg-primary/10 border border-primary text-primary rounded text-[9px] font-mono font-semibold min-w-[40px] text-center">
         {label}
       </span>
-      <span className="text-[10px] text-slate-500">{description}</span>
+      <span className="text-[10px] text-muted-fg">{description}</span>
     </div>
   );
 }
@@ -244,8 +244,8 @@ function CommandRow({ label, description }: { label: string; description: string
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
     <kbd className="inline-flex items-center justify-center min-w-[18px] h-4 px-1 
-                    bg-slate-100 border border-slate-200 rounded text-[9px] font-mono 
-                    text-slate-600">
+                    bg-surface-inset border border-border rounded text-[9px] font-mono 
+                    text-foreground/80">
       {children}
     </kbd>
   );

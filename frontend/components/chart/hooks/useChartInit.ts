@@ -18,7 +18,7 @@ import {
     type LogicalRange,
 } from 'lightweight-charts';
 import { getUserTimezone, getTimezoneAbbrev } from '@/lib/date-utils';
-import { CHART_COLORS, INTERVAL_SECONDS, RIGHT_OFFSET_BARS, type ChartBar, type Interval } from '../constants';
+import { getChartColors, INTERVAL_SECONDS, RIGHT_OFFSET_BARS, type ChartBar, type Interval } from '../constants';
 
 export function useChartInit(
     containerRef: MutableRefObject<HTMLDivElement | null>,
@@ -42,6 +42,7 @@ export function useChartInit(
     useEffect(() => {
         if (!containerRef.current) return;
 
+        const CHART_COLORS = getChartColors();
         const chart = createChart(containerRef.current, {
             layout: {
                 background: { type: ColorType.Solid, color: CHART_COLORS.background },
@@ -287,10 +288,34 @@ export function useChartInit(
     useEffect(() => {
         if (chartRef.current && watermarkRef.current) {
             try {
-                watermarkRef.current.applyOptions({ lines: [{ text: currentTicker, color: CHART_COLORS.watermark, fontSize: 72 }] });
+                watermarkRef.current.applyOptions({ lines: [{ text: currentTicker, color: getChartColors().watermark, fontSize: 72 }] });
             } catch { /* */ }
         }
     }, [currentTicker]);
+
+    // Re-apply chart colors when theme changes (dark ↔ light)
+    useEffect(() => {
+        const observer = new MutationObserver(() => {
+            const chart = chartRef.current;
+            if (!chart) return;
+            const c = getChartColors();
+            chart.applyOptions({
+                layout: {
+                    background: { type: ColorType.Solid, color: c.background },
+                    textColor: c.textColor,
+                    panes: { separatorColor: c.borderColor, separatorHoverColor: c.crosshair },
+                },
+                grid: {
+                    vertLines: { color: c.gridColor },
+                    horzLines: { color: c.gridColor },
+                },
+                rightPriceScale: { borderColor: c.borderColor },
+                timeScale: { borderColor: c.borderColor },
+            });
+        });
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+        return () => observer.disconnect();
+    }, []);
 
     return {
         chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef,

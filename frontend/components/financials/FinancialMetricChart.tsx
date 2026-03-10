@@ -118,13 +118,13 @@ function TimeRangeSlider({ periods, startIndex, endIndex, onChange }: TimeRangeS
   const endPercent = (endIndex / (periods.length - 1)) * 100;
 
   return (
-    <div className="px-4 py-3 border-t border-slate-200 bg-white">
+    <div className="px-4 py-3 border-t border-border bg-surface">
       {/* Year labels */}
       <div className="relative h-4 mb-1">
         {yearMarkers.map(({ year, index }) => (
           <span
             key={`${year}-${index}`}
-            className="absolute text-[10px] text-slate-500 font-medium transform -translate-x-1/2"
+            className="absolute text-[10px] text-muted-fg font-medium transform -translate-x-1/2"
             style={{ left: `${(index / (periods.length - 1)) * 100}%` }}
           >
             {year}
@@ -135,7 +135,7 @@ function TimeRangeSlider({ periods, startIndex, endIndex, onChange }: TimeRangeS
       {/* Slider Track */}
       <div
         ref={trackRef}
-        className="relative h-2 bg-slate-200 rounded-full cursor-pointer"
+        className="relative h-2 bg-muted rounded-full cursor-pointer"
         onClick={(e) => {
           const index = getIndexFromPosition(e.clientX);
           // Click to set the nearest handle
@@ -153,14 +153,14 @@ function TimeRangeSlider({ periods, startIndex, endIndex, onChange }: TimeRangeS
           <div
             key={idx}
             className={`absolute top-1/2 w-1.5 h-1.5 rounded-full transform -translate-x-1/2 -translate-y-1/2 transition-colors
-              ${idx >= startIndex && idx <= endIndex ? 'bg-blue-500' : 'bg-slate-300'}`}
+              ${idx >= startIndex && idx <= endIndex ? 'bg-primary' : 'bg-muted'}`}
             style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
           />
         ))}
 
         {/* Selected Range */}
         <div
-          className="absolute h-full bg-blue-500 rounded-full cursor-grab active:cursor-grabbing"
+          className="absolute h-full bg-primary rounded-full cursor-grab active:cursor-grabbing"
           style={{
             left: `${startPercent}%`,
             width: `${endPercent - startPercent}%`,
@@ -170,30 +170,30 @@ function TimeRangeSlider({ periods, startIndex, endIndex, onChange }: TimeRangeS
 
         {/* Start Handle */}
         <div
-          className={`absolute top-1/2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full shadow-md 
+          className={`absolute top-1/2 w-4 h-4 bg-primary border-2 border-white rounded-full shadow-md 
             transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10 hover:scale-110 transition-transform
-            ${dragging === 'start' ? 'scale-110 ring-2 ring-blue-300' : ''}`}
+            ${dragging === 'start' ? 'scale-110 ring-2 ring-primary/30' : ''}`}
           style={{ left: `${startPercent}%` }}
           onMouseDown={(e) => handleMouseDown(e, 'start')}
         />
 
         {/* End Handle */}
         <div
-          className={`absolute top-1/2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full shadow-md 
+          className={`absolute top-1/2 w-4 h-4 bg-primary border-2 border-white rounded-full shadow-md 
             transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10 hover:scale-110 transition-transform
-            ${dragging === 'end' ? 'scale-110 ring-2 ring-blue-300' : ''}`}
+            ${dragging === 'end' ? 'scale-110 ring-2 ring-primary/30' : ''}`}
           style={{ left: `${endPercent}%` }}
           onMouseDown={(e) => handleMouseDown(e, 'end')}
         />
       </div>
 
       {/* Range Info */}
-      <div className="flex items-center justify-between mt-2 text-[10px] text-slate-500">
-        <span className="font-medium text-blue-600">{periods[startIndex]}</span>
-        <span className="text-slate-400">
+      <div className="flex items-center justify-between mt-2 text-[10px] text-muted-fg">
+        <span className="font-medium text-primary">{periods[startIndex]}</span>
+        <span className="text-muted-fg">
           {endIndex - startIndex + 1} of {periods.length} periods selected
         </span>
-        <span className="font-medium text-blue-600">{periods[endIndex]}</span>
+        <span className="font-medium text-primary">{periods[endIndex]}</span>
       </div>
     </div>
   );
@@ -372,17 +372,17 @@ export function FinancialMetricChart({
 
   // Growth indicator
   const getGrowthIndicator = (growth: number | null) => {
-    if (growth === null) return <Minus className="w-4 h-4 text-slate-400" />;
+    if (growth === null) return <Minus className="w-4 h-4 text-muted-fg" />;
     if (growth > 5) return <TrendingUp className="w-4 h-4 text-emerald-500" />;
     if (growth < -5) return <TrendingDown className="w-4 h-4 text-red-500" />;
-    return <Minus className="w-4 h-4 text-slate-400" />;
+    return <Minus className="w-4 h-4 text-muted-fg" />;
   };
 
   const getGrowthColor = (growth: number | null) => {
-    if (growth === null) return 'text-slate-500';
+    if (growth === null) return 'text-muted-fg';
     if (growth > 0) return isNegativeBad ? 'text-emerald-600' : 'text-red-600';
     if (growth < 0) return isNegativeBad ? 'text-red-600' : 'text-emerald-600';
-    return 'text-slate-600';
+    return 'text-foreground/80';
   };
 
   // Store chart data globally for pop-out support
@@ -421,7 +421,7 @@ export function FinancialMetricChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center text-slate-400">
+      <div className="h-full flex items-center justify-center text-muted-fg">
         <div className="text-center">
           <BarChart3 className="w-12 h-12 mx-auto mb-2 opacity-50" />
           <p className="text-sm">No data available for {metricLabel}</p>
@@ -431,13 +431,13 @@ export function FinancialMetricChart({
   }
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-surface">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
+      <div className="px-4 py-3 border-b border-border bg-gradient-to-r from-surface-hover to-surface">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">{metricLabel}</h2>
-            <p className="text-sm text-slate-500">{ticker} • {currency} • {chartData.length} periods</p>
+            <h2 className="text-lg font-bold text-foreground">{metricLabel}</h2>
+            <p className="text-sm text-muted-fg">{ticker} • {currency} • {chartData.length} periods</p>
           </div>
           {stats && (
             <div className="flex items-center gap-2">
@@ -452,33 +452,33 @@ export function FinancialMetricChart({
 
       {/* Stats Grid */}
       {stats && (
-        <div className="grid grid-cols-6 gap-2 px-4 py-3 bg-slate-50 border-b border-slate-200">
+        <div className="grid grid-cols-6 gap-2 px-4 py-3 bg-surface-hover border-b border-border">
           <div className="text-center">
-            <p className="text-[10px] uppercase text-slate-500 font-medium">Latest</p>
-            <p className="text-sm font-bold text-slate-800">{formatValue(stats.latest, valueType)}</p>
+            <p className="text-[10px] uppercase text-muted-fg font-medium">Latest</p>
+            <p className="text-sm font-bold text-foreground">{formatValue(stats.latest, valueType)}</p>
           </div>
           <div className="text-center">
-            <p className="text-[10px] uppercase text-slate-500 font-medium">YoY Growth</p>
+            <p className="text-[10px] uppercase text-muted-fg font-medium">YoY Growth</p>
             <p className={`text-sm font-bold ${getGrowthColor(stats.yoyGrowth)}`}>
               {stats.yoyGrowth !== null ? `${stats.yoyGrowth > 0 ? '+' : ''}${stats.yoyGrowth.toFixed(1)}%` : '--'}
             </p>
           </div>
           <div className="text-center">
-            <p className="text-[10px] uppercase text-slate-500 font-medium">QoQ Growth</p>
+            <p className="text-[10px] uppercase text-muted-fg font-medium">QoQ Growth</p>
             <p className={`text-sm font-bold ${getGrowthColor(stats.qoqGrowth)}`}>
               {stats.qoqGrowth !== null ? `${stats.qoqGrowth > 0 ? '+' : ''}${stats.qoqGrowth.toFixed(1)}%` : '--'}
             </p>
           </div>
           <div className="text-center">
-            <p className="text-[10px] uppercase text-slate-500 font-medium">Max</p>
-            <p className="text-sm font-bold text-slate-800">{formatValue(stats.max, valueType)}</p>
+            <p className="text-[10px] uppercase text-muted-fg font-medium">Max</p>
+            <p className="text-sm font-bold text-foreground">{formatValue(stats.max, valueType)}</p>
           </div>
           <div className="text-center">
-            <p className="text-[10px] uppercase text-slate-500 font-medium">Min</p>
-            <p className="text-sm font-bold text-slate-800">{formatValue(stats.min, valueType)}</p>
+            <p className="text-[10px] uppercase text-muted-fg font-medium">Min</p>
+            <p className="text-sm font-bold text-foreground">{formatValue(stats.min, valueType)}</p>
           </div>
           <div className="text-center">
-            <p className="text-[10px] uppercase text-slate-500 font-medium">CAGR</p>
+            <p className="text-[10px] uppercase text-muted-fg font-medium">CAGR</p>
             <p className={`text-sm font-bold ${getGrowthColor(stats.cagr)}`}>
               {stats.cagr !== null ? `${stats.cagr > 0 ? '+' : ''}${stats.cagr.toFixed(1)}%` : '--'}
             </p>
@@ -497,13 +497,13 @@ export function FinancialMetricChart({
               </linearGradient>
             </defs>
             
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
             
             <XAxis
               dataKey="period"
-              tick={{ fontSize: 11, fill: '#64748b' }}
+              tick={{ fontSize: 11, fill: 'var(--color-muted-fg)' }}
               tickLine={false}
-              axisLine={{ stroke: '#e2e8f0' }}
+              axisLine={{ stroke: 'var(--color-border)' }}
               angle={-45}
               textAnchor="end"
               height={60}
@@ -511,9 +511,9 @@ export function FinancialMetricChart({
             />
             
             <YAxis
-              tick={{ fontSize: 11, fill: '#64748b' }}
+              tick={{ fontSize: 11, fill: 'var(--color-muted-fg)' }}
               tickLine={false}
-              axisLine={{ stroke: '#e2e8f0' }}
+              axisLine={{ stroke: 'var(--color-border)' }}
               tickFormatter={(v) => formatValueCompact(v, valueType)}
               width={70}
             />
@@ -529,10 +529,10 @@ export function FinancialMetricChart({
               labelStyle={{ color: '#f1f5f9', fontWeight: 700, fontSize: '14px', marginBottom: '8px' }}
               itemStyle={{ color: '#cbd5e1', fontSize: '13px' }}
               formatter={(value: number) => [formatValue(value, valueType), metricLabel]}
-              cursor={{ stroke: '#94a3b8', strokeWidth: 1, strokeDasharray: '5 5' }}
+              cursor={{ stroke: 'var(--color-muted-fg)', strokeWidth: 1, strokeDasharray: '5 5' }}
             />
 
-            {stats && <ReferenceLine y={stats.avg} stroke="#94a3b8" strokeDasharray="5 5" label={{ value: 'Avg', fill: '#94a3b8', fontSize: 10 }} />}
+            {stats && <ReferenceLine y={stats.avg} stroke="var(--color-muted-fg)" strokeDasharray="5 5" label={{ value: 'Avg', fill: 'var(--color-muted-fg)', fontSize: 10 }} />}
 
             <Area
               type="monotone"
@@ -558,7 +558,7 @@ export function FinancialMetricChart({
               stroke="#1e40af"
               strokeWidth={2}
               dot={{ fill: '#1e40af', r: 4 }}
-              activeDot={{ fill: '#1e40af', r: 6, stroke: '#fff', strokeWidth: 2 }}
+              activeDot={{ fill: '#1e40af', r: 6, stroke: 'var(--color-bg)', strokeWidth: 2 }}
             />
           </ComposedChart>
         </ResponsiveContainer>
@@ -575,22 +575,22 @@ export function FinancialMetricChart({
       )}
 
       {/* Footer Legend */}
-      <div className="px-4 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-        <div className="flex items-center gap-4 text-xs text-slate-500">
+      <div className="px-4 py-2 border-t border-border bg-surface-hover flex items-center justify-between">
+        <div className="flex items-center gap-4 text-xs text-muted-fg">
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded bg-blue-600" />
             <span>Latest Period</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded bg-blue-400" />
+            <div className="w-3 h-3 rounded bg-primary/60" />
             <span>Historical</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-6 h-0.5 bg-slate-400" style={{ borderStyle: 'dashed' }} />
+            <div className="w-6 h-0.5 bg-muted-fg" style={{ borderStyle: 'dashed' }} />
             <span>Average</span>
           </div>
         </div>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-muted-fg">
           Showing {chartData.length} periods
         </p>
       </div>

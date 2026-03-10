@@ -37,9 +37,9 @@ export const AutoBarChart = memo(function AutoBarChart({ headers, rows }: AutoCh
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     return (
-      <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
-        <p className="font-semibold text-slate-800">{label}</p>
-        <p className="text-indigo-600 font-mono">
+      <div className="bg-surface border border-border rounded-lg shadow-lg px-3 py-2 text-[11px]">
+        <p className="font-semibold text-foreground">{label}</p>
+        <p className="text-primary font-mono">
           {headers[valueColIdx]}: {payload[0]?.value?.toLocaleString()}
         </p>
       </div>
@@ -47,20 +47,20 @@ export const AutoBarChart = memo(function AutoBarChart({ headers, rows }: AutoCh
   };
 
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-border/80 bg-surface p-4 shadow-sm">
       <div className="flex items-center gap-2 mb-3">
-        <BarChart3 className="w-4 h-4 text-indigo-500" />
-        <span className="text-[12px] font-semibold text-slate-700">
+        <BarChart3 className="w-4 h-4 text-primary" />
+        <span className="text-[12px] font-semibold text-foreground">
           {headers[valueColIdx]} by {headers[0]}
         </span>
       </div>
       <div style={{ width: '100%', height: 240 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
             <XAxis
               dataKey="name"
-              tick={{ fontSize: 10, fill: '#94a3b8' }}
+              tick={{ fontSize: 10, fill: 'var(--color-muted-fg)' }}
               axisLine={false}
               tickLine={false}
               interval={0}
@@ -69,7 +69,7 @@ export const AutoBarChart = memo(function AutoBarChart({ headers, rows }: AutoCh
               height={data.length > 10 ? 60 : 30}
             />
             <YAxis
-              tick={{ fontSize: 10, fill: '#94a3b8' }}
+              tick={{ fontSize: 10, fill: 'var(--color-muted-fg)' }}
               axisLine={false}
               tickLine={false}
               width={55}

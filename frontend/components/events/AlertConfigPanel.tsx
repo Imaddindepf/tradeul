@@ -28,7 +28,7 @@ type TabId = 'alerts' | 'filters' | 'strategies';
 function DirectionIcon({ direction }: { direction: string }) {
   if (direction === 'bullish') return <TrendingUp className="w-3 h-3 text-emerald-500" />;
   if (direction === 'bearish') return <TrendingDown className="w-3 h-3 text-rose-500" />;
-  return <Minus className="w-3 h-3 text-slate-400" />;
+  return <Minus className="w-3 h-3 text-muted-fg" />;
 }
 
 const UNIT_MUL: Record<string, number> = { '': 1, K: 1e3, M: 1e6, B: 1e9 };
@@ -68,20 +68,20 @@ function FilterInput({ label, minValue, maxValue, onMinChange, onMaxChange, suff
   const mul = UNIT_MUL[unit] || 1;
   const toDisp = (raw?: number) => raw !== undefined ? raw / mul : undefined;
   const toRaw = (v?: number) => v !== undefined ? v * mul : undefined;
-  const inputCls = "flex-1 min-w-0 px-1.5 py-[3px] text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-mono text-right tabular-nums";
+  const inputCls = "flex-1 min-w-0 px-1.5 py-[3px] text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface font-mono text-right tabular-nums";
   return (
     <div className="flex items-center gap-1.5 px-3 py-[3px]">
-      <span className="text-[11px] text-slate-600 w-16 flex-shrink-0 font-medium truncate">{label}</span>
+      <span className="text-[11px] text-foreground/70 w-24 flex-shrink-0 font-medium">{label}</span>
       <FmtNum value={toDisp(minValue)} onChange={v => onMinChange(toRaw(v))} placeholder={phMin || 'min'} className={inputCls} />
-      <span className="text-slate-300 text-[9px]">-</span>
+      <span className="text-muted-fg/50 text-[9px]">-</span>
       <FmtNum value={toDisp(maxValue)} onChange={v => onMaxChange(toRaw(v))} placeholder={phMax || 'max'} className={inputCls} />
       {unitOpts ? (
         <select value={unit} onChange={e => setUnit(e.target.value)}
-          className="w-9 py-[2px] text-[10px] text-slate-500 border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer appearance-none text-center">
+          className="w-9 py-[2px] text-[10px] text-muted-fg border border-border rounded bg-surface focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer appearance-none text-center">
           {unitOpts.map(u => <option key={u} value={u}>{u || 'sh'}</option>)}
         </select>
       ) : suffix ? (
-        <span className="text-[10px] text-slate-400 w-4 text-center">{suffix}</span>
+        <span className="text-[10px] text-muted-fg w-4 text-center">{suffix}</span>
       ) : <span className="w-4" />}
     </div>
   );
@@ -130,22 +130,22 @@ function SelectAlertsTab({ selectedEventTypes, onEventTypesChange, locale }: {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-slate-200">
+      <div className="px-3 py-2 border-b border-border">
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-fg" />
           <input type="text"
             placeholder={locale === 'es' ? 'Buscar alertas...' : 'Search alerts...'}
             value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary bg-surface" />
         </div>
         <div className="flex items-center justify-between mt-1.5">
-          <span className="text-[10px] text-slate-500">{selectedEventTypes.length}/{total} selected</span>
+          <span className="text-[10px] text-muted-fg">{selectedEventTypes.length}/{total} selected</span>
           <div className="flex gap-1.5">
             <button onClick={() => onEventTypesChange(ALERT_CATALOG.filter(a => a.active).map(a => a.eventType))}
-              className="text-[10px] text-blue-600 hover:text-blue-800 font-medium">All</button>
-            <span className="text-slate-300">|</span>
+              className="text-[10px] text-primary hover:text-primary font-medium">All</button>
+            <span className="text-muted-fg/50">|</span>
             <button onClick={() => onEventTypesChange([])}
-              className="text-[10px] text-blue-600 hover:text-blue-800 font-medium">None</button>
+              className="text-[10px] text-primary hover:text-primary font-medium">None</button>
           </div>
         </div>
       </div>
@@ -156,19 +156,19 @@ function SelectAlertsTab({ selectedEventTypes, onEventTypesChange, locale }: {
           const selCount = catTypes.filter(t => selectedSet.has(t)).length;
           const allSel = selCount === catTypes.length && catTypes.length > 0;
           return (
-            <div key={category.id} className="border-b border-slate-100 last:border-0">
+            <div key={category.id} className="border-b border-white/[0.06] last:border-0">
               <button onClick={() => toggleCat(category.id)}
-                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 transition-colors">
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--color-table-row-hover)] transition-colors">
                 {isExp
-                  ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                  : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-                <span className="text-xs font-semibold text-slate-700 flex-1 text-left">
+                  ? <ChevronDown className="w-3.5 h-3.5 text-muted-fg" />
+                  : <ChevronRight className="w-3.5 h-3.5 text-muted-fg" />}
+                <span className="text-xs font-semibold text-foreground flex-1 text-left">
                   {locale === 'es' ? category.nameEs : category.name}
                 </span>
                 <span
                   onClick={e => { e.stopPropagation(); toggleCatAll(alerts); }}
                   className={'px-1.5 py-0.5 rounded text-[10px] font-medium cursor-pointer '
-                    + (allSel ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500')}>
+                    + (allSel ? 'bg-primary/15 text-primary' : 'bg-surface-inset text-muted-fg')}>
                   {allSel ? '\u2713' : selCount + '/' + catTypes.length}
                 </span>
               </button>
@@ -179,20 +179,20 @@ function SelectAlertsTab({ selectedEventTypes, onEventTypesChange, locale }: {
                     return (
                       <button key={alert.code} onClick={() => toggleAlert(alert.eventType)}
                         className={'w-full flex items-center gap-2 px-3 py-1 ml-3 mr-2 rounded-md transition-colors text-left '
-                          + (sel ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-slate-50')}>
+                          + (sel ? 'bg-primary/10 hover:bg-primary/15' : 'hover:bg-[var(--color-table-row-hover)]')}>
                         <div className={'w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center '
-                          + (sel ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white')}>
+                          + (sel ? 'bg-primary border-primary' : 'border-white/[0.1] bg-surface')}>
                           {sel && <Check className="w-2.5 h-2.5 text-white" />}
                         </div>
                         <DirectionIcon direction={alert.direction} />
                         <span className={'text-[10px] font-mono font-bold w-10 flex-shrink-0 '
-                          + (sel ? 'text-blue-700' : 'text-slate-500')}>{alert.code}</span>
+                          + (sel ? 'text-primary' : 'text-muted-fg')}>{alert.code}</span>
                         <span className={'text-xs flex-1 truncate '
-                          + (sel ? 'text-slate-800 font-medium' : 'text-slate-600')}>
+                          + (sel ? 'text-foreground font-medium' : 'text-foreground/80')}>
                           {locale === 'es' ? alert.nameEs : alert.name}
                         </span>
                         {alert.phase > 1 && (
-                          <span className="text-[9px] font-medium px-1 py-0.5 rounded bg-amber-50 text-amber-600">
+                          <span className="text-[9px] font-medium px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">
                             P{alert.phase}
                           </span>
                         )}
@@ -230,8 +230,8 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-        <span className="text-xs font-semibold text-slate-700">
+      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+        <span className="text-xs font-semibold text-foreground">
           {locale === 'es' ? 'Filtros' : 'Filters'}
         </span>
         {numCount > 0 && (
@@ -246,14 +246,14 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
       </div>
       <div className="flex-1 overflow-y-auto min-h-0 py-1 space-y-2">
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Price</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Price</div>
           <FilterInput label="Price" minValue={currentFilters.min_price} maxValue={currentFilters.max_price}
             onMinChange={v => update('min_price', v)} onMaxChange={v => update('max_price', v)} suffix="$" phMin="0.50" phMax="500" />
           <FilterInput label="VWAP" minValue={currentFilters.min_vwap} maxValue={currentFilters.max_vwap}
             onMinChange={v => update('min_vwap', v)} onMaxChange={v => update('max_vwap', v)} suffix="$" phMin="5" phMax="200" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Change</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Change</div>
           <FilterInput label="Change %" minValue={currentFilters.min_change_percent} maxValue={currentFilters.max_change_percent}
             onMinChange={v => update('min_change_percent', v)} onMaxChange={v => update('max_change_percent', v)} suffix="%" phMin="-10" phMax="50" />
           <FilterInput label="From Open" minValue={currentFilters.min_change_from_open} maxValue={currentFilters.max_change_from_open}
@@ -262,43 +262,43 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             onMinChange={v => update('min_gap_percent', v)} onMaxChange={v => update('max_gap_percent', v)} suffix="%" phMin="-10" phMax="30" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Volume</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Volume</div>
           <FilterInput label="RVOL" minValue={currentFilters.min_rvol} maxValue={currentFilters.max_rvol}
             onMinChange={v => update('min_rvol', v)} onMaxChange={v => update('max_rvol', v)} suffix="x" phMin="1" phMax="10" />
           <FilterInput label="Volume" minValue={currentFilters.min_volume} maxValue={currentFilters.max_volume}
             onMinChange={v => update('min_volume', v)} onMaxChange={v => update('max_volume', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="10" phMax="500" />
-          <FilterInput label="Vol 1m" minValue={currentFilters.min_vol_1min} maxValue={currentFilters.max_vol_1min}
+          <FilterInput label="Volume 1 Min" minValue={currentFilters.min_vol_1min} maxValue={currentFilters.max_vol_1min}
             onMinChange={v => update('min_vol_1min', v)} onMaxChange={v => update('max_vol_1min', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="1" phMax="50" />
-          <FilterInput label="Vol 5m" minValue={currentFilters.min_vol_5min} maxValue={currentFilters.max_vol_5min}
+          <FilterInput label="Volume 5 Min" minValue={currentFilters.min_vol_5min} maxValue={currentFilters.max_vol_5min}
             onMinChange={v => update('min_vol_5min', v)} onMaxChange={v => update('max_vol_5min', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="1" phMax="100" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Volume (cont.)</div>
-          <FilterInput label="Vol 10m" minValue={currentFilters.min_vol_10min} maxValue={currentFilters.max_vol_10min}
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Volume (cont.)</div>
+          <FilterInput label="Volume 10 Min" minValue={currentFilters.min_vol_10min} maxValue={currentFilters.max_vol_10min}
             onMinChange={v => update('min_vol_10min', v)} onMaxChange={v => update('max_vol_10min', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="5" phMax="200" />
-          <FilterInput label="Vol 15m" minValue={currentFilters.min_vol_15min} maxValue={currentFilters.max_vol_15min}
+          <FilterInput label="Volume 15 Min" minValue={currentFilters.min_vol_15min} maxValue={currentFilters.max_vol_15min}
             onMinChange={v => update('min_vol_15min', v)} onMaxChange={v => update('max_vol_15min', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="10" phMax="500" />
-          <FilterInput label="Vol 30m" minValue={currentFilters.min_vol_30min} maxValue={currentFilters.max_vol_30min}
+          <FilterInput label="Volume 30 Min" minValue={currentFilters.min_vol_30min} maxValue={currentFilters.max_vol_30min}
             onMinChange={v => update('min_vol_30min', v)} onMaxChange={v => update('max_vol_30min', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="20" phMax="1000" />
-          <FilterInput label="Vol 1m %" minValue={currentFilters.min_vol_1min_pct} maxValue={currentFilters.max_vol_1min_pct}
+          <FilterInput label="Volume 1m %" minValue={currentFilters.min_vol_1min_pct} maxValue={currentFilters.max_vol_1min_pct}
             onMinChange={v => update('min_vol_1min_pct', v)} onMaxChange={v => update('max_vol_1min_pct', v)}
             suffix="%" phMin="100" phMax="500" />
-          <FilterInput label="Vol 5m %" minValue={currentFilters.min_vol_5min_pct} maxValue={currentFilters.max_vol_5min_pct}
+          <FilterInput label="Volume 5m %" minValue={currentFilters.min_vol_5min_pct} maxValue={currentFilters.max_vol_5min_pct}
             onMinChange={v => update('min_vol_5min_pct', v)} onMaxChange={v => update('max_vol_5min_pct', v)}
             suffix="%" phMin="100" phMax="500" />
-          <FilterInput label="Vol 10m %" minValue={currentFilters.min_vol_10min_pct} maxValue={currentFilters.max_vol_10min_pct}
+          <FilterInput label="Volume 10m %" minValue={currentFilters.min_vol_10min_pct} maxValue={currentFilters.max_vol_10min_pct}
             onMinChange={v => update('min_vol_10min_pct', v)} onMaxChange={v => update('max_vol_10min_pct', v)}
             suffix="%" phMin="100" phMax="500" />
           <FilterInput label="Vol 15m %" minValue={currentFilters.min_vol_15min_pct} maxValue={currentFilters.max_vol_15min_pct}
             onMinChange={v => update('min_vol_15min_pct', v)} onMaxChange={v => update('max_vol_15min_pct', v)}
             suffix="%" phMin="100" phMax="500" />
-          <FilterInput label="Vol 30m %" minValue={currentFilters.min_vol_30min_pct} maxValue={currentFilters.max_vol_30min_pct}
+          <FilterInput label="Volume 30m %" minValue={currentFilters.min_vol_30min_pct} maxValue={currentFilters.max_vol_30min_pct}
             onMinChange={v => update('min_vol_30min_pct', v)} onMaxChange={v => update('max_vol_30min_pct', v)}
             suffix="%" phMin="100" phMax="500" />
           <FilterInput label="Range 2m $" minValue={currentFilters.min_range_2min} maxValue={currentFilters.max_range_2min}
@@ -339,20 +339,20 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             suffix="%" phMin="50" phMax="300" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Fundamentals</div>
-          <FilterInput label="Mkt Cap" minValue={currentFilters.min_market_cap} maxValue={currentFilters.max_market_cap}
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Fundamentals</div>
+          <FilterInput label="Market Cap" minValue={currentFilters.min_market_cap} maxValue={currentFilters.max_market_cap}
             onMinChange={v => update('min_market_cap', v)} onMaxChange={v => update('max_market_cap', v)}
             unitOpts={['K', 'M', 'B']} defaultUnit="M" phMin="50" phMax="10" />
           <FilterInput label="Float" minValue={currentFilters.min_float_shares} maxValue={currentFilters.max_float_shares}
             onMinChange={v => update('min_float_shares', v)} onMaxChange={v => update('max_float_shares', v)}
             unitOpts={['K', 'M', 'B']} defaultUnit="M" phMin="1" phMax="100" />
-          <FilterInput label="Shares Out" minValue={currentFilters.min_shares_outstanding} maxValue={currentFilters.max_shares_outstanding}
+          <FilterInput label="Shares Outstanding" minValue={currentFilters.min_shares_outstanding} maxValue={currentFilters.max_shares_outstanding}
             onMinChange={v => update('min_shares_outstanding', v)} onMaxChange={v => update('max_shares_outstanding', v)}
             unitOpts={['K', 'M', 'B']} defaultUnit="M" phMin="1" phMax="500" />
           <div className="flex items-center gap-1.5 px-3 py-[3px]">
-            <span className="text-[11px] text-slate-600 w-16 flex-shrink-0 font-medium truncate">Type</span>
+            <span className="text-[11px] text-foreground/80 w-16 flex-shrink-0 font-medium truncate">Type</span>
             <select value={currentFilters.security_type || ''} onChange={e => update('security_type', e.target.value || undefined)}
-              className="flex-1 px-1.5 py-[3px] text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+              className="flex-1 px-1.5 py-[3px] text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface">
               <option value="">All</option>
               <option value="CS">Stocks (CS)</option>
               <option value="ETF">ETF</option>
@@ -362,22 +362,22 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             <span className="w-4" />
           </div>
           <div className="flex items-center gap-1.5 px-3 py-[3px]">
-            <span className="text-[11px] text-slate-600 w-16 flex-shrink-0 font-medium truncate">Sector</span>
+            <span className="text-[11px] text-foreground/80 w-16 flex-shrink-0 font-medium truncate">Sector</span>
             <input type="text" value={currentFilters.sector || ''} onChange={e => update('sector', e.target.value || undefined)}
               placeholder="e.g. Technology"
-              className="flex-1 px-1.5 py-[3px] text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+              className="flex-1 px-1.5 py-[3px] text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface" />
             <span className="w-4" />
           </div>
           <div className="flex items-center gap-1.5 px-3 py-[3px]">
-            <span className="text-[11px] text-slate-600 w-16 flex-shrink-0 font-medium truncate">Industry</span>
+            <span className="text-[11px] text-foreground/80 w-16 flex-shrink-0 font-medium truncate">Industry</span>
             <input type="text" value={currentFilters.industry || ''} onChange={e => update('industry', e.target.value || undefined)}
               placeholder="e.g. Biotechnology"
-              className="flex-1 px-1.5 py-[3px] text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+              className="flex-1 px-1.5 py-[3px] text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface" />
             <span className="w-4" />
           </div>
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Quote</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Quote</div>
           <FilterInput label="Bid" minValue={currentFilters.min_bid} maxValue={currentFilters.max_bid}
             onMinChange={v => update('min_bid', v)} onMaxChange={v => update('max_bid', v)} suffix="$" />
           <FilterInput label="Ask" minValue={currentFilters.min_ask} maxValue={currentFilters.max_ask}
@@ -390,7 +390,7 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             onMinChange={v => update('min_spread', v)} onMaxChange={v => update('max_spread', v)} suffix="$" phMin="0.01" phMax="0.50" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Intraday Technical</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Intraday Technical</div>
           <FilterInput label="ATR %" minValue={currentFilters.min_atr_percent} maxValue={currentFilters.max_atr_percent}
             onMinChange={v => update('min_atr_percent', v)} onMaxChange={v => update('max_atr_percent', v)} suffix="%" phMin="2" phMax="10" />
           <FilterInput label="RSI" minValue={currentFilters.min_rsi} maxValue={currentFilters.max_rsi}
@@ -411,51 +411,51 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             onMinChange={v => update('min_sma_200', v)} onMaxChange={v => update('max_sma_200', v)} suffix="$" />
           <FilterInput label="MACD" minValue={currentFilters.min_macd_line} maxValue={currentFilters.max_macd_line}
             onMinChange={v => update('min_macd_line', v)} onMaxChange={v => update('max_macd_line', v)} phMin="-5" phMax="5" />
-          <FilterInput label="MACD Hist" minValue={currentFilters.min_macd_hist} maxValue={currentFilters.max_macd_hist}
+          <FilterInput label="MACD Histogram" minValue={currentFilters.min_macd_hist} maxValue={currentFilters.max_macd_hist}
             onMinChange={v => update('min_macd_hist', v)} onMaxChange={v => update('max_macd_hist', v)} phMin="-2" phMax="2" />
-          <FilterInput label="Stoch %K" minValue={currentFilters.min_stoch_k} maxValue={currentFilters.max_stoch_k}
+          <FilterInput label="Stochastic %K" minValue={currentFilters.min_stoch_k} maxValue={currentFilters.max_stoch_k}
             onMinChange={v => update('min_stoch_k', v)} onMaxChange={v => update('max_stoch_k', v)} phMin="20" phMax="80" />
-          <FilterInput label="Stoch %D" minValue={currentFilters.min_stoch_d} maxValue={currentFilters.max_stoch_d}
+          <FilterInput label="Stochastic %D" minValue={currentFilters.min_stoch_d} maxValue={currentFilters.max_stoch_d}
             onMinChange={v => update('min_stoch_d', v)} onMaxChange={v => update('max_stoch_d', v)} phMin="20" phMax="80" />
           <FilterInput label="ADX" minValue={currentFilters.min_adx_14} maxValue={currentFilters.max_adx_14}
             onMinChange={v => update('min_adx_14', v)} onMaxChange={v => update('max_adx_14', v)} phMin="20" phMax="50" />
           <FilterInput label="BB Upper" minValue={currentFilters.min_bb_upper} maxValue={currentFilters.max_bb_upper}
             onMinChange={v => update('min_bb_upper', v)} onMaxChange={v => update('max_bb_upper', v)} suffix="$" />
-          <FilterInput label="BB Lower" minValue={currentFilters.min_bb_lower} maxValue={currentFilters.max_bb_lower}
+          <FilterInput label="Bollinger Lower" minValue={currentFilters.min_bb_lower} maxValue={currentFilters.max_bb_lower}
             onMinChange={v => update('min_bb_lower', v)} onMaxChange={v => update('max_bb_lower', v)} suffix="$" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Daily Indicators</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Daily Indicators</div>
           <FilterInput label="D SMA 20" minValue={currentFilters.min_daily_sma_20} maxValue={currentFilters.max_daily_sma_20}
             onMinChange={v => update('min_daily_sma_20', v)} onMaxChange={v => update('max_daily_sma_20', v)} suffix="$" />
-          <FilterInput label="D SMA 50" minValue={currentFilters.min_daily_sma_50} maxValue={currentFilters.max_daily_sma_50}
+          <FilterInput label="Daily SMA 50" minValue={currentFilters.min_daily_sma_50} maxValue={currentFilters.max_daily_sma_50}
             onMinChange={v => update('min_daily_sma_50', v)} onMaxChange={v => update('max_daily_sma_50', v)} suffix="$" />
-          <FilterInput label="D SMA 200" minValue={currentFilters.min_daily_sma_200} maxValue={currentFilters.max_daily_sma_200}
+          <FilterInput label="Daily SMA 200" minValue={currentFilters.min_daily_sma_200} maxValue={currentFilters.max_daily_sma_200}
             onMinChange={v => update('min_daily_sma_200', v)} onMaxChange={v => update('max_daily_sma_200', v)} suffix="$" />
           <FilterInput label="Daily RSI" minValue={currentFilters.min_daily_rsi} maxValue={currentFilters.max_daily_rsi}
             onMinChange={v => update('min_daily_rsi', v)} onMaxChange={v => update('max_daily_rsi', v)} phMin="20" phMax="80" />
-          <FilterInput label="52w High" minValue={currentFilters.min_high_52w} maxValue={currentFilters.max_high_52w}
+          <FilterInput label="52 Week High" minValue={currentFilters.min_high_52w} maxValue={currentFilters.max_high_52w}
             onMinChange={v => update('min_high_52w', v)} onMaxChange={v => update('max_high_52w', v)} suffix="$" />
-          <FilterInput label="52w Low" minValue={currentFilters.min_low_52w} maxValue={currentFilters.max_low_52w}
+          <FilterInput label="52 Week Low" minValue={currentFilters.min_low_52w} maxValue={currentFilters.max_low_52w}
             onMinChange={v => update('min_low_52w', v)} onMaxChange={v => update('max_low_52w', v)} suffix="$" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Time Windows</div>
-          <FilterInput label="Chg 1m" minValue={currentFilters.min_chg_1min} maxValue={currentFilters.max_chg_1min}
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Time Windows</div>
+          <FilterInput label="Change 1 Min" minValue={currentFilters.min_chg_1min} maxValue={currentFilters.max_chg_1min}
             onMinChange={v => update('min_chg_1min', v)} onMaxChange={v => update('max_chg_1min', v)} suffix="%" phMin="-2" phMax="5" />
-          <FilterInput label="Chg 5m" minValue={currentFilters.min_chg_5min} maxValue={currentFilters.max_chg_5min}
+          <FilterInput label="Change 5 Min" minValue={currentFilters.min_chg_5min} maxValue={currentFilters.max_chg_5min}
             onMinChange={v => update('min_chg_5min', v)} onMaxChange={v => update('max_chg_5min', v)} suffix="%" phMin="-5" phMax="10" />
-          <FilterInput label="Chg 10m" minValue={currentFilters.min_chg_10min} maxValue={currentFilters.max_chg_10min}
+          <FilterInput label="Change 10 Min" minValue={currentFilters.min_chg_10min} maxValue={currentFilters.max_chg_10min}
             onMinChange={v => update('min_chg_10min', v)} onMaxChange={v => update('max_chg_10min', v)} suffix="%" phMin="-5" phMax="15" />
           <FilterInput label="Chg 15m" minValue={currentFilters.min_chg_15min} maxValue={currentFilters.max_chg_15min}
             onMinChange={v => update('min_chg_15min', v)} onMaxChange={v => update('max_chg_15min', v)} suffix="%" phMin="-8" phMax="20" />
-          <FilterInput label="Chg 30m" minValue={currentFilters.min_chg_30min} maxValue={currentFilters.max_chg_30min}
+          <FilterInput label="Change 30 Min" minValue={currentFilters.min_chg_30min} maxValue={currentFilters.max_chg_30min}
             onMinChange={v => update('min_chg_30min', v)} onMaxChange={v => update('max_chg_30min', v)} suffix="%" phMin="-10" phMax="25" />
-          <FilterInput label="Chg 60m" minValue={currentFilters.min_chg_60min} maxValue={currentFilters.max_chg_60min}
+          <FilterInput label="Change 60 Min" minValue={currentFilters.min_chg_60min} maxValue={currentFilters.max_chg_60min}
             onMinChange={v => update('min_chg_60min', v)} onMaxChange={v => update('max_chg_60min', v)} suffix="%" phMin="-15" phMax="30" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Trades Anomaly</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Trades Anomaly</div>
           <FilterInput label="Trades" minValue={currentFilters.min_trades_today} maxValue={currentFilters.max_trades_today}
             onMinChange={v => update('min_trades_today', v)} onMaxChange={v => update('max_trades_today', v)}
             unitOpts={['', 'K']} defaultUnit="" phMin="100" phMax="10000" />
@@ -463,7 +463,7 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             onMinChange={v => update('min_trades_z_score', v)} onMaxChange={v => update('max_trades_z_score', v)} phMin="1" phMax="5" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Derived</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Derived</div>
           <FilterInput label="$ Volume" minValue={currentFilters.min_dollar_volume} maxValue={currentFilters.max_dollar_volume}
             onMinChange={v => update('min_dollar_volume', v)} onMaxChange={v => update('max_dollar_volume', v)}
             unitOpts={['', 'K', 'M', 'B']} defaultUnit="M" phMin="1" phMax="100" />
@@ -473,41 +473,41 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             onMinChange={v => update('min_todays_range_pct', v)} onMaxChange={v => update('max_todays_range_pct', v)} phMin="1" phMax="20" />
           <FilterInput label="B/A Ratio" minValue={currentFilters.min_bid_ask_ratio} maxValue={currentFilters.max_bid_ask_ratio}
             onMinChange={v => update('min_bid_ask_ratio', v)} onMaxChange={v => update('max_bid_ask_ratio', v)} phMin="0.5" phMax="3" />
-          <FilterInput label="Float Turn" minValue={currentFilters.min_float_turnover} maxValue={currentFilters.max_float_turnover}
+          <FilterInput label="Float Turnover" minValue={currentFilters.min_float_turnover} maxValue={currentFilters.max_float_turnover}
             onMinChange={v => update('min_float_turnover', v)} onMaxChange={v => update('max_float_turnover', v)} phMin="0.01" phMax="5" />
-          <FilterInput label="Pos Range" minValue={currentFilters.min_pos_in_range} maxValue={currentFilters.max_pos_in_range}
+          <FilterInput label="Position in Range" minValue={currentFilters.min_pos_in_range} maxValue={currentFilters.max_pos_in_range}
             onMinChange={v => update('min_pos_in_range', v)} onMaxChange={v => update('max_pos_in_range', v)} phMin="0" phMax="100" />
-          <FilterInput label="Below Hi" minValue={currentFilters.min_below_high} maxValue={currentFilters.max_below_high}
+          <FilterInput label="Below High" minValue={currentFilters.min_below_high} maxValue={currentFilters.max_below_high}
             onMinChange={v => update('min_below_high', v)} onMaxChange={v => update('max_below_high', v)} phMin="0" phMax="5" />
-          <FilterInput label="Above Lo" minValue={currentFilters.min_above_low} maxValue={currentFilters.max_above_low}
+          <FilterInput label="Above Low" minValue={currentFilters.min_above_low} maxValue={currentFilters.max_above_low}
             onMinChange={v => update('min_above_low', v)} onMaxChange={v => update('max_above_low', v)} phMin="0" phMax="5" />
           <FilterInput label="Pos Open" minValue={currentFilters.min_pos_of_open} maxValue={currentFilters.max_pos_of_open}
             onMinChange={v => update('min_pos_of_open', v)} onMaxChange={v => update('max_pos_of_open', v)} suffix="%" phMin="0" phMax="100" />
-          <FilterInput label="Prev Vol" minValue={currentFilters.min_prev_day_volume} maxValue={currentFilters.max_prev_day_volume}
+          <FilterInput label="Previous Volume" minValue={currentFilters.min_prev_day_volume} maxValue={currentFilters.max_prev_day_volume}
             onMinChange={v => update('min_prev_day_volume', v)} onMaxChange={v => update('max_prev_day_volume', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="100" phMax="10000" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Distance %</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Distance %</div>
           <FilterInput label="Dist VWAP" minValue={currentFilters.min_dist_from_vwap} maxValue={currentFilters.max_dist_from_vwap}
             onMinChange={v => update('min_dist_from_vwap', v)} onMaxChange={v => update('max_dist_from_vwap', v)} phMin="-10" phMax="10" />
-          <FilterInput label="Dist SMA5" minValue={currentFilters.min_dist_sma_5} maxValue={currentFilters.max_dist_sma_5}
+          <FilterInput label="Distance SMA 5" minValue={currentFilters.min_dist_sma_5} maxValue={currentFilters.max_dist_sma_5}
             onMinChange={v => update('min_dist_sma_5', v)} onMaxChange={v => update('max_dist_sma_5', v)} phMin="-5" phMax="5" />
           <FilterInput label="Dist SMA8" minValue={currentFilters.min_dist_sma_8} maxValue={currentFilters.max_dist_sma_8}
             onMinChange={v => update('min_dist_sma_8', v)} onMaxChange={v => update('max_dist_sma_8', v)} phMin="-5" phMax="5" />
-          <FilterInput label="Dist SMA20" minValue={currentFilters.min_dist_sma_20} maxValue={currentFilters.max_dist_sma_20}
+          <FilterInput label="Distance SMA 20" minValue={currentFilters.min_dist_sma_20} maxValue={currentFilters.max_dist_sma_20}
             onMinChange={v => update('min_dist_sma_20', v)} onMaxChange={v => update('max_dist_sma_20', v)} phMin="-10" phMax="10" />
-          <FilterInput label="Dist SMA50" minValue={currentFilters.min_dist_sma_50} maxValue={currentFilters.max_dist_sma_50}
+          <FilterInput label="Distance SMA 50" minValue={currentFilters.min_dist_sma_50} maxValue={currentFilters.max_dist_sma_50}
             onMinChange={v => update('min_dist_sma_50', v)} onMaxChange={v => update('max_dist_sma_50', v)} phMin="-20" phMax="20" />
-          <FilterInput label="Dist SMA200" minValue={currentFilters.min_dist_sma_200} maxValue={currentFilters.max_dist_sma_200}
+          <FilterInput label="Distance SMA 200" minValue={currentFilters.min_dist_sma_200} maxValue={currentFilters.max_dist_sma_200}
             onMinChange={v => update('min_dist_sma_200', v)} onMaxChange={v => update('max_dist_sma_200', v)} phMin="-50" phMax="50" />
-          <FilterInput label="Dist D.SMA20" minValue={currentFilters.min_dist_daily_sma_20} maxValue={currentFilters.max_dist_daily_sma_20}
+          <FilterInput label="Dist Daily SMA 20" minValue={currentFilters.min_dist_daily_sma_20} maxValue={currentFilters.max_dist_daily_sma_20}
             onMinChange={v => update('min_dist_daily_sma_20', v)} onMaxChange={v => update('max_dist_daily_sma_20', v)} phMin="-10" phMax="10" />
           <FilterInput label="Dist D.SMA50" minValue={currentFilters.min_dist_daily_sma_50} maxValue={currentFilters.max_dist_daily_sma_50}
             onMinChange={v => update('min_dist_daily_sma_50', v)} onMaxChange={v => update('max_dist_daily_sma_50', v)} phMin="-20" phMax="20" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Multi-Day Change %</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Multi-Day Change %</div>
           <FilterInput label="1 Day" minValue={currentFilters.min_change_1d} maxValue={currentFilters.max_change_1d}
             onMinChange={v => update('min_change_1d', v)} onMaxChange={v => update('max_change_1d', v)} phMin="-10" phMax="10" />
           <FilterInput label="3 Days" minValue={currentFilters.min_change_3d} maxValue={currentFilters.max_change_3d}
@@ -520,34 +520,34 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             onMinChange={v => update('min_change_20d', v)} onMaxChange={v => update('max_change_20d', v)} phMin="-50" phMax="200" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Avg Volume</div>
-          <FilterInput label="Avg 5D" minValue={currentFilters.min_avg_volume_5d} maxValue={currentFilters.max_avg_volume_5d}
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Avg Volume</div>
+          <FilterInput label="Average 5 Day" minValue={currentFilters.min_avg_volume_5d} maxValue={currentFilters.max_avg_volume_5d}
             onMinChange={v => update('min_avg_volume_5d', v)} onMaxChange={v => update('max_avg_volume_5d', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="100" phMax="5000" />
-          <FilterInput label="Avg 10D" minValue={currentFilters.min_avg_volume_10d} maxValue={currentFilters.max_avg_volume_10d}
+          <FilterInput label="Average 10 Day" minValue={currentFilters.min_avg_volume_10d} maxValue={currentFilters.max_avg_volume_10d}
             onMinChange={v => update('min_avg_volume_10d', v)} onMaxChange={v => update('max_avg_volume_10d', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="100" phMax="5000" />
-          <FilterInput label="Avg 20D" minValue={currentFilters.min_avg_volume_20d} maxValue={currentFilters.max_avg_volume_20d}
+          <FilterInput label="Average 20 Day" minValue={currentFilters.min_avg_volume_20d} maxValue={currentFilters.max_avg_volume_20d}
             onMinChange={v => update('min_avg_volume_20d', v)} onMaxChange={v => update('max_avg_volume_20d', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="100" phMax="5000" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">52W / Daily Extra</div>
-          <FilterInput label="From 52H %" minValue={currentFilters.min_from_52w_high} maxValue={currentFilters.max_from_52w_high}
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">52W / Daily Extra</div>
+          <FilterInput label="From 52W High %" minValue={currentFilters.min_from_52w_high} maxValue={currentFilters.max_from_52w_high}
             onMinChange={v => update('min_from_52w_high', v)} onMaxChange={v => update('max_from_52w_high', v)} phMin="-80" phMax="0" />
-          <FilterInput label="From 52L %" minValue={currentFilters.min_from_52w_low} maxValue={currentFilters.max_from_52w_low}
+          <FilterInput label="From 52W Low %" minValue={currentFilters.min_from_52w_low} maxValue={currentFilters.max_from_52w_low}
             onMinChange={v => update('min_from_52w_low', v)} onMaxChange={v => update('max_from_52w_low', v)} phMin="0" phMax="500" />
-          <FilterInput label="D. ADX" minValue={currentFilters.min_daily_adx_14} maxValue={currentFilters.max_daily_adx_14}
+          <FilterInput label="Daily ADX" minValue={currentFilters.min_daily_adx_14} maxValue={currentFilters.max_daily_adx_14}
             onMinChange={v => update('min_daily_adx_14', v)} onMaxChange={v => update('max_daily_adx_14', v)} phMin="20" phMax="50" />
-          <FilterInput label="D. ATR %" minValue={currentFilters.min_daily_atr_percent} maxValue={currentFilters.max_daily_atr_percent}
+          <FilterInput label="Daily ATR %" minValue={currentFilters.min_daily_atr_percent} maxValue={currentFilters.max_daily_atr_percent}
             onMinChange={v => update('min_daily_atr_percent', v)} onMaxChange={v => update('max_daily_atr_percent', v)} phMin="1" phMax="15" />
           <FilterInput label="D. BB Pos" minValue={currentFilters.min_daily_bb_position} maxValue={currentFilters.max_daily_bb_position}
             onMinChange={v => update('min_daily_bb_position', v)} onMaxChange={v => update('max_daily_bb_position', v)} phMin="0" phMax="100" />
         </div>
         <div>
-          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Symbols</div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Symbols</div>
           <div className="px-3 py-1.5">
-            <span className="text-xs text-slate-600 font-medium block mb-1">Include</span>
+            <span className="text-xs text-foreground/80 font-medium block mb-1">Include</span>
             <input type="text" value={(currentFilters.symbols_include || []).join(', ')}
               onChange={e => {
                 const v = e.target.value.trim();
@@ -555,10 +555,10 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
                   v ? v.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : undefined);
               }}
               placeholder="AAPL, TSLA..."
-              className="w-full px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-mono" />
+              className="w-full px-2 py-1 text-xs border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface font-mono" />
           </div>
           <div className="px-3 py-1.5">
-            <span className="text-xs text-slate-600 font-medium block mb-1">Exclude</span>
+            <span className="text-xs text-foreground/80 font-medium block mb-1">Exclude</span>
             <input type="text" value={(currentFilters.symbols_exclude || []).join(', ')}
               onChange={e => {
                 const v = e.target.value.trim();
@@ -566,7 +566,7 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
                   v ? v.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : undefined);
               }}
               placeholder="SPY, QQQ..."
-              className="w-full px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-mono" />
+              className="w-full px-2 py-1 text-xs border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface font-mono" />
           </div>
         </div>
       </div>
@@ -593,24 +593,24 @@ function StrategyItem({ name, description, alertCount, useCount, isFavorite, onL
   isFavorite?: boolean; onLoad: () => void; onDelete?: () => void; onToggleFav?: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-slate-50 transition-colors group">
+    <div className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-[var(--color-table-row-hover)] transition-colors group">
       <button onClick={onLoad} className="flex-1 text-left min-w-0">
-        <div className="text-xs font-medium text-slate-700 truncate">{name}</div>
-        {description && <div className="text-[10px] text-slate-400 truncate">{description}</div>}
-        <div className="text-[10px] text-slate-400">
+        <div className="text-xs font-medium text-foreground truncate">{name}</div>
+        {description && <div className="text-[10px] text-muted-fg truncate">{description}</div>}
+        <div className="text-[10px] text-muted-fg">
           {alertCount} alerts{useCount ? ` \u00b7 ${useCount}x used` : ''}
         </div>
       </button>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         {onToggleFav && (
           <button onClick={onToggleFav}
-            className={`p-0.5 rounded text-[10px] ${isFavorite ? 'text-blue-600' : 'text-slate-300 hover:text-slate-500'}`}
+            className={`p-0.5 rounded text-[10px] ${isFavorite ? 'text-primary' : 'text-muted-fg/50 hover:text-muted-fg'}`}
             title="Favorite"
           >\u2605</button>
         )}
         {onDelete && (
           <button onClick={onDelete}
-            className="p-0.5 text-slate-300 hover:text-rose-500 rounded transition-colors">
+            className="p-0.5 text-muted-fg/50 hover:text-rose-500 rounded transition-colors">
             <Trash2 className="w-3 h-3" />
           </button>
         )}
@@ -701,25 +701,25 @@ function StrategiesTab({ selectedEventTypes, currentFilters, onApplyPreset, loca
   return (
     <div className="flex flex-col h-full">
       {/* Save bar */}
-      <div className="px-3 py-2 border-b border-slate-200">
+      <div className="px-3 py-2 border-b border-border">
         {showSave ? (
           <div className="space-y-1.5">
             <div className="flex gap-1.5">
               <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
                 placeholder={locale === 'es' ? 'Nombre...' : 'Name...'} autoFocus
-                className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+                className="flex-1 px-2 py-1 text-xs border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface" />
               <button onClick={handleSave} disabled={!saveName.trim()}
-                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 transition-colors font-medium">
+                className="px-2 py-1 text-xs bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-40 transition-colors font-medium">
                 Save
               </button>
               <button onClick={() => { setShowSave(false); setSaveName(''); }}
-                className="px-1.5 py-1 text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                className="px-1.5 py-1 text-xs text-muted-fg hover:text-foreground/80 transition-colors">
                 x
               </button>
             </div>
             <select value={saveCategory} onChange={e => setSaveCategory(e.target.value)}
-              className="w-full px-2 py-1 text-[11px] border border-slate-200 rounded bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500">
+              className="w-full px-2 py-1 text-[11px] border border-border rounded bg-surface text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary">
               <option value="custom">Custom</option>
               <option value="bullish">Bullish</option>
               <option value="bearish">Bearish</option>
@@ -728,7 +728,7 @@ function StrategiesTab({ selectedEventTypes, currentFilters, onApplyPreset, loca
           </div>
         ) : (
           <button onClick={() => setShowSave(true)} disabled={selectedEventTypes.length === 0}
-            className="w-full px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors">
+            className="w-full px-3 py-1.5 text-xs font-medium text-primary border border-primary/30 rounded hover:bg-primary/10 disabled:opacity-40 transition-colors">
             {locale === 'es' ? 'Guardar Estrategia' : 'Save Strategy'}
           </button>
         )}
@@ -737,14 +737,14 @@ function StrategiesTab({ selectedEventTypes, currentFilters, onApplyPreset, loca
       {/* Folders */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading && (
-          <div className="px-3 py-3 text-[10px] text-slate-400 text-center">
+          <div className="px-3 py-3 text-[10px] text-muted-fg text-center">
             {locale === 'es' ? 'Cargando...' : 'Loading...'}
           </div>
         )}
 
         {/* Start from Scratch */}
         <button onClick={() => { onApplyPreset([], {}); }}
-          className="w-full text-left px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50/50 border-b border-slate-100 transition-colors">
+          className="w-full text-left px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 border-b border-border-subtle transition-colors">
           {locale === 'es' ? 'Empezar de Cero' : 'Start from Scratch'}
         </button>
 
@@ -755,19 +755,19 @@ function StrategiesTab({ selectedEventTypes, currentFilters, onApplyPreset, loca
           const exp = expandedFolders.has(folder.id);
           const count = data.items.length;
           return (
-            <div key={folder.id} className="border-b border-slate-100">
+            <div key={folder.id} className="border-b border-border-subtle">
               <button onClick={() => toggleFolder(folder.id)}
-                className="w-full flex items-center gap-1.5 px-3 py-1.5 text-left hover:bg-slate-50 transition-colors">
-                <span className="text-[10px] text-slate-400">{exp ? '\u25BC' : '\u25B6'}</span>
-                <span className="text-xs font-semibold text-slate-600 flex-1">
+                className="w-full flex items-center gap-1.5 px-3 py-1.5 text-left hover:bg-[var(--color-table-row-hover)] transition-colors">
+                <span className="text-[10px] text-muted-fg">{exp ? '\u25BC' : '\u25B6'}</span>
+                <span className="text-xs font-semibold text-foreground/80 flex-1">
                   {locale === 'es' ? folder.labelEs : folder.label}
                 </span>
-                {count > 0 && <span className="text-[10px] text-slate-400">{count}</span>}
+                {count > 0 && <span className="text-[10px] text-muted-fg">{count}</span>}
               </button>
               {exp && (
                 <div className="pb-1">
                   {data.items.length === 0 ? (
-                    <div className="px-5 py-1 text-[10px] text-slate-300">{data.empty}</div>
+                    <div className="px-5 py-1 text-[10px] text-muted-fg/50">{data.empty}</div>
                   ) : (
                     data.items.map(s => (
                       <StrategyItem key={s.id} name={s.name} description={s.description}
@@ -785,27 +785,27 @@ function StrategiesTab({ selectedEventTypes, currentFilters, onApplyPreset, loca
         })}
 
         {/* Built-in strategies */}
-        <div className="border-b border-slate-100">
+        <div className="border-b border-border-subtle">
           <button onClick={() => toggleFolder('builtin')}
-            className="w-full flex items-center gap-1.5 px-3 py-1.5 text-left hover:bg-slate-50 transition-colors">
-            <span className="text-[10px] text-slate-400">{expandedFolders.has('builtin') ? '\u25BC' : '\u25B6'}</span>
-            <span className="text-xs font-semibold text-slate-600 flex-1">
+            className="w-full flex items-center gap-1.5 px-3 py-1.5 text-left hover:bg-[var(--color-table-row-hover)] transition-colors">
+            <span className="text-[10px] text-muted-fg">{expandedFolders.has('builtin') ? '\u25BC' : '\u25B6'}</span>
+            <span className="text-xs font-semibold text-foreground/80 flex-1">
               {locale === 'es' ? 'Del Sistema' : 'Built-in'}
             </span>
-            <span className="text-[10px] text-slate-400">{BUILT_IN_PRESETS.length}</span>
+            <span className="text-[10px] text-muted-fg">{BUILT_IN_PRESETS.length}</span>
           </button>
           {expandedFolders.has('builtin') && (
             <div className="pb-1">
               {BUILT_IN_PRESETS.map(preset => (
-                <div key={preset.id} className="px-3 py-1.5 hover:bg-slate-50 transition-colors">
+                <div key={preset.id} className="px-3 py-1.5 hover:bg-[var(--color-table-row-hover)] transition-colors">
                   <button onClick={() => handleLoadBuiltIn(preset)} className="w-full text-left">
-                    <div className="text-xs font-medium text-slate-700">
+                    <div className="text-xs font-medium text-foreground">
                       {locale === 'es' ? preset.nameEs : preset.name}
                     </div>
-                    <div className="text-[10px] text-slate-400 truncate">
+                    <div className="text-[10px] text-muted-fg truncate">
                       {locale === 'es' ? preset.descriptionEs : preset.description}
                     </div>
-                    <div className="text-[10px] text-slate-400">{preset.eventTypes.length} alerts</div>
+                    <div className="text-[10px] text-muted-fg">{preset.eventTypes.length} alerts</div>
                   </button>
                 </div>
               ))}
@@ -838,16 +838,16 @@ export function AlertConfigPanel({
   ];
 
   return (
-    <div className="flex flex-col h-full bg-white border-l border-slate-200 ">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-slate-50">
-        <span className="text-xs font-bold text-slate-800">
+    <div className="flex flex-col h-full bg-surface border-l border-border ">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-hover">
+        <span className="text-xs font-bold text-foreground">
           {locale === 'es' ? 'Config de Alertas' : 'Alert Config'}
         </span>
-        <button onClick={onClose} className="p-0.5 hover:bg-slate-200 rounded transition-colors">
-          <X className="w-3.5 h-3.5 text-slate-500" />
+        <button onClick={onClose} className="p-0.5 hover:bg-muted rounded transition-colors">
+          <X className="w-3.5 h-3.5 text-muted-fg" />
         </button>
       </div>
-      <div className="flex border-b border-slate-200 bg-white">
+      <div className="flex border-b border-border bg-surface">
         {tabs.map(tab => {
           const isActive = activeTab === tab.id;
 
@@ -855,8 +855,8 @@ export function AlertConfigPanel({
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={'flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium transition-colors border-b-2 '
                 + (isActive
-                  ? 'text-blue-600 border-blue-600 bg-blue-50/50'
-                  : 'text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-50')}>
+                  ? 'text-primary border-primary bg-primary/10'
+                  : 'text-muted-fg border-transparent hover:text-foreground hover:bg-[var(--color-table-row-hover)]')}>
               {tab.label}
             </button>
           );
@@ -883,15 +883,15 @@ export function AlertConfigPanel({
             locale={locale} />
         )}
       </div>
-      <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-        <span className="text-[10px] text-slate-500">
+      <div className="px-3 py-2 border-t border-border bg-surface-hover flex items-center justify-between">
+        <span className="text-[10px] text-muted-fg">
           {selectedEventTypes.length > 0
             ? selectedEventTypes.length + ' active alerts'
             : 'All alerts'}
         </span>
         <button
           onClick={() => { onEventTypesChange([]); onFiltersChange({}); }}
-          className="px-2 py-0.5 text-[10px] font-medium text-slate-500 border border-slate-200 rounded hover:bg-slate-100 transition-colors">
+          className="px-2 py-0.5 text-[10px] font-medium text-muted-fg border border-border rounded hover:bg-surface-hover transition-colors">
           Reset
         </button>
       </div>

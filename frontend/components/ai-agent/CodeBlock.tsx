@@ -32,25 +32,25 @@ export const CodeBlock = memo(function CodeBlock({
   const lineCount = code.split('\n').length;
 
   return (
-    <div className="rounded border border-gray-200 bg-white overflow-hidden">
+    <div className="rounded border border-border bg-surface overflow-hidden">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-3 py-2 bg-gray-50 cursor-pointer hover:bg-gray-100"
+        className="flex items-center justify-between px-3 py-2 bg-surface-hover cursor-pointer hover:bg-surface-inset"
         onClick={onToggle}
       >
         <div className="flex items-center gap-2 text-[12px]">
           {isVisible ? (
-            <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+            <ChevronDown className="w-3.5 h-3.5 text-muted-fg" />
           ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
+            <ChevronRight className="w-3.5 h-3.5 text-muted-fg" />
           )}
-          <span className="text-gray-600 font-medium">{title}</span>
-          <span className="text-gray-400">({lineCount} lineas)</span>
+          <span className="text-foreground/80 font-medium">{title}</span>
+          <span className="text-muted-fg">({lineCount} lineas)</span>
         </div>
 
           <button
             onClick={handleCopy}
-          className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600"
+          className="p-1 rounded hover:bg-surface-inset text-muted-fg hover:text-foreground/80"
             title="Copiar"
           >
           {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
@@ -59,9 +59,9 @@ export const CodeBlock = memo(function CodeBlock({
 
       {/* Code - fondo claro */}
       {isVisible && (
-        <div className="border-t border-gray-200 bg-gray-50 overflow-x-auto max-h-[250px]">
+        <div className="border-t border-border bg-surface-hover overflow-x-auto max-h-[250px]">
           <pre className="p-3 text-[11px] leading-relaxed">
-            <code className="font-mono text-gray-700 whitespace-pre">{code}</code>
+            <code className="font-mono text-foreground whitespace-pre">{code}</code>
           </pre>
         </div>
       )}

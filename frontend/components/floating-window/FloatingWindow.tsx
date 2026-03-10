@@ -346,7 +346,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
   if (window.isMinimized) {
     return (
       <div
-        className="fixed bottom-0 left-0 bg-white border-t border-l border-r border-slate-300 rounded-t-lg shadow-lg cursor-pointer hover:bg-slate-50 transition-colors"
+        className="fixed bottom-0 left-0 bg-surface border-t border-l border-r border-border rounded-t-lg shadow-lg cursor-pointer hover:bg-surface-hover transition-colors"
         style={{
           zIndex: window.zIndex,
           minWidth: '200px',
@@ -354,8 +354,8 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         }}
       >
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-blue-500" />
-          <span className="text-sm font-medium text-slate-700">{window.title}</span>
+          <div className="w-2 h-2 rounded-full bg-primary" />
+          <span className="text-sm font-medium text-foreground">{window.title}</span>
         </div>
       </div>
     );
@@ -382,17 +382,17 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       onPositionChange={handlePositionChange}
       onSizeChange={handleSizeChange}
       onZIndexChange={handleZIndexChange}
-      className="bg-white"
+      className="bg-surface"
     >
       <div id={`floating-window-${window.id}`} className="flex flex-col h-full overflow-hidden">
         {/* Title Bar - Compacto estilo Godel Terminal */}
         {!window.hideHeader && (
-          <div className="window-title-bar flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200 cursor-move select-none">
+          <div className="window-title-bar flex items-center justify-between px-2 py-1 bg-surface-hover border-b border-border cursor-move select-none">
             <div className="flex items-center gap-1 flex-1 min-w-0">
               {/* Portal target — chart (or other windows) can render content here */}
 
               <div id={`window-header-extra-${window.id}`} className="flex items-center" />
-              <h3 className="text-xs font-medium text-slate-700 truncate"
+              <h3 className="text-xs font-medium text-foreground truncate"
                   id={`window-title-text-${window.id}`}>{window.title}</h3>
             </div>
 
@@ -416,11 +416,11 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
                   e.stopPropagation();
                   handleOpenNewWindow();
                 }}
-                className="p-0.5 rounded hover:bg-blue-100 transition-colors group"
+                className="p-0.5 rounded hover:bg-primary/15 transition-colors group"
                 aria-label={t('floatingWindow.openInNewWindow')}
                 title={t('floatingWindow.openInNewWindow')}
               >
-                <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-blue-600" />
+                <ExternalLink className="w-3 h-3 text-muted-fg group-hover:text-primary" />
               </button>
 
               {/* Close Button */}
@@ -432,27 +432,27 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
                   e.stopPropagation();
                   handleClose();
                 }}
-                className="p-0.5 rounded hover:bg-red-100 transition-colors group"
+                className="p-0.5 rounded hover:bg-red-500/15 transition-colors group"
                 aria-label={t('common.close')}
               >
-                <X className="w-3 h-3 text-slate-500 group-hover:text-red-600" />
+                <X className="w-3 h-3 text-muted-fg group-hover:text-red-600" />
               </button>
             </div>
           </div>
         )}
 
         {/* Content */}
-        <div className={`flex-1 overflow-auto bg-white ${window.hideHeader ? 'h-full' : ''}`}>
+        <div className={`flex-1 overflow-auto bg-surface ${window.hideHeader ? 'h-full' : ''}`}>
           {window.isPoppedOut ? (
             // Placeholder cuando el contenido está en ventana externa
-            <div className="flex flex-col items-center justify-center h-full bg-slate-50 p-8">
-              <div className="w-16 h-16 mb-4 rounded-full bg-blue-100 flex items-center justify-center">
-                <ExternalLink className="w-8 h-8 text-blue-600" />
+            <div className="flex flex-col items-center justify-center h-full bg-surface-hover p-8">
+              <div className="w-16 h-16 mb-4 rounded-full bg-primary/15 flex items-center justify-center">
+                <ExternalLink className="w-8 h-8 text-primary" />
               </div>
-              <p className="text-slate-700 font-medium text-center mb-2">
+              <p className="text-foreground font-medium text-center mb-2">
                 {t('floatingWindow.poppedOutMessage')}
               </p>
-              <p className="text-slate-500 text-sm text-center mb-6">
+              <p className="text-muted-fg text-sm text-center mb-6">
                 {t('floatingWindow.poppedOutDescription')}
               </p>
               <button

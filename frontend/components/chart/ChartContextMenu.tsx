@@ -73,28 +73,28 @@ export function ChartContextMenu({
         <>
             <div className="fixed inset-0 z-[9998]" onClick={onClose} />
             <div
-                className="absolute z-[9999] bg-white rounded-lg shadow-xl border border-slate-200 py-1 min-w-[200px]"
+                className="absolute z-[9999] bg-surface rounded-lg shadow-xl border border-border py-1 min-w-[200px]"
                 style={{ left: state.x, top: state.y }}
             >
-                <div className="px-3 py-1.5 flex items-center gap-1.5 border-b border-slate-100">
+                <div className="px-3 py-1.5 flex items-center gap-1.5 border-b border-border-subtle">
                     <Bot className="w-3.5 h-3.5 text-blue-500" />
-                    <span className="text-[10px] font-semibold text-slate-600">AI Chart Analysis</span>
+                    <span className="text-[10px] font-semibold text-foreground/80">AI Chart Analysis</span>
                 </div>
                 {items.map((item, i) => (
                     <button
                         key={i}
                         onClick={() => dispatchChartAsk(item.prompt)}
-                        className="w-full text-left px-3 py-1.5 text-[11px] text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2"
+                        className="w-full text-left px-3 py-1.5 text-[11px] text-foreground hover:bg-primary/10 hover:text-primary flex items-center gap-2"
                     >
                         <Sparkles className="w-3 h-3 text-blue-400 flex-shrink-0" />
                         {item.label}
                     </button>
                 ))}
-                <div className="border-t border-slate-100 px-3 py-1.5">
+                <div className="border-t border-border-subtle px-3 py-1.5">
                     <input
                         type="text"
                         placeholder="Ask anything about this chart..."
-                        className="w-full text-[11px] text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 focus:outline-none focus:border-blue-400"
+                        className="w-full text-[11px] text-foreground bg-surface-hover border border-border rounded px-2 py-1 focus:outline-none focus:border-primary"
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
                                 dispatchChartAsk((e.target as HTMLInputElement).value.trim());

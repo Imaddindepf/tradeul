@@ -74,7 +74,7 @@ export function TableSettings<T>({ table, fontFamily, onResetToDefaults }: Table
   const panelContent = isOpen && mounted && (
     <div
       ref={panelRef}
-      className="fixed w-64 bg-white shadow-lg rounded border border-slate-200"
+      className="fixed w-64 bg-surface shadow-lg rounded border border-border"
       style={{
         top: `${panelPosition.top}px`,
         right: `${panelPosition.right}px`,
@@ -83,23 +83,23 @@ export function TableSettings<T>({ table, fontFamily, onResetToDefaults }: Table
       }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100">
-        <span className="text-slate-900 font-medium" style={{ fontSize: '12px' }}>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-subtle">
+        <span className="text-foreground font-medium" style={{ fontSize: '12px' }}>
           Columns
         </span>
-        <span className="text-slate-500" style={{ fontSize: '10px' }}>
+        <span className="text-muted-fg" style={{ fontSize: '10px' }}>
           {visibleCount}/{totalCount}
         </span>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-100">
+      <div className="flex border-b border-border-subtle">
         <button
           onClick={() => setActiveTab('columns')}
           className={`flex-1 py-1.5 transition-colors ${
             activeTab === 'columns'
-              ? 'text-blue-600 border-b-2 border-blue-600'
-              : 'text-slate-500 hover:text-slate-800'
+              ? 'text-primary border-b-2 border-primary'
+              : 'text-muted-fg hover:text-foreground'
           }`}
           style={{ fontSize: '11px' }}
         >
@@ -109,8 +109,8 @@ export function TableSettings<T>({ table, fontFamily, onResetToDefaults }: Table
           onClick={() => setActiveTab('order')}
           className={`flex-1 py-1.5 transition-colors ${
             activeTab === 'order'
-              ? 'text-blue-600 border-b-2 border-blue-600'
-              : 'text-slate-500 hover:text-slate-800'
+              ? 'text-primary border-b-2 border-primary'
+              : 'text-muted-fg hover:text-foreground'
           }`}
           style={{ fontSize: '11px' }}
         >
@@ -128,16 +128,16 @@ export function TableSettings<T>({ table, fontFamily, onResetToDefaults }: Table
               return (
                 <label
                   key={column.id}
-                  className="flex items-center gap-2 px-3 py-1 cursor-pointer hover:bg-slate-50 transition-colors"
+                  className="flex items-center gap-2 px-3 py-1 cursor-pointer hover:bg-surface-hover transition-colors"
                 >
                   <input
                     type="checkbox"
                     checked={isVisible}
                     onChange={column.getToggleVisibilityHandler()}
-                    className="w-3 h-3 rounded border-slate-300 text-blue-600 focus:ring-0 focus:ring-offset-0"
+                    className="w-3 h-3 rounded border-border text-primary focus:ring-0 focus:ring-offset-0"
                   />
                   <span
-                    className={`flex-1 ${isVisible ? 'text-slate-900' : 'text-slate-400'}`}
+                    className={`flex-1 ${isVisible ? 'text-foreground' : 'text-muted-fg'}`}
                     style={{ fontSize: '11px' }}
                   >
                     {getColumnLabel(column)}
@@ -163,16 +163,16 @@ export function TableSettings<T>({ table, fontFamily, onResetToDefaults }: Table
                   className={`flex items-center gap-2 px-3 py-1.5 cursor-grab transition-all ${
                     draggedColumn === columnId
                       ? 'opacity-40'
-                      : 'hover:bg-slate-50'
+                      : 'hover:bg-[var(--color-table-row-hover)]'
                   }`}
                 >
-                  <span className="text-slate-300 select-none" style={{ fontSize: '10px' }}>
+                  <span className="text-muted-fg/50 select-none" style={{ fontSize: '10px' }}>
                     ⠿
                   </span>
-                  <span className="flex-1 text-slate-900" style={{ fontSize: '11px' }}>
+                  <span className="flex-1 text-foreground" style={{ fontSize: '11px' }}>
                     {getColumnLabel(column)}
                   </span>
-                  <span className="text-slate-400 tabular-nums" style={{ fontSize: '10px' }}>
+                  <span className="text-muted-fg tabular-nums" style={{ fontSize: '10px' }}>
                     {index + 1}
                   </span>
                 </div>
@@ -183,7 +183,7 @@ export function TableSettings<T>({ table, fontFamily, onResetToDefaults }: Table
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-2 border-t border-slate-100">
+      <div className="px-3 py-2 border-t border-border-subtle">
         <button
           onClick={() => {
             if (onResetToDefaults) {
@@ -193,7 +193,7 @@ export function TableSettings<T>({ table, fontFamily, onResetToDefaults }: Table
             }
             table.setColumnOrder([]);
           }}
-          className="w-full py-1 rounded border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+          className="w-full py-1 rounded border border-border text-foreground hover:bg-[var(--color-table-row-hover)] transition-colors"
           style={{ fontSize: '11px' }}
         >
           Reset defaults
@@ -209,8 +209,8 @@ export function TableSettings<T>({ table, fontFamily, onResetToDefaults }: Table
         onClick={() => setIsOpen(!isOpen)}
         className={`px-2 py-0.5 rounded border transition-colors ${
           isOpen
-            ? 'border-blue-400 text-blue-600'
-            : 'border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300'
+            ? 'border-primary text-primary'
+            : 'border-border text-foreground/80 hover:text-foreground hover:border-border-subtle'
         }`}
         style={{ fontSize: '11px', fontFamily }}
         title="Configure columns"

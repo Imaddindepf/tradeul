@@ -267,7 +267,7 @@ function SECParticleAnimation({ ticker }: { ticker: string }) {
 
       {/* Status text at bottom */}
       <div className="absolute bottom-4 left-0 right-0 text-center">
-        <p className="text-slate-600 text-sm font-medium">
+        <p className="text-foreground/80 text-sm font-medium">
           Analyzing SEC Filings...
         </p>
       </div>
@@ -281,13 +281,13 @@ function ProcessingTerminal({ ticker, status }: { ticker: string; status: 'queue
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="w-full bg-white rounded-xl border border-slate-200 overflow-hidden"
+      className="w-full bg-surface rounded-xl border border-border overflow-hidden"
     >
       <SECParticleAnimation ticker={ticker} />
 
       {/* Simple status footer */}
-      <div className="px-4 py-3 border-t border-slate-100 text-center">
-        <p className="text-xs text-slate-400">
+      <div className="px-4 py-3 border-t border-border-subtle text-center">
+        <p className="text-xs text-muted-fg">
           {status === 'queued' ? 'In queue...' : 'Deep analysis in progress'}
         </p>
       </div>
@@ -424,11 +424,11 @@ function SECAnalysisTerminal({
                       className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full"
                     />
                   ) : (
-                    <span className="text-slate-600">○</span>
+                    <span className="text-foreground/80">○</span>
                   )}
                 </div>
                 <span className="text-sm">{phase.icon}</span>
-                <span className={status === 'running' ? 'text-emerald-300' : 'text-slate-400'}>
+                <span className={status === 'running' ? 'text-emerald-300' : 'text-muted-fg'}>
                   {phase.label}
                 </span>
               </motion.div>
@@ -467,11 +467,11 @@ function SECAnalysisTerminal({
 
       {/* Footer */}
       <div className="px-4 py-2 bg-black/30 border-t border-emerald-500/10 flex items-center justify-between text-xs">
-        <div className="flex items-center gap-4 text-slate-400">
+        <div className="flex items-center gap-4 text-muted-fg">
           <span><span className="text-emerald-500">◉</span> Connected to SEC EDGAR</span>
           <span>Sources: 10-K, 10-Q, 8-K, S-1, S-3, DEF 14A</span>
         </div>
-        <div className="text-slate-500">
+        <div className="text-muted-fg">
           {currentPhaseIdx >= ANALYSIS_PHASES.length - 1 ? (
             <span className="text-emerald-400 font-semibold">✓ Analysis Complete</span>
           ) : (
@@ -486,15 +486,15 @@ function SECAnalysisTerminal({
 // Risk Rating Tag Component
 function RiskRatingTag({ label, level, tooltip }: { label: string; level: RiskLevel; tooltip?: string }) {
   const colorMap: Record<RiskLevel, string> = {
-    Low: 'bg-green-100 text-green-700 border-green-200',
-    Medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    High: 'bg-red-100 text-red-700 border-red-200',
-    Unknown: 'bg-slate-100 text-slate-500 border-slate-200'
+    Low: 'bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30',
+    Medium: 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/30',
+    High: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30',
+    Unknown: 'bg-surface-inset text-muted-fg border-border'
   };
 
   return (
     <div className="flex items-center gap-2" title={tooltip}>
-      <span className="text-sm text-slate-600">{label}</span>
+      <span className="text-sm text-foreground/80">{label}</span>
       <span className={`px-3 py-1 text-xs font-medium rounded-full border ${colorMap[level]}`}>
         {level}
       </span>
@@ -555,15 +555,15 @@ export function SECDilutionSection({
   // Estado: Sin datos y sin job
   if (!data) {
     return (
-      <div className="border border-slate-200 rounded-lg p-4">
-        <h4 className="font-medium text-slate-700 mb-1">SEC Data Unavailable</h4>
-        <p className="text-sm text-slate-500">
+      <div className="border border-border rounded-lg p-4">
+        <h4 className="font-medium text-foreground mb-1">SEC Data Unavailable</h4>
+        <p className="text-sm text-muted-fg">
           No cached dilution data available for this ticker.
         </p>
         {onRefreshRequest && (
           <button
             onClick={handleRefresh}
-            className="mt-3 px-3 py-1.5 text-xs text-slate-600 border border-slate-300 rounded hover:bg-slate-50 transition-colors"
+            className="mt-3 px-3 py-1.5 text-xs text-foreground/80 border border-border rounded hover:bg-surface-hover transition-colors"
           >
             Request Full Analysis
           </button>
@@ -583,12 +583,12 @@ export function SECDilutionSection({
 
   if (!hasData) {
     return (
-      <div className="border border-slate-200 rounded-lg p-4">
-        <h4 className="font-medium text-slate-700 mb-1">Clean Dilution Profile</h4>
-        <p className="text-sm text-slate-500">
+      <div className="border border-border rounded-lg p-4">
+        <h4 className="font-medium text-foreground mb-1">Clean Dilution Profile</h4>
+        <p className="text-sm text-muted-fg">
           No active warrants, ATM offerings, or shelf registrations found.
         </p>
-        <p className="text-xs text-slate-400 mt-2">
+        <p className="text-xs text-muted-fg mt-2">
           Last checked: {new Date(profile.metadata.last_scraped_at).toLocaleString()}
         </p>
       </div>
@@ -598,16 +598,16 @@ export function SECDilutionSection({
   return (
     <div className="space-y-6">
       {/* Risk Ratings Tags */}
-      <div className="border border-slate-200 rounded-lg p-4">
+      <div className="border border-border rounded-lg p-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium text-slate-700">Dilution Risk</h3>
-            {is_spac && <span className="text-xs text-slate-400">(SPAC)</span>}
+            <h3 className="text-sm font-medium text-foreground">Dilution Risk</h3>
+            {is_spac && <span className="text-xs text-muted-fg">(SPAC)</span>}
           </div>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="text-xs text-slate-400 hover:text-slate-600"
+            className="text-xs text-muted-fg hover:text-foreground/80"
           >
             {refreshing ? '...' : 'Refresh'}
           </button>
@@ -643,13 +643,13 @@ export function SECDilutionSection({
         </div>
 
         {/* Quick Stats */}
-        <div className="flex items-center gap-6 mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500">
+        <div className="flex items-center gap-6 mt-4 pt-3 border-t border-border-subtle text-xs text-muted-fg">
           <span>
-            Total Potential: <strong className="text-slate-700">{Number(dilution_analysis.total_potential_dilution_pct).toFixed(1)}%</strong>
-            <span className="text-slate-400 ml-1">({(Number(dilution_analysis.total_potential_new_shares) / 1_000_000).toFixed(1)}M shares)</span>
+            Total Potential: <strong className="text-foreground">{Number(dilution_analysis.total_potential_dilution_pct).toFixed(1)}%</strong>
+            <span className="text-muted-fg ml-1">({(Number(dilution_analysis.total_potential_new_shares) / 1_000_000).toFixed(1)}M shares)</span>
           </span>
           <span>
-            Price: <strong className="text-slate-700">${profile.current_price ? Number(profile.current_price).toFixed(2) : 'N/A'}</strong>
+            Price: <strong className="text-foreground">${profile.current_price ? Number(profile.current_price).toFixed(2) : 'N/A'}</strong>
           </span>
         </div>
       </div>
@@ -685,7 +685,7 @@ export function SECDilutionSection({
       )}
 
       {/* Metadata Footer */}
-      <div className="flex items-center justify-between text-xs text-slate-500 pt-4 border-t border-slate-200">
+      <div className="flex items-center justify-between text-xs text-muted-fg pt-4 border-t border-border">
         <div className="flex items-center gap-4">
           <span>
             Last scraped: {new Date(profile.metadata.last_scraped_at).toLocaleString()}
@@ -697,7 +697,7 @@ export function SECDilutionSection({
           )}
         </div>
         {cached && cache_age_seconds !== undefined && (
-          <span className="text-slate-400">
+          <span className="text-muted-fg">
             Cached ({cache_age_seconds < 3600 ? `${Math.floor(cache_age_seconds / 60)}m` : `${Math.floor(cache_age_seconds / 3600)}h`} old)
           </span>
         )}
@@ -767,7 +767,7 @@ function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'com
         ref={buttonRef}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={() => setShow(false)}
-        className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+        className="p-1 text-muted-fg hover:text-foreground/80 hover:bg-surface-hover rounded transition-colors"
         type="button"
       >
         <Info className="h-3.5 w-3.5" />
@@ -775,19 +775,19 @@ function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'com
 
       {show && (
         <div 
-          className="fixed z-[99999] w-72 bg-white text-slate-700 text-xs rounded-lg shadow-2xl border border-slate-200 p-3 pointer-events-none"
+          className="fixed z-[99999] w-72 bg-surface text-foreground text-xs rounded-lg shadow-2xl border border-border p-3 pointer-events-none"
           style={{ 
             top: position.top, 
             left: position.left,
             transform: 'translateY(-50%)'
           }}
         >
-          <div className="font-semibold text-slate-900 mb-1">{tooltip.title}</div>
-          <div className="text-slate-600 mb-2">{tooltip.description}</div>
-          <div className="text-slate-500 mb-1">{tooltip.impact}</div>
-          <div className="text-slate-400 text-[10px]">{tooltip.filing}</div>
+          <div className="font-semibold text-foreground mb-1">{tooltip.title}</div>
+          <div className="text-foreground/80 mb-2">{tooltip.description}</div>
+          <div className="text-muted-fg mb-1">{tooltip.impact}</div>
+          <div className="text-muted-fg text-[10px]">{tooltip.filing}</div>
           {/* Arrow pointing left */}
-          <div className="absolute top-1/2 -left-1.5 w-2.5 h-2.5 bg-white border-l border-b border-slate-200 transform -translate-y-1/2 rotate-45" />
+          <div className="absolute top-1/2 -left-1.5 w-2.5 h-2.5 bg-surface border-l border-b border-border transform -translate-y-1/2 rotate-45" />
         </div>
       )}
     </div>
@@ -800,7 +800,7 @@ function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'com
 
 function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <div className="bg-surface border border-border rounded-lg overflow-hidden">
       {warrants.map((warrant, idx) => {
         const seriesName = warrant.series_name || (warrant.issue_date
           ? `${new Date(warrant.issue_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Warrants`
@@ -816,18 +816,18 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
         };
 
         return (
-          <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
+          <div key={idx} className={idx > 0 ? 'border-t border-border' : ''}>
             {/* Header */}
-            <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+            <div className="px-4 py-2 border-b border-border-subtle flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-medium text-slate-700">{seriesName}</h3>
+                <h3 className="text-sm font-medium text-foreground">{seriesName}</h3>
                 {warrant.is_registered && (
-                  <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">
+                  <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/15 text-blue-700 dark:text-blue-400 rounded font-medium">
                     {warrant.registration_type || 'EDGAR'}
                   </span>
                 )}
                 {warrant.is_prefunded && (
-                  <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded font-medium">
+                  <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/15 text-purple-700 dark:text-purple-400 rounded font-medium">
                     PRE-FUNDED
                   </span>
                 )}
@@ -839,77 +839,77 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
             <div className="p-4">
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
                 <div>
-                  <span className="text-slate-500">Remaining Warrants Outstanding:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
+                  <span className="text-muted-fg">Remaining Warrants Outstanding:</span>
+                  <span className="ml-2 font-semibold text-foreground">
                     {(warrant.remaining || warrant.outstanding) ? Number(warrant.remaining || warrant.outstanding).toLocaleString() : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Exercise Price:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
+                  <span className="text-muted-fg">Exercise Price:</span>
+                  <span className="ml-2 font-semibold text-foreground">
                     {warrant.exercise_price ? `$${Number(warrant.exercise_price).toFixed(2)}` : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Total Warrants Issued:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
+                  <span className="text-muted-fg">Total Warrants Issued:</span>
+                  <span className="ml-2 font-semibold text-foreground">
                     {(warrant.total_issued || warrant.potential_new_shares) ? Number(warrant.total_issued || warrant.potential_new_shares).toLocaleString() : '—'}
                   </span>
                 </div>
                 {warrant.known_owners && (
                   <div>
-                    <span className="text-slate-500">Known Owners:</span>
-                    <span className="ml-2 text-slate-900">{warrant.known_owners}</span>
+                    <span className="text-muted-fg">Known Owners:</span>
+                    <span className="ml-2 text-foreground">{warrant.known_owners}</span>
                   </div>
                 )}
                 {warrant.underwriter_agent && (
                   <div>
-                    <span className="text-slate-500">Underwriter/Placement Agent:</span>
-                    <span className="ml-2 text-slate-900">{warrant.underwriter_agent}</span>
+                    <span className="text-muted-fg">Underwriter/Placement Agent:</span>
+                    <span className="ml-2 text-foreground">{warrant.underwriter_agent}</span>
                   </div>
                 )}
                 {warrant.price_protection && warrant.price_protection !== 'None' && (
                   <div>
-                    <span className="text-slate-500">Price Protection:</span>
-                    <span className="ml-2 text-slate-900">{warrant.price_protection}</span>
+                    <span className="text-muted-fg">Price Protection:</span>
+                    <span className="ml-2 text-foreground">{warrant.price_protection}</span>
                   </div>
                 )}
                 {warrant.pp_clause && (
                   <div className="col-span-2">
-                    <span className="text-slate-500">PP Clause:</span>
-                    <span className="ml-2 text-slate-700 text-[11px]">{warrant.pp_clause}</span>
+                    <span className="text-muted-fg">PP Clause:</span>
+                    <span className="ml-2 text-foreground text-[11px]">{warrant.pp_clause}</span>
                   </div>
                 )}
                 <div>
-                  <span className="text-slate-500">Issue Date:</span>
-                  <span className="ml-2 text-slate-900">{formatDate(warrant.issue_date)}</span>
+                  <span className="text-muted-fg">Issue Date:</span>
+                  <span className="ml-2 text-foreground">{formatDate(warrant.issue_date)}</span>
                 </div>
                 {warrant.exercisable_date && (
                   <div>
-                    <span className="text-slate-500">Exercisable Date:</span>
-                    <span className="ml-2 text-slate-900">{formatDate(warrant.exercisable_date)}</span>
+                    <span className="text-muted-fg">Exercisable Date:</span>
+                    <span className="ml-2 text-foreground">{formatDate(warrant.exercisable_date)}</span>
                   </div>
                 )}
                 <div>
-                  <span className="text-slate-500">Expiration Date:</span>
-                  <span className="ml-2 text-slate-900">{formatDate(warrant.expiration_date)}</span>
+                  <span className="text-muted-fg">Expiration Date:</span>
+                  <span className="ml-2 text-foreground">{formatDate(warrant.expiration_date)}</span>
                 </div>
                 {warrant.last_update_date && (
                   <div>
-                    <span className="text-slate-500">Last Update Date:</span>
-                    <span className="ml-2 text-slate-900">{formatDate(warrant.last_update_date)}</span>
+                    <span className="text-muted-fg">Last Update Date:</span>
+                    <span className="ml-2 text-foreground">{formatDate(warrant.last_update_date)}</span>
                   </div>
                 )}
                 {warrant.has_cashless_exercise && (
                   <div>
-                    <span className="text-slate-500">Cashless Exercise:</span>
+                    <span className="text-muted-fg">Cashless Exercise:</span>
                     <span className="ml-2 text-green-600 font-medium">Yes</span>
                   </div>
                 )}
                 {warrant.notes && (
                   <div className="col-span-2">
-                    <span className="text-slate-500">Notes:</span>
-                    <span className="ml-2 text-slate-700">{warrant.notes}</span>
+                    <span className="text-muted-fg">Notes:</span>
+                    <span className="ml-2 text-foreground">{warrant.notes}</span>
                   </div>
                 )}
               </div>
@@ -927,7 +927,7 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
 
 function ATMCard({ offerings }: { offerings: ATMOffering[] }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <div className="bg-surface border border-border rounded-lg overflow-hidden">
       {offerings.map((offering, idx) => {
         const filingDate = offering.filing_date ? new Date(offering.filing_date) : null;
         const title = filingDate
@@ -935,10 +935,10 @@ function ATMCard({ offerings }: { offerings: ATMOffering[] }) {
           : 'ATM Offering';
 
         return (
-          <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
+          <div key={idx} className={idx > 0 ? 'border-t border-border' : ''}>
             {/* Header */}
-            <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-slate-700">{title}</h3>
+            <div className="px-4 py-2 border-b border-border-subtle flex items-center justify-between">
+              <h3 className="text-sm font-medium text-foreground">{title}</h3>
               <EducationalTooltip type="atm" />
             </div>
 
@@ -946,33 +946,33 @@ function ATMCard({ offerings }: { offerings: ATMOffering[] }) {
             <div className="p-4">
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
                 <div>
-                  <span className="text-slate-500">Total Capacity:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
+                  <span className="text-muted-fg">Total Capacity:</span>
+                  <span className="ml-2 font-semibold text-foreground">
                     {offering.total_capacity ? `$${(Number(offering.total_capacity) / 1_000_000).toFixed(1)}M` : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Remaining:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
+                  <span className="text-muted-fg">Remaining:</span>
+                  <span className="ml-2 font-semibold text-foreground">
                     {offering.remaining_capacity ? `$${(Number(offering.remaining_capacity) / 1_000_000).toFixed(1)}M` : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Potential Shares:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
+                  <span className="text-muted-fg">Potential Shares:</span>
+                  <span className="ml-2 font-semibold text-foreground">
                     {offering.potential_shares_at_current_price ? `${(Number(offering.potential_shares_at_current_price) / 1_000_000).toFixed(1)}M` : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Filing Date:</span>
-                  <span className="ml-2 text-slate-900">
+                  <span className="text-muted-fg">Filing Date:</span>
+                  <span className="ml-2 text-foreground">
                     {offering.filing_date ? new Date(offering.filing_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'}
                   </span>
                 </div>
                 {offering.placement_agent && (
                   <div className="col-span-2">
-                    <span className="text-slate-500">Agent:</span>
-                    <span className="ml-2 text-slate-900">{offering.placement_agent}</span>
+                    <span className="text-muted-fg">Agent:</span>
+                    <span className="ml-2 text-foreground">{offering.placement_agent}</span>
                   </div>
                 )}
                 {offering.filing_url && (
@@ -1002,7 +1002,7 @@ function ATMCard({ offerings }: { offerings: ATMOffering[] }) {
 
 function ShelfCard({ registrations }: { registrations: ShelfRegistration[] }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <div className="bg-surface border border-border rounded-lg overflow-hidden">
       {registrations.map((shelf, idx) => {
         const filingDate = shelf.filing_date ? new Date(shelf.filing_date) : null;
         const title = filingDate
@@ -1018,18 +1018,18 @@ function ShelfCard({ registrations }: { registrations: ShelfRegistration[] }) {
         };
 
         return (
-          <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
+          <div key={idx} className={idx > 0 ? 'border-t border-border' : ''}>
             {/* Header */}
-            <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+            <div className="px-4 py-2 border-b border-border-subtle flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-medium text-slate-700">{title}</h3>
+                <h3 className="text-sm font-medium text-foreground">{title}</h3>
                 {shelf.is_baby_shelf && (
-                  <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">
+                  <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/15 text-amber-700 dark:text-amber-400 rounded font-medium">
                     BABY SHELF
                   </span>
                 )}
                 {shelf.registration_statement && (
-                  <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">
+                  <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/15 text-blue-700 dark:text-blue-400 rounded font-medium">
                     {shelf.registration_statement}
                   </span>
                 )}
@@ -1042,13 +1042,13 @@ function ShelfCard({ registrations }: { registrations: ShelfRegistration[] }) {
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
                 {/* Primary Info */}
                 <div>
-                  <span className="text-slate-500">Total Shelf Capacity:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
+                  <span className="text-muted-fg">Total Shelf Capacity:</span>
+                  <span className="ml-2 font-semibold text-foreground">
                     {formatMoney(shelf.total_capacity)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Current Raisable Amount:</span>
+                  <span className="text-muted-fg">Current Raisable Amount:</span>
                   <span className="ml-2 font-semibold text-emerald-600">
                     {shelf.current_raisable_amount 
                       ? formatMoney(shelf.current_raisable_amount) 
@@ -1060,17 +1060,17 @@ function ShelfCard({ registrations }: { registrations: ShelfRegistration[] }) {
                 {shelf.is_baby_shelf && (
                   <>
                     <div>
-                      <span className="text-slate-500">Baby Shelf Restriction:</span>
+                      <span className="text-muted-fg">Baby Shelf Restriction:</span>
                       <span className="ml-2 text-amber-600 font-medium">Yes</span>
                     </div>
                     <div>
-                      <span className="text-slate-500">IB6 Float Value:</span>
-                      <span className="ml-2 font-semibold text-slate-900">
+                      <span className="text-muted-fg">IB6 Float Value:</span>
+                      <span className="ml-2 font-semibold text-foreground">
                         {formatMoney(shelf.ib6_float_value)}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500">Price To Exceed Baby Shelf:</span>
+                      <span className="text-muted-fg">Price To Exceed Baby Shelf:</span>
                       <span className="ml-2 font-semibold text-blue-600">
                         {shelf.price_to_exceed_baby_shelf 
                           ? `$${Number(shelf.price_to_exceed_baby_shelf).toFixed(2)}` 
@@ -1078,21 +1078,21 @@ function ShelfCard({ registrations }: { registrations: ShelfRegistration[] }) {
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500">Outstanding Shares:</span>
-                      <span className="ml-2 text-slate-900">
+                      <span className="text-muted-fg">Outstanding Shares:</span>
+                      <span className="ml-2 text-foreground">
                         {formatNumber(shelf.outstanding_shares_calc)}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500">Float:</span>
-                      <span className="ml-2 text-slate-900">
+                      <span className="text-muted-fg">Float:</span>
+                      <span className="ml-2 text-foreground">
                         {formatNumber(shelf.free_float_calc)}
                       </span>
                     </div>
                     {shelf.highest_60_day_close && (
                       <div>
-                        <span className="text-slate-500">Highest 60 Day Close:</span>
-                        <span className="ml-2 text-slate-900">
+                        <span className="text-muted-fg">Highest 60 Day Close:</span>
+                        <span className="ml-2 text-foreground">
                           ${Number(shelf.highest_60_day_close).toFixed(2)}
                         </span>
                       </div>
@@ -1102,27 +1102,27 @@ function ShelfCard({ registrations }: { registrations: ShelfRegistration[] }) {
 
                 {/* Dates */}
                 <div>
-                  <span className="text-slate-500">Effect Date:</span>
-                  <span className="ml-2 text-slate-900">
+                  <span className="text-muted-fg">Effect Date:</span>
+                  <span className="ml-2 text-foreground">
                     {shelf.effect_date ? formatDate(shelf.effect_date) : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Expiration Date:</span>
-                  <span className="ml-2 text-slate-900">
+                  <span className="text-muted-fg">Expiration Date:</span>
+                  <span className="ml-2 text-foreground">
                     {shelf.expiration_date ? formatDate(shelf.expiration_date) : '~3 years'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Filing Date:</span>
-                  <span className="ml-2 text-slate-900">
+                  <span className="text-muted-fg">Filing Date:</span>
+                  <span className="ml-2 text-foreground">
                     {shelf.filing_date ? formatDate(shelf.filing_date) : '—'}
                   </span>
                 </div>
                 {shelf.last_update_date && (
                   <div>
-                    <span className="text-slate-500">Last Update:</span>
-                    <span className="ml-2 text-slate-900">{formatDate(shelf.last_update_date)}</span>
+                    <span className="text-muted-fg">Last Update:</span>
+                    <span className="ml-2 text-foreground">{formatDate(shelf.last_update_date)}</span>
                   </div>
                 )}
 
@@ -1159,12 +1159,12 @@ function CompletedOfferingsCard({ offerings }: { offerings: CompletedOffering[] 
   });
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4">
+    <div className="bg-surface border border-border rounded-lg p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 text-green-600" />
-          <h4 className="text-sm font-bold text-slate-900">Completed Offerings</h4>
-          <span className="text-xs font-medium px-2 py-0.5 bg-green-100 text-green-700 rounded">
+          <h4 className="text-sm font-bold text-foreground">Completed Offerings</h4>
+          <span className="text-xs font-medium px-2 py-0.5 bg-green-500/15 text-green-700 dark:text-green-400 rounded">
             {offerings.length}
           </span>
         </div>
@@ -1174,27 +1174,27 @@ function CompletedOfferingsCard({ offerings }: { offerings: CompletedOffering[] 
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50">
-              <th className="text-left py-2 px-3 text-slate-600 font-semibold">Date</th>
-              <th className="text-left py-2 px-3 text-slate-600 font-semibold">Type</th>
-              <th className="text-right py-2 px-3 text-slate-600 font-semibold">Shares</th>
-              <th className="text-right py-2 px-3 text-slate-600 font-semibold">Price</th>
-              <th className="text-right py-2 px-3 text-slate-600 font-semibold">Amount Raised</th>
+            <tr className="border-b border-border bg-surface-hover">
+              <th className="text-left py-2 px-3 text-foreground/80 font-semibold">Date</th>
+              <th className="text-left py-2 px-3 text-foreground/80 font-semibold">Type</th>
+              <th className="text-right py-2 px-3 text-foreground/80 font-semibold">Shares</th>
+              <th className="text-right py-2 px-3 text-foreground/80 font-semibold">Price</th>
+              <th className="text-right py-2 px-3 text-foreground/80 font-semibold">Amount Raised</th>
             </tr>
           </thead>
           <tbody>
             {sortedOfferings.map((offering, idx) => (
-              <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
-                <td className="py-2 px-3 text-slate-700 whitespace-nowrap">
+              <tr key={idx} className="border-b border-border-subtle hover:bg-surface-hover">
+                <td className="py-2 px-3 text-foreground whitespace-nowrap">
                   {offering.offering_date ? new Date(offering.offering_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A'}
                 </td>
-                <td className="py-2 px-3 text-slate-700">
+                <td className="py-2 px-3 text-foreground">
                   {offering.offering_type || 'N/A'}
                 </td>
-                <td className="py-2 px-3 text-right font-medium text-slate-900 tabular-nums">
+                <td className="py-2 px-3 text-right font-medium text-foreground tabular-nums">
                   {offering.shares_issued ? `${(Number(offering.shares_issued) / 1_000_000).toFixed(2)}M` : 'N/A'}
                 </td>
-                <td className="py-2 px-3 text-right text-slate-700 tabular-nums">
+                <td className="py-2 px-3 text-right text-foreground tabular-nums">
                   {offering.price_per_share ? `$${Number(offering.price_per_share).toFixed(2)}` : 'N/A'}
                 </td>
                 <td className="py-2 px-3 text-right font-semibold text-green-600 tabular-nums">
@@ -1215,7 +1215,7 @@ function CompletedOfferingsCard({ offerings }: { offerings: CompletedOffering[] 
 
 function ConvertibleNotesCard({ notes }: { notes: ConvertibleNote[] }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+    <div className="bg-surface border border-border rounded-lg overflow-hidden">
       {notes.map((note, idx) => {
         const issueDate = note.issue_date ? new Date(note.issue_date) : null;
         const seriesName = note.series_name || (issueDate
@@ -1225,18 +1225,18 @@ function ConvertibleNotesCard({ notes }: { notes: ConvertibleNote[] }) {
         const isPaid = (note.remaining_principal_amount || 0) === 0 && (note.total_principal_amount || 0) > 0;
 
         return (
-          <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
+          <div key={idx} className={idx > 0 ? 'border-t border-border' : ''}>
             {/* Header */}
-            <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+            <div className="px-4 py-2 border-b border-border-subtle flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-medium text-slate-700">{seriesName}</h3>
+                <h3 className="text-sm font-medium text-foreground">{seriesName}</h3>
                 {isPaid && (
-                  <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-medium">
+                  <span className="text-[10px] px-1.5 py-0.5 bg-green-500/15 text-green-700 dark:text-green-400 rounded font-medium">
                     PAID
                   </span>
                 )}
                 {note.is_toxic && (
-                  <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">
+                  <span className="text-[10px] px-1.5 py-0.5 bg-red-500/15 text-red-700 dark:text-red-400 rounded font-medium">
                     TOXIC
                   </span>
                 )}
@@ -1248,34 +1248,34 @@ function ConvertibleNotesCard({ notes }: { notes: ConvertibleNote[] }) {
             <div className="p-4">
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
                 <div>
-                  <span className="text-slate-500">Total Principal:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
+                  <span className="text-muted-fg">Total Principal:</span>
+                  <span className="ml-2 font-semibold text-foreground">
                     {note.total_principal_amount ? `$${Number(note.total_principal_amount).toLocaleString()}` : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Remaining:</span>
-                  <span className={`ml-2 font-semibold ${isPaid ? 'text-green-600' : 'text-slate-900'}`}>
+                  <span className="text-muted-fg">Remaining:</span>
+                  <span className={`ml-2 font-semibold ${isPaid ? 'text-green-600' : 'text-foreground'}`}>
                     {note.remaining_principal_amount !== undefined
                       ? (isPaid ? '$0 (Paid)' : `$${Number(note.remaining_principal_amount).toLocaleString()}`)
                       : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Conversion Price:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
+                  <span className="text-muted-fg">Conversion Price:</span>
+                  <span className="ml-2 font-semibold text-foreground">
                     {note.conversion_price ? `$${Number(note.conversion_price).toFixed(2)}` : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Interest Rate:</span>
-                  <span className="ml-2 text-slate-900">
+                  <span className="text-muted-fg">Interest Rate:</span>
+                  <span className="ml-2 text-foreground">
                     {note.interest_rate ? `${Number(note.interest_rate).toFixed(2)}%` : '—'}
                   </span>
                 </div>
                 {note.remaining_shares_when_converted && note.remaining_shares_when_converted > 0 && (
                   <div>
-                    <span className="text-slate-500">Shares if Converted:</span>
+                    <span className="text-muted-fg">Shares if Converted:</span>
                     <span className="ml-2 font-semibold text-amber-600">
                       {Number(note.remaining_shares_when_converted).toLocaleString()}
                     </span>
@@ -1283,62 +1283,62 @@ function ConvertibleNotesCard({ notes }: { notes: ConvertibleNote[] }) {
                 )}
                 {note.known_owners && (
                   <div>
-                    <span className="text-slate-500">Known Owners:</span>
-                    <span className="ml-2 text-slate-900">{note.known_owners}</span>
+                    <span className="text-muted-fg">Known Owners:</span>
+                    <span className="ml-2 text-foreground">{note.known_owners}</span>
                   </div>
                 )}
                 {note.underwriter_agent && (
                   <div>
-                    <span className="text-slate-500">Underwriter/Placement Agent:</span>
-                    <span className="ml-2 text-slate-900">{note.underwriter_agent}</span>
+                    <span className="text-muted-fg">Underwriter/Placement Agent:</span>
+                    <span className="ml-2 text-foreground">{note.underwriter_agent}</span>
                   </div>
                 )}
                 {note.price_protection && note.price_protection !== 'None' && (
                   <div>
-                    <span className="text-slate-500">Price Protection:</span>
-                    <span className={`ml-2 ${note.price_protection.includes('TOXIC') || note.is_toxic ? 'text-red-600 font-semibold' : 'text-slate-900'}`}>
+                    <span className="text-muted-fg">Price Protection:</span>
+                    <span className={`ml-2 ${note.price_protection.includes('TOXIC') || note.is_toxic ? 'text-red-600 font-semibold' : 'text-foreground'}`}>
                       {note.price_protection}
                     </span>
                   </div>
                 )}
                 {note.pp_clause && (
                   <div className="col-span-2">
-                    <span className="text-slate-500">PP Clause:</span>
-                    <span className="ml-2 text-slate-700 text-[11px]">{note.pp_clause}</span>
+                    <span className="text-muted-fg">PP Clause:</span>
+                    <span className="ml-2 text-foreground text-[11px]">{note.pp_clause}</span>
                   </div>
                 )}
                 <div>
-                  <span className="text-slate-500">Issue Date:</span>
-                  <span className="ml-2 text-slate-900">
+                  <span className="text-muted-fg">Issue Date:</span>
+                  <span className="ml-2 text-foreground">
                     {note.issue_date ? new Date(note.issue_date).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '—'}
                   </span>
                 </div>
                 {note.convertible_date && (
                   <div>
-                    <span className="text-slate-500">Convertible Date:</span>
-                    <span className="ml-2 text-slate-900">
+                    <span className="text-muted-fg">Convertible Date:</span>
+                    <span className="ml-2 text-foreground">
                       {new Date(note.convertible_date).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}
                     </span>
                   </div>
                 )}
                 <div>
-                  <span className="text-slate-500">Maturity Date:</span>
-                  <span className="ml-2 text-slate-900">
+                  <span className="text-muted-fg">Maturity Date:</span>
+                  <span className="ml-2 text-foreground">
                     {note.maturity_date ? new Date(note.maturity_date).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '—'}
                   </span>
                 </div>
                 {note.last_update_date && (
                   <div>
-                    <span className="text-slate-500">Last Update Date:</span>
-                    <span className="ml-2 text-slate-900">
+                    <span className="text-muted-fg">Last Update Date:</span>
+                    <span className="ml-2 text-foreground">
                       {new Date(note.last_update_date).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}
                     </span>
                   </div>
                 )}
                 {note.notes && (
                   <div className="col-span-2">
-                    <span className="text-slate-500">Notes:</span>
-                    <span className="ml-2 text-slate-700">{note.notes}</span>
+                    <span className="text-muted-fg">Notes:</span>
+                    <span className="ml-2 text-foreground">{note.notes}</span>
                   </div>
                 )}
               </div>

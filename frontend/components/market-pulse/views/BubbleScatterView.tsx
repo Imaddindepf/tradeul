@@ -35,22 +35,22 @@ function BubbleTooltip({ active, payload }: any) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
-      <div className="font-semibold text-slate-900 mb-1">{d.label}</div>
+    <div className="bg-surface border border-border rounded-lg shadow-lg px-3 py-2 text-[11px]">
+      <div className="font-semibold text-foreground mb-1">{d.label}</div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">{d.xLabel}:</span>
+        <span className="text-muted-fg">{d.xLabel}:</span>
         <span className="font-semibold font-mono">{d.x?.toFixed(2)}</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">{d.yLabel}:</span>
+        <span className="text-muted-fg">{d.yLabel}:</span>
         <span className="font-semibold font-mono">{d.y?.toFixed(2)}</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Tickers:</span>
+        <span className="text-muted-fg">Tickers:</span>
         <span className="font-medium">{d.count}</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Wtd Change:</span>
+        <span className="text-muted-fg">Wtd Change:</span>
         <span className={d.change >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
           {d.change >= 0 ? '+' : ''}{d.change?.toFixed(2)}%
         </span>
@@ -99,13 +99,13 @@ function BubbleScatterView({ data, activeTab, onSelect }: PulseViewProps) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Axis selectors */}
-      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-slate-100 shrink-0">
+      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border-subtle shrink-0">
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">X</span>
+          <span className="text-[9px] font-bold text-muted-fg uppercase tracking-wider">X</span>
           <select
             value={xAxis}
             onChange={e => setXAxis(e.target.value)}
-            className="text-[10px] px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-700 focus:outline-none focus:border-blue-400 appearance-none cursor-pointer"
+            className="text-[10px] px-1.5 py-0.5 border border-border rounded bg-surface text-foreground focus:outline-none focus:border-primary appearance-none cursor-pointer"
           >
             {AXIS_OPTIONS.map(o => (
               <option key={o.key} value={o.key}>{o.label}</option>
@@ -113,18 +113,18 @@ function BubbleScatterView({ data, activeTab, onSelect }: PulseViewProps) {
           </select>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Y</span>
+          <span className="text-[9px] font-bold text-muted-fg uppercase tracking-wider">Y</span>
           <select
             value={yAxis}
             onChange={e => setYAxis(e.target.value)}
-            className="text-[10px] px-1.5 py-0.5 border border-slate-200 rounded bg-white text-slate-700 focus:outline-none focus:border-blue-400 appearance-none cursor-pointer"
+            className="text-[10px] px-1.5 py-0.5 border border-border rounded bg-surface text-foreground focus:outline-none focus:border-primary appearance-none cursor-pointer"
           >
             {AXIS_OPTIONS.map(o => (
               <option key={o.key} value={o.key}>{o.label}</option>
             ))}
           </select>
         </div>
-        <span className="text-[9px] text-slate-400 ml-auto">size = ticker count</span>
+        <span className="text-[9px] text-muted-fg ml-auto">size = ticker count</span>
       </div>
 
       {/* Chart */}

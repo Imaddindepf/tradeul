@@ -59,8 +59,8 @@ export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
             <button
               key={cmdId}
               onClick={() => handleClick(cmdId)}
-              className="px-2 py-0.5 text-[10px] font-medium tracking-wide text-blue-600
-                       bg-blue-50 hover:bg-blue-100 hover:text-blue-700
+              className="px-2 py-0.5 text-[10px] font-medium tracking-wide text-primary
+                       bg-primary/10 hover:bg-primary/15 hover:text-primary
                        rounded-sm transition-colors"
               title={getCommandLabel(cmdId)}
             >
@@ -69,22 +69,22 @@ export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
           ))}
 
           {pinnedCommands.length > 6 && (
-            <span className="px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+            <span className="px-1.5 py-0.5 text-[10px] font-medium text-muted-fg">
               +{pinnedCommands.length - 6}
             </span>
           )}
         </div>
       ) : (
-        <span className="text-[10px] text-slate-400 italic">{t('pinnedCommands.noFavorites')}</span>
+        <span className="text-[10px] text-muted-fg italic">{t('pinnedCommands.noFavorites')}</span>
       )}
 
       {/* Pin Icon — right side, opens Settings */}
       <button
         onClick={() => executeCommand('settings')}
-        className="p-1 rounded-sm hover:bg-slate-100 transition-colors group ml-0.5"
+        className="p-1 rounded-sm hover:bg-surface-hover transition-colors group ml-0.5"
         title={t('settings.title')}
       >
-        <PinIcon className="w-3 h-3 text-slate-400 group-hover:text-blue-500 transition-colors" />
+        <PinIcon className="w-3 h-3 text-muted-fg group-hover:text-primary transition-colors" />
       </button>
     </div>
   );

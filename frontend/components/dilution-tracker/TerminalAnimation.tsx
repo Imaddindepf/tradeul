@@ -169,7 +169,7 @@ export default function TerminalAnimation({
                     className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full"
                   />
                 ) : (
-                  <span className="text-gray-600">○</span>
+                  <span className="text-foreground/80">○</span>
                 )}
               </div>
               
@@ -177,7 +177,7 @@ export default function TerminalAnimation({
               <span className="text-lg">{phase.icon}</span>
               <span className={`text-xs ${
                 phase.status === 'running' ? 'text-emerald-400' :
-                phase.status === 'completed' ? 'text-gray-400' : 'text-gray-600'
+                phase.status === 'completed' ? 'text-muted-fg' : 'text-foreground/80'
               }`}>
                 {phase.label}
               </span>
@@ -203,7 +203,7 @@ export default function TerminalAnimation({
                   key={idx}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="text-gray-400 text-xs leading-relaxed"
+                  className="text-muted-fg text-xs leading-relaxed"
                 >
                   {line}
                 </motion.div>
@@ -218,14 +218,14 @@ export default function TerminalAnimation({
       {/* Footer Stats */}
       <div className="px-4 py-2 bg-black/50 border-t border-emerald-500/10 flex items-center justify-between text-xs">
         <div className="flex items-center gap-4">
-          <span className="text-gray-500">
+          <span className="text-muted-fg">
             <span className="text-emerald-500">◉</span> Connected
           </span>
-          <span className="text-gray-500">
+          <span className="text-muted-fg">
             Sources: FMP, SEC EDGAR, Polygon
           </span>
         </div>
-        <div className="text-gray-500">
+        <div className="text-muted-fg">
           {currentPhase === 'completed' ? (
             <span className="text-emerald-400">Analysis Complete</span>
           ) : (

@@ -206,62 +206,62 @@ export interface MarketEvent {
 const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof Activity }> = {
   // Price
   'new_high': { label: 'New High', color: 'text-emerald-600', icon: TrendingUp },
-  'new_low': { label: 'New Low', color: 'text-rose-600', icon: TrendingDown },
+  'new_low': { label: 'New Low', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
   'crossed_above_open': { label: '↑ Open', color: 'text-emerald-500', icon: TrendingUp },
   'crossed_below_open': { label: '↓ Open', color: 'text-rose-500', icon: TrendingDown },
   'crossed_above_prev_close': { label: '↑ Close', color: 'text-emerald-500', icon: TrendingUp },
   'crossed_below_prev_close': { label: '↓ Close', color: 'text-rose-500', icon: TrendingDown },
   // VWAP
-  'vwap_cross_up': { label: 'VWAP ↑', color: 'text-blue-600', icon: Zap },
+  'vwap_cross_up': { label: 'VWAP ↑', color: 'text-primary', icon: Zap },
   'vwap_cross_down': { label: 'VWAP ↓', color: 'text-orange-600', icon: Zap },
   // Volume
-  'rvol_spike': { label: 'RVOL 3x', color: 'text-purple-600', icon: BarChart3 },
-  'volume_surge': { label: 'RVOL 5x', color: 'text-indigo-700 font-bold', icon: BarChart3 },
+  'rvol_spike': { label: 'RVOL 3x', color: 'text-purple-600 dark:text-purple-400', icon: BarChart3 },
+  'volume_surge': { label: 'RVOL 5x', color: 'text-indigo-700 dark:text-indigo-400 font-bold', icon: BarChart3 },
   'volume_spike_1min': { label: 'Vol Spike', color: 'text-purple-500', icon: BarChart3 },
   'unusual_prints': { label: 'Unusual', color: 'text-amber-600', icon: Activity },
-  'block_trade': { label: 'Block', color: 'text-indigo-600', icon: BarChart3 },
+  'block_trade': { label: 'Block', color: 'text-indigo-600 dark:text-indigo-400', icon: BarChart3 },
   // Momentum
   'running_up': { label: 'Run ↑', color: 'text-emerald-700 font-bold', icon: TrendingUp },
-  'running_down': { label: 'Run ↓', color: 'text-rose-700 font-bold', icon: TrendingDown },
+  'running_down': { label: 'Run ↓', color: 'text-rose-700 dark:text-rose-400 font-bold', icon: TrendingDown },
   'percent_up_5': { label: '+5%', color: 'text-emerald-600', icon: TrendingUp },
-  'percent_down_5': { label: '-5%', color: 'text-rose-600', icon: TrendingDown },
+  'percent_down_5': { label: '-5%', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
   'percent_up_10': { label: '+10%', color: 'text-emerald-700 font-bold', icon: TrendingUp },
-  'percent_down_10': { label: '-10%', color: 'text-rose-700 font-bold', icon: TrendingDown },
+  'percent_down_10': { label: '-10%', color: 'text-rose-700 dark:text-rose-400 font-bold', icon: TrendingDown },
   // Pullbacks
   'pullback_75_from_high': { label: 'PB 75% H', color: 'text-rose-500', icon: TrendingDown },
   'pullback_25_from_high': { label: 'PB 25% H', color: 'text-orange-500', icon: TrendingDown },
   'pullback_75_from_low': { label: 'Bounce 75%', color: 'text-emerald-500', icon: TrendingUp },
   'pullback_25_from_low': { label: 'Bounce 25%', color: 'text-cyan-500', icon: TrendingUp },
   // Gap
-  'gap_up_reversal': { label: 'Gap↑ Rev', color: 'text-rose-600', icon: TrendingDown },
+  'gap_up_reversal': { label: 'Gap↑ Rev', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
   'gap_down_reversal': { label: 'Gap↓ Rev', color: 'text-emerald-600', icon: TrendingUp },
   // Halts
   'halt': { label: 'HALT', color: 'text-red-700 font-bold', icon: CircleStop },
-  'resume': { label: 'RESUME', color: 'text-green-600', icon: Activity },
+  'resume': { label: 'RESUME', color: 'text-green-600 dark:text-green-400', icon: Activity },
   // Phase 1B: Intraday EMA Crosses
   'crossed_above_ema20': { label: 'EMA20 ↑', color: 'text-emerald-500', icon: TrendingUp },
   'crossed_below_ema20': { label: 'EMA20 ↓', color: 'text-rose-500', icon: TrendingDown },
   'crossed_above_ema50': { label: 'EMA50 ↑', color: 'text-emerald-600', icon: TrendingUp },
-  'crossed_below_ema50': { label: 'EMA50 ↓', color: 'text-rose-600', icon: TrendingDown },
+  'crossed_below_ema50': { label: 'EMA50 ↓', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
   // Phase 2: Bollinger
   'bb_upper_breakout': { label: 'BB Upper', color: 'text-emerald-600', icon: TrendingUp },
-  'bb_lower_breakdown': { label: 'BB Lower', color: 'text-rose-600', icon: TrendingDown },
+  'bb_lower_breakdown': { label: 'BB Lower', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
   // Phase 2: Daily Levels
   'crossed_daily_high_resistance': { label: 'Day High', color: 'text-emerald-600', icon: TrendingUp },
-  'crossed_daily_low_support': { label: 'Day Low', color: 'text-rose-600', icon: TrendingDown },
+  'crossed_daily_low_support': { label: 'Day Low', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
   'false_gap_up_retracement': { label: 'False Gap Up', color: 'text-rose-500', icon: TrendingDown },
   'false_gap_down_retracement': { label: 'False Gap Dn', color: 'text-emerald-500', icon: TrendingUp },
   // Phase 2: Confirmed
   'running_up_sustained': { label: 'Run Up Sust', color: 'text-emerald-700 font-bold', icon: TrendingUp },
-  'running_down_sustained': { label: 'Run Dn Sust', color: 'text-rose-700 font-bold', icon: TrendingDown },
+  'running_down_sustained': { label: 'Run Dn Sust', color: 'text-rose-700 dark:text-rose-400 font-bold', icon: TrendingDown },
   'running_up_confirmed': { label: 'Run Up Conf', color: 'text-emerald-700 font-bold', icon: TrendingUp },
-  'running_down_confirmed': { label: 'Run Dn Conf', color: 'text-rose-700 font-bold', icon: TrendingDown },
+  'running_down_confirmed': { label: 'Run Dn Conf', color: 'text-rose-700 dark:text-rose-400 font-bold', icon: TrendingDown },
   'vwap_divergence_up': { label: 'VWAP Div Up', color: 'text-emerald-600', icon: TrendingUp },
-  'vwap_divergence_down': { label: 'VWAP Div Dn', color: 'text-rose-600', icon: TrendingDown },
+  'vwap_divergence_down': { label: 'VWAP Div Dn', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
   'crossed_above_open_confirmed': { label: 'Open Up Conf', color: 'text-emerald-600', icon: TrendingUp },
-  'crossed_below_open_confirmed': { label: 'Open Dn Conf', color: 'text-rose-600', icon: TrendingDown },
+  'crossed_below_open_confirmed': { label: 'Open Dn Conf', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
   'crossed_above_close_confirmed': { label: 'Close Up Conf', color: 'text-emerald-600', icon: TrendingUp },
-  'crossed_below_close_confirmed': { label: 'Close Dn Conf', color: 'text-rose-600', icon: TrendingDown },
+  'crossed_below_close_confirmed': { label: 'Close Dn Conf', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
   // Phase 2: Pre/Post Market
   'pre_market_high': { label: 'Pre High', color: 'text-emerald-500', icon: TrendingUp },
   'pre_market_low': { label: 'Pre Low', color: 'text-rose-500', icon: TrendingDown },
@@ -1247,7 +1247,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         maxSize: 50,
         enableSorting: false,
         cell: (info) => (
-          <div className="text-center font-semibold text-slate-400">
+          <div className="text-center font-semibold text-muted-fg">
             {info.row.index + 1}
           </div>
         ),
@@ -1270,7 +1270,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           });
           const relativeTime = formatDistanceToNowStrict(date, { addSuffix: false });
           return (
-            <div className="font-mono text-slate-600" title={relativeTime + ' ago'}>
+            <div className="font-mono text-foreground/80" title={relativeTime + ' ago'}>
               {timeStr}
             </div>
           );
@@ -1284,7 +1284,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => (
           <div
-            className="font-bold text-blue-600 cursor-pointer hover:text-blue-800 hover:underline transition-colors"
+            className="font-bold text-primary cursor-pointer hover:text-primary hover:underline transition-colors"
             onClick={(e) => {
               e.stopPropagation();
               const symbol = info.getValue();
@@ -1327,7 +1327,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           const eventType = info.getValue();
           const config = EVENT_TYPE_CONFIG[eventType] || {
             label: eventType,
-            color: 'text-slate-600',
+            color: 'text-foreground/80',
             icon: Activity,
           };
           const IconComponent = config.icon;
@@ -1348,7 +1348,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         cell: (info) => {
           const price = info.getValue();
           return (
-            <div className="font-mono text-slate-700 font-medium">
+            <div className="font-mono text-foreground font-medium">
               ${price?.toFixed(2) || '-'}
             </div>
           );
@@ -1363,7 +1363,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         cell: (info) => {
           const value = info.getValue();
           if (value === undefined || value === null) {
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           }
           const isPositive = value > 0;
           return (
@@ -1381,9 +1381,9 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
           return (
-            <div className="font-mono text-slate-600">
+            <div className="font-mono text-foreground/80">
               {formatNumber(value)}
             </div>
           );
@@ -1397,9 +1397,9 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
           return (
-            <div className={`font-mono font-semibold ${value > 3 ? 'text-blue-700' : value > 1.5 ? 'text-blue-600' : 'text-slate-500'}`}>
+            <div className={`font-mono font-semibold ${value > 3 ? 'text-primary' : value > 1.5 ? 'text-primary' : 'text-muted-fg'}`}>
               {value.toFixed(1)}x
             </div>
           );
@@ -1413,7 +1413,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return (
             <div className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -1430,7 +1430,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return (
             <div className={`font-mono ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -1447,7 +1447,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
           const formatted = value >= 1e12
             ? `$${(value / 1e12).toFixed(1)}T`
             : value >= 1e9
@@ -1455,7 +1455,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
               : value >= 1e6
                 ? `$${(value / 1e6).toFixed(0)}M`
                 : `$${formatNumber(value)}`;
-          return <div className="font-mono text-slate-600">{formatted}</div>;
+          return <div className="font-mono text-foreground/80">{formatted}</div>;
         },
       }),
       columnHelper.accessor('atr_percent', {
@@ -1466,9 +1466,9 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           return (
-            <div className={`font-mono ${value > 5 ? 'text-orange-600 font-semibold' : 'text-slate-500'}`}>
+            <div className={`font-mono ${value > 5 ? 'text-orange-600 font-semibold' : 'text-muted-fg'}`}>
               {value.toFixed(1)}%
             </div>
           );
@@ -1482,8 +1482,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1500,8 +1500,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1513,8 +1513,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1526,7 +1526,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
             {isPositive ? '+' : ''}{value.toFixed(2)}
@@ -1542,7 +1542,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
             {formatPercent(value)}
@@ -1559,8 +1559,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1572,8 +1572,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1585,7 +1585,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
           return <div className="font-mono text-green-600">${value.toFixed(2)}</div>;
         },
       }),
@@ -1598,7 +1598,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
           return <div className="font-mono text-red-600">${value.toFixed(2)}</div>;
         },
       }),
@@ -1612,7 +1612,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
             {formatPercent(value)}
@@ -1628,7 +1628,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
             {formatPercent(value)}
@@ -1644,7 +1644,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
             {formatPercent(value)}
@@ -1660,7 +1660,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
             {formatPercent(value)}
@@ -1676,7 +1676,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
             {formatPercent(value)}
@@ -1692,8 +1692,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
 
@@ -1705,8 +1705,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
 
@@ -1719,8 +1719,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
 
@@ -1732,8 +1732,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
-          const colorClass = value > 70 ? 'text-red-600 font-semibold' : value < 30 ? 'text-green-600 font-semibold' : 'text-slate-600';
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
+          const colorClass = value > 70 ? 'text-red-600 font-semibold' : value < 30 ? 'text-green-600 font-semibold' : 'text-foreground/80';
           return <div className={`font-mono ${colorClass}`}>{value.toFixed(1)}</div>;
         },
       }),
@@ -1746,8 +1746,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1759,8 +1759,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1773,8 +1773,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="text-slate-700 font-medium">{value}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="text-foreground font-medium">{value}</div>;
         },
       }),
 
@@ -1786,8 +1786,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="text-slate-700">{value}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="text-foreground">{value}</div>;
         },
       }),
 
@@ -1800,10 +1800,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('chg_60min');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1813,10 +1813,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('vol_10min');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1826,10 +1826,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('vol_15min');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1839,10 +1839,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('vol_30min');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1852,10 +1852,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('vol_1min_pct');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1865,10 +1865,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('vol_5min_pct');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1878,10 +1878,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('vol_10min_pct');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1891,10 +1891,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('vol_15min_pct');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1904,10 +1904,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('vol_30min_pct');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
           return <div className={'font-mono ' + cellClass}>{formatted}</div>;
         },
       }),
@@ -1918,10 +1918,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           enableSorting: true,
           cell: (info) => {
             const value = info.getValue();
-            if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+            if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
             const config = getColumnConfig(key);
             const formatted = formatValue(value, config.format, config.suffix);
-            return <div className="font-mono text-slate-600">{formatted}</div>;
+            return <div className="font-mono text-foreground/80">{formatted}</div>;
           },
         })
       )),
@@ -1931,10 +1931,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           enableSorting: true,
           cell: (info) => {
             const value = info.getValue();
-            if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+            if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
             const config = getColumnConfig(key);
             const formatted = formatValue(value, config.format, config.suffix);
-            const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
             return <div className={'font-mono ' + cellClass}>{formatted}</div>;
           },
         })
@@ -1945,10 +1945,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('bid');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1958,10 +1958,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('ask');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1971,10 +1971,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('bid_size');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1984,10 +1984,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('ask_size');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -1997,10 +1997,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('spread');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2010,10 +2010,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('shares_outstanding');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2023,10 +2023,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('sma_5');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2036,10 +2036,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('sma_8');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2049,10 +2049,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('sma_20');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2062,10 +2062,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('sma_50');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2075,10 +2075,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('sma_200');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2088,10 +2088,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('macd_line');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2101,10 +2101,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('macd_hist');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2114,10 +2114,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('stoch_k');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2127,10 +2127,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('stoch_d');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2140,10 +2140,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('adx_14');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2153,10 +2153,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('bb_upper');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2166,10 +2166,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('bb_lower');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2179,10 +2179,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('atr');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2192,10 +2192,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('daily_sma_20');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2205,10 +2205,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('daily_sma_50');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2218,10 +2218,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('daily_sma_200');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2231,10 +2231,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('daily_rsi');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2244,10 +2244,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('daily_adx_14');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2257,10 +2257,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('daily_atr_percent');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2270,10 +2270,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('daily_bb_position');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2283,10 +2283,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('high_52w');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2296,10 +2296,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('low_52w');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2309,10 +2309,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('from_52w_high');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2322,10 +2322,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('from_52w_low');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2335,10 +2335,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('dollar_volume');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2348,10 +2348,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('todays_range');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2361,10 +2361,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('todays_range_pct');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2374,10 +2374,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('bid_ask_ratio');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2387,10 +2387,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('float_turnover');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2400,10 +2400,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('pos_in_range');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2413,10 +2413,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('below_high');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2426,10 +2426,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('above_low');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2439,10 +2439,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('pos_of_open');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2452,10 +2452,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('prev_day_volume');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2465,10 +2465,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('dist_from_vwap');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2478,10 +2478,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('dist_sma_5');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2491,10 +2491,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('dist_sma_8');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2504,10 +2504,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('dist_sma_20');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2517,10 +2517,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('dist_sma_50');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2530,10 +2530,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('dist_sma_200');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2543,10 +2543,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('dist_daily_sma_20');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2556,10 +2556,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('dist_daily_sma_50');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2569,10 +2569,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('change_1d');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2582,10 +2582,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('change_3d');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2595,10 +2595,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('change_5d');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2608,10 +2608,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('change_10d');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2621,10 +2621,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('change_20d');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2634,10 +2634,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('avg_volume_5d');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2647,10 +2647,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('avg_volume_10d');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2660,10 +2660,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('avg_volume_20d');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2673,10 +2673,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('avg_volume_3m');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2686,10 +2686,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('industry');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2699,10 +2699,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('volume_today_pct');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2712,10 +2712,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('price_from_high');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2725,10 +2725,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('distance_from_nbbo');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2738,10 +2738,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('premarket_change_percent');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2751,10 +2751,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('postmarket_change_percent');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2764,10 +2764,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('trades_today');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2777,10 +2777,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === undefined || value === null) return <div className="text-slate-400">-</div>;
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
           const config = getColumnConfig('trades_z_score');
           const formatted = formatValue(value, config.format, config.suffix);
-          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-foreground/80';
           return <div className={`font-mono ${cellClass}`}>{formatted}</div>;
         },
       }),
@@ -2855,30 +2855,30 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
 
   const contextMenu = ctxMenu && (
     <div ref={ctxMenuRef}
-      className="fixed z-[9999] bg-white border border-slate-200 rounded shadow-lg py-1 min-w-[180px]"
+      className="fixed z-[9999] bg-surface border border-border rounded shadow-lg py-1 min-w-[180px]"
       style={{ left: ctxMenu.x, top: ctxMenu.y }}
       onContextMenu={e => e.preventDefault()}
     >
       {ctxMenu.symbol && (
         <>
           <button onClick={() => { executeTickerCommandRef.current(ctxMenu.symbol!, 'chart'); setCtxMenu(null); }}
-            className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-blue-50 hover:text-blue-700">
+            className="w-full text-left px-3 py-1.5 text-foreground hover:bg-[var(--color-table-row-hover)] hover:text-primary">
             Trade {ctxMenu.symbol}
           </button>
-          <div className="border-t border-slate-100 my-0.5" />
+          <div className="border-t border-border-subtle my-0.5" />
         </>
       )}
       <button onClick={() => { openConfigWindow(); setCtxMenu(null); }}
-        className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-blue-50 hover:text-blue-700">
+        className="w-full text-left px-3 py-1.5 text-foreground hover:bg-[var(--color-table-row-hover)] hover:text-primary">
         Configure...
       </button>
       <button onClick={() => { setEvents([]); setCtxMenu(null); }}
-        className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-blue-50 hover:text-blue-700">
+        className="w-full text-left px-3 py-1.5 text-foreground hover:bg-[var(--color-table-row-hover)] hover:text-primary">
         Clear
       </button>
-      <div className="border-t border-slate-100 my-0.5" />
+      <div className="border-t border-border-subtle my-0.5" />
       <button onClick={() => { handleResetToDefaults(); setCtxMenu(null); }}
-        className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-blue-50 hover:text-blue-700">
+        className="w-full text-left px-3 py-1.5 text-foreground hover:bg-[var(--color-table-row-hover)] hover:text-primary">
         Reset columns
       </button>
     </div>
@@ -2887,7 +2887,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
   const rightActions = (
     <div className="flex items-center gap-1">
       <button onClick={handleMenuButton}
-        className="p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+        className="p-0.5 rounded text-muted-fg hover:text-foreground/80 hover:bg-surface-hover transition-colors"
         title="Menu">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
           <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
@@ -2945,13 +2945,13 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
             onClose={closeCurrentWindow}
             rightActions={rightActions}
           />
-          <div className="flex-1 flex items-center justify-center bg-slate-50">
+          <div className="flex-1 flex items-center justify-center bg-surface-hover">
             <div className="text-center p-6">
-              <Activity className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <h3 className="text-sm font-semibold text-slate-700 mb-1">
+              <Activity className="w-8 h-8 text-muted-fg mx-auto mb-2" />
+              <h3 className="text-sm font-semibold text-foreground mb-1">
                 Waiting for events...
               </h3>
-              <p className="text-slate-500 max-w-xs">
+              <p className="text-muted-fg max-w-xs">
                 {connectionError || 'Events will appear here in real-time as they occur.'}
               </p>
             </div>

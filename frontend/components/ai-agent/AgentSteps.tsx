@@ -57,7 +57,7 @@ const ElapsedTimer = memo(function ElapsedTimer({
   const formatted = elapsed < 60 ? elapsed + 's' : Math.floor(elapsed / 60) + 'm ' + (elapsed % 60) + 's';
 
   return (
-    <span className="text-[10px] tabular-nums text-slate-400 font-mono">
+    <span className="text-[10px] tabular-nums text-muted-fg font-mono">
       {formatted}
     </span>
   );
@@ -80,28 +80,28 @@ const StepItem = memo(function StepItem({ step, index, total }: { step: AgentSte
     >
       {/* Timeline connector */}
       {!isLast && (
-        <div className="absolute left-[11px] top-[22px] w-[1.5px] h-[calc(100%+4px)] bg-slate-200" />
+        <div className="absolute left-[11px] top-[22px] w-[1.5px] h-[calc(100%+4px)] bg-border" />
       )}
 
       {/* Icon circle */}
       <div className={
         'relative z-10 flex-shrink-0 w-[23px] h-[23px] rounded-full flex items-center justify-center transition-all duration-300 ' +
         (isRunning
-          ? 'bg-indigo-100 ring-2 ring-indigo-300/50 ring-offset-1'
+          ? 'bg-primary/15 ring-2 ring-primary/50 ring-offset-1'
           : isComplete
-            ? 'bg-emerald-50 border border-emerald-200'
+            ? 'bg-emerald-500/10 border border-emerald-500/30'
             : isError
-              ? 'bg-red-50 border border-red-200'
-              : 'bg-slate-100 border border-slate-200')
+              ? 'bg-red-500/10 border border-red-500/30'
+              : 'bg-surface-inset border border-border')
       }>
         {isRunning ? (
-          <Loader2 className="w-3 h-3 text-indigo-600 animate-spin" />
+          <Loader2 className="w-3 h-3 text-primary animate-spin" />
         ) : isComplete ? (
           <CheckCircle2 className="w-3 h-3 text-emerald-500" />
         ) : isError ? (
           <AlertCircle className="w-3 h-3 text-red-500" />
         ) : (
-          <Icon className="w-3 h-3 text-slate-400" />
+          <Icon className="w-3 h-3 text-muted-fg" />
         )}
       </div>
 
@@ -110,7 +110,7 @@ const StepItem = memo(function StepItem({ step, index, total }: { step: AgentSte
         <div className="flex items-center gap-2">
           <span className={
             'text-[11px] font-medium truncate ' +
-            (isRunning ? 'text-indigo-700' : isError ? 'text-red-600' : 'text-slate-600')
+            (isRunning ? 'text-primary' : isError ? 'text-red-600' : 'text-foreground/80')
           }>
             {step.title}
           </span>
@@ -118,7 +118,7 @@ const StepItem = memo(function StepItem({ step, index, total }: { step: AgentSte
             <motion.span
               animate={{ opacity: [0.4, 1, 0.4] }}
               transition={{ duration: 1.5, repeat: Infinity }}
-              className="text-[9px] text-indigo-400 font-medium"
+              className="text-[9px] text-primary font-medium"
             >
               processing
             </motion.span>
@@ -130,13 +130,13 @@ const StepItem = memo(function StepItem({ step, index, total }: { step: AgentSte
             initial={{ opacity: 0, y: 2 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
-            className="text-[10px] text-indigo-400/80 font-mono mt-0.5 truncate"
+            className="text-[10px] text-primary/80 font-mono mt-0.5 truncate"
           >
             {step.description}
           </motion.p>
         )}
         {isComplete && step.description && (
-          <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
+          <p className="text-[10px] text-muted-fg font-mono mt-0.5 truncate">
             {step.description}
           </p>
         )}
@@ -167,40 +167,40 @@ export const AgentSteps = memo(function AgentSteps({ steps, thinkingTime }: Agen
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl border border-slate-200/80 overflow-hidden bg-white shadow-sm"
+      className="rounded-xl border border-border overflow-hidden bg-surface shadow-sm"
     >
       {/* Header */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left bg-slate-50/60 hover:bg-slate-100/60 transition-colors"
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left bg-surface-hover/60 hover:bg-surface-inset/60 transition-colors"
       >
         {/* Status indicator */}
         {isProcessing ? (
-          <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-            <Loader2 className="w-3 h-3 text-indigo-600 animate-spin" />
+          <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+            <Loader2 className="w-3 h-3 text-primary animate-spin" />
           </div>
         ) : hasErrors ? (
-          <div className="w-5 h-5 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0">
+          <div className="w-5 h-5 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
             <AlertCircle className="w-3 h-3 text-red-500" />
           </div>
         ) : (
-          <div className="w-5 h-5 rounded-full bg-emerald-50 flex items-center justify-center flex-shrink-0">
+          <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
             <CheckCircle2 className="w-3 h-3 text-emerald-500" />
           </div>
         )}
 
         <div className="flex-1 min-w-0">
-          <span className="text-[11px] font-medium text-slate-700 truncate block">
+          <span className="text-[11px] font-medium text-foreground truncate block">
             {isProcessing && runningStep
               ? (runningStep.description || runningStep.title)
               : hasErrors ? 'Error in pipeline' : 'Analysis complete'}
           </span>
           {/* Progress bar */}
-          <div className="mt-1.5 h-[3px] w-full bg-slate-200 rounded-full overflow-hidden">
+          <div className="mt-1.5 h-[3px] w-full bg-border rounded-full overflow-hidden">
             <motion.div
               className={
                 'h-full rounded-full ' +
-                (hasErrors ? 'bg-red-400' : isProcessing ? 'bg-indigo-500' : 'bg-emerald-500')
+                (hasErrors ? 'bg-red-400' : isProcessing ? 'bg-primary' : 'bg-emerald-500')
               }
               initial={{ width: 0 }}
               animate={{ width: (completedCount / steps.length * 100) + '%' }}
@@ -210,12 +210,12 @@ export const AgentSteps = memo(function AgentSteps({ steps, thinkingTime }: Agen
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-[10px] text-slate-400 tabular-nums">
+          <span className="text-[10px] text-muted-fg tabular-nums">
             {completedCount}/{steps.length}
           </span>
           <ElapsedTimer startTime={startTimeRef.current} finalTime={thinkingTime} />
           <ChevronDown className={
-            'w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ' +
+            'w-3.5 h-3.5 text-muted-fg transition-transform duration-200 ' +
             (collapsed ? '-rotate-90' : '')
           } />
         </div>
@@ -231,7 +231,7 @@ export const AgentSteps = memo(function AgentSteps({ steps, thinkingTime }: Agen
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="px-3.5 py-2.5 border-t border-slate-100 space-y-0">
+            <div className="px-3.5 py-2.5 border-t border-border-subtle space-y-0">
               {steps.map((step, idx) => (
                 <StepItem key={step.id} step={step} index={idx} total={steps.length} />
               ))}

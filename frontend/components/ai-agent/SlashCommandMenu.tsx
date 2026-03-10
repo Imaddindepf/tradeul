@@ -103,10 +103,10 @@ export const SlashCommandMenu = memo(function SlashCommandMenu({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 6, scale: 0.97 }}
         transition={{ duration: 0.15 }}
-        className="absolute bottom-full left-0 right-0 mb-1.5 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden z-50"
+        className="absolute bottom-full left-0 right-0 mb-1.5 bg-surface border border-border rounded-lg shadow-lg overflow-hidden z-50"
       >
-        <div className="px-2.5 py-1.5 border-b border-slate-100">
-          <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">
+        <div className="px-2.5 py-1.5 border-b border-border-subtle">
+          <span className="text-[9px] font-semibold text-muted-fg uppercase tracking-wider">
             Prompt Library
           </span>
         </div>
@@ -121,24 +121,24 @@ export const SlashCommandMenu = memo(function SlashCommandMenu({
               }}
               onMouseEnter={() => setActiveIndex(idx)}
               className={`w-full text-left px-2.5 py-2 flex items-start gap-2.5 transition-colors ${
-                idx === activeIndex ? 'bg-indigo-50/70' : 'hover:bg-slate-50'
+                idx === activeIndex ? 'bg-primary/10' : 'hover:bg-surface-hover'
               }`}
             >
-              <div className="flex-shrink-0 mt-0.5 w-5 h-5 rounded bg-indigo-100 flex items-center justify-center">
-                <span className="text-[10px] font-bold text-indigo-600">/</span>
+              <div className="flex-shrink-0 mt-0.5 w-5 h-5 rounded bg-primary/15 flex items-center justify-center">
+                <span className="text-[10px] font-bold text-primary">/</span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-slate-800">{cmd.label}</span>
-                  <span className="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                <span className="text-[11px] font-semibold text-foreground">{cmd.label}</span>
+                <span className="text-[9px] text-muted-fg bg-surface-inset px-1.5 py-0.5 rounded">
                     {cmd.category}
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">{cmd.description}</p>
-                <p className="text-[9px] text-slate-400 mt-0.5 truncate italic">{cmd.hint}</p>
+                <p className="text-[10px] text-muted-fg mt-0.5 leading-snug">{cmd.description}</p>
+                <p className="text-[9px] text-muted-fg mt-0.5 truncate italic">{cmd.hint}</p>
               </div>
               {idx === activeIndex && (
-                <span className="flex-shrink-0 mt-1 text-[9px] text-indigo-400 font-mono">
+                <span className="flex-shrink-0 mt-1 text-[9px] text-primary font-mono">
                   Enter
                 </span>
               )}

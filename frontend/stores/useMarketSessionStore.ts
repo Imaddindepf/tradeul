@@ -138,13 +138,13 @@ export const getSessionLabel = (session: MarketSession | null): string => {
 
 // Helper para obtener color del estado
 export const getSessionColor = (session: MarketSession | null): string => {
-  if (!session) return 'text-slate-400';
+  if (!session) return 'text-muted-fg';
   
   switch (session.current_session) {
     case 'MARKET_OPEN': return 'text-green-500';
     case 'PRE_MARKET': return 'text-blue-500';
     case 'POST_MARKET': return 'text-orange-500';
-    case 'CLOSED': return 'text-slate-500';
-    default: return 'text-slate-400';
+    case 'CLOSED': return 'text-muted-fg';
+    default: return 'text-muted-fg';
   }
 };

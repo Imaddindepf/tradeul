@@ -17,7 +17,7 @@ import type { AlertDefinition } from '@/lib/alert-catalog';
 
 const LazyPlot = dynamic(() => import('react-plotly.js'), {
   ssr: false,
-  loading: () => <div className="h-[200px] bg-slate-50 rounded animate-pulse" />,
+  loading: () => <div className="h-[200px] bg-surface-hover rounded animate-pulse" />,
 });
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ function fmtDate(iso: string): string {
 // ── Shared UI ──────────────────────────────────────────────────────────────
 
 function Lbl({ children }: { children: React.ReactNode }) {
-  return <span className="text-[9px] font-medium text-slate-500 uppercase tracking-wider">{children}</span>;
+  return <span className="text-[9px] font-medium text-muted-fg uppercase tracking-wider">{children}</span>;
 }
 
 function Sel({ value, onChange, options, className = '' }: {
@@ -160,7 +160,7 @@ function Sel({ value, onChange, options, className = '' }: {
 }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
-      className={`px-1.5 py-[3px] text-[10px] border border-slate-200 rounded bg-white text-slate-800 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none ${className}`}>
+      className={`px-1.5 py-[3px] text-[10px] border border-border rounded bg-surface text-foreground focus:ring-1 focus:ring-primary focus:border-primary outline-none ${className}`}>
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   );
@@ -173,7 +173,7 @@ function Inp({ value, onChange, type = 'text', placeholder, className = '', ...r
   return (
     <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className={`px-1.5 py-[3px] text-[10px] border border-slate-200 rounded bg-white text-slate-800 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none ${className}`}
+      className={`px-1.5 py-[3px] text-[10px] border border-border rounded bg-surface text-foreground focus:ring-1 focus:ring-primary focus:border-primary outline-none ${className}`}
       {...rest} />
   );
 }
@@ -183,13 +183,13 @@ function ConfigTab({ active, onClick, children, badge }: {
 }) {
   return (
     <button type="button" onClick={onClick}
-      className={`relative px-3 py-1.5 text-[10px] font-medium transition-colors whitespace-nowrap ${active ? 'text-blue-600' : 'text-slate-500 hover:text-slate-700'
+      className={`relative px-3 py-1.5 text-[10px] font-medium transition-colors whitespace-nowrap ${active ? 'text-primary' : 'text-muted-fg hover:text-foreground'
         }`}>
       {children}
       {badge !== undefined && badge !== '' && badge !== 0 && (
-        <span className="ml-1 text-[8px] text-blue-500 font-bold">{badge}</span>
+        <span className="ml-1 text-[8px] text-primary font-bold">{badge}</span>
       )}
-      {active && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-blue-600" />}
+      {active && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary" />}
     </button>
   );
 }
@@ -210,7 +210,7 @@ function SignalRow({ signal, onChange, onRemove }: {
       ) : (
         <Inp type="number" value={signal.value} onChange={(v) => onChange({ ...signal, value: parseFloat(v) || 0 })} className="w-[60px]" step="any" />
       )}
-      <button type="button" onClick={onRemove} className="p-0.5 text-slate-400 hover:text-red-500"><Trash2 className="w-2.5 h-2.5" /></button>
+      <button type="button" onClick={onRemove} className="p-0.5 text-muted-fg hover:text-red-500"><Trash2 className="w-2.5 h-2.5" /></button>
     </div>
   );
 }
@@ -227,10 +227,10 @@ function ExitRow({ rule, onChange, onRemove }: {
       {needsVal && (
         <>
           <Inp type="number" value={rule.value ?? 0} onChange={(v) => onChange({ ...rule, value: parseFloat(v) || 0 })} className="w-[55px]" step="any" />
-          {meta?.hint && <span className="text-[8px] text-slate-400">{meta.hint}</span>}
+          {meta?.hint && <span className="text-[8px] text-muted-fg">{meta.hint}</span>}
         </>
       )}
-      <button type="button" onClick={onRemove} className="p-0.5 text-slate-400 hover:text-red-500 ml-auto"><Trash2 className="w-2.5 h-2.5" /></button>
+      <button type="button" onClick={onRemove} className="p-0.5 text-muted-fg hover:text-red-500 ml-auto"><Trash2 className="w-2.5 h-2.5" /></button>
     </div>
   );
 }
@@ -240,10 +240,10 @@ function ResultTabBtn({ active, onClick, children }: {
 }) {
   return (
     <button type="button" onClick={onClick}
-      className={`relative px-2.5 py-1.5 text-[9px] font-medium transition-colors whitespace-nowrap ${active ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'
+      className={`relative px-2.5 py-1.5 text-[9px] font-medium transition-colors whitespace-nowrap ${active ? 'text-primary' : 'text-muted-fg hover:text-foreground/80'
         }`}>
       {children}
-      {active && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-blue-500" />}
+      {active && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary" />}
     </button>
   );
 }
@@ -269,18 +269,18 @@ function metricQ(key: string, val: number): Quality {
 }
 
 function qCol(q: Quality): string {
-  return q === 'excellent' ? 'text-emerald-600' : q === 'good' ? 'text-emerald-500' : q === 'fair' ? 'text-slate-700' : 'text-red-500';
+  return q === 'excellent' ? 'text-emerald-600' : q === 'good' ? 'text-emerald-500' : q === 'fair' ? 'text-foreground' : 'text-red-500';
 }
 function qBorder(q: Quality): string {
-  return q === 'excellent' ? 'border-emerald-200' : q === 'good' ? 'border-emerald-100' : q === 'fair' ? 'border-slate-200/80' : 'border-red-200';
+  return q === 'excellent' ? 'border-emerald-500/30' : q === 'good' ? 'border-emerald-500/20' : q === 'fair' ? 'border-border/80' : 'border-red-500/30';
 }
 
 function dayColor(pnl: number): string {
   if (pnl > 200) return 'bg-emerald-600 text-white';
   if (pnl > 50) return 'bg-emerald-400 text-white';
-  if (pnl > 0) return 'bg-emerald-100 text-emerald-800';
-  if (pnl === 0) return 'bg-white text-slate-400';
-  if (pnl > -50) return 'bg-red-100 text-red-800';
+  if (pnl > 0) return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400';
+  if (pnl === 0) return 'bg-surface text-muted-fg';
+  if (pnl > -50) return 'bg-red-500/15 text-red-700 dark:text-red-400';
   if (pnl > -200) return 'bg-red-400 text-white';
   return 'bg-red-600 text-white';
 }
@@ -305,15 +305,15 @@ const SummaryTab = memo(function SummaryTab({ result }: { result: BacktestResult
   return (
     <div className="space-y-2 p-2">
       {/* Metrics grid */}
-      <div className="rounded border border-slate-200 bg-white overflow-hidden">
+      <div className="rounded border border-border bg-surface overflow-hidden">
         <table className="w-full text-[9px]">
           <tbody>
             {metrics.map(m => {
               const q = m.invert ? metricQ(m.key, -Math.abs(m.val)) : metricQ(m.key, m.val);
               const isNeg = m.val < 0;
               return (
-                <tr key={m.key} className="border-b border-slate-50 last:border-0">
-                  <td className="px-2 py-1 text-slate-600 font-medium">{m.label}</td>
+                <tr key={m.key} className="border-b border-border-subtle last:border-0">
+                  <td className="px-2 py-1 text-foreground/80 font-medium">{m.label}</td>
                   <td className={`px-2 py-1 text-right font-bold tabular-nums ${m.invert ? (isNeg ? 'text-red-500' : 'text-emerald-600') : qCol(q)
                     }`}>{m.fmt}</td>
                 </tr>
@@ -331,9 +331,9 @@ const SummaryTab = memo(function SummaryTab({ result }: { result: BacktestResult
           ['Win Streak', `${result.most_winning_days_in_row ?? 0}d`],
           ['Lose Streak', `${result.most_losing_days_in_row ?? 0}d`],
         ].map(([l, v]) => (
-          <div key={l} className="bg-slate-50 rounded px-1.5 py-1 text-center">
-            <span className="text-slate-400 block">{l}</span>
-            <span className="font-bold text-slate-700">{v}</span>
+          <div key={l} className="bg-surface-hover rounded px-1.5 py-1 text-center">
+            <span className="text-muted-fg block">{l}</span>
+            <span className="font-bold text-foreground">{v}</span>
           </div>
         ))}
       </div>
@@ -355,22 +355,22 @@ const EquityCurveTab = memo(function EquityCurveTab({ result }: { result: Backte
 
   return (
     <div className="p-2 space-y-2">
-      <div className="rounded border border-slate-200 bg-white overflow-hidden">
-        <div className="px-2 py-1 border-b border-slate-100 text-[9px] font-semibold text-slate-600">Equity Curve</div>
+      <div className="rounded border border-border bg-surface overflow-hidden">
+        <div className="px-2 py-1 border-b border-border-subtle text-[9px] font-semibold text-foreground/80">Equity Curve</div>
         <div className="h-[220px]">
           <LazyPlot
             data={[
               { x: eqDates, y: eqVals, type: 'scatter' as const, mode: 'lines' as const, name: 'Net Equity', line: { color: '#16a34a', width: 1.5 } },
               ...(hasGrossNet ? [{
-                x: dates, y: grossEq, type: 'scatter' as const, mode: 'lines' as const, name: 'Gross Equity', line: { color: '#000', width: 1.5 },
+                x: dates, y: grossEq, type: 'scatter' as const, mode: 'lines' as const, name: 'Gross Equity', line: { color: 'var(--color-fg)', width: 1.5 },
               }] : []),
             ] as any}
             layout={{
               margin: { t: 4, r: 8, b: 24, l: 48 }, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-              font: { size: 8, color: '#64748B' }, showlegend: hasGrossNet,
+              font: { size: 8, color: 'var(--color-muted-fg)' }, showlegend: hasGrossNet,
               legend: { x: 0.02, y: 0.98, font: { size: 8 }, bgcolor: 'rgba(255,255,255,0.8)' },
               xaxis: { showgrid: false, tickfont: { size: 7 }, type: 'date' as const },
-              yaxis: { title: { text: 'Equity ($)', font: { size: 8 } }, gridcolor: '#F1F5F9', tickfont: { size: 7 } },
+              yaxis: { title: { text: 'Equity ($)', font: { size: 8 } }, gridcolor: 'var(--color-border-subtle)', tickfont: { size: 7 } },
               hovermode: 'x unified' as const,
             } as any}
             config={{ displayModeBar: false, responsive: true }}
@@ -392,17 +392,17 @@ const DailyTab = memo(function DailyTab({ result }: { result: BacktestResult }) 
 
   return (
     <div className="p-2 space-y-2">
-      <div className="rounded border border-slate-200 bg-white overflow-hidden">
-        <div className="px-2 py-1 border-b border-slate-100 text-[9px] font-semibold text-slate-600">Profit per Day</div>
+      <div className="rounded border border-border bg-surface overflow-hidden">
+        <div className="px-2 py-1 border-b border-border-subtle text-[9px] font-semibold text-foreground/80">Profit per Day</div>
         <div className="h-[160px]">
           <LazyPlot
             data={[{ x: dates, y: pnls, type: 'bar' as const, marker: { color: colors } }] as any}
             layout={{
               margin: { t: 4, r: 8, b: 24, l: 48 }, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-              font: { size: 8, color: '#64748B' }, showlegend: false,
+              font: { size: 8, color: 'var(--color-muted-fg)' }, showlegend: false,
               xaxis: { showgrid: false, tickfont: { size: 7 }, type: 'date' as const },
               yaxis: {
-                title: { text: 'Profit ($)', font: { size: 8 } }, gridcolor: '#F1F5F9', tickfont: { size: 7 },
+                title: { text: 'Profit ($)', font: { size: 8 } }, gridcolor: 'var(--color-border-subtle)', tickfont: { size: 7 },
                 zeroline: true, zerolinecolor: '#ef4444', zerolinewidth: 1
               },
               hovermode: 'x unified' as const,
@@ -411,16 +411,16 @@ const DailyTab = memo(function DailyTab({ result }: { result: BacktestResult }) 
             style={{ width: '100%', height: '100%' }} useResizeHandler />
         </div>
       </div>
-      <div className="rounded border border-slate-200 bg-white overflow-hidden">
-        <div className="px-2 py-1 border-b border-slate-100 text-[9px] font-semibold text-slate-600">Trades per Day</div>
+      <div className="rounded border border-border bg-surface overflow-hidden">
+        <div className="px-2 py-1 border-b border-border-subtle text-[9px] font-semibold text-foreground/80">Trades per Day</div>
         <div className="h-[120px]">
           <LazyPlot
             data={[{ x: dates, y: tradeCounts, type: 'bar' as const, marker: { color: '#3b82f6' } }] as any}
             layout={{
               margin: { t: 4, r: 8, b: 24, l: 48 }, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-              font: { size: 8, color: '#64748B' }, showlegend: false,
+              font: { size: 8, color: 'var(--color-muted-fg)' }, showlegend: false,
               xaxis: { showgrid: false, tickfont: { size: 7 }, type: 'date' as const },
-              yaxis: { title: { text: 'Trades', font: { size: 8 } }, gridcolor: '#F1F5F9', tickfont: { size: 7 } },
+              yaxis: { title: { text: 'Trades', font: { size: 8 } }, gridcolor: 'var(--color-border-subtle)', tickfont: { size: 7 } },
             } as any}
             config={{ displayModeBar: false, responsive: true }}
             style={{ width: '100%', height: '100%' }} useResizeHandler />
@@ -437,8 +437,8 @@ const DrawdownTab = memo(function DrawdownTab({ result }: { result: BacktestResu
   const dd = result.drawdown_curve.map(p => p[1] * 100);
   return (
     <div className="p-2">
-      <div className="rounded border border-slate-200 bg-white overflow-hidden">
-        <div className="px-2 py-1 border-b border-slate-100 text-[9px] font-semibold text-slate-600">Drawdown (%)</div>
+      <div className="rounded border border-border bg-surface overflow-hidden">
+        <div className="px-2 py-1 border-b border-border-subtle text-[9px] font-semibold text-foreground/80">Drawdown (%)</div>
         <div className="h-[240px]">
           <LazyPlot
             data={[{
@@ -447,10 +447,10 @@ const DrawdownTab = memo(function DrawdownTab({ result }: { result: BacktestResu
             }] as any}
             layout={{
               margin: { t: 4, r: 8, b: 24, l: 48 }, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-              font: { size: 8, color: '#64748B' }, showlegend: false,
+              font: { size: 8, color: 'var(--color-muted-fg)' }, showlegend: false,
               xaxis: { showgrid: false, tickfont: { size: 7 }, type: 'date' as const },
               yaxis: {
-                title: { text: 'DD (%)', font: { size: 8 } }, gridcolor: '#F1F5F9', tickfont: { size: 7 },
+                title: { text: 'DD (%)', font: { size: 8 } }, gridcolor: 'var(--color-border-subtle)', tickfont: { size: 7 },
                 zeroline: true, zerolinecolor: '#ef4444', zerolinewidth: 1
               },
             } as any}
@@ -500,11 +500,11 @@ const CalendarTab = memo(function CalendarTab({ result }: { result: BacktestResu
           const daysInMonth = new Date(m.year, m.month + 1, 0).getDate();
           const startDow = firstDay.getDay();
           return (
-            <div key={m.label} className="rounded border border-slate-200 bg-white overflow-hidden">
-              <div className="px-2 py-1 bg-slate-50 border-b border-slate-100 font-semibold text-slate-600 text-center">{m.label}</div>
+            <div key={m.label} className="rounded border border-border bg-surface overflow-hidden">
+              <div className="px-2 py-1 bg-surface-hover border-b border-border-subtle font-semibold text-foreground/80 text-center">{m.label}</div>
               <div className="grid grid-cols-7 text-center">
                 {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-                  <div key={i} className="py-0.5 font-bold text-slate-500 border-b border-slate-100 text-[7px]">{d}</div>
+                  <div key={i} className="py-0.5 font-bold text-muted-fg border-b border-border-subtle text-[7px]">{d}</div>
                 ))}
                 {Array.from({ length: startDow }).map((_, i) => <div key={`p-${i}`} />)}
                 {Array.from({ length: daysInMonth }).map((_, i) => {
@@ -515,8 +515,8 @@ const CalendarTab = memo(function CalendarTab({ result }: { result: BacktestResu
                   return (
                     <div key={day}
                       onClick={() => hasTrades && setSelectedDay(dateStr === selectedDay ? null : dateStr)}
-                      className={`py-1 px-0.5 cursor-pointer transition-colors ${hasTrades ? dayColor(stat.pnl) : 'bg-white text-slate-300'
-                        } ${dateStr === selectedDay ? 'ring-2 ring-blue-500 ring-inset' : ''}`}
+                      className={`py-1 px-0.5 cursor-pointer transition-colors ${hasTrades ? dayColor(stat.pnl) : 'bg-surface text-muted-fg/50'
+                        } ${dateStr === selectedDay ? 'ring-2 ring-primary ring-inset' : ''}`}
                       title={hasTrades ? `WR: ${(stat.win_rate * 100).toFixed(0)}% (${stat.winners}/${stat.trades_count})\nPnL: $${stat.pnl.toFixed(0)}\nAvg: $${stat.avg_gain.toFixed(0)}` : ''}>
                       <div className="font-bold">{day}</div>
                       {hasTrades && (
@@ -536,13 +536,13 @@ const CalendarTab = memo(function CalendarTab({ result }: { result: BacktestResu
 
       {/* Trade detail for selected day */}
       {selectedDay && dayTrades.length > 0 && (
-        <div className="rounded border border-slate-200 bg-white overflow-hidden">
-          <div className="px-2 py-1 bg-slate-50 border-b border-slate-100 font-semibold text-slate-600">
+        <div className="rounded border border-border bg-surface overflow-hidden">
+          <div className="px-2 py-1 bg-surface-hover border-b border-border-subtle font-semibold text-foreground/80">
             Trades on {selectedDay} ({dayTrades.length})
           </div>
           <div className="max-h-[150px] overflow-auto">
             <table className="w-full text-[8px]">
-              <thead><tr className="bg-slate-50">
+              <thead><tr className="bg-surface-hover">
                 <th className="px-1 py-0.5 text-left">Symbol</th>
                 <th className="px-1 py-0.5 text-left">Dir</th>
                 <th className="px-1 py-0.5 text-right">Entry Px</th>
@@ -552,8 +552,8 @@ const CalendarTab = memo(function CalendarTab({ result }: { result: BacktestResu
               </tr></thead>
               <tbody>
                 {dayTrades.map(t => (
-                  <tr key={t.trade_id} className={t.pnl >= 0 ? 'bg-emerald-50/30' : 'bg-red-50/30'}>
-                    <td className="px-1 py-0.5 font-bold text-blue-600">{t.ticker}</td>
+                  <tr key={t.trade_id} className={t.pnl >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}>
+                    <td className="px-1 py-0.5 font-bold text-primary">{t.ticker}</td>
                     <td className="px-1 py-0.5">{t.direction === 'long' ? '↑L' : '↓S'}</td>
                     <td className="px-1 py-0.5 text-right tabular-nums">${t.entry_fill_price.toFixed(2)}</td>
                     <td className="px-1 py-0.5 text-right tabular-nums">${t.exit_fill_price.toFixed(2)}</td>
@@ -582,7 +582,7 @@ const OptimizationTab = memo(function OptimizationTab({ result }: { result: Back
 
   const breakdown = opt[activeFilter];
   if (!breakdown || breakdown.buckets.length === 0) {
-    return <div className="p-4 text-center text-[10px] text-slate-400">No optimization data available. Run a backtest with more trades.</div>;
+    return <div className="p-4 text-center text-[10px] text-muted-fg">No optimization data available. Run a backtest with more trades.</div>;
   }
 
   const labels = breakdown.buckets.map(b => b.label);
@@ -595,7 +595,7 @@ const OptimizationTab = memo(function OptimizationTab({ result }: { result: Back
       <div className="flex items-center gap-1 flex-wrap">
         {filterKeys.map(k => (
           <button key={k} onClick={() => setActiveFilter(k)}
-            className={`px-2 py-0.5 rounded text-[8px] font-medium transition-colors ${activeFilter === k ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            className={`px-2 py-0.5 rounded text-[8px] font-medium transition-colors ${activeFilter === k ? 'bg-blue-600 text-white' : 'bg-surface-inset text-foreground/80 hover:bg-surface-inset'
               }`}>{opt[k].filter_name}</button>
         ))}
       </div>
@@ -614,9 +614,9 @@ const OptimizationTab = memo(function OptimizationTab({ result }: { result: Back
 
       <div className="flex gap-2">
         {/* Table */}
-        <div className="flex-1 rounded border border-slate-200 bg-white overflow-auto max-h-[250px]">
+        <div className="flex-1 rounded border border-border bg-surface overflow-auto max-h-[250px]">
           <table className="w-full text-[8px]">
-            <thead className="sticky top-0 bg-slate-50">
+            <thead className="sticky top-0 bg-surface-hover">
               <tr>
                 <th className="px-1 py-1 text-left">No.</th>
                 <th className="px-1 py-1 text-left">{breakdown.filter_name}</th>
@@ -630,17 +630,17 @@ const OptimizationTab = memo(function OptimizationTab({ result }: { result: Back
             </thead>
             <tbody>
               {breakdown.buckets.map((b, i) => {
-                const pfColor = b.profit_factor >= 2 ? 'bg-emerald-100' : b.profit_factor >= 1 ? 'bg-emerald-50' : 'bg-red-50';
+                const pfColor = b.profit_factor >= 2 ? 'bg-emerald-500/15' : b.profit_factor >= 1 ? 'bg-emerald-500/10' : 'bg-red-500/10';
                 return (
-                  <tr key={i} className={`${pfColor} border-b border-slate-50`}>
-                    <td className="px-1 py-0.5 text-slate-400">{i + 1}</td>
-                    <td className="px-1 py-0.5 font-medium text-slate-700 max-w-[80px] truncate">{b.label}</td>
+                  <tr key={i} className={`${pfColor} border-b border-border-subtle`}>
+                    <td className="px-1 py-0.5 text-muted-fg">{i + 1}</td>
+                    <td className="px-1 py-0.5 font-medium text-foreground max-w-[80px] truncate">{b.label}</td>
                     <td className={`px-1 py-0.5 text-right font-bold tabular-nums ${b.profit_factor >= 1 ? 'text-emerald-600' : 'text-red-500'}`}>{b.profit_factor.toFixed(2)}</td>
                     <td className="px-1 py-0.5 text-right tabular-nums">{b.win_rate.toFixed(1)}</td>
                     <td className={`px-1 py-0.5 text-right tabular-nums ${b.avg_gain >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{b.avg_gain.toFixed(0)}</td>
                     <td className={`px-1 py-0.5 text-right tabular-nums ${b.total_gain >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtMoney(b.total_gain)}</td>
                     <td className="px-1 py-0.5 text-right tabular-nums">{b.trades}</td>
-                    <td className="px-1 py-0.5 text-right tabular-nums text-slate-400">{b.pct_of_total.toFixed(1)}</td>
+                    <td className="px-1 py-0.5 text-right tabular-nums text-muted-fg">{b.pct_of_total.toFixed(1)}</td>
                   </tr>
                 );
               })}
@@ -649,7 +649,7 @@ const OptimizationTab = memo(function OptimizationTab({ result }: { result: Back
         </div>
 
         {/* Chart */}
-        <div className="w-[200px] flex-shrink-0 rounded border border-slate-200 bg-white overflow-hidden">
+        <div className="w-[200px] flex-shrink-0 rounded border border-border bg-surface overflow-hidden">
           <div className="h-[250px]">
             <LazyPlot
               data={[{
@@ -658,9 +658,9 @@ const OptimizationTab = memo(function OptimizationTab({ result }: { result: Back
               }] as any}
               layout={{
                 margin: { t: 4, r: 4, b: 24, l: 36 }, paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-                font: { size: 7, color: '#64748B' }, showlegend: false,
+                font: { size: 7, color: 'var(--color-muted-fg)' }, showlegend: false,
                 xaxis: { title: { text: 'Group No.', font: { size: 7 } }, tickfont: { size: 7 } },
-                yaxis: { tickfont: { size: 7 }, gridcolor: '#F1F5F9' },
+                yaxis: { tickfont: { size: 7 }, gridcolor: 'var(--color-border-subtle)' },
                 shapes: refLine ? [{
                   type: 'line' as const, x0: 0, x1: labels.length + 1, y0: refLine, y1: refLine,
                   line: { color: '#ef4444', width: 1, dash: 'dash' as const },
@@ -712,33 +712,33 @@ const TradesTab = memo(function TradesTab({ trades }: { trades: TradeRecord[] })
 
   return (
     <div className="flex flex-col h-full text-[9px]">
-      <div className="flex items-center gap-2 px-2 py-1 bg-slate-50 border-b border-slate-200 text-[9px]">
-        <span className="font-medium text-slate-600">{trades.length} trades</span>
-        <span className="text-slate-200">|</span>
+      <div className="flex items-center gap-2 px-2 py-1 bg-surface-hover border-b border-border text-[9px]">
+        <span className="font-medium text-foreground/80">{trades.length} trades</span>
+        <span className="text-border">|</span>
         <span className="text-emerald-600">{winners} W</span>
         <span className="text-red-500">{trades.length - winners} L</span>
-        <span className="text-slate-200">|</span>
+        <span className="text-border">|</span>
         <span className={`font-bold ${totalPnl >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>PnL: {fmtMoney(totalPnl)}</span>
       </div>
       <div className="flex-1 overflow-auto">
         <table className="w-full text-[8px]">
-          <thead className="sticky top-0 z-10 bg-slate-50">
+          <thead className="sticky top-0 z-10 bg-surface-hover">
             <tr>{cols.map(c => (
               <th key={c.key} onClick={() => { if (sortKey === c.key) setSortAsc(!sortAsc); else { setSortKey(c.key); setSortAsc(true); } setPage(0); }}
-                className={`px-1 py-1 font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 select-none whitespace-nowrap ${c.align}`}>
-                {c.label}{sortKey === c.key && <span className="text-blue-500 ml-0.5">{sortAsc ? '▲' : '▼'}</span>}
+                className={`px-1 py-1 font-semibold text-foreground/80 cursor-pointer hover:bg-surface-hover select-none whitespace-nowrap ${c.align}`}>
+                {c.label}{sortKey === c.key && <span className="text-primary ml-0.5">{sortAsc ? '▲' : '▼'}</span>}
               </th>
             ))}</tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-border-subtle">
             {pageData.map(t => (
-              <tr key={t.trade_id} className={t.pnl >= 0 ? 'hover:bg-emerald-50/30' : 'hover:bg-red-50/30'}>
-                <td className="px-1 py-0.5 text-slate-400 tabular-nums">{t.trade_id}</td>
-                <td className="px-1 py-0.5 font-bold text-blue-600">{t.ticker}</td>
-                <td className="px-1 py-0.5"><span className={`px-0.5 rounded text-[7px] font-bold ${t.direction === 'long' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{t.direction === 'long' ? 'L' : 'S'}</span></td>
-                <td className="px-1 py-0.5 text-slate-600 tabular-nums">{fmtDate(t.entry_date)}</td>
+              <tr key={t.trade_id} className={t.pnl >= 0 ? 'hover:bg-emerald-500/10' : 'hover:bg-red-500/10'}>
+                <td className="px-1 py-0.5 text-muted-fg tabular-nums">{t.trade_id}</td>
+                <td className="px-1 py-0.5 font-bold text-primary">{t.ticker}</td>
+                <td className="px-1 py-0.5"><span className={`px-0.5 rounded text-[7px] font-bold ${t.direction === 'long' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-red-500/10 text-red-700 dark:text-red-400'}`}>{t.direction === 'long' ? 'L' : 'S'}</span></td>
+                <td className="px-1 py-0.5 text-foreground/80 tabular-nums">{fmtDate(t.entry_date)}</td>
                 <td className="px-1 py-0.5 text-right font-mono tabular-nums">${t.entry_fill_price.toFixed(2)}</td>
-                <td className="px-1 py-0.5 text-slate-600 tabular-nums">{fmtDate(t.exit_date)}</td>
+                <td className="px-1 py-0.5 text-foreground/80 tabular-nums">{fmtDate(t.exit_date)}</td>
                 <td className="px-1 py-0.5 text-right font-mono tabular-nums">${t.exit_fill_price.toFixed(2)}</td>
                 <td className="px-1 py-0.5 text-right tabular-nums">{t.shares.toFixed(0)}</td>
                 <td className={`px-1 py-0.5 text-right font-bold tabular-nums ${t.pnl >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtMoney(t.pnl)}</td>
@@ -748,13 +748,13 @@ const TradesTab = memo(function TradesTab({ trades }: { trades: TradeRecord[] })
         </table>
       </div>
       {totalPages > 1 && (
-        <div className="flex items-center justify-between px-2 py-1 border-t border-slate-200 bg-white text-[8px]">
-          <span className="text-slate-400">{page * PAGE + 1}-{Math.min((page + 1) * PAGE, sorted.length)} of {sorted.length}</span>
+        <div className="flex items-center justify-between px-2 py-1 border-t border-border bg-surface text-[8px]">
+          <span className="text-muted-fg">{page * PAGE + 1}-{Math.min((page + 1) * PAGE, sorted.length)} of {sorted.length}</span>
           <div className="flex gap-1">
             <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}
-              className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-30">Prev</button>
+              className="px-1.5 py-0.5 bg-surface-hover border border-border rounded hover:bg-surface-hover disabled:opacity-30">Prev</button>
             <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1}
-              className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-30">Next</button>
+              className="px-1.5 py-0.5 bg-surface-hover border border-border rounded hover:bg-surface-hover disabled:opacity-30">Next</button>
           </div>
         </div>
       )}
@@ -768,34 +768,34 @@ const AnalysisTab = memo(function AnalysisTab({ result }: { result: BacktestResu
   const am = result.advanced_metrics;
   const wf = result.walk_forward;
   const mc = result.monte_carlo;
-  if (!am && !wf && !mc) return <div className="p-4 text-center text-[10px] text-slate-400">No advanced analysis data.</div>;
+  if (!am && !wf && !mc) return <div className="p-4 text-center text-[10px] text-muted-fg">No advanced analysis data.</div>;
 
   return (
     <div className="p-2 space-y-2 text-[9px]">
       {am && (
-        <div className="rounded border border-slate-200 bg-white overflow-hidden">
-          <div className="px-2 py-1 border-b border-slate-100 font-semibold text-slate-600">Statistical Robustness</div>
+        <div className="rounded border border-border bg-surface overflow-hidden">
+          <div className="px-2 py-1 border-b border-border-subtle font-semibold text-foreground/80">Statistical Robustness</div>
           <div className="grid grid-cols-5 gap-1 p-2 text-center text-[8px]">
-            <div><span className="text-slate-400 block">Deflated Sharpe</span><span className={`font-bold ${am.deflated_sharpe_ratio > 1 ? 'text-emerald-600' : am.deflated_sharpe_ratio > 0.5 ? 'text-amber-600' : 'text-red-500'}`}>{am.deflated_sharpe_ratio.toFixed(2)}</span></div>
-            <div><span className="text-slate-400 block">Prob. Sharpe</span><span className={`font-bold ${am.probabilistic_sharpe_ratio > 0.95 ? 'text-emerald-600' : 'text-amber-600'}`}>{(am.probabilistic_sharpe_ratio * 100).toFixed(1)}%</span></div>
-            <div><span className="text-slate-400 block">Min Track</span><span className="font-bold text-slate-700">{am.min_track_record_length}mo</span></div>
-            <div><span className="text-slate-400 block">Skewness</span><span className={`font-bold ${am.skewness > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{am.skewness.toFixed(3)}</span></div>
-            <div><span className="text-slate-400 block">Kurtosis</span><span className="font-bold text-slate-700">{am.kurtosis.toFixed(3)}</span></div>
+            <div><span className="text-muted-fg block">Deflated Sharpe</span><span className={`font-bold ${am.deflated_sharpe_ratio > 1 ? 'text-emerald-600' : am.deflated_sharpe_ratio > 0.5 ? 'text-amber-600' : 'text-red-500'}`}>{am.deflated_sharpe_ratio.toFixed(2)}</span></div>
+            <div><span className="text-muted-fg block">Prob. Sharpe</span><span className={`font-bold ${am.probabilistic_sharpe_ratio > 0.95 ? 'text-emerald-600' : 'text-amber-600'}`}>{(am.probabilistic_sharpe_ratio * 100).toFixed(1)}%</span></div>
+            <div><span className="text-muted-fg block">Min Track</span><span className="font-bold text-foreground">{am.min_track_record_length}mo</span></div>
+            <div><span className="text-muted-fg block">Skewness</span><span className={`font-bold ${am.skewness > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{am.skewness.toFixed(3)}</span></div>
+            <div><span className="text-muted-fg block">Kurtosis</span><span className="font-bold text-foreground">{am.kurtosis.toFixed(3)}</span></div>
           </div>
         </div>
       )}
       {wf && (
-        <div className="rounded border border-slate-200 bg-white overflow-hidden">
-          <div className="px-2 py-1 border-b border-slate-100 flex justify-between">
-            <span className="font-semibold text-slate-600">Walk-Forward ({wf.n_splits} splits)</span>
-            <span className={`font-bold px-1 rounded ${wf.overfitting_probability > 0.5 ? 'text-red-600 bg-red-50' : wf.overfitting_probability > 0.3 ? 'text-amber-600 bg-amber-50' : 'text-emerald-600 bg-emerald-50'}`}>
+        <div className="rounded border border-border bg-surface overflow-hidden">
+          <div className="px-2 py-1 border-b border-border-subtle flex justify-between">
+            <span className="font-semibold text-foreground/80">Walk-Forward ({wf.n_splits} splits)</span>
+            <span className={`font-bold px-1 rounded ${wf.overfitting_probability > 0.5 ? 'text-red-600 dark:text-red-400 bg-red-500/10' : wf.overfitting_probability > 0.3 ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10' : 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'}`}>
               P(overfit): {(wf.overfitting_probability * 100).toFixed(0)}%
             </span>
           </div>
           <div className="p-2 space-y-1">
             {wf.splits.map(s => (
               <div key={s.split_idx} className="flex items-center gap-1 text-[8px]">
-                <span className="text-slate-400 w-3 text-right">{s.split_idx + 1}</span>
+                <span className="text-muted-fg w-3 text-right">{s.split_idx + 1}</span>
                 <div className="flex-1 flex gap-0.5 h-3">
                   <div className="bg-indigo-400 rounded-sm flex items-center justify-center" style={{ width: `${Math.max(5, Math.abs(s.train_sharpe) * 20)}%` }}>
                     <span className="text-[6px] text-white font-bold">{s.train_sharpe.toFixed(2)}</span>
@@ -811,10 +811,10 @@ const AnalysisTab = memo(function AnalysisTab({ result }: { result: BacktestResu
         </div>
       )}
       {mc && (
-        <div className="rounded border border-slate-200 bg-white overflow-hidden">
-          <div className="px-2 py-1 border-b border-slate-100 flex justify-between">
-            <span className="font-semibold text-slate-600">Monte Carlo ({mc.n_simulations.toLocaleString()} sims)</span>
-            <span className={`font-bold px-1 rounded ${mc.prob_profit >= 0.7 ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>
+        <div className="rounded border border-border bg-surface overflow-hidden">
+          <div className="px-2 py-1 border-b border-border-subtle flex justify-between">
+            <span className="font-semibold text-foreground/80">Monte Carlo ({mc.n_simulations.toLocaleString()} sims)</span>
+            <span className={`font-bold px-1 rounded ${mc.prob_profit >= 0.7 ? 'text-emerald-600 bg-emerald-500/10' : 'text-amber-600 bg-amber-500/10'}`}>
               P(profit): {(mc.prob_profit * 100).toFixed(0)}%
             </span>
           </div>
@@ -827,7 +827,7 @@ const AnalysisTab = memo(function AnalysisTab({ result }: { result: BacktestResu
               ['Mean Max DD', fmtPctRaw(mc.mean_max_drawdown_pct)],
               ['Worst Max DD', fmtPctRaw(mc.worst_max_drawdown_pct)],
             ].map(([l, v]) => (
-              <div key={l} className="flex justify-between"><span className="text-slate-500">{l}</span><span className="font-bold text-slate-700">{v}</span></div>
+              <div key={l} className="flex justify-between"><span className="text-muted-fg">{l}</span><span className="font-bold text-foreground">{v}</span></div>
             ))}
           </div>
         </div>
@@ -857,19 +857,19 @@ function ResultsView({ result, onReset }: { result: BacktestResult; onReset: () 
   const [tab, setTab] = useState<ResultTab>('summary');
   const s = result.strategy;
   return (
-    <div className="flex flex-col h-full min-h-0 bg-white">
-      <div className="flex-shrink-0 px-2.5 py-1.5 border-b border-slate-200">
+    <div className="flex flex-col h-full min-h-0 bg-surface">
+      <div className="flex-shrink-0 px-2.5 py-1.5 border-b border-border">
         <div className="flex items-center justify-between">
-          <h3 className="text-[11px] font-bold text-slate-800 truncate">{s.name}</h3>
-          <span className="text-[8px] text-slate-500">{s.start_date} → {s.end_date} | {s.timeframe} | {s.direction} | {fmtMoney(s.initial_capital)}</span>
+          <h3 className="text-[11px] font-bold text-foreground truncate">{s.name}</h3>
+          <span className="text-[8px] text-muted-fg">{s.start_date} → {s.end_date} | {s.timeframe} | {s.direction} | {fmtMoney(s.initial_capital)}</span>
         </div>
-        <div className="flex items-center gap-2 mt-0.5 text-[8px] text-slate-400">
+        <div className="flex items-center gap-2 mt-0.5 text-[8px] text-muted-fg">
           <span>{result.symbols_tested} tickers</span><span>|</span>
           <span>{result.bars_processed.toLocaleString()} bars</span><span>|</span>
           <span>{result.execution_time_ms < 1000 ? `${result.execution_time_ms}ms` : `${(result.execution_time_ms / 1000).toFixed(1)}s`}</span>
         </div>
       </div>
-      <div className="flex-shrink-0 flex items-center border-b border-slate-200 px-1 overflow-x-auto">
+      <div className="flex-shrink-0 flex items-center border-b border-border px-1 overflow-x-auto">
         {RESULT_TABS.map(t => (
           <ResultTabBtn key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>{t.label}</ResultTabBtn>
         ))}
@@ -884,9 +884,9 @@ function ResultsView({ result, onReset }: { result: BacktestResult; onReset: () 
         {tab === 'trades' && <TradesTab trades={result.trades} />}
         {tab === 'analysis' && <AnalysisTab result={result} />}
       </div>
-      <div className="flex-shrink-0 p-1.5 border-t border-slate-200 bg-slate-50">
+      <div className="flex-shrink-0 p-1.5 border-t border-border bg-surface-hover">
         <button type="button" onClick={onReset}
-          className="w-full py-1.5 text-[9px] font-medium text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">
+          className="w-full py-1.5 text-[9px] font-medium text-foreground/80 bg-surface border border-border rounded hover:bg-surface-hover">
           New Backtest
         </button>
       </div>
@@ -942,42 +942,42 @@ function EventSelector({ selected, onChange, label }: {
     <div className="space-y-1">
       <div className="flex items-center gap-1">
         <div className="relative flex-1">
-          <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 text-slate-400" />
+          <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 text-muted-fg" />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder={`Search ${label}...`}
-            className="w-full pl-5 pr-1.5 py-[3px] text-[9px] border border-slate-200 rounded bg-white text-slate-800 focus:ring-1 focus:ring-blue-500 outline-none" />
+            className="w-full pl-5 pr-1.5 py-[3px] text-[9px] border border-border rounded bg-surface text-foreground focus:ring-1 focus:ring-primary outline-none" />
         </div>
         {selected.size > 0 && (
           <button onClick={() => onChange(new Set())}
-            className="text-[7px] text-red-500 hover:text-red-700 px-1 py-0.5 rounded bg-red-50">
+            className="text-[7px] text-red-500 hover:text-red-700 px-1 py-0.5 rounded bg-red-500/10">
             Clear ({selected.size})
           </button>
         )}
       </div>
-      <div className="max-h-[140px] overflow-auto border border-slate-200 rounded bg-white">
+      <div className="max-h-[140px] overflow-auto border border-border rounded bg-surface">
         {filtered.map(({ category, alerts }) => (
           <div key={category.id}>
             <button onClick={() => toggleCat(category.id)}
-              className="w-full flex items-center gap-1 px-1.5 py-[3px] bg-slate-50 hover:bg-slate-100 border-b border-slate-100 text-[8px]">
-              {expandedCats.has(category.id) ? <ChevronDown className="w-2 h-2 text-slate-400" /> : <ChevronRight className="w-2 h-2 text-slate-400" />}
-              <span className="font-semibold text-slate-600 flex-1 text-left">{category.name}</span>
-              <span className="text-slate-400">{alerts.filter(a => selected.has(a.eventType)).length}/{alerts.length}</span>
+              className="w-full flex items-center gap-1 px-1.5 py-[3px] bg-surface-hover hover:bg-surface-inset border-b border-border-subtle text-[8px]">
+              {expandedCats.has(category.id) ? <ChevronDown className="w-2 h-2 text-muted-fg" /> : <ChevronRight className="w-2 h-2 text-muted-fg" />}
+              <span className="font-semibold text-foreground/80 flex-1 text-left">{category.name}</span>
+              <span className="text-muted-fg">{alerts.filter(a => selected.has(a.eventType)).length}/{alerts.length}</span>
               <button onClick={e => { e.stopPropagation(); toggleAllCat(alerts); }}
-                className="text-[7px] text-blue-500 hover:text-blue-700 px-0.5">
+                className="text-[7px] text-primary hover:text-primary px-0.5">
                 {alerts.every(a => selected.has(a.eventType)) ? 'none' : 'all'}
               </button>
             </button>
             {expandedCats.has(category.id) && (
               <div className="px-1 py-0.5">
                 {alerts.map(a => (
-                  <label key={a.eventType} className="flex items-center gap-1.5 py-[2px] cursor-pointer hover:bg-blue-50/50 rounded px-1">
+                  <label key={a.eventType} className="flex items-center gap-1.5 py-[2px] cursor-pointer hover:bg-primary/10 rounded px-1">
                     <input type="checkbox" checked={selected.has(a.eventType)}
                       onChange={() => toggleEvent(a.eventType)}
-                      className="w-2.5 h-2.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.direction === 'bullish' ? 'bg-emerald-400' : a.direction === 'bearish' ? 'bg-red-400' : 'bg-slate-300'
+                      className="w-2.5 h-2.5 rounded border-border text-primary focus:ring-primary" />
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.direction === 'bullish' ? 'bg-emerald-400' : a.direction === 'bearish' ? 'bg-red-400' : 'bg-muted'
                       }`} />
-                    <span className="text-[8px] text-slate-700 flex-1">{a.name}</span>
-                    <span className="text-[7px] text-slate-400 font-mono">{a.code}</span>
+                    <span className="text-[8px] text-foreground flex-1">{a.name}</span>
+                    <span className="text-[7px] text-muted-fg font-mono">{a.code}</span>
                   </label>
                 ))}
               </div>
@@ -990,7 +990,7 @@ function EventSelector({ selected, onChange, label }: {
           {Array.from(selected).map(id => {
             const a = ALERT_CATALOG.find(x => x.eventType === id);
             return (
-              <span key={id} className="inline-flex items-center gap-0.5 px-1 py-[1px] bg-blue-50 border border-blue-100 rounded text-[7px] text-blue-700">
+              <span key={id} className="inline-flex items-center gap-0.5 px-1 py-[1px] bg-primary/10 border border-border rounded text-[7px] text-primary">
                 {a?.code ?? id}
                 <button onClick={() => toggleEvent(id)} className="hover:text-red-500"><X className="w-2 h-2" /></button>
               </span>
@@ -1034,25 +1034,25 @@ function FilterSection({ filters, onChange, label = 'filters' }: {
     <div className="space-y-1">
       <div className="flex items-center gap-1">
         <div className="relative flex-1">
-          <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 text-slate-400" />
+          <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 text-muted-fg" />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder={`Search ${label}...`}
-            className="w-full pl-5 pr-1.5 py-[3px] text-[9px] border border-slate-200 rounded bg-white text-slate-800 focus:ring-1 focus:ring-blue-500 outline-none" />
+            className="w-full pl-5 pr-1.5 py-[3px] text-[9px] border border-border rounded bg-surface text-foreground focus:ring-1 focus:ring-primary outline-none" />
         </div>
         {activeCount > 0 && (
           <button onClick={() => onChange({})}
-            className="text-[7px] text-red-500 hover:text-red-700 px-1 py-0.5 rounded bg-red-50">
+            className="text-[7px] text-red-500 hover:text-red-700 px-1 py-0.5 rounded bg-red-500/10">
             Clear ({activeCount})
           </button>
         )}
       </div>
-      <div className="max-h-[140px] overflow-auto border border-slate-200 rounded bg-white">
+      <div className="max-h-[140px] overflow-auto border border-border rounded bg-surface">
         <table className="w-full text-[8px]">
-          <thead className="sticky top-0 bg-slate-50">
+          <thead className="sticky top-0 bg-surface-hover">
             <tr>
-              <th className="px-1.5 py-1 text-left font-semibold text-slate-600">Filter</th>
-              <th className="px-1.5 py-1 text-center font-semibold text-slate-600 w-[70px]">Min</th>
-              <th className="px-1.5 py-1 text-center font-semibold text-slate-600 w-[70px]">Max</th>
+              <th className="px-1.5 py-1 text-left font-semibold text-foreground/80">Filter</th>
+              <th className="px-1.5 py-1 text-center font-semibold text-foreground/80 w-[70px]">Min</th>
+              <th className="px-1.5 py-1 text-center font-semibold text-foreground/80 w-[70px]">Max</th>
             </tr>
           </thead>
           <tbody>
@@ -1062,21 +1062,21 @@ function FilterSection({ filters, onChange, label = 'filters' }: {
               const hasVal = (filters[minK] !== null && filters[minK] !== undefined) ||
                 (filters[maxK] !== null && filters[maxK] !== undefined);
               return (
-                <tr key={f.key} className={`border-b border-slate-50 ${hasVal ? 'bg-blue-50/30' : ''}`}>
-                  <td className="px-1.5 py-0.5 text-slate-700">{f.label} <span className="text-slate-400">{f.suffix}</span></td>
+                <tr key={f.key} className={`border-b border-border-subtle ${hasVal ? 'bg-primary/10' : ''}`}>
+                  <td className="px-1.5 py-0.5 text-foreground">{f.label} <span className="text-muted-fg">{f.suffix}</span></td>
                   <td className="px-0.5 py-0.5">
                     <input type="number" step="any"
                       value={filters[minK] ?? ''}
                       onChange={e => setVal(minK, e.target.value)}
                       placeholder="—"
-                      className="w-full px-1 py-[2px] text-[8px] border border-slate-200 rounded bg-white text-center focus:ring-1 focus:ring-blue-500 outline-none" />
+                      className="w-full px-1 py-[2px] text-[8px] border border-border rounded bg-surface text-center focus:ring-1 focus:ring-primary outline-none" />
                   </td>
                   <td className="px-0.5 py-0.5">
                     <input type="number" step="any"
                       value={filters[maxK] ?? ''}
                       onChange={e => setVal(maxK, e.target.value)}
                       placeholder="—"
-                      className="w-full px-1 py-[2px] text-[8px] border border-slate-200 rounded bg-white text-center focus:ring-1 focus:ring-blue-500 outline-none" />
+                      className="w-full px-1 py-[2px] text-[8px] border border-border rounded bg-surface text-center focus:ring-1 focus:ring-primary outline-none" />
                   </td>
                 </tr>
               );
@@ -1173,9 +1173,9 @@ export function BacktestPanelContent({ initialEvents, initialFilters, initialNam
   if (showResults) return <ResultsView result={result} onReset={reset} />;
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-white text-slate-900 text-[10px]">
+    <div className="flex flex-col h-full min-h-0 bg-surface text-foreground text-[10px]">
       {/* Config tab bar */}
-      <div className="flex-shrink-0 flex items-center border-b border-slate-200 px-1">
+      <div className="flex-shrink-0 flex items-center border-b border-border px-1">
         <ConfigTab active={cfgTab === 'strategy'} onClick={() => setCfgTab('strategy')}>Strategy</ConfigTab>
         <ConfigTab active={cfgTab === 'entry'} onClick={() => setCfgTab('entry')} badge={entryEvents.size + entries.length}>Entry</ConfigTab>
         <ConfigTab active={cfgTab === 'exit'} onClick={() => setCfgTab('exit')} badge={exits.length + exitEvents.size}>Exit</ConfigTab>
@@ -1199,14 +1199,14 @@ export function BacktestPanelContent({ initialEvents, initialFilters, initialNam
             <div>
               <Lbl>Tickers</Lbl>
               <Inp value={tickersStr} onChange={setTickersStr} placeholder="SPY, AAPL, QQQ" className="w-full mt-1 font-mono" />
-              <p className="mt-0.5 text-[7px] text-slate-400">Comma separated. Split-adjusted Polygon data.</p>
+              <p className="mt-0.5 text-[7px] text-muted-fg">Comma separated. Split-adjusted Polygon data.</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div><Lbl>Start Date</Lbl><Inp type="date" value={startDate} onChange={setStartDate} className="w-full mt-1" /></div>
               <div><Lbl>End Date</Lbl><Inp type="date" value={endDate} onChange={setEndDate} className="w-full mt-1" /></div>
             </div>
-            <div className="border-t border-slate-100 pt-3">
-              <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Execution</div>
+            <div className="border-t border-border-subtle pt-3">
+              <div className="text-[9px] font-semibold text-foreground/80 uppercase tracking-wider mb-2">Execution</div>
               <div className="grid grid-cols-3 gap-2">
                 <div><Lbl>Capital ($)</Lbl><Inp type="number" value={capital} onChange={v => setCapital(Number(v) || 100000)} className="w-full mt-1" /></div>
                 <div><Lbl>Max Positions</Lbl><Inp type="number" value={maxPositions} onChange={v => setMaxPositions(Number(v) || 1)} className="w-full mt-1" min="1" /></div>
@@ -1218,15 +1218,15 @@ export function BacktestPanelContent({ initialEvents, initialFilters, initialNam
                 <div><Lbl>Commission ($)</Lbl><Inp type="number" value={commission} onChange={v => setCommission(Number(v) || 0)} className="w-full mt-1" step="0.01" /></div>
               </div>
             </div>
-            <div className="border-t border-slate-100 pt-3">
-              <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Advanced</div>
+            <div className="border-t border-border-subtle pt-3">
+              <div className="text-[9px] font-semibold text-foreground/80 uppercase tracking-wider mb-2">Advanced</div>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={walkForward} onChange={e => setWalkForward(e.target.checked)} className="w-3 h-3 rounded border-slate-300 text-blue-600" />
-                <span className="text-[9px] text-slate-700">Walk-Forward Analysis (5 splits)</span>
+                <input type="checkbox" checked={walkForward} onChange={e => setWalkForward(e.target.checked)} className="w-3 h-3 rounded border-border text-primary" />
+                <span className="text-[9px] text-foreground">Walk-Forward Analysis (5 splits)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer mt-1">
-                <input type="checkbox" checked={monteCarlo} onChange={e => setMonteCarlo(e.target.checked)} className="w-3 h-3 rounded border-slate-300 text-blue-600" />
-                <span className="text-[9px] text-slate-700">Monte Carlo Simulation (1,000 runs)</span>
+                <input type="checkbox" checked={monteCarlo} onChange={e => setMonteCarlo(e.target.checked)} className="w-3 h-3 rounded border-border text-primary" />
+                <span className="text-[9px] text-foreground">Monte Carlo Simulation (1,000 runs)</span>
               </label>
             </div>
           </div>
@@ -1235,22 +1235,22 @@ export function BacktestPanelContent({ initialEvents, initialFilters, initialNam
         {cfgTab === 'entry' && (
           <div className="flex flex-col h-full">
             <div className="flex-shrink-0 px-3 pt-2 pb-1">
-              <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider">Events</div>
+              <div className="text-[9px] font-semibold text-foreground/80 uppercase tracking-wider">Events</div>
               <div className="flex items-center gap-2 mt-1">
                 <Lbl>Combine</Lbl>
                 <Sel value={entryEventsCombine} onChange={v => setEntryEventsCombine(v as 'or' | 'and')} options={[
                   { value: 'or', label: 'ANY event (OR)' }, { value: 'and', label: 'ALL events (AND)' },
                 ]} />
                 {entries.length > 0 && entryEvents.size > 0 && (
-                  <span className="text-[7px] text-amber-600 bg-amber-50 px-1 py-0.5 rounded border border-amber-100">Events AND Signals</span>
+                  <span className="text-[7px] text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20">Events AND Signals</span>
                 )}
               </div>
             </div>
             <div className="flex-1 min-h-0 px-3 pb-2">
               <EventSelector selected={entryEvents} onChange={setEntryEvents} label="entry events" />
             </div>
-            <div className="flex-shrink-0 border-t border-slate-200 px-3 py-2">
-              <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Indicator Signals (AND)</div>
+            <div className="flex-shrink-0 border-t border-border px-3 py-2">
+              <div className="text-[9px] font-semibold text-foreground/80 uppercase tracking-wider mb-1">Indicator Signals (AND)</div>
               <div className="space-y-0.5 max-h-[120px] overflow-auto">
                 {entries.map((sig, i) => (
                   <SignalRow key={i} signal={sig}
@@ -1268,8 +1268,8 @@ export function BacktestPanelContent({ initialEvents, initialFilters, initialNam
 
         {cfgTab === 'exit' && (
           <div className="flex flex-col h-full">
-            <div className="flex-shrink-0 px-3 pt-2 pb-2 border-b border-slate-200">
-              <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Risk Management Rules</div>
+            <div className="flex-shrink-0 px-3 pt-2 pb-2 border-b border-border">
+              <div className="text-[9px] font-semibold text-foreground/80 uppercase tracking-wider mb-1">Risk Management Rules</div>
               <div className="space-y-0.5">
                 {exits.map((rule, i) => (
                   <ExitRow key={i} rule={rule}
@@ -1278,13 +1278,13 @@ export function BacktestPanelContent({ initialEvents, initialFilters, initialNam
                 ))}
               </div>
               <button type="button" onClick={() => setExits([...exits, defaultExit()])}
-                className="flex items-center gap-1 text-[8px] text-blue-600 hover:text-blue-800 mt-1">
+                className="flex items-center gap-1 text-[8px] text-primary hover:text-primary mt-1">
                 <Plus className="w-2.5 h-2.5" /> Add exit rule
               </button>
             </div>
             <div className="flex-shrink-0 px-3 pt-2 pb-1">
-              <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider">Exit Events (OR)</div>
-              <p className="text-[7px] text-slate-400 mt-0.5">Any of these events will trigger position exit</p>
+              <div className="text-[9px] font-semibold text-foreground/80 uppercase tracking-wider">Exit Events (OR)</div>
+              <p className="text-[7px] text-muted-fg mt-0.5">Any of these events will trigger position exit</p>
             </div>
             <div className="flex-1 min-h-0 px-3 pb-2">
               <EventSelector selected={exitEvents} onChange={setExitEvents} label="exit events" />
@@ -1295,15 +1295,15 @@ export function BacktestPanelContent({ initialEvents, initialFilters, initialNam
         {cfgTab === 'filters' && (
           <div className="flex flex-col h-full">
             <div className="flex-shrink-0 px-3 pt-2 pb-1">
-              <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider">Entry Filters (Per-Bar)</div>
-              <p className="text-[7px] text-slate-400 mt-0.5">Conditions that must be met on each bar for entry</p>
+              <div className="text-[9px] font-semibold text-foreground/80 uppercase tracking-wider">Entry Filters (Per-Bar)</div>
+              <p className="text-[7px] text-muted-fg mt-0.5">Conditions that must be met on each bar for entry</p>
             </div>
             <div className="flex-1 min-h-0 px-3 pb-2">
               <FilterSection filters={entryFilters} onChange={setEntryFilters} label="entry filters" />
             </div>
-            <div className="flex-shrink-0 border-t border-slate-200 px-3 pt-2 pb-1">
-              <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider">Universe Filters (Pre-Filter)</div>
-              <p className="text-[7px] text-slate-400 mt-0.5">Filter tickers before simulation</p>
+            <div className="flex-shrink-0 border-t border-border px-3 pt-2 pb-1">
+              <div className="text-[9px] font-semibold text-foreground/80 uppercase tracking-wider">Universe Filters (Pre-Filter)</div>
+              <p className="text-[7px] text-muted-fg mt-0.5">Filter tickers before simulation</p>
             </div>
             <div className="flex-1 min-h-0 px-3 pb-2">
               <FilterSection filters={universeFilters} onChange={setUniverseFilters} label="universe filters" />
@@ -1313,20 +1313,20 @@ export function BacktestPanelContent({ initialEvents, initialFilters, initialNam
 
         {cfgTab === 'review' && (
           <div className="p-3 space-y-2 text-[9px]">
-            <div className="rounded border border-slate-200 bg-white overflow-hidden">
+            <div className="rounded border border-border bg-surface overflow-hidden">
               <table className="w-full"><tbody>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Name</td><td className="px-2 py-1 text-right font-bold text-slate-800">{name}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Direction</td><td className="px-2 py-1 text-right">{direction}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Timeframe</td><td className="px-2 py-1 text-right">{timeframe}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Period</td><td className="px-2 py-1 text-right">{startDate} → {endDate}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Tickers</td><td className="px-2 py-1 text-right font-mono">{tickersStr}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Capital</td><td className="px-2 py-1 text-right">{fmtMoney(capital)}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Entry Events</td><td className="px-2 py-1 text-right">{entryEvents.size > 0 ? `${entryEvents.size} (${entryEventsCombine.toUpperCase()})` : 'none'}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Entry Signals</td><td className="px-2 py-1 text-right">{entries.length > 0 ? entries.map(s => `${s.indicator} ${s.operator} ${s.value}`).join(', ') : 'none'}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Exit Rules</td><td className="px-2 py-1 text-right">{exits.map(e => `${e.type}${e.value != null ? ` ${e.value}` : ''}`).join(', ')}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Exit Events</td><td className="px-2 py-1 text-right">{exitEvents.size > 0 ? `${exitEvents.size} events` : 'none'}</td></tr>
-                <tr className="border-b border-slate-50"><td className="px-2 py-1 text-slate-500 font-medium">Entry Filters</td><td className="px-2 py-1 text-right">{entryFilterCount > 0 ? `${entryFilterCount} active` : 'none'}</td></tr>
-                <tr><td className="px-2 py-1 text-slate-500 font-medium">Universe Filters</td><td className="px-2 py-1 text-right">{universeFilterCount > 0 ? `${universeFilterCount} active` : 'none'}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Name</td><td className="px-2 py-1 text-right font-bold text-foreground">{name}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Direction</td><td className="px-2 py-1 text-right">{direction}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Timeframe</td><td className="px-2 py-1 text-right">{timeframe}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Period</td><td className="px-2 py-1 text-right">{startDate} → {endDate}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Tickers</td><td className="px-2 py-1 text-right font-mono">{tickersStr}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Capital</td><td className="px-2 py-1 text-right">{fmtMoney(capital)}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Entry Events</td><td className="px-2 py-1 text-right">{entryEvents.size > 0 ? `${entryEvents.size} (${entryEventsCombine.toUpperCase()})` : 'none'}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Entry Signals</td><td className="px-2 py-1 text-right">{entries.length > 0 ? entries.map(s => `${s.indicator} ${s.operator} ${s.value}`).join(', ') : 'none'}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Exit Rules</td><td className="px-2 py-1 text-right">{exits.map(e => `${e.type}${e.value != null ? ` ${e.value}` : ''}`).join(', ')}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Exit Events</td><td className="px-2 py-1 text-right">{exitEvents.size > 0 ? `${exitEvents.size} events` : 'none'}</td></tr>
+                <tr className="border-b border-border-subtle"><td className="px-2 py-1 text-muted-fg font-medium">Entry Filters</td><td className="px-2 py-1 text-right">{entryFilterCount > 0 ? `${entryFilterCount} active` : 'none'}</td></tr>
+                <tr><td className="px-2 py-1 text-muted-fg font-medium">Universe Filters</td><td className="px-2 py-1 text-right">{universeFilterCount > 0 ? `${universeFilterCount} active` : 'none'}</td></tr>
               </tbody></table>
             </div>
           </div>
@@ -1334,25 +1334,25 @@ export function BacktestPanelContent({ initialEvents, initialFilters, initialNam
       </div>
 
       {/* Footer */}
-      <div className="flex-shrink-0 border-t border-slate-200 bg-slate-50 p-1.5 space-y-1">
+      <div className="flex-shrink-0 border-t border-border bg-surface-hover p-1.5 space-y-1">
         {status === 'error' && error && (
-          <div className="flex items-start gap-1 p-1.5 bg-red-50 rounded border border-red-100">
+          <div className="flex items-start gap-1 p-1.5 bg-red-500/10 rounded border border-red-500/20">
             <AlertCircle className="w-3 h-3 text-red-500 flex-shrink-0 mt-0.5" />
             <div className="min-w-0">
-              <p className="text-[9px] text-red-700">{error}</p>
-              <button type="button" onClick={reset} className="text-[8px] text-red-600 hover:text-red-800 underline mt-0.5">Dismiss</button>
+              <p className="text-[9px] text-red-700 dark:text-red-400">{error}</p>
+              <button type="button" onClick={reset} className="text-[8px] text-red-600 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 underline mt-0.5">Dismiss</button>
             </div>
           </div>
         )}
         {isRunning && (
           <div className="flex items-center gap-2 px-1">
-            <Loader2 className="w-3 h-3 animate-spin text-blue-600 flex-shrink-0" />
-            <span className="text-[9px] text-slate-600 truncate">{progressText || 'Running backtest…'}</span>
+            <Loader2 className="w-3 h-3 animate-spin text-primary flex-shrink-0" />
+            <span className="text-[9px] text-foreground/80 truncate">{progressText || 'Running backtest…'}</span>
           </div>
         )}
-        {validation && !isRunning && <p className="text-[8px] text-amber-600 px-1">{validation}</p>}
+        {validation && !isRunning && <p className="text-[8px] text-amber-600 dark:text-amber-400 px-1">{validation}</p>}
         <button type="button" onClick={handleRun} disabled={isRunning || !!validation}
-          className="w-full py-1.5 text-[10px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
+          className="w-full py-1.5 text-[10px] font-semibold text-white bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors">
           {isRunning ? 'Running…' : 'Run Backtest'}
         </button>
       </div>

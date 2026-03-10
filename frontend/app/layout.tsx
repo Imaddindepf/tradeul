@@ -70,7 +70,7 @@ export default function RootLayout({
 }) {
   return (
     <ClerkProvider>
-      <html lang="en" translate="no" className={`${inter.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable} notranslate`}>
+      <html lang="en" translate="no" suppressHydrationWarning className={`${inter.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable} notranslate`}>
         <body className="font-sans antialiased">
           <ChunkLoadErrorHandler />
           <I18nProvider>

@@ -3,7 +3,6 @@
 @tailwind utilities;
 
 /* ===== Clerk: Ocultar elementos de desarrollo ===== */
-/* Oculta "Secured by Clerk" y "Development mode" badge */
 .cl-internal-b3fm6y,
 .cl-internal-16vtwdp,
 [class*="cl-internal"][class*="badge"],
@@ -16,7 +15,6 @@
 }
 
 /* ===== Clerk: Eliminar card chrome (sin afectar formularios) ===== */
-/* Solo los contenedores card/cardBox — NO los hijos del formulario */
 [class*="cl-cardBox"],
 [class*="cl-card"]:not([class*="cl-formButton"]):not([class*="cl-formField"]):not([class*="cl-otpCodeField"]):not([class*="cl-alert"]) {
   background: transparent !important;
@@ -26,7 +24,6 @@
   border-radius: 0 !important;
 }
 
-/* Contenedor raíz transparente */
 [class*="cl-rootBox"]>div:first-child,
 [class*="cl-main"] {
   background: transparent !important;
@@ -34,31 +31,83 @@
   box-shadow: none !important;
 }
 
-
 /* Prevenir layout shift por scrollbar */
 html {
   overflow-y: scroll;
   scrollbar-gutter: stable;
 }
 
-/* Asegurar que el body no cause layout shifts */
 body {
   min-height: 100vh;
 }
 
+/* ============================================================================
+   THEME TOKENS — Light / Dark
+   ============================================================================ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --color-bg: #ffffff;
+  --color-fg: #0f172a;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f8fafc;
+  --color-surface-inset: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-border-subtle: #f1f5f9;
+  --color-muted: #f8fafc;
+  --color-muted-fg: #64748b;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+
+  --color-table-header: #f8fafc;
+  --color-table-row-hover: #f1f5f9;
+  --color-table-stripe: #fafbfc;
+  --color-input-bg: #ffffff;
+  --color-input-border: #e2e8f0;
+  --color-scrollbar-track: #f1f5f9;
+  --color-scrollbar-thumb: #cbd5e1;
+  --color-sticky-header: rgba(255, 255, 255, 0.98);
+  --color-overlay: rgba(0, 0, 0, 0.5);
+  --color-shadow: rgba(0, 0, 0, 0.1);
+
+  /* User-customizable (overridden by ThemeProvider) */
+  --color-tick-up: #10b981;
+  --color-tick-down: #ef4444;
+  --color-background: #ffffff;
+
+  /* Font (overridden by ThemeProvider) */
+  --font-mono-selected: var(--font-jetbrains-mono);
 }
 
-/* Forzar modo claro para mejor visibilidad */
+.dark {
+  --color-bg: #000000;
+  --color-fg: #f5f5f7;
+  --color-surface: #0a0a0a;
+  --color-surface-hover: #111111;
+  --color-surface-inset: #050505;
+  --color-border: #1d1d1f;
+  --color-border-subtle: #111111;
+  --color-muted: #111111;
+  --color-muted-fg: #86868b;
+  --color-primary: #2997ff;
+  --color-primary-hover: #64b5f6;
+
+  --color-table-header: #0a0a0a;
+  --color-table-row-hover: #111111;
+  --color-table-stripe: #050505;
+  --color-input-bg: #0a0a0a;
+  --color-input-border: #1d1d1f;
+  --color-scrollbar-track: #050505;
+  --color-scrollbar-thumb: #1d1d1f;
+  --color-sticky-header: rgba(0, 0, 0, 0.98);
+  --color-overlay: rgba(0, 0, 0, 0.8);
+  --color-shadow: rgba(0, 0, 0, 0.6);
+}
+
 body {
-  color: #171717;
-  background: #ffffff;
+  color: var(--color-fg);
+  background: var(--color-bg);
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Asegurar que el texto sea siempre visible */
 * {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -84,17 +133,10 @@ body {
   }
 }
 
-/* Post-its flotantes detrás del form evento (/event) */
+/* Post-its flotantes detras del form evento (/event) */
 @keyframes event-postit-float {
-
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-
-  50% {
-    transform: translateY(-8px);
-  }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
 }
 
 .event-postit-float {
@@ -104,30 +146,20 @@ body {
 
 /* Landing Page Premium Animations */
 @keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: 200% 50%;
-  }
-
-  100% {
-    background-position: -200% 50%;
-  }
+  0% { background-position: 200% 50%; }
+  100% { background-position: -200% 50%; }
 }
 
-/* Estilos para la tabla - Asegurar visibilidad de números */
+/* ============================================================================
+   TABLE STYLES — theme-aware
+   ============================================================================ */
 table {
-  color: #171717 !important;
+  color: var(--color-fg);
 }
 
 table td,
@@ -135,100 +167,46 @@ table th {
   color: inherit;
 }
 
-/* Permitir colores específicos en tablas */
-table td.text-red-600,
-table th.text-red-600,
-.text-red-600 {
-  color: #dc2626 !important;
-}
-
-/* Asegurar que font-mono tenga buen contraste */
 .font-mono {
-  color: #0f172a !important;
   font-weight: 500;
-}
-
-/* Valores en escala de grises */
-.text-gray-900 {
-  color: #111827 !important;
-}
-
-.text-gray-800 {
-  color: #1f2937 !important;
-}
-
-.text-gray-700 {
-  color: #374151 !important;
-}
-
-.text-gray-600 {
-  color: #4b5563 !important;
-}
-
-/* ============================================================================
-   CSS VARIABLES (User Customizable via Settings)
-   ============================================================================ */
-
-:root {
-  /* Default colors - overridden by ThemeProvider */
-  --color-tick-up: #10b981;
-  --color-tick-down: #ef4444;
-  --color-background: #ffffff;
-  --color-primary: #3b82f6;
-
-  /* Default font - overridden by ThemeProvider */
-  --font-mono-selected: var(--font-jetbrains-mono);
 }
 
 /* ============================================================================
    PRICE TICK INDICATOR (Professional Trading Terminal Style)
-   
-   Como Bloomberg/Reuters/TradingView:
-   - Solo cambia el COLOR del texto
-   - Sin fondos, sin transformaciones
-   - Ultra-eficiente (CSS transitions)
-   - Colores configurables por usuario
    ============================================================================ */
-
-/* Celda de precio con transición suave */
 .price-cell {
   transition: color 150ms ease-out;
   font-family: var(--font-mono-selected), monospace;
 }
 
-/* Tick UP - Color configurable */
 .price-cell[data-tick="up"] {
   color: var(--color-tick-up) !important;
 }
 
-/* Tick DOWN - Color configurable */
 .price-cell[data-tick="down"] {
   color: var(--color-tick-down) !important;
 }
 
-/* Estado neutral (sin tick reciente) */
 .price-cell[data-tick="neutral"] {
   color: inherit;
 }
 
-/* Aplicar fuente mono seleccionada a todas las celdas de datos */
 .font-mono {
   font-family: var(--font-mono-selected), monospace !important;
 }
 
-/* Estilos para tablas redimensionables */
+/* Resizable tables */
 .resizable-table-container {
   position: relative;
   user-select: none;
 }
 
-/* Prevenir selección de texto durante resize */
 .resizing * {
   user-select: none !important;
   cursor: inherit !important;
 }
 
-/* Mejorar scrollbar en tablas - estilo profesional */
+/* Scrollbar — theme-aware */
 .table-scroll::-webkit-scrollbar,
 *::-webkit-scrollbar {
   width: 8px;
@@ -237,22 +215,22 @@ table th.text-red-600,
 
 .table-scroll::-webkit-scrollbar-track,
 *::-webkit-scrollbar-track {
-  background: #f1f5f9;
-  border-left: 1px solid #e2e8f0;
+  background: var(--color-scrollbar-track);
+  border-left: 1px solid var(--color-border);
 }
 
 .table-scroll::-webkit-scrollbar-thumb,
 *::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--color-scrollbar-thumb);
   transition: background 0.2s;
 }
 
 .table-scroll::-webkit-scrollbar-thumb:hover,
 *::-webkit-scrollbar-thumb:hover {
-  background: #3b82f6;
+  background: var(--color-primary);
 }
 
-/* Estilos para handles de resize */
+/* Resize handles */
 .resize-handle {
   position: absolute;
   user-select: none;
@@ -264,37 +242,26 @@ table th.text-red-600,
   opacity: 1 !important;
 }
 
-/* Indicador de resize activo */
 @keyframes pulse-resize {
-
-  0%,
-  100% {
-    opacity: 0.8;
-  }
-
-  50% {
-    opacity: 1;
-  }
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
 }
 
 .resize-active {
   animation: pulse-resize 0.6s ease-in-out infinite;
 }
 
-/* Mejorar transiciones de celdas */
-td,
-th {
+td, th {
   transition: width 0.1s ease-out, background-color 0.15s ease;
 }
 
-/* Efecto de sombra en headers pegajosos */
+/* Sticky header — theme-aware */
 .sticky-header {
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 3px 0 var(--color-shadow), 0 1px 2px 0 var(--color-shadow);
   backdrop-filter: blur(10px);
-  background-color: rgba(255, 255, 255, 0.98);
+  background-color: var(--color-sticky-header);
 }
 
-/* Responsive table adjustments */
 @media (max-width: 1024px) {
   .resizable-table-container {
     max-width: 100vw;
@@ -302,68 +269,32 @@ th {
   }
 }
 
-/* Print styles */
 @media print {
-  .resize-handle {
-    display: none !important;
-  }
-
-  table {
-    page-break-inside: auto;
-  }
-
-  tr {
-    page-break-inside: avoid;
-    page-break-after: auto;
-  }
+  .resize-handle { display: none !important; }
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; page-break-after: auto; }
 }
 
 /* ============================================================================
-   NEW TICKER INDICATOR (Optimized)
-   - 800ms duration (was 3s)
-   - No box-shadow
-   - Simple fade animation
+   TICKER / ROW FLASH ANIMATIONS
    ============================================================================ */
-
 @keyframes new-ticker-flash {
-  from {
-    background-color: rgba(59, 130, 246, 0.4);
-  }
-
-  to {
-    background-color: transparent;
-  }
+  from { background-color: rgba(59, 130, 246, 0.4); }
+  to { background-color: transparent; }
 }
 
 .new-ticker-flash {
   animation: new-ticker-flash 800ms ease-out;
 }
 
-/* ============================================================================
-   ROW RANKING CHANGE (Optimized)
-   - 400ms duration (was 1.2s)
-   - No box-shadow (GPU intensive)
-   - Simple 2-keyframe animation
-   ============================================================================ */
-
 @keyframes row-flash-up {
-  from {
-    background-color: rgba(34, 197, 94, 0.35);
-  }
-
-  to {
-    background-color: transparent;
-  }
+  from { background-color: rgba(34, 197, 94, 0.35); }
+  to { background-color: transparent; }
 }
 
 @keyframes row-flash-down {
-  from {
-    background-color: rgba(239, 68, 68, 0.35);
-  }
-
-  to {
-    background-color: transparent;
-  }
+  from { background-color: rgba(239, 68, 68, 0.35); }
+  to { background-color: transparent; }
 }
 
 .row-flash-up {
@@ -374,75 +305,49 @@ th {
   animation: row-flash-down 400ms ease-out;
 }
 
-/* Animaciones para el Sidebar */
+/* ============================================================================
+   GENERAL ANIMATIONS
+   ============================================================================ */
 @keyframes slideIn {
-  from {
-    transform: translateX(-100%);
-    opacity: 0;
-  }
-
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
+  from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-/* Animación para Command Palette */
 @keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-slideDown {
   animation: slideDown 0.15s ease-out;
 }
 
-/* Animación para Command Palette desde izquierda */
 @keyframes slideInLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-100%);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(-100%); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 .animate-slideInLeft {
   animation: slideInLeft 0.25s ease-out;
 }
 
-/* Smooth scroll para toda la app */
 * {
   scroll-behavior: smooth;
 }
 
-/* Command Palette (cmdk) Styles */
+/* Command Palette (cmdk) Styles — theme-aware */
 [cmdk-root] {
   font-family: inherit;
 }
 
 [cmdk-group-heading] {
-  @apply px-2 py-1 text-xs text-slate-400 uppercase tracking-wide font-mono;
+  @apply px-2 py-1 text-xs uppercase tracking-wide font-mono;
+  color: var(--color-muted-fg);
 }
 
 [cmdk-item] {
@@ -451,22 +356,18 @@ th {
 }
 
 [cmdk-separator] {
-  @apply h-px bg-slate-200 my-1;
+  @apply h-px my-1;
+  background-color: var(--color-border);
 }
 
-/* Animación de parpadeo rojo para resaltar artículos */
 @keyframes highlight-pulse {
+  0%, 100% { background-color: rgb(254 226 226); }
+  50% { background-color: rgb(254 202 202); }
+}
 
-  0%,
-  100% {
-    background-color: rgb(254 226 226);
-    /* rose-100 */
-  }
-
-  50% {
-    background-color: rgb(254 202 202);
-    /* rose-200 */
-  }
+.dark @keyframes highlight-pulse {
+  0%, 100% { background-color: rgba(239, 68, 68, 0.15); }
+  50% { background-color: rgba(239, 68, 68, 0.25); }
 }
 
 .animate-highlight-pulse {

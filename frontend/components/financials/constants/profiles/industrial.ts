@@ -24,7 +24,7 @@ export const industrialProfile: IndustryProfile = {
     category: 'industrial',
     label: 'Industrial',
     icon: Factory,
-    color: 'text-gray-600',
+    color: 'text-foreground/80',
     description: 'Industrial machinery and manufacturing',
     kpis: [
         { name: 'Gross Margin', formula: 'Gross Profit / Revenue', calculate: (d: FinancialData) => { const i = d.income_statements[0]; return i?.gross_profit && i?.revenue ? (i.gross_profit / i.revenue) * 100 : undefined; }, format: 'percent', benchmark: { good: 35, bad: 25 }, tooltip: 'Industrial: 30-40%' },
@@ -129,7 +129,7 @@ export const conglomerateProfile: IndustryProfile = {
     category: 'conglomerate',
     label: 'Conglomerate',
     icon: Building2,
-    color: 'text-gray-700',
+    color: 'text-foreground',
     description: 'Diversified conglomerates',
     kpis: [
         { name: 'Operating Margin', formula: 'Operating Income / Revenue', calculate: (d: FinancialData) => { const i = d.income_statements[0]; return i?.operating_income && i?.revenue ? (i.operating_income / i.revenue) * 100 : undefined; }, format: 'percent', benchmark: { good: 15, bad: 8 }, tooltip: 'Blended operating margin' },

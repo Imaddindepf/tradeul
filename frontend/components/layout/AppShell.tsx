@@ -52,13 +52,13 @@ export function AppShell({ children }: AppShellProps) {
               {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}
               <CatalystDetectorProvider>
                 <OpenULProvider>
-                <div className="min-h-screen bg-slate-50 relative">
+                <div className="min-h-screen bg-background relative">
                   {/* Announcement Banner - floating toast */}
                   <AnnouncementBanner />
                   <Navbar />
                   <main className="w-full">
                     {/* Contenido principal con padding-top para dejar espacio al navbar fijo */}
-                    <div className="min-h-screen bg-white w-full pt-11">
+                    <div className="min-h-screen bg-surface w-full pt-11">
                       {children}
                     </div>
                   </main>

@@ -75,7 +75,7 @@ function EventRow({ event, compact, onClick }: EventRowProps) {
     : '';
 
   const icon = EVENT_TYPE_ICONS[event.event_type] || '📊';
-  const colorClass = EVENT_TYPE_COLORS[event.event_type] || 'text-gray-400';
+  const colorClass = EVENT_TYPE_COLORS[event.event_type] || 'text-muted-fg';
   const label = EVENT_TYPE_LABELS[event.event_type] || event.event_type;
 
   const isPositive = ['new_high', 'vwap_cross_up', 'resume', 'crossed_above_open', 'crossed_above_prev_close',

@@ -326,23 +326,23 @@ export function TerminalPalette({
                     maxWidth: '600px',
                 }}
             >
-                <div className="border border-slate-200 bg-white shadow-xl overflow-hidden">
+                <div className="border border-border bg-surface shadow-xl overflow-hidden">
                     {/* Header con ticker seleccionado */}
-                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface-hover">
                         <div className="flex items-center gap-2">
                             {selectedTicker ? (
                                 <>
-                                    <span className="text-[10px] text-slate-400 uppercase tracking-wide font-mono">Commands for</span>
-                                    <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-blue-100 text-blue-700 rounded">
+                                    <span className="text-[10px] text-muted-fg uppercase tracking-wide font-mono">Commands for</span>
+                                    <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-primary/15 text-primary rounded">
                                         {selectedTicker.symbol}
                                     </span>
                                 </>
                             ) : (
-                                <span className="text-[10px] text-slate-400 uppercase tracking-wide font-mono">
+                                <span className="text-[10px] text-muted-fg uppercase tracking-wide font-mono">
                                     {hasScPrefix ? 'Scanner' : hasEvnPrefix ? 'Events' : looksLikeTicker && tickerResults.length > 0 ? 'Instruments' : 'Commands'}
                                 </span>
                             )}
-                            {loadingTickers && <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />}
+                            {loadingTickers && <Loader2 className="w-3 h-3 text-muted-fg animate-spin" />}
                         </div>
                         <button
                             onClick={() => {
@@ -350,7 +350,7 @@ export function TerminalPalette({
                                 setSearch('');
                                 setSelectedTicker(null);
                             }}
-                            className="text-slate-400 hover:text-slate-600"
+                            className="text-muted-fg hover:text-foreground"
                         >
                             <X className="w-3 h-3" />
                         </button>
@@ -363,7 +363,7 @@ export function TerminalPalette({
                         style={{ maxHeight: 'calc(100vh - 220px)' }}
                     >
                         {items.length === 0 ? (
-                            <div className="py-6 text-center text-[11px] text-slate-400">
+                            <div className="py-6 text-center text-[11px] text-muted-fg">
                                 {loadingTickers ? t('common.loading') : t('common.noResults')}
                             </div>
                         ) : (
@@ -374,21 +374,21 @@ export function TerminalPalette({
                                         data-index={index}
                                         onClick={() => handleSelect(item)}
                                         className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors
-                                        ${index === selectedIndex ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                                        ${index === selectedIndex ? 'bg-primary/10' : 'hover:bg-surface-hover'}`}
                                     >
                                         {/* Instrument row */}
                                         {item.type === 'instrument' && item.tickerData && (
                                             <>
-                                                <span className="px-1 py-0.5 text-[9px] font-bold bg-blue-600 text-white rounded">
+                                                <span className="px-1 py-0.5 text-[9px] font-bold bg-primary text-white rounded">
                                                     EQ
                                                 </span>
-                                                <span className="text-[11px] font-mono font-semibold text-slate-800 w-12">
+                                                <span className="text-[11px] font-mono font-semibold text-foreground w-12">
                                                     {item.tickerData.symbol}
                                                 </span>
-                                                <span className="text-[9px] text-slate-400 font-mono w-6">
+                                                <span className="text-[9px] text-muted-fg font-mono w-6">
                                                     {item.tickerData.exchange?.slice(0, 2) || 'US'}
                                                 </span>
-                                                <span className="text-[10px] text-slate-600 flex-1 truncate">
+                                                <span className="text-[10px] text-foreground/80 flex-1 truncate">
                                                     {item.tickerData.name}
                                                 </span>
                                             </>
@@ -398,23 +398,23 @@ export function TerminalPalette({
                                         {item.type !== 'instrument' && (
                                             <>
                                                 <span className={`px-1.5 py-0.5 text-[10px] font-mono font-semibold border rounded min-w-[60px] text-center ${
-                                                    item.type === 'user-strategy' ? 'border-emerald-300 text-emerald-700 bg-emerald-50' :
-                                                    item.isUserScan ? 'border-amber-300 text-amber-700 bg-amber-50' :
-                                                    'border-slate-200 text-slate-700'
+                                                    item.type === 'user-strategy' ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10' :
+                                                    item.isUserScan ? 'border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10' :
+                                                    'border-border text-foreground'
                                                 }`}>
                                                     {item.label}
                                                 </span>
-                                                <span className="text-[10px] text-slate-500 flex-1 truncate">
+                                                <span className="text-[10px] text-muted-fg flex-1 truncate">
                                                     {item.description}
                                                 </span>
                                                 {item.isUserScan && (
-                                                    <span className="text-[9px] text-slate-400 font-mono">(scan)</span>
+                                                    <span className="text-[9px] text-muted-fg font-mono">(scan)</span>
                                                 )}
                                                 {item.type === 'user-strategy' && (
                                                     <span className="text-[9px] text-emerald-500 font-mono">(strategy)</span>
                                                 )}
                                                 {item.shortcut && (
-                                                    <span className="text-[9px] text-slate-400 font-mono">
+                                                    <span className="text-[9px] text-muted-fg font-mono">
                                                         {item.shortcut}
                                                     </span>
                                                 )}
@@ -427,15 +427,15 @@ export function TerminalPalette({
                     </div>
 
                     {/* Footer */}
-                    <div className="flex items-center justify-between px-3 py-1 border-t border-slate-200 bg-slate-50">
-                        <div className="flex items-center gap-3 text-[9px] text-slate-400 font-mono">
+                    <div className="flex items-center justify-between px-3 py-1 border-t border-border bg-surface-hover">
+                        <div className="flex items-center gap-3 text-[9px] text-muted-fg font-mono">
                             <span>↑↓ nav</span>
                             <span>Tab complete</span>
                             <span>Enter select</span>
                         </div>
                         <button
                             onClick={onOpenHelp}
-                            className="text-[9px] text-slate-400 hover:text-blue-600 font-mono"
+                            className="text-[9px] text-muted-fg hover:text-primary font-mono"
                         >
                             ? help
                         </button>
@@ -599,3 +599,4 @@ function getDisplayItems(
 }
 
 export default TerminalPalette;
+

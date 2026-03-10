@@ -203,31 +203,31 @@ function ExpandedChart({
     const bandPath = `M${upperBand} L${lowerBand} Z`;
 
     return (
-        <div className="h-full bg-white p-5" style={{ fontFamily }}>
+        <div className="h-full bg-surface p-5" style={{ fontFamily }}>
             {/* Header */}
             <div className="flex items-baseline justify-between mb-3">
                 <div className="flex items-baseline gap-3">
-                    <span className="text-xl font-bold text-slate-800">{symbol}</span>
-                    {date && <span className="text-slate-400" style={{ fontSize: '12px' }}>{date} {historicalContext?.pattern_end}</span>}
-                    <span className="text-slate-400" style={{ fontSize: '12px' }}>+{forecast.horizon_minutes}min forecast</span>
+                    <span className="text-xl font-bold text-foreground">{symbol}</span>
+                    {date && <span className="text-muted-fg" style={{ fontSize: '12px' }}>{date} {historicalContext?.pattern_end}</span>}
+                    <span className="text-muted-fg" style={{ fontSize: '12px' }}>+{forecast.horizon_minutes}min forecast</span>
                 </div>
                 <div className="flex items-center gap-4" style={{ fontSize: '11px' }}>
                     <span className="flex items-center gap-1">
                         <span className="w-4 h-0.5 bg-slate-700 inline-block"></span>
-                        <span className="text-slate-500">Query</span>
+                        <span className="text-muted-fg">Query</span>
                     </span>
                     <span className="flex items-center gap-1">
                         <span className="w-4 h-0.5 bg-blue-500 inline-block" style={{ borderStyle: 'dashed' }}></span>
-                        <span className="text-slate-500">Forecast</span>
+                        <span className="text-muted-fg">Forecast</span>
                     </span>
                     <span className="flex items-center gap-1">
-                        <span className="w-4 h-0.5 bg-slate-400 inline-block opacity-50"></span>
-                        <span className="text-slate-500">Neighbors</span>
+                        <span className="w-4 h-0.5 bg-muted-fg inline-block opacity-50"></span>
+                        <span className="text-muted-fg">Neighbors</span>
                     </span>
                     {showActual && actual && (
                         <span className="flex items-center gap-1">
                             <span className={`w-4 h-0.5 inline-block ${actual.final_return >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-                            <span className="text-slate-500">Actual</span>
+                            <span className="text-muted-fg">Actual</span>
                         </span>
                     )}
                 </div>
@@ -261,7 +261,7 @@ function ExpandedChart({
                             stroke={v === 0 ? '#94a3b8' : '#e2e8f0'}
                             strokeWidth={v === 0 ? 1 : 0.5}
                         />
-                        <text x={padding.left - 10} y={yScale(v) + 4} textAnchor="end" fill="#94a3b8" style={{ fontSize: '11px' }}>
+                        <text x={padding.left - 10} y={yScale(v) + 4} textAnchor="end" fill="var(--color-muted-fg)" style={{ fontSize: '11px' }}>
                             {v > 0 ? '+' : ''}{v.toFixed(2)}%
                         </text>
                     </g>
@@ -273,7 +273,7 @@ function ExpandedChart({
                     y1={padding.top - 5}
                     x2={xScale(t0Index)}
                     y2={padding.top + chartHeight + 5}
-                    stroke="#64748b"
+                    stroke="var(--color-muted-fg)"
                     strokeWidth="1"
                     strokeDasharray="4,3"
                 />
@@ -281,17 +281,17 @@ function ExpandedChart({
                     x={xScale(t0Index)}
                     y={padding.top - 12}
                     textAnchor="middle"
-                    fill="#64748b"
+                    fill="var(--color-muted-fg)"
                     style={{ fontSize: '11px', fontWeight: 600 }}
                 >
                     t₀
                 </text>
 
                 {/* X axis labels */}
-                <text x={padding.left + 5} y={height - 15} fill="#94a3b8" style={{ fontSize: '10px' }}>
+                <text x={padding.left + 5} y={height - 15} fill="var(--color-muted-fg)" style={{ fontSize: '10px' }}>
                     before
                 </text>
-                <text x={padding.left + chartWidth - 5} y={height - 15} textAnchor="end" fill="#94a3b8" style={{ fontSize: '10px' }}>
+                <text x={padding.left + chartWidth - 5} y={height - 15} textAnchor="end" fill="var(--color-muted-fg)" style={{ fontSize: '10px' }}>
                     after (+{forecast.horizon_minutes}min)
                 </text>
 
@@ -306,7 +306,7 @@ function ExpandedChart({
                             key={idx}
                             points={pts}
                             fill="none"
-                            stroke="#64748b"
+                            stroke="var(--color-muted-fg)"
                             strokeWidth="1.2"
                             opacity="0.25"
                         />
@@ -321,7 +321,7 @@ function ExpandedChart({
                     <polyline
                         points={queryLine}
                         fill="none"
-                        stroke="#1e293b"
+                        stroke="var(--color-fg)"
                         strokeWidth="2.5"
                         strokeLinecap="round"
                     />
@@ -396,41 +396,41 @@ function ExpandedChart({
                     cx={xScale(t0Index)}
                     cy={yScale(queryPattern ? queryPattern[queryPattern.length - 1] : 0)}
                     r="4"
-                    fill="#1e293b"
-                    stroke="white"
+                    fill="var(--color-fg)"
+                    stroke="var(--color-bg)"
                     strokeWidth="2"
                 />
             </svg>
 
             {/* Stats */}
-            <div className="flex gap-6 mt-3 pt-3 border-t border-slate-100" style={{ fontSize: '12px' }}>
+            <div className="flex gap-6 mt-3 pt-3 border-t border-border-subtle" style={{ fontSize: '12px' }}>
                 <div>
-                    <span className="text-slate-400">Mean</span>
+                    <span className="text-muted-fg">Mean</span>
                     <span className={`ml-2 font-mono font-bold ${forecast.mean_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                         {forecast.mean_return >= 0 ? '+' : ''}{forecast.mean_return.toFixed(2)}%
                     </span>
                 </div>
                 <div>
-                    <span className="text-slate-400">Median</span>
+                    <span className="text-muted-fg">Median</span>
                     <span className={`ml-2 font-mono font-bold ${forecast.median_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                         {forecast.median_return >= 0 ? '+' : ''}{forecast.median_return.toFixed(2)}%
                     </span>
                 </div>
                 <div>
-                    <span className="text-slate-400">Prob Up</span>
+                    <span className="text-muted-fg">Prob Up</span>
                     <span className="ml-2 font-mono font-bold text-emerald-600">{(forecast.prob_up * 100).toFixed(0)}%</span>
                 </div>
                 <div>
-                    <span className="text-slate-400">Best</span>
+                    <span className="text-muted-fg">Best</span>
                     <span className="ml-2 font-mono font-bold text-emerald-600">+{forecast.best_case.toFixed(2)}%</span>
                 </div>
                 <div>
-                    <span className="text-slate-400">Worst</span>
+                    <span className="text-muted-fg">Worst</span>
                     <span className="ml-2 font-mono font-bold text-red-500">{forecast.worst_case.toFixed(2)}%</span>
                 </div>
                 <div>
-                    <span className="text-slate-400">Confidence</span>
-                    <span className={`ml-2 font-bold ${forecast.confidence === 'high' ? 'text-emerald-600' : forecast.confidence === 'medium' ? 'text-amber-500' : 'text-slate-500'}`}>
+                    <span className="text-muted-fg">Confidence</span>
+                    <span className={`ml-2 font-bold ${forecast.confidence === 'high' ? 'text-emerald-600' : forecast.confidence === 'medium' ? 'text-amber-500' : 'text-muted-fg'}`}>
                         {forecast.confidence}
                     </span>
                 </div>
@@ -547,26 +547,26 @@ function GodelChart({
         <div className="relative">
             {/* Header */}
             <div className="flex items-center justify-between mb-2 px-1">
-                <span className="text-slate-600 font-medium" style={{ fontSize: '11px' }}>
+                <span className="text-foreground/80 font-medium" style={{ fontSize: '11px' }}>
                     {symbol} @ {date} {historicalContext?.pattern_end} — Pattern window
                 </span>
                 <div className="flex items-center gap-4" style={{ fontSize: '10px' }}>
                     <span className="flex items-center gap-1">
                         <span className="w-3 h-0.5 bg-slate-700 inline-block"></span>
-                        <span className="text-slate-500">Query</span>
+                        <span className="text-muted-fg">Query</span>
                     </span>
                     <span className="flex items-center gap-1">
                         <span className="w-3 h-0.5 bg-blue-500 inline-block" style={{ borderStyle: 'dashed' }}></span>
-                        <span className="text-slate-500">Forecast</span>
+                        <span className="text-muted-fg">Forecast</span>
                     </span>
                     <span className="flex items-center gap-1">
-                        <span className="w-3 h-0.5 bg-slate-400 inline-block opacity-50"></span>
-                        <span className="text-slate-500">Neighbors</span>
+                        <span className="w-3 h-0.5 bg-muted-fg inline-block opacity-50"></span>
+                        <span className="text-muted-fg">Neighbors</span>
                     </span>
                     {showActual && actual && (
                         <span className="flex items-center gap-1">
                             <span className={`w-3 h-0.5 inline-block ${actual.final_return >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-                            <span className="text-slate-500">Actual</span>
+                            <span className="text-muted-fg">Actual</span>
                         </span>
                     )}
                 </div>
@@ -579,14 +579,14 @@ function GodelChart({
                     y={padding.top}
                     width={xScale(t0Index) - padding.left}
                     height={chartHeight}
-                    fill="#f8fafc"
+                    fill="var(--color-surface-hover)"
                 />
                 <rect
                     x={xScale(t0Index)}
                     y={padding.top}
                     width={padding.left + chartWidth - xScale(t0Index)}
                     height={chartHeight}
-                    fill="#fefefe"
+                    fill="var(--color-surface)"
                 />
 
                 {/* Grid lines */}
@@ -597,7 +597,7 @@ function GodelChart({
                             y1={yScale(v)}
                             x2={padding.left + chartWidth}
                             y2={yScale(v)}
-                            stroke={v === 0 ? '#94a3b8' : '#e2e8f0'}
+                            stroke={v === 0 ? 'var(--color-muted-fg)' : 'var(--color-border)'}
                             strokeWidth={v === 0 ? 1 : 0.5}
                         />
                         <text
@@ -821,17 +821,17 @@ function LiveForecastChart({
         <div className="relative">
             {/* Header */}
             <div className="flex items-center justify-between mb-2 px-1">
-                <span className="text-slate-600 font-medium" style={{ fontSize: '11px' }}>
+                <span className="text-foreground/80 font-medium" style={{ fontSize: '11px' }}>
                     {symbol} — Live pattern @ {timeStr}
                 </span>
                 <div className="flex items-center gap-4" style={{ fontSize: '10px' }}>
                     <span className="flex items-center gap-1">
                         <span className="w-3 h-0.5 bg-blue-500 inline-block"></span>
-                        <span className="text-slate-500">Forecast</span>
+                        <span className="text-muted-fg">Forecast</span>
                     </span>
                     <span className="flex items-center gap-1">
-                        <span className="w-3 h-0.5 bg-slate-400 inline-block opacity-50"></span>
-                        <span className="text-slate-500">Neighbors</span>
+                        <span className="w-3 h-0.5 bg-muted-fg inline-block opacity-50"></span>
+                        <span className="text-muted-fg">Neighbors</span>
                     </span>
                     <span className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -1177,9 +1177,9 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
     }, []);
 
     return (
-        <div className="h-full flex flex-col bg-white text-slate-800" style={{ fontFamily }}>
+        <div className="h-full flex flex-col bg-surface text-foreground" style={{ fontFamily }}>
             {/* Search Bar */}
-            <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100">
+            <div className="flex-shrink-0 px-4 py-3 border-b border-border-subtle">
                 <div className="flex gap-2 items-center">
                     <div className="flex-1">
                         <TickerSearch
@@ -1193,11 +1193,11 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                     </div>
 
                     {mode === 'historical' && (
-                        <div className="flex items-center text-slate-500" style={{ fontSize: '10px', fontFamily }}>
+                        <div className="flex items-center text-muted-fg" style={{ fontSize: '10px', fontFamily }}>
                             <select
                                 value={historicalDate}
                                 onChange={(e) => setHistoricalDate(e.target.value)}
-                                className="bg-transparent border-none outline-none cursor-pointer text-slate-600 hover:text-slate-800 appearance-none pr-1"
+                                className="bg-transparent border-none outline-none cursor-pointer text-foreground/80 hover:text-foreground appearance-none pr-1"
                                 style={{ fontSize: '10px', fontFamily }}
                                 disabled={!availableDates}
                             >
@@ -1210,38 +1210,38 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                     <option key={d} value={d}>{d}</option>
                                 ))}
                             </select>
-                            <span className="text-slate-300 mx-0.5">@</span>
+                            <span className="text-muted-fg/50 mx-0.5">@</span>
                             <input
                                 type="text"
                                 value={historicalTime}
                                 onChange={(e) => setHistoricalTime(e.target.value)}
                                 placeholder="15:00"
-                                className="bg-transparent border-none outline-none text-slate-600 hover:text-slate-800 w-[38px] text-center"
+                                className="bg-transparent border-none outline-none text-foreground/80 hover:text-foreground w-[38px] text-center"
                                 style={{ fontSize: '10px', fontFamily }}
                             />
                         </div>
                     )}
 
-                    <div className="flex items-center gap-1 text-slate-400" style={{ fontSize: '9px', fontFamily }}>
+                    <div className="flex items-center gap-1 text-muted-fg" style={{ fontSize: '9px', fontFamily }}>
                         <button
                             onClick={() => setMode('realtime')}
-                            className={`px-1.5 py-0.5 rounded ${mode === 'realtime' ? 'bg-slate-100 text-slate-700' : 'hover:text-slate-600'}`}
+                            className={`px-1.5 py-0.5 rounded ${mode === 'realtime' ? 'bg-surface-inset text-foreground' : 'hover:text-foreground/80'}`}
                         >
                             live
                         </button>
-                        <span className="text-slate-200">|</span>
+                        <span className="text-muted-fg/50">|</span>
                         <button
                             onClick={() => setMode('historical')}
-                            className={`px-1.5 py-0.5 rounded ${mode === 'historical' ? 'bg-slate-100 text-slate-700' : 'hover:text-slate-600'}`}
+                            className={`px-1.5 py-0.5 rounded ${mode === 'historical' ? 'bg-surface-inset text-foreground' : 'hover:text-foreground/80'}`}
                         >
                             hist
                         </button>
                         {mode === 'historical' && (
                             <>
-                                <span className="text-slate-200">|</span>
+                                <span className="text-muted-fg/50">|</span>
                                 <button
                                     onClick={() => setShowVisualSelector(!showVisualSelector)}
-                                    className={`px-1.5 py-0.5 rounded ${showVisualSelector ? 'bg-slate-100 text-slate-700' : 'hover:text-slate-600'}`}
+                                    className={`px-1.5 py-0.5 rounded ${showVisualSelector ? 'bg-surface-inset text-foreground' : 'hover:text-foreground/80'}`}
                                     title="Visual selector"
                                 >
                                     chart
@@ -1252,7 +1252,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
 
                     <button
                         onClick={() => setShowSettings(!showSettings)}
-                        className={`p-1.5 rounded border ${showSettings ? 'border-blue-300 bg-blue-50 text-blue-600' : 'border-slate-200 text-slate-400'}`}
+                        className={`p-1.5 rounded border ${showSettings ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-fg'}`}
                     >
                         <Settings2 className="w-4 h-4" />
                     </button>
@@ -1261,7 +1261,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                         data-pm-search-btn
                         onClick={handleSearch}
                         disabled={loading || !ticker.trim()}
-                        className="px-3 py-1.5 rounded bg-blue-500 text-white font-medium hover:bg-blue-600 disabled:opacity-50 flex items-center gap-1.5"
+                        className="px-3 py-1.5 rounded bg-primary text-white font-medium hover:bg-primary-hover disabled:opacity-50 flex items-center gap-1.5"
                         style={{ fontSize: '11px' }}
                     >
                         {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
@@ -1270,29 +1270,29 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                 </div>
 
                 {showSettings && (
-                    <div className="mt-2 pt-2 border-t border-slate-100 flex gap-4" style={{ fontSize: '10px' }}>
+                    <div className="mt-2 pt-2 border-t border-border-subtle flex gap-4" style={{ fontSize: '10px' }}>
                         <div className="flex items-center gap-1">
-                            <span className="text-slate-400">k:</span>
+                            <span className="text-muted-fg">k:</span>
                             <input
                                 type="number"
                                 value={k}
                                 onChange={(e) => setK(Math.min(200, Math.max(1, parseInt(e.target.value) || 50)))}
-                                className="w-10 px-1 py-0.5 rounded border border-slate-200"
+                                className="w-10 px-1 py-0.5 rounded border border-border"
                             />
                         </div>
                         <div className="flex items-center gap-1">
-                            <span className="text-slate-400">Window:</span>
+                            <span className="text-muted-fg">Window:</span>
                             <input
                                 type="number"
                                 value={windowMinutes}
                                 onChange={(e) => setWindowMinutes(Math.min(120, Math.max(15, parseInt(e.target.value) || 45)))}
-                                className="w-10 px-1 py-0.5 rounded border border-slate-200"
+                                className="w-10 px-1 py-0.5 rounded border border-border"
                             />
-                            <span className="text-slate-400">min</span>
+                            <span className="text-muted-fg">min</span>
                         </div>
                         <button
                             onClick={() => setCrossAsset(!crossAsset)}
-                            className={`px-2 py-0.5 rounded border ${crossAsset ? 'border-blue-300 bg-blue-50 text-blue-600' : 'border-slate-200 text-slate-500'}`}
+                            className={`px-2 py-0.5 rounded border ${crossAsset ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-fg'}`}
                         >
                             {crossAsset ? 'Cross-asset' : 'Same ticker'}
                         </button>
@@ -1301,7 +1301,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
 
                 {/* Visual Pattern Selector */}
                 {showVisualSelector && mode === 'historical' && ticker && historicalDate && (
-                    <div className="mt-3 pt-3 border-t border-slate-100">
+                    <div className="mt-3 pt-3 border-t border-border-subtle">
                         <CandlestickSelector
                             symbol={ticker.toUpperCase()}
                             date={historicalDate}
@@ -1323,14 +1323,14 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                 )}
 
                 {!result && !loading && !error && (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                    <div className="h-full flex flex-col items-center justify-center text-muted-fg">
                         <Search className="w-8 h-8 mb-2 opacity-30" />
                         <p style={{ fontSize: '12px' }}>Search a ticker to find similar patterns</p>
                     </div>
                 )}
 
                 {loading && (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                    <div className="h-full flex flex-col items-center justify-center text-muted-fg">
                         <Loader2 className="w-6 h-6 animate-spin mb-2" />
                         <p style={{ fontSize: '11px' }}>Searching {indexStats ? `${(indexStats.n_vectors / 1_000_000).toFixed(1)}M` : ''} patterns...</p>
                     </div>
@@ -1341,19 +1341,19 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                         {/* Header */}
                         <div className="flex items-baseline justify-between">
                             <div className="flex items-baseline gap-3">
-                                <span className="text-xl font-semibold text-slate-800">{result.query.symbol}</span>
+                                <span className="text-xl font-semibold text-foreground">{result.query.symbol}</span>
                                 {result.query.date && (
-                                    <span className="text-slate-400" style={{ fontSize: '11px' }}>{result.query.date}</span>
+                                    <span className="text-muted-fg" style={{ fontSize: '11px' }}>{result.query.date}</span>
                                 )}
                             </div>
-                            <span className="text-slate-400" style={{ fontSize: '10px' }}>
+                            <span className="text-muted-fg" style={{ fontSize: '10px' }}>
                                 {result.stats?.query_time_ms?.toFixed(1) || '0'}ms · {result.forecast.n_neighbors || 0} matches
                             </span>
                         </div>
 
                         {/* Probability Bar - only show if we have valid forecast data */}
                         {'error' in result.forecast ? (
-                            <div className="text-center py-4 text-slate-400" style={{ fontSize: '12px' }}>
+                            <div className="text-center py-4 text-muted-fg" style={{ fontSize: '12px' }}>
                                 <span>No se encontraron patrones similares con datos históricos completos</span>
                             </div>
                         ) : (
@@ -1363,15 +1363,15 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                 <div className="flex items-center gap-1.5 text-emerald-600" style={{ fontSize: '12px' }}>
                                     <TrendingUp className="w-4 h-4" />
                                     <span className="font-semibold">{((result.forecast.prob_up ?? 0) * 100).toFixed(0)}%</span>
-                                    <span className="text-slate-400 font-normal">bullish</span>
+                                    <span className="text-muted-fg font-normal">bullish</span>
                                 </div>
                                 <div className="flex items-center gap-1.5 text-red-500" style={{ fontSize: '12px' }}>
-                                    <span className="text-slate-400 font-normal">bearish</span>
+                                    <span className="text-muted-fg font-normal">bearish</span>
                                     <span className="font-semibold">{((result.forecast.prob_down ?? 0) * 100).toFixed(0)}%</span>
                                     <TrendingDown className="w-4 h-4" />
                                 </div>
                             </div>
-                            <div className="h-2.5 rounded-full overflow-hidden bg-slate-100 flex">
+                            <div className="h-2.5 rounded-full overflow-hidden bg-surface-inset flex">
                                 <div className="bg-emerald-500 transition-all" style={{ width: `${(result.forecast.prob_up ?? 0) * 100}%` }} />
                                 <div className="bg-red-500 transition-all" style={{ width: `${(result.forecast.prob_down ?? 0) * 100}%` }} />
                             </div>
@@ -1380,29 +1380,29 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                         {/* Stats Row */}
                         <div className="flex gap-6" style={{ fontSize: '11px' }}>
                             <div>
-                                <span className="text-slate-400">Mean</span>
+                                <span className="text-muted-fg">Mean</span>
                                 <span className={`ml-1.5 font-mono font-semibold ${(result.forecast.mean_return ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                                     {(result.forecast.mean_return ?? 0) >= 0 ? '+' : ''}{(result.forecast.mean_return ?? 0).toFixed(2)}%
                                 </span>
                             </div>
                             <div>
-                                <span className="text-slate-400">Median</span>
+                                <span className="text-muted-fg">Median</span>
                                 <span className={`ml-1.5 font-mono font-semibold ${(result.forecast.median_return ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                                     {(result.forecast.median_return ?? 0) >= 0 ? '+' : ''}{(result.forecast.median_return ?? 0).toFixed(2)}%
                                 </span>
                             </div>
                             <div>
-                                <span className="text-slate-400">Best</span>
+                                <span className="text-muted-fg">Best</span>
                                 <span className="ml-1.5 font-mono font-semibold text-emerald-600">+{(result.forecast.best_case ?? 0).toFixed(2)}%</span>
                             </div>
                             <div>
-                                <span className="text-slate-400">Worst</span>
+                                <span className="text-muted-fg">Worst</span>
                                 <span className="ml-1.5 font-mono font-semibold text-red-500">{(result.forecast.worst_case ?? 0).toFixed(2)}%</span>
                             </div>
                             <div>
-                                <span className="text-slate-400">Confidence</span>
+                                <span className="text-muted-fg">Confidence</span>
                                 <span className={`ml-1.5 font-semibold ${result.forecast.confidence === 'high' ? 'text-emerald-600' :
-                                    result.forecast.confidence === 'medium' ? 'text-amber-500' : 'text-slate-500'
+                                    result.forecast.confidence === 'medium' ? 'text-amber-500' : 'text-muted-fg'
                                     }`}>
                                     {result.forecast.confidence ?? 'N/A'}
                                 </span>
@@ -1417,14 +1417,14 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                             <div className="flex items-center justify-end gap-2 mb-2">
                                 {/* Show Actual toggle - only when actual data exists */}
                                 {result.actual && result.historical_context && (
-                                    <label className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-slate-200 bg-white cursor-pointer hover:border-blue-300 transition-colors" style={{ fontSize: '10px' }}>
+                                    <label className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-border bg-surface cursor-pointer hover:border-primary transition-colors" style={{ fontSize: '10px' }}>
                                         <input
                                             type="checkbox"
                                             checked={showActual}
                                             onChange={(e) => setShowActual(e.target.checked)}
-                                            className="w-3 h-3 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                                            className="w-3 h-3 rounded border-border text-primary focus:ring-primary"
                                         />
-                                        <span className="text-slate-500">Actual</span>
+                                        <span className="text-muted-fg">Actual</span>
                                         {showActual && (
                                             <span className={`font-mono font-semibold ${result.actual.final_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                                                 {result.actual.final_return >= 0 ? '+' : ''}{result.actual.final_return.toFixed(2)}%
@@ -1434,7 +1434,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                 )}
                                 <button
                                     onClick={handleExpandChart}
-                                    className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors"
+                                    className="p-1 rounded border border-border bg-surface text-muted-fg hover:text-primary hover:border-primary transition-colors"
                                     title="Expand chart"
                                 >
                                     <Maximize2 className="w-3.5 h-3.5" />
@@ -1464,7 +1464,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
 
                         {/* Similar Patterns */}
                         <div>
-                            <div className="text-slate-400 mb-2" style={{ fontSize: '10px' }}>
+                            <div className="text-muted-fg mb-2" style={{ fontSize: '10px' }}>
                                 Similar patterns ({result.neighbors.length})
                             </div>
                             <div className="flex flex-wrap gap-1.5">
@@ -1476,7 +1476,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                     return (
                                         <div
                                             key={i}
-                                            className={`px-2 py-1 rounded ${isUp ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+                                            className={`px-2 py-1 rounded ${isUp ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}
                                             style={{ fontSize: '10px' }}
                                             title={`${n.date} ${n.start_time}-${n.end_time}`}
                                         >
@@ -1486,7 +1486,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                     );
                                 })}
                                 {result.neighbors.length > 20 && (
-                                    <span className="px-2 py-1 text-slate-400" style={{ fontSize: '10px' }}>
+                                    <span className="px-2 py-1 text-muted-fg" style={{ fontSize: '10px' }}>
                                         +{result.neighbors.length - 20}
                                     </span>
                                 )}
@@ -1497,7 +1497,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
             </div>
 
             {/* Footer */}
-            <div className="flex-shrink-0 px-4 py-1 border-t border-slate-100 flex items-center justify-between text-slate-400" style={{ fontSize: '9px' }}>
+            <div className="flex-shrink-0 px-4 py-1 border-t border-border-subtle flex items-center justify-between text-muted-fg" style={{ fontSize: '9px' }}>
                 <div className="flex items-center gap-2">
                     <Clock className="w-3 h-3" />
                     <span>{windowMinutes}min · {crossAsset ? 'cross-asset' : 'same ticker'}</span>

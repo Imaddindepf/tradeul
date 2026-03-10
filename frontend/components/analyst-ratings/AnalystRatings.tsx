@@ -8,27 +8,27 @@ import { Search, Loader2, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react
 
 /* ── Badge styles: outlined, not solid ── */
 const RATING_STYLE: Record<string, string> = {
-  'Strong Buy':     'border-emerald-500 text-emerald-700 bg-emerald-50/60',
-  'Buy':            'border-emerald-400 text-emerald-700 bg-emerald-50/60',
-  'Overweight':     'border-blue-400 text-blue-700 bg-blue-50/60',
-  'Outperform':     'border-blue-400 text-blue-700 bg-blue-50/60',
-  'Market Perform': 'border-slate-300 text-slate-600 bg-slate-50',
-  'Sector Perform': 'border-slate-300 text-slate-600 bg-slate-50',
-  'Neutral':        'border-slate-300 text-slate-600 bg-slate-50',
-  'Hold':           'border-amber-400 text-amber-700 bg-amber-50/60',
-  'Equal-Weight':   'border-amber-400 text-amber-700 bg-amber-50/60',
-  'Underweight':    'border-orange-400 text-orange-700 bg-orange-50/60',
-  'Underperform':   'border-orange-400 text-orange-700 bg-orange-50/60',
-  'Sell':           'border-red-400 text-red-700 bg-red-50/60',
-  'Strong Sell':    'border-red-500 text-red-700 bg-red-50/60',
+  'Strong Buy':     'border-emerald-500 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10',
+  'Buy':            'border-emerald-400 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10',
+  'Overweight':     'border-primary/60 text-primary bg-primary/10',
+  'Outperform':     'border-primary/60 text-primary bg-primary/10',
+  'Market Perform': 'border-border text-foreground/80 bg-surface-hover',
+  'Sector Perform': 'border-border text-foreground/80 bg-surface-hover',
+  'Neutral':        'border-border text-foreground/80 bg-surface-hover',
+  'Hold':           'border-amber-400 text-amber-700 dark:text-amber-400 bg-amber-500/10',
+  'Equal-Weight':   'border-amber-400 text-amber-700 dark:text-amber-400 bg-amber-500/10',
+  'Underweight':    'border-orange-400 text-orange-700 dark:text-orange-400 bg-orange-500/10',
+  'Underperform':   'border-orange-400 text-orange-700 dark:text-orange-400 bg-orange-500/10',
+  'Sell':           'border-red-400 text-red-700 dark:text-red-400 bg-red-500/10',
+  'Strong Sell':    'border-red-500 text-red-700 dark:text-red-400 bg-red-500/10',
 };
 
 const CONSENSUS_COLOR: Record<string, string> = {
-  strong_buy:  'text-emerald-700',
-  buy:         'text-emerald-700',
-  hold:        'text-amber-700',
-  sell:        'text-red-700',
-  strong_sell: 'text-red-700',
+  strong_buy:  'text-emerald-700 dark:text-emerald-400',
+  buy:         'text-emerald-700 dark:text-emerald-400',
+  hold:        'text-amber-700 dark:text-amber-400',
+  sell:        'text-red-700 dark:text-red-400',
+  strong_sell: 'text-red-700 dark:text-red-400',
 };
 
 const CONSENSUS_LABEL: Record<string, string> = {
@@ -59,16 +59,16 @@ function PriceTargetRange({ low, high, avg, median }: { low: number; high: numbe
     <div className="flex flex-col gap-2">
       <div className="flex justify-between items-baseline">
         <div>
-          <span className="text-[10px] text-slate-500 uppercase tracking-wide">Low </span>
-          <span className="text-[12px] font-semibold text-slate-800">{fmtUSD(low)}</span>
+        <span className="text-[10px] text-muted-fg uppercase tracking-wide">Low </span>
+        <span className="text-[12px] font-semibold text-foreground">{fmtUSD(low)}</span>
         </div>
         <div className="text-right">
-          <span className="text-[10px] text-slate-500 uppercase tracking-wide">High </span>
-          <span className="text-[12px] font-semibold text-slate-800">{fmtUSD(high)}</span>
+        <span className="text-[10px] text-muted-fg uppercase tracking-wide">High </span>
+        <span className="text-[12px] font-semibold text-foreground">{fmtUSD(high)}</span>
         </div>
       </div>
 
-      <div className="relative h-[3px] bg-slate-200 rounded-full mx-0.5">
+      <div className="relative h-[3px] bg-muted rounded-full mx-0.5">
         <div
           className="absolute inset-y-0 bg-blue-300 rounded-full"
           style={{
@@ -78,22 +78,22 @@ function PriceTargetRange({ low, high, avg, median }: { low: number; high: numbe
         />
         {/* Median dot (hollow) */}
         <div className="absolute top-1/2 -translate-y-1/2" style={{ left: `${medPct}%` }}>
-          <div className="w-2 h-2 rounded-full border-[1.5px] border-slate-500 bg-white -ml-1" />
+          <div className="w-2 h-2 rounded-full border-[1.5px] border-muted-fg bg-surface -ml-1" />
         </div>
         {/* Avg dot (filled) */}
         <div className="absolute top-1/2 -translate-y-1/2" style={{ left: `${avgPct}%` }}>
-          <div className="w-2 h-2 rounded-full bg-blue-600 -ml-1" />
+          <div className="w-2 h-2 rounded-full bg-primary -ml-1" />
         </div>
       </div>
 
       <div className="flex items-center justify-center gap-5 text-[10px]">
         <span className="flex items-center gap-1">
-          <span className="inline-block w-[6px] h-[6px] rounded-full border-[1.5px] border-slate-500 bg-white" />
-          <span className="text-slate-600">Med {fmtUSD(median)}</span>
+          <span className="inline-block w-[6px] h-[6px] rounded-full border-[1.5px] border-muted-fg bg-surface" />
+          <span className="text-foreground/80">Med {fmtUSD(median)}</span>
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block w-[6px] h-[6px] rounded-full bg-blue-600" />
-          <span className="text-blue-700 font-medium">Avg {fmtUSD(avg)}</span>
+          <span className="inline-block w-[6px] h-[6px] rounded-full bg-primary" />
+          <span className="text-primary font-medium">Avg {fmtUSD(avg)}</span>
         </span>
       </div>
     </div>
@@ -102,42 +102,42 @@ function PriceTargetRange({ low, high, avg, median }: { low: number; high: numbe
 
 /* ── Consensus Panel ── */
 function ConsensusPanel({ c }: { c: AnalystConsensus }) {
-  const color = CONSENSUS_COLOR[c.consensusRating] || 'text-slate-800';
+  const color = CONSENSUS_COLOR[c.consensusRating] || 'text-foreground';
   const label = CONSENSUS_LABEL[c.consensusRating] || c.consensusRating;
 
   return (
-    <div className="mx-3 mt-3 mb-1 rounded-lg border border-slate-200 overflow-hidden">
-      <div className="grid grid-cols-2 divide-x divide-slate-200">
+    <div className="mx-3 mt-3 mb-1 rounded-lg border border-border overflow-hidden">
+      <div className="grid grid-cols-2 divide-x divide-border">
         {/* Left: Consensus */}
         <div className="p-3">
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">Analyst Consensus</div>
+          <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wider mb-2.5">Analyst Consensus</div>
           <div className="grid grid-cols-4 gap-1">
             <div>
-              <div className="text-[9px] text-slate-500 uppercase tracking-wide">Rating</div>
+              <div className="text-[9px] text-muted-fg uppercase tracking-wide">Rating</div>
               <div className={`text-[13px] font-bold leading-snug mt-0.5 ${color}`}>{label}</div>
-              <div className="text-[10px] text-slate-500 mt-px">({c.totalRatings})</div>
+              <div className="text-[10px] text-muted-fg mt-px">({c.totalRatings})</div>
             </div>
             <div className="text-center">
-              <div className="text-[9px] text-slate-500 uppercase tracking-wide">Bullish</div>
+              <div className="text-[9px] text-muted-fg uppercase tracking-wide">Bullish</div>
               <div className="text-[16px] font-bold text-emerald-700 leading-snug mt-0.5">{c.bullishCount}</div>
-              <div className="text-[10px] text-slate-500">{c.bullishPercentage.toFixed(1)}%</div>
+              <div className="text-[10px] text-muted-fg">{c.bullishPercentage.toFixed(1)}%</div>
             </div>
             <div className="text-center">
-              <div className="text-[9px] text-slate-500 uppercase tracking-wide">Neutral</div>
+              <div className="text-[9px] text-muted-fg uppercase tracking-wide">Neutral</div>
               <div className="text-[16px] font-bold text-amber-600 leading-snug mt-0.5">{c.neutralCount}</div>
-              <div className="text-[10px] text-slate-500">{c.neutralPercentage.toFixed(1)}%</div>
+              <div className="text-[10px] text-muted-fg">{c.neutralPercentage.toFixed(1)}%</div>
             </div>
             <div className="text-center">
-              <div className="text-[9px] text-slate-500 uppercase tracking-wide">Bearish</div>
+              <div className="text-[9px] text-muted-fg uppercase tracking-wide">Bearish</div>
               <div className="text-[16px] font-bold text-red-600 leading-snug mt-0.5">{c.bearishCount}</div>
-              <div className="text-[10px] text-slate-500">{c.bearishPercentage.toFixed(1)}%</div>
+              <div className="text-[10px] text-muted-fg">{c.bearishPercentage.toFixed(1)}%</div>
             </div>
           </div>
         </div>
 
         {/* Right: Price Targets */}
         <div className="p-3">
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Price Targets (52W)</div>
+          <div className="text-[10px] font-semibold text-muted-fg uppercase tracking-wider mb-2">Price Targets (52W)</div>
           <PriceTargetRange low={c.lowPriceTarget} high={c.highPriceTarget} avg={c.averagePriceTarget} median={c.medianPriceTarget} />
         </div>
       </div>
@@ -147,30 +147,30 @@ function ConsensusPanel({ c }: { c: AnalystConsensus }) {
 
 /* ── Rating Row ── */
 function RatingRow({ r }: { r: AnalystRating }) {
-  const badgeCls = RATING_STYLE[r.ratingCurrent] || 'border-slate-300 text-slate-600 bg-slate-50';
+  const badgeCls = RATING_STYLE[r.ratingCurrent] || 'border-border text-foreground/80 bg-surface-hover';
   const ptDiff = (r.priceTargetCurrent || 0) - (r.priceTargetPrior || 0);
   const ptPct = (r.priceTargetPrior || 0) > 0 ? (ptDiff / r.priceTargetPrior) * 100 : 0;
   const hasPriorChange = (r.priceTargetPrior || 0) > 0 && r.priceTargetPrior !== r.priceTargetCurrent;
 
   return (
-    <div className="flex items-center px-4 h-full border-b border-slate-100 hover:bg-slate-50/60 transition-colors text-[11px]">
-      <span className="w-[120px] shrink-0 font-medium text-slate-800 truncate pr-2" title={r.firm}>{r.firm}</span>
-      <span className="w-[110px] shrink-0 text-slate-600 truncate pr-2" title={r.analystName}>{r.analystName}</span>
+    <div className="flex items-center px-4 h-full border-b border-border-subtle hover:bg-surface-hover/60 transition-colors text-[11px]">
+      <span className="w-[120px] shrink-0 font-medium text-foreground truncate pr-2" title={r.firm}>{r.firm}</span>
+      <span className="w-[110px] shrink-0 text-foreground/80 truncate pr-2" title={r.analystName}>{r.analystName}</span>
       <span className="w-[100px] shrink-0 pr-2">
         <span className={`inline-block px-1.5 py-[1px] rounded border text-[10px] font-semibold ${badgeCls}`}>{r.ratingCurrent}</span>
       </span>
       <span className="w-[130px] shrink-0 text-right pr-2 tabular-nums">
-        <span className="font-semibold text-slate-800">{fmtUSD(r.priceTargetCurrent)}</span>
+        <span className="font-semibold text-foreground">{fmtUSD(r.priceTargetCurrent)}</span>
         {hasPriorChange && (
-          <span className="text-[9px] text-slate-400 ml-1">from {fmtUSD(r.priceTargetPrior)}</span>
+          <span className="text-[9px] text-muted-fg ml-1">from {fmtUSD(r.priceTargetPrior)}</span>
         )}
       </span>
       <span className={`w-[60px] shrink-0 text-right pr-2 font-semibold tabular-nums ${
-        ptDiff > 0 ? 'text-emerald-700' : ptDiff < 0 ? 'text-red-600' : 'text-slate-300'
+        ptDiff > 0 ? 'text-emerald-700' : ptDiff < 0 ? 'text-red-600' : 'text-muted-fg/50'
       }`}>
         {ptDiff !== 0 ? `${ptDiff > 0 ? '+' : ''}${ptPct.toFixed(1)}%` : '--'}
       </span>
-      <span className="flex-1 text-right text-slate-500 tabular-nums text-[10px]">{fmtDate(r.releaseDate)}</span>
+      <span className="flex-1 text-right text-muted-fg tabular-nums text-[10px]">{fmtDate(r.releaseDate)}</span>
     </div>
   );
 }
@@ -204,9 +204,9 @@ export function AnalystRatingsContent({ initialTicker }: { initialTicker?: strin
   });
 
   return (
-    <div className="flex flex-col h-full bg-white overflow-hidden select-none">
+    <div className="flex flex-col h-full bg-surface overflow-hidden select-none">
       {/* Search bar */}
-      <div className="px-3 py-1.5 border-b border-slate-200 bg-white shrink-0">
+      <div className="px-3 py-1.5 border-b border-border bg-surface shrink-0">
         <form onSubmit={handleSubmit} className="flex items-center gap-2">
           <TickerSearch
             ref={tickerSearchRef}
@@ -220,7 +220,7 @@ export function AnalystRatingsContent({ initialTicker }: { initialTicker?: strin
           <button
             type="submit"
             disabled={loading || !inputValue.trim()}
-            className="px-3 py-1 text-[11px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+            className="px-3 py-1 text-[11px] font-medium bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-50 transition-colors flex items-center gap-1.5"
           >
             {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
             Search
@@ -230,10 +230,10 @@ export function AnalystRatingsContent({ initialTicker }: { initialTicker?: strin
               type="button"
               onClick={refetch}
               disabled={loading}
-              className="p-1 rounded hover:bg-slate-100 transition-colors disabled:opacity-40"
+              className="p-1 rounded hover:bg-surface-hover transition-colors disabled:opacity-40"
               title="Refresh"
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 text-muted-fg ${loading ? 'animate-spin' : ''}`} />
             </button>
           )}
         </form>
@@ -243,15 +243,15 @@ export function AnalystRatingsContent({ initialTicker }: { initialTicker?: strin
       <div className="flex-1 overflow-auto" ref={listRef}>
         {/* Empty state */}
         {!ticker && !loading && (
-          <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-1.5">
-            <Search className="w-5 h-5 text-slate-300" />
+          <div className="flex flex-col items-center justify-center h-full text-muted-fg gap-1.5">
+            <Search className="w-5 h-5 text-muted-fg/50" />
             <div className="text-[12px]">Enter a ticker to view analyst ratings</div>
           </div>
         )}
 
         {loading && !data && (
           <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+            <Loader2 className="w-5 h-5 text-primary animate-spin" />
           </div>
         )}
 
@@ -264,7 +264,7 @@ export function AnalystRatingsContent({ initialTicker }: { initialTicker?: strin
             <ConsensusPanel c={consensus} />
 
             {/* Table header */}
-            <div className="flex items-center px-4 py-1.5 border-b border-slate-200 text-[10px] font-medium text-slate-500 italic sticky top-0 z-10 bg-white">
+            <div className="flex items-center px-4 py-1.5 border-b border-border text-[10px] font-medium text-muted-fg italic sticky top-0 z-10 bg-surface">
               <span className="w-[120px] shrink-0">Firm</span>
               <span className="w-[110px] shrink-0">Analyst</span>
               <span className="w-[100px] shrink-0">Rating</span>
@@ -284,7 +284,7 @@ export function AnalystRatingsContent({ initialTicker }: { initialTicker?: strin
             {hiddenCount > 0 && (
               <button
                 onClick={() => setExpanded(v => !v)}
-                className="w-full py-2 text-[11px] font-medium text-blue-600 hover:text-blue-800 hover:bg-slate-50 transition-colors flex items-center justify-center gap-1"
+                className="w-full py-2 text-[11px] font-medium text-primary hover:text-primary-hover hover:bg-surface-hover transition-colors flex items-center justify-center gap-1"
               >
                 {expanded ? (
                   <>Show less <ChevronUp className="w-3 h-3" /></>

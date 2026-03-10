@@ -149,7 +149,7 @@ export const hardwareProfile: IndustryProfile = {
     category: 'hardware',
     label: 'Consumer Electronics',
     icon: Cpu,
-    color: 'text-slate-700',
+    color: 'text-foreground',
     description: 'Consumer electronics and computer hardware',
     kpis: [
         {

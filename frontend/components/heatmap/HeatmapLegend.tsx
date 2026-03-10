@@ -48,13 +48,13 @@ function HeatmapLegend({ metric }: HeatmapLegendProps) {
   
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[9px] text-slate-400">{config.leftLabel}</span>
+      <span className="text-[9px] text-muted-fg">{config.leftLabel}</span>
       <div
         className="w-20 h-2 rounded-sm"
         style={{ background: config.gradient }}
         title={config.title}
       />
-      <span className="text-[9px] text-slate-400">{config.rightLabel}</span>
+      <span className="text-[9px] text-muted-fg">{config.rightLabel}</span>
     </div>
   );
 }

@@ -112,7 +112,7 @@ export function getFilingTags(filing: Filing): FilingTag[] {
   } else if (type === "11-K") {
     tags.push({ label: "Employee Plan Report", color: "bg-cyan-50 text-cyan-700 border-cyan-200", priority: 1 });
   } else if (type === "CORRESP") {
-    tags.push({ label: "SEC Correspondence", color: "bg-slate-50 text-slate-600 border-slate-200", priority: 1 });
+    tags.push({ label: "SEC Correspondence", color: "bg-surface-hover text-foreground/80 border-border", priority: 1 });
   } else if (type === "EFFECT") {
     tags.push({ label: "Notice of Effectiveness", color: "bg-indigo-50 text-indigo-700 border-indigo-200", priority: 1 });
   } else if (type.includes("POS")) {

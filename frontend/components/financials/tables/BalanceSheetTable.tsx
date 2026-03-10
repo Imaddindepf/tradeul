@@ -11,7 +11,7 @@ interface BalanceSheetTableProps {
 
 export function BalanceSheetTable({ statements, currency, onMetricClick }: BalanceSheetTableProps) {
     if (statements.length === 0) {
-        return <div className="p-4 text-center text-slate-400 text-xs">No balance sheet data</div>;
+        return <div className="p-4 text-center text-muted-fg text-xs">No balance sheet data</div>;
     }
 
     const periods = statements.map(s => formatPeriod(s.period));
@@ -105,12 +105,12 @@ export function BalanceSheetTable({ statements, currency, onMetricClick }: Balan
     return (
         <table className="w-full text-[10px] border-collapse">
             <thead>
-                <tr className="bg-slate-100 border-b border-slate-200">
-                    <th className="text-left p-2 font-semibold text-slate-700 sticky left-0 bg-slate-100 min-w-[160px]">
+                <tr className="bg-surface-inset border-b border-border">
+                    <th className="text-left p-2 font-semibold text-foreground sticky left-0 bg-surface-inset min-w-[160px]">
                         Metric
                     </th>
                     {periods.map((period, idx) => (
-                        <th key={idx} className="text-right p-2 font-semibold text-slate-700 min-w-[80px]">
+                        <th key={idx} className="text-right p-2 font-semibold text-foreground min-w-[80px]">
                             {period}
                         </th>
                     ))}
@@ -127,25 +127,25 @@ export function BalanceSheetTable({ statements, currency, onMetricClick }: Balan
                     }
 
                     const rowBg = row.isHeader
-                        ? 'bg-slate-50'
+                        ? 'bg-surface-hover'
                         : row.isYoY
-                            ? 'bg-blue-50'
+                            ? 'bg-primary/10'
                             : row.isRatio
-                                ? 'bg-purple-50'
-                                : 'bg-white';
+                                ? 'bg-purple-500/10'
+                                : 'bg-surface';
 
                     return (
                         <tr
                             key={row.key}
-                            className={`border-b border-slate-100 hover:bg-slate-100/50 cursor-pointer transition-colors ${rowBg}`}
+                            className={`border-b border-border-subtle hover:bg-surface-hover cursor-pointer transition-colors ${rowBg}`}
                             onClick={() => !row.isYoY && !row.isRatio && onMetricClick(row.key, values, periods)}
                         >
                             <td
-                                className={`p-2 sticky left-0 ${rowBg} border-r border-slate-100
-                                    ${row.isHeader ? 'font-bold text-slate-900' : ''}
+                                className={`p-2 sticky left-0 ${rowBg} border-r border-border-subtle
+                                    ${row.isHeader ? 'font-bold text-foreground' : ''}
                                     ${row.isYoY ? 'text-[9px] text-blue-700 font-medium pl-6' : ''}
                                     ${row.isRatio ? 'text-[9px] text-purple-700 font-medium' : ''}
-                                    ${!row.isHeader && !row.isYoY && !row.isRatio ? 'text-slate-600' : ''}`}
+                                    ${!row.isHeader && !row.isYoY && !row.isRatio ? 'text-foreground/80' : ''}`}
                                 style={{ paddingLeft: row.indent ? `${8 + row.indent * 16}px` : undefined }}
                             >
                                 {row.label}
@@ -154,7 +154,7 @@ export function BalanceSheetTable({ statements, currency, onMetricClick }: Balan
                                 // YoY formatting
                                 if (row.isYoY) {
                                     if (value == null) {
-                                        return <td key={idx} className="text-right p-2 text-slate-300">—</td>;
+                                        return <td key={idx} className="text-right p-2 text-muted-fg/50">—</td>;
                                     }
                                     const isPositive = value > 0;
                                     const isNegative = value < 0;
@@ -164,7 +164,7 @@ export function BalanceSheetTable({ statements, currency, onMetricClick }: Balan
                                             className={`text-right p-2 font-bold text-[10px]
                                                 ${isPositive ? 'text-emerald-600' : ''}
                                                 ${isNegative ? 'text-red-600' : ''}
-                                                ${!isPositive && !isNegative ? 'text-slate-500' : ''}`}
+                                                ${!isPositive && !isNegative ? 'text-muted-fg' : ''}`}
                                         >
                                             {isPositive ? '+' : ''}{value.toFixed(1)}%
                                         </td>
@@ -185,7 +185,7 @@ export function BalanceSheetTable({ statements, currency, onMetricClick }: Balan
                                     <td
                                         key={idx}
                                         className={`text-right p-2 tabular-nums
-                                            ${row.isHeader ? 'font-semibold text-slate-800' : 'text-slate-600'}
+                                            ${row.isHeader ? 'font-semibold text-foreground' : 'text-foreground/80'}
                                             ${value && value < 0 ? 'text-red-600' : ''}`}
                                     >
                                         {formatCurrency(value, currency)}

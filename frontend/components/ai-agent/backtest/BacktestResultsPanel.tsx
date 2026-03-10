@@ -14,7 +14,7 @@ import type {
 
 const LazyPlot = dynamic(() => import('react-plotly.js'), {
   ssr: false,
-  loading: () => <div className="h-[260px] bg-slate-50 rounded-lg animate-pulse" />,
+  loading: () => <div className="h-[260px] bg-surface-hover rounded-lg animate-pulse" />,
 });
 
 // ── Formatting Helpers ─────────────────────────────────────────────────────
@@ -65,19 +65,19 @@ function metricQuality(key: string, val: number): Quality {
 
 function qualityColor(q: Quality): string {
   switch (q) {
-    case 'excellent': return 'text-emerald-600';
+    case 'excellent': return 'text-emerald-600 dark:text-emerald-400';
     case 'good': return 'text-emerald-500';
-    case 'fair': return 'text-slate-700';
+    case 'fair': return 'text-foreground';
     case 'poor': return 'text-red-500';
   }
 }
 
 function qualityBorder(q: Quality): string {
   switch (q) {
-    case 'excellent': return 'border-emerald-200';
-    case 'good': return 'border-emerald-100';
-    case 'fair': return 'border-slate-200/80';
-    case 'poor': return 'border-red-200';
+    case 'excellent': return 'border-emerald-500/30';
+    case 'good': return 'border-emerald-500/20';
+    case 'fair': return 'border-border/80';
+    case 'poor': return 'border-red-500/30';
   }
 }
 
@@ -133,10 +133,10 @@ const MetricCard = memo(function MetricCard({
 
   return (
     <div
-      className={`rounded-lg border px-2 py-1.5 ${qualityBorder(q)} bg-white hover:shadow-sm transition-shadow`}
+      className={`rounded-lg border px-2 py-1.5 ${qualityBorder(q)} bg-surface hover:shadow-sm transition-shadow`}
       title={def.tooltip}
     >
-      <span className="text-[9px] font-medium text-slate-500 uppercase tracking-wider block truncate">
+      <span className="text-[9px] font-medium text-muted-fg uppercase tracking-wider block truncate">
         {def.label}
       </span>
       <span className={`${compact ? 'text-[12px]' : 'text-[13px]'} font-bold tabular-nums block mt-0.5 ${
@@ -159,34 +159,34 @@ const StrategyHeader = memo(function StrategyHeader({
 }) {
   const s = result.strategy;
   return (
-    <div className="px-3 py-2 border-b border-slate-200/60 bg-white">
+    <div className="px-3 py-2 border-b border-border/60 bg-surface">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-[12px] font-bold text-slate-800 truncate">{s.name}</h3>
+          <h3 className="text-[12px] font-bold text-foreground truncate">{s.name}</h3>
           {s.description && (
-            <p className="text-[10px] text-slate-500 mt-0.5 truncate">{s.description}</p>
+            <p className="text-[10px] text-muted-fg mt-0.5 truncate">{s.description}</p>
           )}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <span className="text-[9px] text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200/60">
+          <span className="text-[9px] text-muted-fg bg-surface-hover px-1.5 py-0.5 rounded border border-border/60">
             {s.start_date} → {s.end_date}
           </span>
-          <span className="text-[9px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+          <span className="text-[9px] text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">
             {s.timeframe}
           </span>
         </div>
       </div>
-      <div className="flex items-center gap-3 mt-1.5 text-[9px] text-slate-400">
+      <div className="flex items-center gap-3 mt-1.5 text-[9px] text-muted-fg">
         <span>{fmtMoney(s.initial_capital)} capital</span>
-        <span className="text-slate-200">|</span>
+        <span className="text-muted-fg/50">|</span>
         <span>{result.symbols_tested} tickers</span>
-        <span className="text-slate-200">|</span>
+        <span className="text-muted-fg/50">|</span>
         <span>{result.bars_processed.toLocaleString()} bars</span>
-        <span className="text-slate-200">|</span>
+        <span className="text-muted-fg/50">|</span>
         <span>{result.execution_time_ms < 1000 ? `${result.execution_time_ms}ms` : `${(result.execution_time_ms / 1000).toFixed(1)}s`}</span>
-        <span className="text-slate-200">|</span>
+        <span className="text-muted-fg/50">|</span>
         <span>{s.direction}</span>
-        <span className="text-slate-200">|</span>
+        <span className="text-muted-fg/50">|</span>
         <span>{s.slippage_bps}bps slippage</span>
       </div>
     </div>
@@ -213,7 +213,7 @@ const TabBar = memo(function TabBar({
   tradeCount: number;
 }) {
   return (
-    <div className="flex items-center gap-0 border-b border-slate-200/60 px-3 bg-white">
+    <div className="flex items-center gap-0 border-b border-border/60 px-3 bg-surface">
       {TABS.map(tab => (
         <button
           key={tab.id}
@@ -221,12 +221,12 @@ const TabBar = memo(function TabBar({
           className={`relative px-3 py-1.5 text-[10px] font-medium transition-colors ${
             active === tab.id
               ? 'text-indigo-600'
-              : 'text-slate-400 hover:text-slate-600'
+              : 'text-muted-fg hover:text-foreground/80'
           }`}
         >
           {tab.label}
           {tab.id === 'trades' && (
-            <span className="ml-1 text-[8px] text-slate-400 tabular-nums">({tradeCount})</span>
+            <span className="ml-1 text-[8px] text-muted-fg tabular-nums">({tradeCount})</span>
           )}
           {active === tab.id && (
             <motion.div
@@ -284,7 +284,7 @@ const EquityChart = memo(function EquityChart({
         margin: { t: 8, r: 8, b: 28, l: 52 },
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
-        font: { family: 'Arial, sans-serif', size: 9, color: '#64748B' },
+        font: { family: 'Arial, sans-serif', size: 9, color: 'var(--color-muted-fg)' },
         showlegend: false,
         xaxis: {
           showgrid: false,
@@ -293,13 +293,13 @@ const EquityChart = memo(function EquityChart({
         },
         yaxis: {
           title: { text: 'Equity ($)', font: { size: 9 } },
-          gridcolor: '#F1F5F9',
+          gridcolor: 'var(--color-border-subtle)',
           tickfont: { size: 8 },
           domain: [0.3, 1],
         },
         yaxis2: {
           title: { text: 'DD (%)', font: { size: 9 } },
-          gridcolor: '#F1F5F9',
+          gridcolor: 'var(--color-border-subtle)',
           tickfont: { size: 8 },
           domain: [0, 0.25],
           tickformat: '.1%',
@@ -314,9 +314,9 @@ const EquityChart = memo(function EquityChart({
   }, [equityCurve, drawdownCurve]);
 
   return (
-    <div className="rounded-lg border border-slate-200/80 bg-white overflow-hidden">
-      <div className="px-2.5 py-1.5 border-b border-slate-100">
-        <span className="text-[10px] font-semibold text-slate-600">Curva de Equity & Drawdown</span>
+    <div className="rounded-lg border border-border/80 bg-surface overflow-hidden">
+      <div className="px-2.5 py-1.5 border-b border-border-subtle">
+        <span className="text-[10px] font-semibold text-foreground/80">Curva de Equity & Drawdown</span>
       </div>
       <div className="h-[240px]">
         <LazyPlot
@@ -338,9 +338,9 @@ const MONTHS_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'S
 function returnColor(v: number): string {
   if (v >= 5) return 'bg-emerald-600 text-white';
   if (v >= 2) return 'bg-emerald-400 text-white';
-  if (v >= 0.5) return 'bg-emerald-100 text-emerald-800';
-  if (v >= -0.5) return 'bg-slate-50 text-slate-600';
-  if (v >= -2) return 'bg-red-100 text-red-800';
+  if (v >= 0.5) return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400';
+  if (v >= -0.5) return 'bg-surface-hover text-foreground/80';
+  if (v >= -2) return 'bg-red-500/15 text-red-700 dark:text-red-400';
   if (v >= -5) return 'bg-red-400 text-white';
   return 'bg-red-600 text-white';
 }
@@ -369,25 +369,25 @@ const MonthlyHeatmap = memo(function MonthlyHeatmap({
   if (grid.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-slate-200/80 bg-white overflow-hidden">
-      <div className="px-2.5 py-1.5 border-b border-slate-100">
-        <span className="text-[10px] font-semibold text-slate-600">Retornos Mensuales</span>
+    <div className="rounded-lg border border-border/80 bg-surface overflow-hidden">
+      <div className="px-2.5 py-1.5 border-b border-border-subtle">
+        <span className="text-[10px] font-semibold text-foreground/80">Retornos Mensuales</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[9px]">
           <thead>
-            <tr className="bg-slate-50/80">
-              <th className="px-1.5 py-1 text-left font-semibold text-slate-600 w-10">Year</th>
+            <tr className="bg-surface-hover/80">
+              <th className="px-1.5 py-1 text-left font-semibold text-foreground/80 w-10">Year</th>
               {MONTHS_SHORT.map(m => (
-                <th key={m} className="px-1 py-1 text-center font-semibold text-slate-500 w-9">{m}</th>
+                <th key={m} className="px-1 py-1 text-center font-semibold text-muted-fg w-9">{m}</th>
               ))}
-              <th className="px-1.5 py-1 text-center font-bold text-slate-700 w-10">YTD</th>
+              <th className="px-1.5 py-1 text-center font-bold text-foreground w-10">YTD</th>
             </tr>
           </thead>
           <tbody>
             {grid.map(row => (
               <tr key={row.year}>
-                <td className="px-1.5 py-0.5 font-semibold text-slate-700">{row.year}</td>
+                <td className="px-1.5 py-0.5 font-semibold text-foreground">{row.year}</td>
                 {row.months.map((val, idx) => (
                   <td key={idx} className="px-0.5 py-0.5 text-center">
                     {val !== null ? (
@@ -395,7 +395,7 @@ const MonthlyHeatmap = memo(function MonthlyHeatmap({
                         {val >= 0 ? '+' : ''}{val.toFixed(1)}
                       </span>
                     ) : (
-                      <span className="text-slate-200">-</span>
+                      <span className="text-muted-fg/50">-</span>
                     )}
                   </td>
                 ))}
@@ -494,14 +494,14 @@ const TradesTab = memo(function TradesTab({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-3 py-1.5 bg-slate-50/80 border-b border-slate-200/60 text-[10px]">
-        <span className="text-slate-600 font-medium">{trades.length} operaciones</span>
-        <span className="text-slate-200">|</span>
-        <span className="text-emerald-600">{winners} ganadoras</span>
-        <span className="text-slate-200">|</span>
+      <div className="flex items-center gap-3 px-3 py-1.5 bg-surface-hover/80 border-b border-border/60 text-[10px]">
+        <span className="text-foreground/80 font-medium">{trades.length} operaciones</span>
+        <span className="text-muted-fg/50">|</span>
+        <span className="text-emerald-600 dark:text-emerald-400">{winners} ganadoras</span>
+        <span className="text-muted-fg/50">|</span>
         <span className="text-red-500">{losers} perdedoras</span>
-        <span className="text-slate-200">|</span>
-        <span className={totalPnl >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
+        <span className="text-muted-fg/50">|</span>
+        <span className={totalPnl >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-red-500 font-semibold'}>
           PnL: {fmtMoney(totalPnl)}
         </span>
       </div>
@@ -509,48 +509,48 @@ const TradesTab = memo(function TradesTab({
       <div ref={containerRef} className="flex-1 overflow-auto">
         <table className="w-full text-[10px]">
           <thead className="sticky top-0 z-10">
-            <tr className="bg-slate-50 border-b border-slate-200/60">
+            <tr className="bg-surface-hover border-b border-border/60">
               {TRADE_COLS.map(col => (
                 <th
                   key={col}
                   onClick={() => handleSort(colMap[col])}
-                  className="px-1.5 py-1.5 font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors select-none whitespace-nowrap text-right first:text-left [&:nth-child(2)]:text-left [&:nth-child(3)]:text-left [&:nth-child(4)]:text-left [&:nth-child(6)]:text-left"
+                  className="px-1.5 py-1.5 font-semibold text-foreground/80 cursor-pointer hover:bg-surface-hover transition-colors select-none whitespace-nowrap text-right first:text-left [&:nth-child(2)]:text-left [&:nth-child(3)]:text-left [&:nth-child(4)]:text-left [&:nth-child(6)]:text-left"
                 >
                   <span className="inline-flex items-center gap-0.5">
                     {col}
                     {sortKey === colMap[col] && (
-                      <span className="text-[8px] text-indigo-500">{sortAsc ? '\u25B2' : '\u25BC'}</span>
+                      <span className="text-[8px] text-primary">{sortAsc ? '\u25B2' : '\u25BC'}</span>
                     )}
                   </span>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-border-subtle">
             {pageData.map(t => {
               const isWin = t.pnl > 0;
               return (
-                <tr key={t.trade_id} className={`transition-colors ${isWin ? 'hover:bg-emerald-50/30' : 'hover:bg-red-50/30'}`}>
-                  <td className="px-1.5 py-1 text-slate-400 tabular-nums">{t.trade_id}</td>
-                  <td className="px-1.5 py-1 font-semibold text-indigo-600">{t.ticker}</td>
+                <tr key={t.trade_id} className={`transition-colors ${isWin ? 'hover:bg-emerald-500/10' : 'hover:bg-red-500/10'}`}>
+                  <td className="px-1.5 py-1 text-muted-fg tabular-nums">{t.trade_id}</td>
+                  <td className="px-1.5 py-1 font-semibold text-indigo-600 dark:text-indigo-400">{t.ticker}</td>
                   <td className="px-1.5 py-1">
                     <span className={`px-1 py-0.5 rounded text-[8px] font-bold ${
-                      t.direction === 'long' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                      t.direction === 'long' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-red-500/10 text-red-700 dark:text-red-400'
                     }`}>
                       {t.direction === 'long' ? 'LONG' : 'SHORT'}
                     </span>
                   </td>
-                  <td className="px-1.5 py-1 text-slate-600 tabular-nums">{fmtDate(t.entry_date)}</td>
-                  <td className="px-1.5 py-1 text-right text-slate-700 font-mono tabular-nums">${t.entry_fill_price.toFixed(2)}</td>
-                  <td className="px-1.5 py-1 text-slate-600 tabular-nums">{fmtDate(t.exit_date)}</td>
-                  <td className="px-1.5 py-1 text-right text-slate-700 font-mono tabular-nums">${t.exit_fill_price.toFixed(2)}</td>
-                  <td className={`px-1.5 py-1 text-right font-mono font-semibold tabular-nums ${isWin ? 'text-emerald-600' : 'text-red-500'}`}>
+                  <td className="px-1.5 py-1 text-foreground/80 tabular-nums">{fmtDate(t.entry_date)}</td>
+                  <td className="px-1.5 py-1 text-right text-foreground font-mono tabular-nums">${t.entry_fill_price.toFixed(2)}</td>
+                  <td className="px-1.5 py-1 text-foreground/80 tabular-nums">{fmtDate(t.exit_date)}</td>
+                  <td className="px-1.5 py-1 text-right text-foreground font-mono tabular-nums">${t.exit_fill_price.toFixed(2)}</td>
+                  <td className={`px-1.5 py-1 text-right font-mono font-semibold tabular-nums ${isWin ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
                     {fmtPct(t.return_pct)}
                   </td>
-                  <td className={`px-1.5 py-1 text-right font-mono tabular-nums ${isWin ? 'text-emerald-600' : 'text-red-500'}`}>
+                  <td className={`px-1.5 py-1 text-right font-mono tabular-nums ${isWin ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
                     {fmtMoney(t.pnl)}
                   </td>
-                  <td className="px-1.5 py-1 text-right text-slate-500 tabular-nums">{t.holding_bars}</td>
+                  <td className="px-1.5 py-1 text-right text-muted-fg tabular-nums">{t.holding_bars}</td>
                 </tr>
               );
             })}
@@ -559,25 +559,25 @@ const TradesTab = memo(function TradesTab({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between px-3 py-1.5 border-t border-slate-200/60 bg-white">
-          <span className="text-[9px] text-slate-400 tabular-nums">
+        <div className="flex items-center justify-between px-3 py-1.5 border-t border-border/60 bg-surface">
+          <span className="text-[9px] text-muted-fg tabular-nums">
             {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, sorted.length)} de {sorted.length}
           </span>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setPage(Math.max(0, page - 1))}
               disabled={page === 0}
-              className="px-2 py-0.5 text-[9px] text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-30 transition-colors"
+              className="px-2 py-0.5 text-[9px] text-muted-fg bg-surface-hover border border-border rounded hover:bg-surface-hover disabled:opacity-30 transition-colors"
             >
               Anterior
             </button>
-            <span className="text-[9px] text-slate-400 tabular-nums px-1">
+            <span className="text-[9px] text-muted-fg tabular-nums px-1">
               {page + 1}/{totalPages}
             </span>
             <button
               onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
               disabled={page >= totalPages - 1}
-              className="px-2 py-0.5 text-[9px] text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 disabled:opacity-30 transition-colors"
+              className="px-2 py-0.5 text-[9px] text-muted-fg bg-surface-hover border border-border rounded hover:bg-surface-hover disabled:opacity-30 transition-colors"
             >
               Siguiente
             </button>
@@ -602,15 +602,15 @@ const WalkForwardSection = memo(function WalkForwardSection({
   }, [wf]);
 
   const overfitColor = wf.overfitting_probability > 0.5
-    ? 'text-red-600 bg-red-50'
+    ? 'text-red-600 dark:text-red-400 bg-red-500/10'
     : wf.overfitting_probability > 0.3
-      ? 'text-amber-600 bg-amber-50'
-      : 'text-emerald-600 bg-emerald-50';
+      ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10'
+      : 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10';
 
   return (
-    <div className="rounded-lg border border-slate-200/80 bg-white overflow-hidden">
-      <div className="px-2.5 py-1.5 border-b border-slate-100 flex items-center justify-between">
-        <span className="text-[10px] font-semibold text-slate-600">Walk-Forward Analysis ({wf.n_splits} splits)</span>
+    <div className="rounded-lg border border-border/80 bg-surface overflow-hidden">
+      <div className="px-2.5 py-1.5 border-b border-border-subtle flex items-center justify-between">
+        <span className="text-[10px] font-semibold text-foreground/80">Walk-Forward Analysis ({wf.n_splits} splits)</span>
         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${overfitColor}`}>
           P(overfit): {(wf.overfitting_probability * 100).toFixed(0)}%
         </span>
@@ -620,18 +620,18 @@ const WalkForwardSection = memo(function WalkForwardSection({
         <div className="flex items-center gap-3 mb-2 text-[9px]">
           <div className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-sm bg-indigo-400" />
-            <span className="text-slate-500">In-Sample</span>
+            <span className="text-muted-fg">In-Sample</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-sm bg-blue-300" />
-            <span className="text-slate-500">Out-of-Sample</span>
+            <span className="w-2 h-2 rounded-sm bg-primary/50" />
+            <span className="text-muted-fg">Out-of-Sample</span>
           </div>
         </div>
 
         <div className="space-y-1">
           {wf.splits.map(split => (
             <div key={split.split_idx} className="flex items-center gap-2 text-[9px]">
-              <span className="text-slate-400 w-4 text-right tabular-nums">{split.split_idx + 1}</span>
+              <span className="text-muted-fg w-4 text-right tabular-nums">{split.split_idx + 1}</span>
               <div className="flex-1 flex gap-0.5 h-4">
                 <div
                   className="bg-indigo-400 rounded-sm flex items-center justify-center"
@@ -641,7 +641,7 @@ const WalkForwardSection = memo(function WalkForwardSection({
                   <span className="text-[7px] text-white font-bold tabular-nums">{split.train_sharpe.toFixed(2)}</span>
                 </div>
                 <div
-                  className="bg-blue-300 rounded-sm flex items-center justify-center"
+                  className="bg-primary/50 rounded-sm flex items-center justify-center"
                   style={{ width: `${Math.max(2, (Math.abs(split.test_sharpe) / maxSharpe) * 100)}%` }}
                   title={`OOS Sharpe: ${split.test_sharpe.toFixed(2)}`}
                 >
@@ -649,7 +649,7 @@ const WalkForwardSection = memo(function WalkForwardSection({
                 </div>
               </div>
               <span className={`w-10 text-right tabular-nums font-medium ${
-                split.degradation_pct < -30 ? 'text-red-500' : split.degradation_pct < 0 ? 'text-amber-600' : 'text-emerald-600'
+                split.degradation_pct < -30 ? 'text-red-500' : split.degradation_pct < 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
               }`}>
                 {split.degradation_pct >= 0 ? '+' : ''}{split.degradation_pct.toFixed(0)}%
               </span>
@@ -657,18 +657,18 @@ const WalkForwardSection = memo(function WalkForwardSection({
           ))}
         </div>
 
-        <div className="mt-2 pt-2 border-t border-slate-100 grid grid-cols-3 gap-2 text-[9px]">
+        <div className="mt-2 pt-2 border-t border-border-subtle grid grid-cols-3 gap-2 text-[9px]">
           <div>
-            <span className="text-slate-400 block">Avg IS Sharpe</span>
-            <span className="font-bold text-slate-700 tabular-nums">{wf.mean_train_sharpe.toFixed(2)}</span>
+            <span className="text-muted-fg block">Avg IS Sharpe</span>
+            <span className="font-bold text-foreground tabular-nums">{wf.mean_train_sharpe.toFixed(2)}</span>
           </div>
           <div>
-            <span className="text-slate-400 block">Avg OOS Sharpe</span>
-            <span className="font-bold text-slate-700 tabular-nums">{wf.mean_test_sharpe.toFixed(2)}</span>
+            <span className="text-muted-fg block">Avg OOS Sharpe</span>
+            <span className="font-bold text-foreground tabular-nums">{wf.mean_test_sharpe.toFixed(2)}</span>
           </div>
           <div>
-            <span className="text-slate-400 block">Avg Degradation</span>
-            <span className={`font-bold tabular-nums ${wf.mean_degradation_pct < -30 ? 'text-red-500' : 'text-slate-700'}`}>
+            <span className="text-muted-fg block">Avg Degradation</span>
+            <span className={`font-bold tabular-nums ${wf.mean_degradation_pct < -30 ? 'text-red-500' : 'text-foreground'}`}>
               {wf.mean_degradation_pct.toFixed(1)}%
             </span>
           </div>
@@ -688,15 +688,15 @@ const MonteCarloSection = memo(function MonteCarloSection({
   initialCapital: number;
 }) {
   const profitColor = mc.prob_profit >= 0.7
-    ? 'text-emerald-600 bg-emerald-50'
+    ? 'text-emerald-600 bg-emerald-500/10'
     : mc.prob_profit >= 0.5
-      ? 'text-amber-600 bg-amber-50'
-      : 'text-red-600 bg-red-50';
+      ? 'text-amber-600 bg-amber-500/10'
+      : 'text-red-600 bg-red-500/10';
 
   return (
-    <div className="rounded-lg border border-slate-200/80 bg-white overflow-hidden">
-      <div className="px-2.5 py-1.5 border-b border-slate-100 flex items-center justify-between">
-        <span className="text-[10px] font-semibold text-slate-600">Monte Carlo ({mc.n_simulations.toLocaleString()} sims)</span>
+    <div className="rounded-lg border border-border/80 bg-surface overflow-hidden">
+      <div className="px-2.5 py-1.5 border-b border-border-subtle flex items-center justify-between">
+        <span className="text-[10px] font-semibold text-foreground/80">Monte Carlo ({mc.n_simulations.toLocaleString()} sims)</span>
         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${profitColor}`}>
           P(profit): {(mc.prob_profit * 100).toFixed(0)}%
         </span>
@@ -721,8 +721,8 @@ const MonteCarloSection = memo(function MonteCarloSection({
 function StatRow({ label, value, good, warn }: { label: string; value: string; good?: boolean; warn?: boolean }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-slate-500">{label}</span>
-      <span className={`font-bold tabular-nums ${warn ? 'text-red-500' : good ? 'text-emerald-600' : 'text-slate-700'}`}>
+      <span className="text-muted-fg">{label}</span>
+      <span className={`font-bold tabular-nums ${warn ? 'text-red-500' : good ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'}`}>
         {value}
       </span>
     </div>
@@ -737,44 +737,44 @@ const AdvancedMetricsSection = memo(function AdvancedMetricsSection({
   am: AdvancedMetrics;
 }) {
   const dsrColor = am.deflated_sharpe_ratio > 1.0
-    ? 'text-emerald-600'
+    ? 'text-emerald-600 dark:text-emerald-400'
     : am.deflated_sharpe_ratio > 0.5
-      ? 'text-amber-600'
+      ? 'text-amber-600 dark:text-amber-400'
       : 'text-red-500';
 
   const psrColor = am.probabilistic_sharpe_ratio > 0.95
-    ? 'text-emerald-600'
+    ? 'text-emerald-600 dark:text-emerald-400'
     : am.probabilistic_sharpe_ratio > 0.8
-      ? 'text-amber-600'
+      ? 'text-amber-600 dark:text-amber-400'
       : 'text-red-500';
 
   return (
-    <div className="rounded-lg border border-slate-200/80 bg-white overflow-hidden">
-      <div className="px-2.5 py-1.5 border-b border-slate-100">
-        <span className="text-[10px] font-semibold text-slate-600">Statistical Robustness (Lopez de Prado)</span>
+    <div className="rounded-lg border border-border/80 bg-surface overflow-hidden">
+      <div className="px-2.5 py-1.5 border-b border-border-subtle">
+        <span className="text-[10px] font-semibold text-foreground/80">Statistical Robustness (Lopez de Prado)</span>
       </div>
       <div className="p-2.5 grid grid-cols-3 gap-2">
         <div className="text-center">
-          <span className="text-[9px] text-slate-400 block">Deflated Sharpe</span>
+          <span className="text-[9px] text-muted-fg block">Deflated Sharpe</span>
           <span className={`text-[14px] font-bold tabular-nums ${dsrColor}`}>{am.deflated_sharpe_ratio.toFixed(2)}</span>
         </div>
         <div className="text-center">
-          <span className="text-[9px] text-slate-400 block">Prob. Sharpe</span>
+          <span className="text-[9px] text-muted-fg block">Prob. Sharpe</span>
           <span className={`text-[14px] font-bold tabular-nums ${psrColor}`}>{(am.probabilistic_sharpe_ratio * 100).toFixed(1)}%</span>
         </div>
         <div className="text-center">
-          <span className="text-[9px] text-slate-400 block">Min Track Record</span>
-          <span className="text-[14px] font-bold tabular-nums text-slate-700">{am.min_track_record_length} meses</span>
+          <span className="text-[9px] text-muted-fg block">Min Track Record</span>
+          <span className="text-[14px] font-bold tabular-nums text-foreground">{am.min_track_record_length} meses</span>
         </div>
         <div className="text-center">
-          <span className="text-[9px] text-slate-400 block">Skewness</span>
+          <span className="text-[9px] text-muted-fg block">Skewness</span>
           <span className={`text-[11px] font-bold tabular-nums ${am.skewness > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
             {am.skewness.toFixed(3)}
           </span>
         </div>
         <div className="text-center">
-          <span className="text-[9px] text-slate-400 block">Kurtosis</span>
-          <span className={`text-[11px] font-bold tabular-nums ${am.kurtosis > 3 ? 'text-amber-600' : 'text-slate-700'}`}>
+          <span className="text-[9px] text-muted-fg block">Kurtosis</span>
+          <span className={`text-[11px] font-bold tabular-nums ${am.kurtosis > 3 ? 'text-amber-600' : 'text-foreground'}`}>
             {am.kurtosis.toFixed(3)}
           </span>
         </div>
@@ -802,7 +802,7 @@ const AnalysisTab = memo(function AnalysisTab({
         <MonteCarloSection mc={result.monte_carlo} initialCapital={result.strategy.initial_capital} />
       )}
       {!result.advanced_metrics && !result.walk_forward && !result.monte_carlo && (
-        <div className="text-center py-8 text-[11px] text-slate-400">
+        <div className="text-center py-8 text-[11px] text-muted-fg">
           No hay datos de analisis avanzado disponibles para este backtest.
         </div>
       )}
@@ -817,10 +817,10 @@ const WarningsBar = memo(function WarningsBar({ warnings }: { warnings: string[]
   if (warnings.length === 0) return null;
 
   return (
-    <div className="px-3 py-1.5 bg-amber-50/80 border-t border-amber-200/60">
+    <div className="px-3 py-1.5 bg-amber-500/10 border-t border-amber-500/25">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="text-[9px] text-amber-700 font-medium hover:text-amber-800 transition-colors"
+        className="text-[9px] text-amber-700 dark:text-amber-400 font-medium hover:text-amber-600 dark:hover:text-amber-300 transition-colors"
       >
         {warnings.length} advertencia{warnings.length > 1 ? 's' : ''} {expanded ? '(ocultar)' : '(ver)'}
       </button>
@@ -834,7 +834,7 @@ const WarningsBar = memo(function WarningsBar({ warnings }: { warnings: string[]
           >
             <ul className="mt-1 space-y-0.5">
               {warnings.map((w, i) => (
-                <li key={i} className="text-[9px] text-amber-600 pl-2 border-l-2 border-amber-300">{w}</li>
+                <li key={i} className="text-[9px] text-amber-600 dark:text-amber-400 pl-2 border-l-2 border-amber-500/40">{w}</li>
               ))}
             </ul>
           </motion.div>
@@ -860,7 +860,7 @@ export const BacktestResultsPanel = memo(function BacktestResultsPanel({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="rounded-lg border border-slate-200/80 bg-[#f7f8fb] overflow-hidden"
+      className="rounded-lg border border-border/80 bg-surface overflow-hidden"
     >
       <StrategyHeader result={result} />
       <TabBar active={activeTab} onChange={setActiveTab} tradeCount={result.trades.length} />

@@ -216,7 +216,7 @@ export function CandlestickSelector({
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-[160px] text-slate-400" style={{ fontFamily }}>
+            <div className="flex items-center justify-center h-[160px] text-muted-fg" style={{ fontFamily }}>
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 <span style={{ fontSize: '10px' }}>Loading {symbol} {date}...</span>
             </div>
@@ -233,7 +233,7 @@ export function CandlestickSelector({
 
     if (candles.length === 0) {
         return (
-            <div className="flex items-center justify-center h-[160px] text-slate-400" style={{ fontFamily, fontSize: '10px' }}>
+            <div className="flex items-center justify-center h-[160px] text-muted-fg" style={{ fontFamily, fontSize: '10px' }}>
                 Select ticker and date above
             </div>
         );
@@ -242,13 +242,13 @@ export function CandlestickSelector({
     return (
         <div style={{ fontFamily }}>
             <div className="flex items-center justify-between mb-1 px-1">
-                <span className="text-slate-400" style={{ fontSize: '9px' }}>
+                <span className="text-muted-fg" style={{ fontSize: '9px' }}>
                     drag to select (max {maxMinutes} min)
                 </span>
                 {selectionBounds && (
-                    <span className={`${selectionBounds.exceeds ? 'text-amber-500' : 'text-slate-600'}`} style={{ fontSize: '9px' }}>
+                    <span className={`${selectionBounds.exceeds ? 'text-amber-500' : 'text-foreground/80'}`} style={{ fontSize: '9px' }}>
                         {candles[selectionBounds.startIndex]?.time} → {candles[selectionBounds.endIndex]?.time}
-                        <span className={`ml-1 ${selectionBounds.exceeds ? 'text-amber-400' : 'text-slate-400'}`}>
+                        <span className={`ml-1 ${selectionBounds.exceeds ? 'text-amber-400' : 'text-muted-fg'}`}>
                             ({formatDuration(selectionBounds.minutes)}{selectionBounds.exceeds ? ` max` : ''})
                         </span>
                     </span>
@@ -277,14 +277,14 @@ export function CandlestickSelector({
                                 y1={y} 
                                 x2={padding.left + chartWidth} 
                                 y2={y} 
-                                stroke="#e5e7eb" 
+                                stroke="var(--color-border)" 
                                 strokeWidth="0.5" 
                             />
                             <text 
                                 x={padding.left - 4} 
                                 y={y + 3} 
                                 textAnchor="end" 
-                                fill="#9ca3af" 
+                                fill="var(--color-muted-fg)" 
                                 style={{ fontSize: '8px' }}
                             >
                                 {price.toFixed(2)}
@@ -356,7 +356,7 @@ export function CandlestickSelector({
                             y1={padding.top}
                             x2={xScale(hoverIndex)}
                             y2={padding.top + chartHeight}
-                            stroke="#64748b"
+                            stroke="var(--color-muted-fg)"
                             strokeWidth="1"
                             strokeDasharray="3,3"
                             opacity={0.5}
@@ -366,8 +366,8 @@ export function CandlestickSelector({
                             y={height - 18}
                             width={36}
                             height={14}
-                            fill="white"
-                            stroke="#e2e8f0"
+                            fill="var(--color-bg)"
+                            stroke="var(--color-border)"
                             strokeWidth={0.5}
                             rx={2}
                         />
@@ -375,7 +375,7 @@ export function CandlestickSelector({
                             x={xScale(hoverIndex)}
                             y={height - 8}
                             textAnchor="middle"
-                            fill="#475569"
+                            fill="var(--color-muted-fg)"
                             style={{ fontSize: '8px' }}
                         >
                             {candles[hoverIndex]?.time}
@@ -393,7 +393,7 @@ export function CandlestickSelector({
                             x={xScale(index)}
                             y={height - 6}
                             textAnchor="middle"
-                            fill="#9ca3af"
+                            fill="var(--color-muted-fg)"
                             style={{ fontSize: '8px' }}
                         >
                             {time}

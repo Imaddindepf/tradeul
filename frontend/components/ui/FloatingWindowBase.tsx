@@ -39,7 +39,7 @@ function FloatingWindowBaseComponent({
   maxHeight = 1000,
   enableResizing = true,
   className = '',
-  focusedBorderColor = 'border-blue-500',
+  focusedBorderColor = 'border-primary',
   initialZIndex,
   stackOffset = 0,
   onZIndexChange,
@@ -231,7 +231,7 @@ function FloatingWindowBaseComponent({
         height: `${size.height}px`,
         zIndex: zIndex,
       }}
-      className={`rounded-lg shadow-md border transition-shadow flex flex-col ${isFocused ? 'border-blue-300 shadow-sm' : 'border-slate-200'
+      className={`rounded-lg shadow-md border transition-shadow flex flex-col ${isFocused ? 'border-primary shadow-sm' : 'border-border'
         } ${className}`}
       onMouseDown={handleDragStart}
     >
@@ -244,12 +244,12 @@ function FloatingWindowBaseComponent({
       {enableResizing && (
         <div
           onMouseDown={handleResizeStart}
-          className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize hover:bg-blue-500/20 transition-colors"
+          className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize hover:bg-primary/20 transition-colors"
           style={{
             borderRight: '5px solid transparent',
             borderBottom: '5px solid transparent',
-            borderTop: '5px solid #cbd5e1',
-            borderLeft: '5px solid #cbd5e1',
+            borderTop: '5px solid var(--color-border)',
+            borderLeft: '5px solid var(--color-border)',
           }}
         />
       )}

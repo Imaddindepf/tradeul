@@ -8,6 +8,7 @@
 'use client';
 
 import React, { useMemo, useCallback } from 'react';
+import { useThemeKey } from '@/hooks/useThemeKey';
 import dynamic from 'next/dynamic';
 import type { HeatmapData, ColorMetric, SizeMetric } from './useHeatmapData';
 import { useHeatmapWorker } from './useHeatmapWorker';
@@ -18,7 +19,7 @@ const Plot = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+      <div className="flex items-center justify-center h-full text-muted-fg text-sm">
         Loading chart...
       </div>
     )
@@ -37,6 +38,9 @@ interface HeatmapTreemapProps {
   width?: number;
 }
 
+const getVar = (v: string) =>
+  (typeof document !== 'undefined' ? getComputedStyle(document.documentElement).getPropertyValue(v).trim() : '') || undefined;
+
 function HeatmapTreemap({
   data,
   colorMetric,
@@ -48,6 +52,8 @@ function HeatmapTreemap({
   height = 600,
   width,
 }: HeatmapTreemapProps) {
+  const themeKey = useThemeKey();
+
   // Process data
   const { treemapData } = useHeatmapWorker({
     data,
@@ -83,13 +89,13 @@ function HeatmapTreemap({
       customdata: treemapData.customdata,
       marker: {
         colors: treemapData.colors,
-        line: { color: '#e2e8f0', width: 1 },
+        line: { color: getVar('--color-border') || '#e2e8f0', width: 1 },
       },
       textinfo: 'label+text',
       texttemplate: '<b>%{label}</b><br>%{customdata.change:.2f}%',
-      textfont: { family: 'Inter, system-ui, sans-serif', size: 12, color: '#ffffff' },
-      insidetextfont: { family: 'Inter, system-ui, sans-serif', size: 11, color: '#ffffff' },
-      outsidetextfont: { family: 'Inter, system-ui, sans-serif', size: 10, color: '#64748b' },
+      textfont: { family: 'Inter, system-ui, sans-serif', size: 12, color: getVar('--color-fg') || '#ffffff' },
+      insidetextfont: { family: 'Inter, system-ui, sans-serif', size: 11, color: getVar('--color-fg') || '#ffffff' },
+      outsidetextfont: { family: 'Inter, system-ui, sans-serif', size: 10, color: getVar('--color-muted-fg') || '#64748b' },
       hovertemplate:
         '<b>%{label}</b> - %{customdata.name}<br>' +
         'Price: $%{customdata.price:.2f}<br>' +
@@ -101,25 +107,25 @@ function HeatmapTreemap({
         visible: true,
         side: 'top',
         thickness: 24,
-        textfont: { size: 12, color: '#334155' },
+        textfont: { size: 12, color: getVar('--color-muted-fg') || '#334155' },
         edgeshape: '>'
       },
       tiling: { packing: 'squarify', pad: 3 },
       maxdepth: 2,
       branchvalues: 'remainder',
     }];
-  }, [treemapData]);
+  }, [treemapData, themeKey]);
 
   // Memoize layout
   const plotlyLayout = useMemo(() => ({
     margin: { t: 30, l: 0, r: 0, b: 0 },
-    paper_bgcolor: '#ffffff',
-    plot_bgcolor: '#ffffff',
-    font: { family: 'Inter, system-ui, sans-serif', color: '#334155' },
+    paper_bgcolor: getVar('--color-bg') || '#ffffff',
+    plot_bgcolor: getVar('--color-bg') || '#ffffff',
+    font: { family: 'Inter, system-ui, sans-serif', color: getVar('--color-fg') || '#334155' },
     autosize: false,
     width: width || undefined,
     height: height,
-  }), [width, height]);
+  }), [width, height, themeKey]);
 
   // Static config
   const plotlyConfig = useMemo(() => ({
@@ -133,7 +139,7 @@ function HeatmapTreemap({
   if (!treemapData || !plotlyData) {
     return (
       <div
-        className="flex items-center justify-center bg-white text-slate-400"
+        className="flex items-center justify-center bg-surface text-muted-fg"
         style={{ height, width: width || '100%' }}
       >
         No data available
@@ -143,7 +149,7 @@ function HeatmapTreemap({
 
   return (
     <div
-      className="w-full h-full bg-white"
+      className="w-full h-full bg-surface"
       style={{ width: width || '100%', height }}
     >
       <Plot

@@ -250,7 +250,7 @@ function SECDocumentAnimation({ ticker, thinkingTime }: { ticker: string; thinki
                     <p className="text-blue-400 text-sm font-medium">
                         Analyzing SEC Filings
                     </p>
-                    <p className="text-slate-500 text-xs mt-1 font-mono">
+                    <p className="text-muted-fg text-xs mt-1 font-mono">
                         {thinkingTime}s • Deep analysis in progress
                     </p>
                 </div>
@@ -278,9 +278,9 @@ function parseOutput(text: string): JSX.Element[] {
                 <div key={key++} className="my-3 overflow-x-auto">
                     <table className="w-full text-xs border-collapse">
                         <thead>
-                            <tr className="bg-slate-100">
+                            <tr className="bg-surface-inset">
                                 {headers.map((h, i) => (
-                                    <th key={i} className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200 uppercase text-[10px] tracking-wide">
+                                    <th key={i} className="px-3 py-2 text-left font-semibold text-foreground border-b border-border uppercase text-[10px] tracking-wide">
                                         {h}
                                     </th>
                                 ))}
@@ -290,9 +290,9 @@ function parseOutput(text: string): JSX.Element[] {
                             {rows.map((row, ri) => {
                                 const cells = row.split('|').filter(c => c.trim() !== '').map(c => c.trim());
                                 return (
-                                    <tr key={ri} className="border-b border-slate-100 hover:bg-slate-50">
+                                    <tr key={ri} className="border-b border-border-subtle hover:bg-surface-hover">
                                         {cells.map((cell, ci) => (
-                                            <td key={ci} className="px-3 py-2 text-slate-600">
+                                            <td key={ci} className="px-3 py-2 text-foreground/80">
                                                 {cell}
                                             </td>
                                         ))}
@@ -323,7 +323,7 @@ function parseOutput(text: string): JSX.Element[] {
 
         // Líneas de separación (━━━)
         if (line.match(/^[━═─]+$/)) {
-            elements.push(<hr key={key++} className="my-4 border-slate-200" />);
+            elements.push(<hr key={key++} className="my-4 border-border" />);
             continue;
         }
 
@@ -334,7 +334,7 @@ function parseOutput(text: string): JSX.Element[] {
                 elements.push(
                     <div key={key++} className="mt-4 mb-2">
                         <span className="font-bold text-blue-600">[{match[1]}]</span>
-                        <span className="text-slate-700">{match[2]}</span>
+                        <span className="text-foreground">{match[2]}</span>
                     </div>
                 );
                 continue;
@@ -353,10 +353,10 @@ function parseOutput(text: string): JSX.Element[] {
 
                 elements.push(
                     <div key={key++} className="flex items-start gap-2 my-1.5 ml-2">
-                        <span className="text-slate-400 mt-0.5">▸</span>
+                        <span className="text-muted-fg mt-0.5">▸</span>
                         <div>
-                            <span className="font-medium text-slate-700">{colonMatch[1]}:</span>{' '}
-                            <span className={`${isUrgent ? 'text-red-600 font-semibold' : isPositive ? 'text-emerald-600' : 'text-slate-600'}`}>
+                            <span className="font-medium text-foreground">{colonMatch[1]}:</span>{' '}
+                            <span className={`${isUrgent ? 'text-red-600 font-semibold' : isPositive ? 'text-emerald-600' : 'text-foreground/80'}`}>
                                 {colonMatch[2]}
                             </span>
                         </div>
@@ -365,8 +365,8 @@ function parseOutput(text: string): JSX.Element[] {
             } else {
                 elements.push(
                     <div key={key++} className="flex items-start gap-2 my-1.5 ml-2">
-                        <span className="text-slate-400 mt-0.5">▸</span>
-                        <span className="text-slate-600">{content}</span>
+                        <span className="text-muted-fg mt-0.5">▸</span>
+                        <span className="text-foreground/80">{content}</span>
                     </div>
                 );
             }
@@ -377,8 +377,8 @@ function parseOutput(text: string): JSX.Element[] {
         if (line.trim().startsWith('└─')) {
             const content = line.trim().slice(2).trim();
             elements.push(
-                <div key={key++} className="flex items-start gap-2 my-1 ml-6 text-slate-500">
-                    <span className="text-slate-300">└─</span>
+                <div key={key++} className="flex items-start gap-2 my-1 ml-6 text-muted-fg">
+                    <span className="text-muted-fg/50">└─</span>
                     <span>{content}</span>
                 </div>
             );
@@ -394,14 +394,14 @@ function parseOutput(text: string): JSX.Element[] {
                 if (match.index! > lastIndex) {
                     parts.push(line.slice(lastIndex, match.index));
                 }
-                parts.push(<strong key={`b${i}`} className="font-semibold text-slate-800">{match[1]}</strong>);
+                parts.push(<strong key={`b${i}`} className="font-semibold text-foreground">{match[1]}</strong>);
                 lastIndex = match.index! + match[0].length;
             });
             if (lastIndex < line.length) {
                 parts.push(line.slice(lastIndex));
             }
             elements.push(
-                <div key={key++} className="my-1 text-slate-600">
+                <div key={key++} className="my-1 text-foreground/80">
                     {parts}
                 </div>
             );
@@ -416,7 +416,7 @@ function parseOutput(text: string): JSX.Element[] {
 
         // Texto normal
         elements.push(
-            <div key={key++} className="my-0.5 text-slate-600">
+            <div key={key++} className="my-0.5 text-foreground/80">
                 {line}
             </div>
         );
@@ -574,11 +574,11 @@ export function AITerminalWindow({
     }, [ticker, companyName, onComplete]);
 
     return (
-        <div className="flex flex-col h-full bg-white overflow-hidden">
+        <div className="flex flex-col h-full bg-surface overflow-hidden">
             {/* Content Body - sin header interno, usa el del FloatingWindow */}
             <div
                 ref={terminalRef}
-                className="flex-1 p-4 overflow-y-auto overflow-x-hidden text-sm leading-relaxed bg-white"
+                className="flex-1 p-4 overflow-y-auto overflow-x-hidden text-sm leading-relaxed bg-surface"
             >
                 {/* Thinking state - Beautiful particle animation */}
                 {isThinking && (
@@ -607,13 +607,13 @@ export function AITerminalWindow({
                 )}
 
                 {error && (
-                    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs">
+                    <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 dark:text-red-400 text-xs">
                         {error}
                     </div>
                 )}
 
                 {isComplete && (
-                    <div className="mt-4 pt-3 border-t border-slate-200 flex items-center gap-2 text-emerald-600 text-xs font-medium">
+                    <div className="mt-4 pt-3 border-t border-border flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
@@ -623,14 +623,14 @@ export function AITerminalWindow({
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-shrink-0">
+            <div className="px-4 py-2 bg-surface-hover border-t border-border flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${isThinking ? 'bg-blue-500 animate-pulse' : isStreaming ? 'bg-amber-500 animate-pulse' : isComplete ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                    <span className="text-[11px] text-slate-500">
+                    <span className={`w-2 h-2 rounded-full ${isThinking ? 'bg-blue-500 animate-pulse' : isStreaming ? 'bg-amber-500 animate-pulse' : isComplete ? 'bg-emerald-500' : 'bg-muted'}`} />
+                    <span className="text-[11px] text-muted-fg">
                         {isThinking ? `Thinking (${thinkingTime}s)` : isStreaming ? 'Streaming' : isComplete ? 'Complete' : 'Ready'}
                     </span>
                 </div>
-                <span className="text-[10px] text-slate-400">Powered by Tradeul AI</span>
+                <span className="text-[10px] text-muted-fg">Powered by Tradeul AI</span>
             </div>
         </div>
     );

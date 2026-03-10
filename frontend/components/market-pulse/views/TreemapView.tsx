@@ -70,16 +70,16 @@ function TreemapTooltip({ active, payload }: any) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
-      <div className="font-semibold text-slate-900 mb-1">{d.label}</div>
+    <div className="bg-surface border border-border rounded-lg shadow-lg px-3 py-2 text-[11px]">
+      <div className="font-semibold text-foreground mb-1">{d.label}</div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Wtd Change:</span>
+        <span className="text-muted-fg">Wtd Change:</span>
         <span className={d.change >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
           {d.change >= 0 ? '+' : ''}{d.change?.toFixed(2)}%
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Market Cap:</span>
+        <span className="text-muted-fg">Market Cap:</span>
         <span className="font-medium">
           {d.size >= 1e12 ? `$${(d.size / 1e12).toFixed(1)}T` :
            d.size >= 1e9 ? `$${(d.size / 1e9).toFixed(1)}B` :
@@ -87,11 +87,11 @@ function TreemapTooltip({ active, payload }: any) {
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Tickers:</span>
+        <span className="text-muted-fg">Tickers:</span>
         <span className="font-medium">{d.count}</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Breadth:</span>
+        <span className="text-muted-fg">Breadth:</span>
         <span className="font-medium">{((d.breadth || 0) * 100).toFixed(0)}%</span>
       </div>
     </div>
@@ -139,7 +139,7 @@ function TreemapView({ data, activeTab, onSelect }: PulseViewProps) {
       )}
       {treemapData.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-[11px] text-slate-400">No market cap data available</span>
+          <span className="text-[11px] text-muted-fg">No market cap data available</span>
         </div>
       )}
     </div>

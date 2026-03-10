@@ -149,21 +149,30 @@ export const WHITESPACE_BAR_COUNT: Record<Interval, number> = {
     '1year': 10,    // ~10 years
 };
 
-export const CHART_COLORS = {
-    background: '#ffffff',
-    gridColor: '#f1f5f9',
-    borderColor: '#e2e8f0',
-    textColor: '#64748b',
-    textStrong: '#334155',
-    upColor: '#10b981',
-    downColor: '#ef4444',
-    upColorLight: '#d1fae5',
-    downColorLight: '#fee2e2',
-    volumeUp: 'rgba(16, 185, 129, 0.3)',
-    volumeDown: 'rgba(239, 68, 68, 0.3)',
-    crosshair: '#3b82f6',
-    watermark: 'rgba(100, 116, 139, 0.07)',
-};
+const _getVar = (v: string, fallback: string) =>
+    typeof document !== 'undefined'
+        ? getComputedStyle(document.documentElement).getPropertyValue(v).trim() || fallback
+        : fallback;
+
+export function getChartColors() {
+    return {
+        background: _getVar('--color-bg', '#ffffff'),
+        gridColor: _getVar('--color-border-subtle', '#f1f5f9'),
+        borderColor: _getVar('--color-border', '#e2e8f0'),
+        textColor: _getVar('--color-muted-fg', '#64748b'),
+        textStrong: _getVar('--color-fg', '#334155'),
+        upColor: '#10b981',
+        downColor: '#ef4444',
+        upColorLight: '#d1fae5',
+        downColorLight: '#fee2e2',
+        volumeUp: 'rgba(16, 185, 129, 0.3)',
+        volumeDown: 'rgba(239, 68, 68, 0.3)',
+        crosshair: '#3b82f6',
+        watermark: 'rgba(100, 116, 139, 0.07)',
+    };
+}
+
+export const CHART_COLORS = getChartColors();
 
 export const INDICATOR_COLORS = {
     rsi: '#8b5cf6',

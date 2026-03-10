@@ -361,7 +361,7 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
                     x={width / 2}
                     y={height / 2}
                     textAnchor="middle"
-                    fill="#94a3b8"
+                    fill="var(--color-muted-fg)"
                     fontSize={12}
                 >
                     Add tickers to compare
@@ -407,14 +407,14 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
                         y1={line.y}
                         x2={padding.left + chartWidth}
                         y2={line.y}
-                        stroke="#e2e8f0"
+                        stroke="var(--color-border)"
                         strokeDasharray="3 3"
                         strokeWidth={0.5}
                     />
                     <text
                         x={padding.left + chartWidth + 6}
                         y={line.y + 3}
-                        fill="#94a3b8"
+                        fill="var(--color-muted-fg)"
                         fontSize={9}
                         fontFamily="JetBrains Mono, monospace"
                     >
@@ -429,7 +429,7 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
                     key={i}
                     x={label.x}
                     y={padding.top + chartHeight + 16}
-                    fill="#94a3b8"
+                    fill="var(--color-muted-fg)"
                     fontSize={9}
                     textAnchor="middle"
                 >
@@ -444,7 +444,7 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
                     y1={zeroY}
                     x2={padding.left + chartWidth}
                     y2={zeroY}
-                    stroke="#94a3b8"
+                    stroke="var(--color-muted-fg)"
                     strokeWidth={1}
                     strokeDasharray="4 2"
                 />
@@ -491,7 +491,7 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
                                 y={bodyTop}
                                 width={candleWidth}
                                 height={bodyHeight}
-                                fill={isBullish ? candleColor : 'white'}
+                                fill={isBullish ? candleColor : 'var(--color-bg)'}
                                 stroke={candleColor}
                                 strokeWidth={1}
                                 rx={0.5}
@@ -604,14 +604,14 @@ function ChartTooltip({ tooltip, chartType }: { tooltip: TooltipData | null; cha
 
     return (
         <div
-            className="absolute pointer-events-none bg-white border border-slate-200 rounded shadow-lg px-3 py-2 z-50"
+            className="absolute pointer-events-none bg-surface border border-border rounded shadow-lg px-3 py-2 z-50"
             style={{
                 left: tooltip.x + 15,
                 top: tooltip.y - 10,
                 transform: tooltip.x > 400 ? 'translateX(-100%)' : undefined,
             }}
         >
-            <div className="text-[10px] text-slate-500 font-medium mb-1">{formattedDate}</div>
+            <div className="text-[10px] text-muted-fg font-medium mb-1">{formattedDate}</div>
             <div className="space-y-0.5">
                 {tooltip.values.map(v => (
                     <div key={v.symbol}>
@@ -621,7 +621,7 @@ function ChartTooltip({ tooltip, chartType }: { tooltip: TooltipData | null; cha
                                     className="w-2 h-2 rounded-sm"
                                     style={{ backgroundColor: v.color }}
                                 />
-                                <span className="text-[10px] text-slate-700 font-medium">{v.symbol}</span>
+                                <span className="text-[10px] text-foreground font-medium">{v.symbol}</span>
                             </div>
                             <span
                                 className="text-[10px] font-mono font-semibold"
@@ -632,22 +632,22 @@ function ChartTooltip({ tooltip, chartType }: { tooltip: TooltipData | null; cha
                         </div>
                         {/* OHLC details */}
                         {showOHLC && v.open !== undefined && (
-                            <div className="mt-1 pt-1 border-t border-slate-100 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px]">
+                            <div className="mt-1 pt-1 border-t border-border-subtle grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px]">
                                 <div className="flex justify-between">
-                                    <span className="text-slate-400">O</span>
-                                    <span className="font-mono text-slate-600">{v.open?.toFixed(2)}</span>
+                                    <span className="text-muted-fg">O</span>
+                                    <span className="font-mono text-foreground/80">{v.open?.toFixed(2)}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-slate-400">H</span>
+                                    <span className="text-muted-fg">H</span>
                                     <span className="font-mono text-emerald-600">{v.high?.toFixed(2)}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-slate-400">L</span>
+                                    <span className="text-muted-fg">L</span>
                                     <span className="font-mono text-rose-500">{v.low?.toFixed(2)}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-slate-400">C</span>
-                                    <span className="font-mono text-slate-700 font-semibold">{v.close?.toFixed(2)}</span>
+                                    <span className="text-muted-fg">C</span>
+                                    <span className="font-mono text-foreground font-semibold">{v.close?.toFixed(2)}</span>
                                 </div>
                             </div>
                         )}
@@ -919,9 +919,9 @@ export function HistoricalMultipleSecurityContent() {
     }, [period]);
 
     return (
-        <div className="h-full flex flex-col bg-white text-slate-800" style={{ fontFamily }}>
+        <div className="h-full flex flex-col bg-surface text-foreground" style={{ fontFamily }}>
             {/* Search Bar */}
-            <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100">
+            <div className="flex-shrink-0 px-4 py-3 border-b border-border-subtle">
                 <div className="flex gap-2 items-center">
                     <div className="w-32">
                         <TickerSearch
@@ -936,20 +936,20 @@ export function HistoricalMultipleSecurityContent() {
                     <button
                         onClick={handleAddTicker}
                         disabled={loading || !tickerInput.trim()}
-                        className="p-1.5 rounded border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-300 disabled:opacity-50"
+                        className="p-1.5 rounded border border-border text-muted-fg hover:text-primary hover:border-primary/30 disabled:opacity-50"
                     >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                     </button>
 
                     {/* Period selector */}
-                    <div className="flex items-center gap-1 text-slate-400 ml-2" style={{ fontSize: '10px' }}>
+                    <div className="flex items-center gap-1 text-muted-fg ml-2" style={{ fontSize: '10px' }}>
                         {PERIODS.map(p => (
                             <button
                                 key={p.id}
                                 onClick={() => setPeriod(p.id)}
                                 className={`px-1.5 py-0.5 rounded ${period === p.id
-                                    ? 'bg-slate-100 text-slate-700'
-                                    : 'hover:text-slate-600'
+                                    ? 'bg-surface-inset text-foreground'
+                                    : 'hover:text-foreground/80'
                                     }`}
                             >
                                 {p.label}
@@ -960,7 +960,7 @@ export function HistoricalMultipleSecurityContent() {
                     <div className="flex-1" />
 
                     {/* Chart type selector */}
-                    <div className="flex items-center gap-0.5 text-slate-400" style={{ fontSize: '9px' }}>
+                    <div className="flex items-center gap-0.5 text-muted-fg" style={{ fontSize: '9px' }}>
                         {CHART_TYPES.map(ct => {
                             const Icon = ct.icon;
                             return (
@@ -968,8 +968,8 @@ export function HistoricalMultipleSecurityContent() {
                                     key={ct.id}
                                     onClick={() => setChartType(ct.id)}
                                     className={`p-1 rounded transition-colors ${chartType === ct.id
-                                        ? 'bg-slate-100 text-slate-700'
-                                        : 'hover:text-slate-600'
+                                        ? 'bg-surface-inset text-foreground'
+                                        : 'hover:text-foreground/80'
                                         }`}
                                     title={ct.label}
                                 >
@@ -977,23 +977,23 @@ export function HistoricalMultipleSecurityContent() {
                                 </button>
                             );
                         })}
-                        <span className="text-slate-200 mx-0.5">|</span>
+                        <span className="text-muted-fg/50 mx-0.5">|</span>
                         <button
                             onClick={() => setScaleType('percent')}
-                            className={`px-1.5 py-0.5 rounded ${scaleType === 'percent' ? 'bg-slate-100 text-slate-700' : 'hover:text-slate-600'}`}
+                            className={`px-1.5 py-0.5 rounded ${scaleType === 'percent' ? 'bg-surface-inset text-foreground' : 'hover:text-foreground/80'}`}
                         >
                             %
                         </button>
                         <button
                             onClick={() => setScaleType('price')}
-                            className={`px-1.5 py-0.5 rounded ${scaleType === 'price' ? 'bg-slate-100 text-slate-700' : 'hover:text-slate-600'}`}
+                            className={`px-1.5 py-0.5 rounded ${scaleType === 'price' ? 'bg-surface-inset text-foreground' : 'hover:text-foreground/80'}`}
                         >
                             $
                         </button>
                     </div>
 
                     <button
-                        className="p-1.5 rounded border border-slate-200 text-slate-400 hover:text-slate-600"
+                        className="p-1.5 rounded border border-border text-muted-fg hover:text-foreground/80"
                         title="Export"
                     >
                         <Download className="w-4 h-4" />
@@ -1003,7 +1003,7 @@ export function HistoricalMultipleSecurityContent() {
 
             {/* Tickers legend - inline */}
             {tickers.length > 0 && (
-                <div className="flex-shrink-0 px-4 py-2 border-b border-slate-100 flex flex-wrap items-center gap-2">
+                <div className="flex-shrink-0 px-4 py-2 border-b border-border-subtle flex flex-wrap items-center gap-2">
                     {tickers.map(t => (
                         <div
                             key={t.symbol}
@@ -1022,7 +1022,7 @@ export function HistoricalMultipleSecurityContent() {
                             </span>
                             <button
                                 onClick={() => handleRemoveTicker(t.symbol)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-slate-500"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-fg/50 hover:text-muted-fg"
                             >
                                 <X className="w-3 h-3" />
                             </button>
@@ -1045,15 +1045,15 @@ export function HistoricalMultipleSecurityContent() {
             {/* Chart area */}
             <div ref={chartContainerRef} className="flex-1 relative px-4 py-3">
                 {loading && tickers.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                    <div className="h-full flex flex-col items-center justify-center text-muted-fg">
                         <Loader2 className="w-6 h-6 animate-spin mb-2" />
                         <span style={{ fontSize: '11px' }}>Loading...</span>
                     </div>
                 ) : tickers.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                    <div className="h-full flex flex-col items-center justify-center text-muted-fg">
                         <Search className="w-8 h-8 mb-2 opacity-30" />
                         <p style={{ fontSize: '12px' }}>Add tickers to compare their performance</p>
-                        <p style={{ fontSize: '10px' }} className="text-slate-300 mt-1">e.g., NVDA, MSFT, AAPL</p>
+                        <p style={{ fontSize: '10px' }} className="text-muted-fg/50 mt-1">e.g., NVDA, MSFT, AAPL</p>
                     </div>
                 ) : (
                     <>
@@ -1071,7 +1071,7 @@ export function HistoricalMultipleSecurityContent() {
             </div>
 
             {/* Footer */}
-            <div className="flex-shrink-0 px-4 py-1 border-t border-slate-100 flex items-center justify-between text-[9px] text-slate-400">
+            <div className="flex-shrink-0 px-4 py-1 border-t border-border-subtle flex items-center justify-between text-[9px] text-muted-fg">
                 <span>
                     {tickers.length > 0
                         ? `${tickers.length} ticker${tickers.length > 1 ? 's' : ''} · ${PERIODS.find(p => p.id === period)?.label} · ${CHART_TYPES.find(c => c.id === chartType)?.label}`

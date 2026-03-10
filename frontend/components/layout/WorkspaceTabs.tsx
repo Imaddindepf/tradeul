@@ -132,7 +132,7 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
 
   return (
     <div 
-      className="fixed bottom-0 left-0 right-0 h-7 bg-white border-t border-slate-200 flex items-center select-none"
+      className="fixed bottom-0 left-0 right-0 h-7 bg-surface/60 backdrop-blur-md border-t border-white/[0.06] flex items-center select-none"
       style={{ zIndex: Z_INDEX.WORKSPACE_TABS, fontFamily }}
     >
       {/* Tabs */}
@@ -149,10 +149,10 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
               onDoubleClick={() => handleStartEdit(workspace.id, workspace.name)}
               className={`
                 group relative flex items-center h-full cursor-pointer
-                border-r border-slate-200 transition-colors duration-100
+                border-r border-white/[0.06] transition-colors duration-100
                 ${isActive 
-                  ? 'bg-blue-50 text-blue-700' 
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                  ? 'bg-primary/10 text-primary' 
+                  : 'text-muted-fg hover:bg-foreground/5 hover:text-foreground'
                 }
               `}
               style={{ padding: '0 10px' }}
@@ -175,8 +175,8 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
                     if (e.key === 'Escape') handleCancelEdit();
                   }}
                   onClick={(e) => e.stopPropagation()}
-                  className="px-1 py-0.5 text-xs bg-white text-slate-800 
-                           border border-blue-500 rounded outline-none"
+                  className="px-1 py-0.5 text-xs bg-surface text-foreground 
+                           border border-primary rounded outline-none"
                   style={{ fontFamily, width: `${Math.max(editValue.length, 5) * 8}px` }}
                   maxLength={30}
                 />
@@ -193,7 +193,7 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
               {!isMain && !isEditing && (
                 <button
                   onClick={(e) => handleDeleteWorkspace(e, workspace.id)}
-                  className="ml-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 
+                  className="ml-2 text-muted-fg hover:text-red-500 opacity-0 group-hover:opacity-100 
                            transition-opacity text-xs leading-none"
                   title={t('workspace.close', 'Close workspace')}
                   style={{ fontFamily }}
@@ -210,8 +210,8 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
       <button
         onClick={handleCreateWorkspace}
         className="flex items-center justify-center px-3 h-full 
-                 text-slate-400 hover:text-blue-600 hover:bg-slate-50
-                 transition-colors border-l border-slate-200 text-sm"
+                 text-muted-fg hover:text-primary hover:bg-foreground/5
+                 transition-colors border-l border-white/[0.06] text-sm"
         title={t('workspace.create', 'Create new workspace')}
         style={{ fontFamily }}
       >

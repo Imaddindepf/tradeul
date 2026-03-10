@@ -57,17 +57,17 @@ export const StepCard = memo(function StepCard({ step, isLatest }: StepCardProps
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className={`relative overflow-hidden rounded-lg border bg-white ${
-        isRunning ? 'border-indigo-200 shadow-sm' :
+      className={`relative overflow-hidden rounded-lg border bg-surface ${
+        isRunning ? 'border-primary/50 shadow-sm' :
         isError ? 'border-red-200' :
-        isComplete ? 'border-slate-200/80' : 'border-slate-100'
+        isComplete ? 'border-border' : 'border-border-subtle'
       } ${isPending ? 'opacity-40' : ''}`}
     >
       {/* Left accent bar */}
       {(isRunning || isError) && (
         <motion.div
           className={`absolute left-0 top-0 bottom-0 w-[2px] rounded-l ${
-            isError ? 'bg-red-400' : 'bg-indigo-500'
+            isError ? 'bg-red-400' : 'bg-primary'
           }`}
           {...(isRunning ? { animate: { opacity: [1, 0.3, 1] }, transition: { duration: 1.5, repeat: Infinity } } : {})}
         />
@@ -77,23 +77,23 @@ export const StepCard = memo(function StepCard({ step, isLatest }: StepCardProps
       <button
         onClick={() => canExpand && setExpanded(e => !e)}
         className={`w-full flex items-center px-3 py-1.5 text-left ${
-          canExpand ? 'cursor-pointer hover:bg-slate-50/50' : 'cursor-default'
+          canExpand ? 'cursor-pointer hover:bg-surface-hover/50' : 'cursor-default'
         } transition-colors`}
       >
         {/* Left: icon — fixed 20px box */}
         <span className={`w-5 shrink-0 flex items-center justify-center ${
-          isRunning ? 'text-indigo-500' :
+          isRunning ? 'text-primary' :
           isError ? 'text-red-400' :
-          isComplete ? 'text-slate-400' : 'text-slate-300'
+          isComplete ? 'text-muted-fg' : 'text-muted-fg/50'
         }`}>
           <Icon className="w-3.5 h-3.5" />
         </span>
 
         {/* Center: title — fills remaining space */}
         <span className={`flex-1 text-[11px] font-medium truncate ml-2 ${
-          isRunning ? 'text-slate-700' :
+          isRunning ? 'text-foreground' :
           isError ? 'text-red-600' :
-          isComplete ? 'text-slate-500' : 'text-slate-400'
+          isComplete ? 'text-muted-fg' : 'text-muted-fg'
         }`}>
           {step.title}
         </span>
@@ -102,19 +102,19 @@ export const StepCard = memo(function StepCard({ step, isLatest }: StepCardProps
         <span className="flex items-center shrink-0 ml-2">
           {/* Status icon — always 16px box */}
           <span className="w-4 flex items-center justify-center">
-            {isRunning && <Loader2 className="w-3 h-3 text-indigo-500 animate-spin" />}
+            {isRunning && <Loader2 className="w-3 h-3 text-primary animate-spin" />}
             {isComplete && <Check className="w-3 h-3 text-emerald-500" />}
             {isError && <AlertCircle className="w-3 h-3 text-red-400" />}
           </span>
 
           {/* Duration — always 36px box */}
-          <span className="w-9 text-right text-[9px] text-slate-400 tabular-nums font-mono">
+          <span className="w-9 text-right text-[9px] text-muted-fg tabular-nums font-mono">
             {step.duration != null && step.duration > 0 ? fmtDuration(step.duration) : ''}
           </span>
 
           {/* Chevron — always 16px box (invisible when nothing to expand) */}
           <span className={`w-4 flex items-center justify-center ${canExpand ? '' : 'invisible'}`}>
-            <ChevronRight className={`w-3 h-3 text-slate-300 transition-transform duration-200 ${
+            <ChevronRight className={`w-3 h-3 text-muted-fg/50 transition-transform duration-200 ${
               expanded ? 'rotate-90' : ''
             }`} />
           </span>
@@ -132,7 +132,7 @@ export const StepCard = memo(function StepCard({ step, isLatest }: StepCardProps
             className="overflow-hidden"
           >
             <div className={`px-3 pb-2 text-[10px] leading-relaxed ${
-              isError ? 'text-red-500' : 'text-slate-400'
+              isError ? 'text-red-500' : 'text-muted-fg'
             }`} style={{ paddingLeft: '2rem' }}>
               {step.description || step.details}
             </div>

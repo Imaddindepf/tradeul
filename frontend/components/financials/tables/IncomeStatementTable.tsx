@@ -11,7 +11,7 @@ interface IncomeStatementTableProps {
 
 export function IncomeStatementTable({ statements, currency, onMetricClick }: IncomeStatementTableProps) {
     if (statements.length === 0) {
-        return <div className="p-4 text-center text-slate-400 text-xs">No income statement data</div>;
+        return <div className="p-4 text-center text-muted-fg text-xs">No income statement data</div>;
     }
 
     const periods = statements.map(s => formatPeriod(s.period));
@@ -102,12 +102,12 @@ export function IncomeStatementTable({ statements, currency, onMetricClick }: In
     return (
         <table className="w-full text-[10px] border-collapse">
             <thead>
-                <tr className="bg-slate-100 border-b border-slate-200">
-                    <th className="text-left p-2 font-semibold text-slate-700 sticky left-0 bg-slate-100 min-w-[160px]">
+                <tr className="bg-surface-inset border-b border-border">
+                    <th className="text-left p-2 font-semibold text-foreground sticky left-0 bg-surface-inset min-w-[160px]">
                         Metric
                     </th>
                     {periods.map((period, idx) => (
-                        <th key={idx} className="text-right p-2 font-semibold text-slate-700 min-w-[80px]">
+                        <th key={idx} className="text-right p-2 font-semibold text-foreground min-w-[80px]">
                             {period}
                         </th>
                     ))}
@@ -125,25 +125,25 @@ export function IncomeStatementTable({ statements, currency, onMetricClick }: In
 
                     // Row background color
                     const rowBg = row.isHeader 
-                        ? 'bg-slate-50' 
+                        ? 'bg-surface-hover' 
                         : row.isYoY 
-                            ? 'bg-blue-50' 
+                            ? 'bg-primary/10' 
                             : row.isMargin 
-                                ? 'bg-amber-50' 
-                                : 'bg-white';
+                                ? 'bg-amber-500/10' 
+                                : 'bg-surface';
 
                     return (
                         <tr
                             key={row.key}
-                            className={`border-b border-slate-100 hover:bg-slate-100/50 cursor-pointer transition-colors ${rowBg}`}
+                            className={`border-b border-border-subtle hover:bg-surface-hover cursor-pointer transition-colors ${rowBg}`}
                             onClick={() => !row.isYoY && !row.isMargin && onMetricClick(row.key, values, periods)}
                         >
                             <td 
-                                className={`p-2 sticky left-0 ${rowBg} border-r border-slate-100
-                                    ${row.isHeader ? 'font-bold text-slate-900' : ''}
-                                    ${row.isYoY ? 'text-[9px] text-blue-700 font-medium pl-6' : ''}
+                                className={`p-2 sticky left-0 ${rowBg} border-r border-border-subtle
+                                    ${row.isHeader ? 'font-bold text-foreground' : ''}
+                                    ${row.isYoY ? 'text-[9px] text-primary font-medium pl-6' : ''}
                                     ${row.isMargin ? 'text-[9px] text-amber-700 font-medium pl-6' : ''}
-                                    ${!row.isHeader && !row.isYoY && !row.isMargin ? 'text-slate-600' : ''}`}
+                                    ${!row.isHeader && !row.isYoY && !row.isMargin ? 'text-foreground/80' : ''}`}
                                 style={{ paddingLeft: row.indent ? `${8 + row.indent * 16}px` : undefined }}
                             >
                                 {row.label}
@@ -152,7 +152,7 @@ export function IncomeStatementTable({ statements, currency, onMetricClick }: In
                                 // YoY formatting with colors
                                 if (row.isYoY) {
                                     if (value === undefined || value === null) {
-                                        return <td key={idx} className="text-right p-2 text-slate-300">—</td>;
+                                        return <td key={idx} className="text-right p-2 text-muted-fg/50">—</td>;
                                     }
                                     const isPositive = value > 0;
                                     const isNegative = value < 0;
@@ -162,7 +162,7 @@ export function IncomeStatementTable({ statements, currency, onMetricClick }: In
                                             className={`text-right p-2 font-bold text-[10px]
                                                 ${isPositive ? 'text-emerald-600' : ''}
                                                 ${isNegative ? 'text-red-600' : ''}
-                                                ${!isPositive && !isNegative ? 'text-slate-500' : ''}`}
+                                                ${!isPositive && !isNegative ? 'text-muted-fg' : ''}`}
                                         >
                                             {isPositive ? '+' : ''}{value.toFixed(1)}%
                                         </td>
@@ -181,7 +181,7 @@ export function IncomeStatementTable({ statements, currency, onMetricClick }: In
                                 // Shares formatting
                                 if (row.key.includes('shares')) {
                                     return (
-                                        <td key={idx} className="text-right p-2 text-slate-600 tabular-nums">
+                                        <td key={idx} className="text-right p-2 text-foreground/80 tabular-nums">
                                             {value != null ? `${(value / 1_000_000).toFixed(0)}M` : '—'}
                                         </td>
                                     );
@@ -191,7 +191,7 @@ export function IncomeStatementTable({ statements, currency, onMetricClick }: In
                                 if (row.key.includes('eps')) {
                                     return (
                                         <td key={idx} className={`text-right p-2 font-medium tabular-nums
-                                            ${value && value < 0 ? 'text-red-600' : 'text-slate-700'}`}>
+                                            ${value && value < 0 ? 'text-red-600' : 'text-foreground'}`}>
                                             {value != null ? `$${value.toFixed(2)}` : '—'}
                                         </td>
                                     );
@@ -202,7 +202,7 @@ export function IncomeStatementTable({ statements, currency, onMetricClick }: In
                                     <td 
                                         key={idx} 
                                         className={`text-right p-2 tabular-nums
-                                            ${row.isHeader ? 'font-semibold text-slate-800' : 'text-slate-600'}
+                                            ${row.isHeader ? 'font-semibold text-foreground' : 'text-foreground/80'}
                                             ${value && value < 0 ? 'text-red-600' : ''}`}
                                     >
                                         {formatCurrency(value, currency)}

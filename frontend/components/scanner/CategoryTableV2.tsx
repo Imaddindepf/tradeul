@@ -515,7 +515,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableSorting: false,
         enableHiding: false,
         cell: (info) => (
-          <div className="text-center font-semibold text-slate-400">
+          <div className="text-center font-semibold text-muted-fg">
             {info.row.index + 1}
           </div>
         ),
@@ -530,7 +530,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: false,
         cell: (info) => (
           <div
-            className="font-bold text-blue-600 cursor-pointer hover:text-blue-800 hover:underline transition-colors"
+            className="font-bold text-primary cursor-pointer hover:text-primary-hover hover:underline transition-colors"
             onClick={(e) => {
               e.stopPropagation();
               const symbol = info.getValue();
@@ -611,7 +611,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return (
             <div className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -630,7 +630,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return (
             <div className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
@@ -648,7 +648,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableSorting: true,
         enableHiding: true,
         cell: (info) => (
-          <div className="font-mono text-slate-700 font-medium">
+          <div className="font-mono text-foreground font-medium">
             {formatNumber(info.getValue())}
           </div>
         ),
@@ -670,10 +670,10 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               className={`
               font-mono font-semibold
               ${displayValue > 3
-                  ? 'text-blue-700'
+                  ? 'text-primary'
                   : displayValue > 1.5
-                    ? 'text-blue-600'
-                    : 'text-slate-500'
+                    ? 'text-primary'
+                    : 'text-muted-fg'
                 }
             `}
             >
@@ -691,7 +691,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableSorting: true,
         enableHiding: true,
         cell: (info) => (
-          <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>
+          <div className="font-mono text-foreground/80">{formatNumber(info.getValue())}</div>
         ),
       }),
       columnHelper.accessor('free_float', {
@@ -704,7 +704,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableSorting: true,
         enableHiding: true,
         cell: (info) => (
-          <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>
+          <div className="font-mono text-foreground/80">{formatNumber(info.getValue())}</div>
         ),
       }),
       columnHelper.accessor('shares_outstanding', {
@@ -717,7 +717,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableSorting: true,
         enableHiding: true,
         cell: (info) => (
-          <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>
+          <div className="font-mono text-foreground/80">{formatNumber(info.getValue())}</div>
         ),
       }),
       columnHelper.accessor('minute_volume', {
@@ -731,8 +731,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
       columnHelper.accessor('avg_volume_5d', {
@@ -746,8 +746,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
       columnHelper.accessor('avg_volume_10d', {
@@ -761,8 +761,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
       columnHelper.accessor('avg_volume_3m', {
@@ -776,8 +776,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
       columnHelper.accessor('dollar_volume', {
@@ -791,7 +791,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           // Format as currency with K/M/B suffix
           const formatDollarVolume = (v: number) => {
             if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
@@ -799,7 +799,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
             if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
             return `$${v.toFixed(0)}`;
           };
-          return <div className="font-mono text-slate-600">{formatDollarVolume(value)}</div>;
+          return <div className="font-mono text-foreground/80">{formatDollarVolume(value)}</div>;
         },
       }),
       columnHelper.accessor('volume_today_pct', {
@@ -813,8 +813,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          const color = value >= 150 ? 'text-green-600' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            return <div className="text-muted-fg">-</div>;
+          const color = value >= 150 ? 'text-green-600' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
           return <div className={`font-mono ${color}`}>{value.toFixed(0)}%</div>;
         },
       }),
@@ -829,8 +829,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          const color = value >= 150 ? 'text-green-600' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            return <div className="text-muted-fg">-</div>;
+          const color = value >= 150 ? 'text-green-600' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
           return <div className={`font-mono ${color}`}>{value.toFixed(0)}%</div>;
         },
       }),
@@ -845,8 +845,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
       columnHelper.accessor('vol_5min', {
@@ -860,8 +860,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
       columnHelper.accessor('vol_10min', {
@@ -875,8 +875,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
       columnHelper.accessor('vol_15min', {
@@ -890,8 +890,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
       columnHelper.accessor('vol_30min', {
@@ -905,8 +905,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
       // Volume window % columns (Trade Ideas style)
@@ -922,8 +922,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           enableHiding: true,
           cell: (info) => {
             const value = info.getValue();
-            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
             return <div className={`font-mono ${cls}`}>{value.toFixed(1)}%</div>;
           },
         });
@@ -941,8 +941,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           enableHiding: true,
           cell: (info) => {
             const value = info.getValue();
-            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-            return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+            if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+            return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
           },
         });
       }),
@@ -959,8 +959,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           enableHiding: true,
           cell: (info) => {
             const value = info.getValue();
-            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
             return <div className={`font-mono ${cls}`}>{value.toFixed(1)}%</div>;
           },
         });
@@ -978,8 +978,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           enableHiding: true,
           cell: (info) => {
             const value = info.getValue();
-            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-            return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+            if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+            return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
           },
         });
       }),
@@ -996,8 +996,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           enableHiding: true,
           cell: (info) => {
             const value = info.getValue();
-            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
             return <div className={'font-mono ' + cls}>{value.toFixed(1)}%</div>;
           },
         });
@@ -1014,7 +1014,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
           const prefix = isPositive ? '+' : '';
@@ -1032,7 +1032,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
           const prefix = isPositive ? '+' : '';
@@ -1050,7 +1050,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
           const prefix = isPositive ? '+' : '';
@@ -1068,7 +1068,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
           const prefix = isPositive ? '+' : '';
@@ -1086,7 +1086,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
           const prefix = isPositive ? '+' : '';
@@ -1104,12 +1104,12 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           const colorClass = value > 0
             ? 'text-green-600'
             : value < 0
               ? 'text-red-600'
-              : 'text-slate-600';
+              : 'text-foreground/80';
           const prefix = value > 0 ? '+' : '';
           return <div className={`font-mono ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
         },
@@ -1126,7 +1126,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
           const prefix = isPositive ? '+' : '';
@@ -1149,7 +1149,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
           const prefix = isPositive ? '+' : '';
@@ -1171,7 +1171,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           return (
             <div className="font-mono text-purple-600 font-medium">
               {formatNumber(value)}
@@ -1191,14 +1191,14 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           // Color based on anomaly level:
           // < 2: normal (gray), 2-3: elevated (amber), >= 3: anomaly (red/fire)
           const colorClass = value >= 3
             ? 'text-red-600 font-bold'
             : value >= 2
               ? 'text-amber-600 font-semibold'
-              : 'text-slate-600';
+              : 'text-foreground/80';
           const emoji = value >= 5 ? '🔥' : value >= 3 ? '⚠️' : '';
           return (
             <div className={`font-mono ${colorClass}`}>
@@ -1218,7 +1218,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           // Format large numbers (K/M)
           return (
             <div className="font-mono text-cyan-600">
@@ -1238,9 +1238,9 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           return (
-            <div className="font-mono text-slate-500">
+            <div className="font-mono text-muted-fg">
               {formatNumber(Math.round(value))}
             </div>
           );
@@ -1257,7 +1257,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           // Spread is in cents: 50.00 = $0.50
           // Color: green if tight (<10¢), yellow if medium (10-25¢), red if wide (>25¢)
           const colorClass = value < 10
@@ -1279,8 +1279,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-blue-600">{formatNumber(value)}</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-primary">{formatNumber(value)}</div>;
         },
       }),
       columnHelper.accessor('ask_size', {
@@ -1294,7 +1294,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           return <div className="font-mono text-orange-600">{formatNumber(value)}</div>;
         },
       }),
@@ -1309,13 +1309,13 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           // >1 = more demand (green), <1 = more supply (red)
           const colorClass = value > 1.5
             ? 'text-green-600 font-semibold'
             : value < 0.67
               ? 'text-red-600 font-semibold'
-              : 'text-slate-600';
+              : 'text-foreground/80';
           return <div className={`font-mono ${colorClass}`}>{value.toFixed(2)}</div>;
         },
       }),
@@ -1330,8 +1330,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{value.toFixed(2)}%</div>;
+            return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{value.toFixed(2)}%</div>;
         },
       }),
       columnHelper.accessor('atr_percent', {
@@ -1345,9 +1345,9 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined)
-            return <div className="text-slate-400">-</div>;
+            return <div className="text-muted-fg">-</div>;
           const colorClass =
-            value > 5 ? 'text-orange-600 font-semibold' : 'text-slate-600';
+            value > 5 ? 'text-orange-600 font-semibold' : 'text-foreground/80';
           return <div className={`font-mono ${colorClass}`}>{value.toFixed(1)}%</div>;
         },
       }),
@@ -1387,9 +1387,9 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           cell: (info) => {
             const value = info.getValue();
             if (value === null || value === undefined)
-              return <div className="text-slate-400">-</div>;
+              return <div className="text-muted-fg">-</div>;
 
-            let colorClass = 'text-slate-600';
+            let colorClass = 'text-foreground/80';
             if (value > 150) {
               colorClass = 'text-red-600 font-bold';
             } else if (value > 100) {
@@ -1397,7 +1397,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
             } else if (value > 75) {
               colorClass = 'text-yellow-600 font-medium';
             } else if (value > 50) {
-              colorClass = 'text-blue-600';
+              colorClass = 'text-primary';
             }
 
             return (
@@ -1422,8 +1422,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1437,8 +1437,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1453,8 +1453,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          const colorClass = value > 70 ? 'text-red-600 font-semibold' : value < 30 ? 'text-green-600 font-semibold' : 'text-slate-600';
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          const colorClass = value > 70 ? 'text-red-600 font-semibold' : value < 30 ? 'text-green-600 font-semibold' : 'text-foreground/80';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
         },
       }),
@@ -1469,8 +1469,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1484,8 +1484,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1499,8 +1499,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1514,8 +1514,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1529,8 +1529,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1544,8 +1544,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1559,8 +1559,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1574,8 +1574,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1589,7 +1589,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(3)}</div>;
         },
@@ -1605,8 +1605,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-600">{value.toFixed(3)}</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground/80">{value.toFixed(3)}</div>;
         },
       }),
 
@@ -1620,7 +1620,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(3)}</div>;
         },
@@ -1636,8 +1636,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          const colorClass = value > 25 ? 'text-blue-600 font-semibold' : 'text-slate-600';
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          const colorClass = value > 25 ? 'text-primary font-semibold' : 'text-foreground/80';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
         },
       }),
@@ -1652,8 +1652,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          const colorClass = value > 80 ? 'text-red-600' : value < 20 ? 'text-green-600' : 'text-slate-600';
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          const colorClass = value > 80 ? 'text-red-600' : value < 20 ? 'text-green-600' : 'text-foreground/80';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
         },
       }),
@@ -1668,8 +1668,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          const colorClass = value > 80 ? 'text-red-600' : value < 20 ? 'text-green-600' : 'text-slate-600';
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          const colorClass = value > 80 ? 'text-red-600' : value < 20 ? 'text-green-600' : 'text-foreground/80';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
         },
       }),
@@ -1685,8 +1685,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1700,8 +1700,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1715,8 +1715,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1731,8 +1731,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1746,8 +1746,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1761,8 +1761,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1776,8 +1776,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          const colorClass = value > 70 ? 'text-red-600 font-semibold' : value < 30 ? 'text-green-600 font-semibold' : 'text-slate-600';
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          const colorClass = value > 70 ? 'text-red-600 font-semibold' : value < 30 ? 'text-green-600 font-semibold' : 'text-foreground/80';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
         },
       }),
@@ -1793,8 +1793,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1808,8 +1808,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1823,7 +1823,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           return <div className="font-mono text-xs text-red-600">{value.toFixed(1)}%</div>;
         },
       }),
@@ -1838,7 +1838,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           return <div className="font-mono text-xs text-green-600">+{value.toFixed(1)}%</div>;
         },
       }),
@@ -1854,8 +1854,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1870,8 +1870,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1885,7 +1885,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
           return <div className="font-mono text-xs text-green-600">${value.toFixed(2)}</div>;
         },
       }),
@@ -1900,7 +1900,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
           return <div className="font-mono text-xs text-red-600">${value.toFixed(2)}</div>;
         },
       }),
@@ -1915,8 +1915,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground">${value.toFixed(2)}</div>;
         },
       }),
 
@@ -1931,8 +1931,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="text-xs text-slate-700 truncate">{value}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="text-xs text-foreground truncate">{value}</div>;
         },
       }),
 
@@ -1946,8 +1946,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="text-xs text-slate-700 truncate">{value}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="text-xs text-foreground truncate">{value}</div>;
         },
       }),
 
@@ -1961,8 +1961,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          const colorClass = value === 'ETF' ? 'text-purple-600 font-semibold' : 'text-slate-700';
+          if (!value) return <div className="text-muted-fg">-</div>;
+          const colorClass = value === 'ETF' ? 'text-purple-600 font-semibold' : 'text-foreground';
           return <div className={`text-xs ${colorClass}`}>{value}</div>;
         },
       }),
@@ -1977,8 +1977,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (!value) return <div className="text-slate-400">-</div>;
-          return <div className="text-xs text-slate-600">{value}</div>;
+          if (!value) return <div className="text-muted-fg">-</div>;
+          return <div className="text-xs text-foreground/80">{value}</div>;
         },
       }),
 
@@ -1993,7 +1993,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
           const prefix = isPositive ? '+' : '';
@@ -2011,8 +2011,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
 
@@ -2027,7 +2027,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>{formatPercent(value)}</div>;
         },
@@ -2043,7 +2043,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>{formatPercent(value)}</div>;
         },
@@ -2059,7 +2059,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>{formatPercent(value)}</div>;
         },
@@ -2075,7 +2075,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const isPositive = value > 0;
           return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>{formatPercent(value)}</div>;
         },
@@ -2092,7 +2092,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
           const prefix = value > 0 ? '+' : '';
           return <div className={`font-mono text-xs ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
@@ -2109,7 +2109,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
           const prefix = value > 0 ? '+' : '';
           return <div className={`font-mono text-xs ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
@@ -2126,7 +2126,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
           const prefix = value > 0 ? '+' : '';
           return <div className={`font-mono text-xs ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
@@ -2143,7 +2143,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
           const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
           const prefix = value > 0 ? '+' : '';
           return <div className={`font-mono text-xs ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
@@ -2161,8 +2161,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          return <div className="font-mono text-xs text-slate-600">{value.toFixed(1)}%</div>;
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          return <div className="font-mono text-xs text-foreground/80">{value.toFixed(1)}%</div>;
         },
       }),
 
@@ -2176,8 +2176,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          const colorClass = value > 1 ? 'text-orange-600 font-semibold' : 'text-slate-600';
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          const colorClass = value > 1 ? 'text-orange-600 font-semibold' : 'text-foreground/80';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(2)}x</div>;
         },
       }),
@@ -2192,8 +2192,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
-          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          const colorClass = value > 75 ? 'text-green-600' : value < 25 ? 'text-red-600' : 'text-slate-600';
+          if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
+          const colorClass = value > 75 ? 'text-green-600' : value < 25 ? 'text-red-600' : 'text-foreground/80';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(0)}%</div>;
         },
       }),
@@ -2254,12 +2254,12 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           listName={listName}
           onClose={onClose}
         />
-        <div className="flex-1 flex items-center justify-center bg-slate-50">
+        <div className="flex-1 flex items-center justify-center bg-surface-hover">
           <div className="text-center p-6">
-            <h3 className="text-lg font-semibold text-slate-700 mb-2">
+            <h3 className="text-lg font-semibold text-foreground mb-2">
               {t('common.noData')}
             </h3>
-            <p className="text-sm text-slate-500 max-w-xs">
+            <p className="text-sm text-muted-fg max-w-xs">
               {connectionError || t('scanner.marketClosed')}
             </p>
           </div>

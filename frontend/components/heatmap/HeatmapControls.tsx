@@ -84,11 +84,11 @@ function HeatmapControls({
       <div className="flex items-center gap-3 text-[10px]">
         {/* Color Metric */}
         <div className="flex items-center gap-1.5">
-          <span className="text-slate-400">Color:</span>
+          <span className="text-muted-fg">Color:</span>
           <select
             value={filters.metric}
             onChange={(e) => handleColorMetricChange(e.target.value as ColorMetric)}
-            className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 focus:outline-none focus:border-blue-500 text-[10px]"
+            className="bg-surface border border-border rounded px-1.5 py-0.5 text-foreground focus:outline-none focus:border-primary text-[10px]"
           >
             {COLOR_METRICS.map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
@@ -98,11 +98,11 @@ function HeatmapControls({
         
         {/* Size Metric */}
         <div className="flex items-center gap-1.5">
-          <span className="text-slate-400">Size:</span>
+          <span className="text-muted-fg">Size:</span>
           <select
             value={filters.sizeBy}
             onChange={(e) => handleSizeMetricChange(e.target.value as SizeMetric)}
-            className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 focus:outline-none focus:border-blue-500 text-[10px]"
+            className="bg-surface border border-border rounded px-1.5 py-0.5 text-foreground focus:outline-none focus:border-primary text-[10px]"
           >
             {SIZE_METRICS.map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
@@ -112,11 +112,11 @@ function HeatmapControls({
         
         {/* Market Cap */}
         <div className="flex items-center gap-1.5">
-          <span className="text-slate-400">Cap:</span>
+          <span className="text-muted-fg">Cap:</span>
           <select
             value={filters.minMarketCap?.toString() || ''}
             onChange={(e) => handleMarketCapChange(e.target.value ? parseInt(e.target.value) : null)}
-            className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 focus:outline-none focus:border-blue-500 text-[10px]"
+            className="bg-surface border border-border rounded px-1.5 py-0.5 text-foreground focus:outline-none focus:border-primary text-[10px]"
           >
             {MARKET_CAP_PRESETS.map(p => (
               <option key={p.label} value={p.value?.toString() || ''}>{p.label}</option>
@@ -128,21 +128,21 @@ function HeatmapControls({
   }
   
   return (
-    <div className="px-3 py-2 bg-white border-b border-slate-200">
+    <div className="px-3 py-2 bg-surface border-b border-border">
       {/* Row 1: Metrics */}
       <div className="flex flex-wrap items-center gap-4">
         {/* Color Metric */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-400 font-medium">Color:</span>
-          <div className="flex rounded overflow-hidden border border-slate-200">
+          <span className="text-[10px] text-muted-fg font-medium">Color:</span>
+          <div className="flex rounded overflow-hidden border border-border">
             {COLOR_METRICS.map(m => (
               <button
                 key={m.value}
                 onClick={() => handleColorMetricChange(m.value)}
                 className={`px-2 py-1 text-[10px] font-medium transition-colors ${
                   filters.metric === m.value
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                    ? 'bg-primary text-white'
+                    : 'bg-surface text-foreground/80 hover:bg-surface-hover'
                 }`}
                 title={m.description}
               >
@@ -154,16 +154,16 @@ function HeatmapControls({
         
         {/* Size Metric */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-400 font-medium">Size:</span>
-          <div className="flex rounded overflow-hidden border border-slate-200">
+          <span className="text-[10px] text-muted-fg font-medium">Size:</span>
+          <div className="flex rounded overflow-hidden border border-border">
             {SIZE_METRICS.map(m => (
               <button
                 key={m.value}
                 onClick={() => handleSizeMetricChange(m.value)}
                 className={`px-2 py-1 text-[10px] font-medium transition-colors ${
                   filters.sizeBy === m.value
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                    ? 'bg-primary text-white'
+                    : 'bg-surface text-foreground/80 hover:bg-surface-hover'
                 }`}
               >
                 {m.label}
@@ -174,16 +174,16 @@ function HeatmapControls({
         
         {/* Market Cap Filter */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-400 font-medium">Min Cap:</span>
-          <div className="flex rounded overflow-hidden border border-slate-200">
+          <span className="text-[10px] text-muted-fg font-medium">Min Cap:</span>
+          <div className="flex rounded overflow-hidden border border-border">
             {MARKET_CAP_PRESETS.map(p => (
               <button
                 key={p.label}
                 onClick={() => handleMarketCapChange(p.value)}
                 className={`px-2 py-1 text-[10px] font-medium transition-colors ${
                   filters.minMarketCap === p.value
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                    ? 'bg-primary text-white'
+                    : 'bg-surface text-foreground/80 hover:bg-surface-hover'
                 }`}
               >
                 {p.label}
@@ -195,12 +195,12 @@ function HeatmapControls({
         {/* Sector Filter (inline) */}
         {availableSectors.length > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-slate-400 font-medium">Sectors:</span>
+            <span className="text-[10px] text-muted-fg font-medium">Sectors:</span>
             <div className="flex flex-wrap gap-1">
               {filters.sectors && filters.sectors.length > 0 && (
                 <button
                   onClick={handleClearSectors}
-                  className="px-1.5 py-0.5 text-[9px] font-medium rounded bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  className="px-1.5 py-0.5 text-[9px] font-medium rounded bg-surface-inset text-muted-fg hover:bg-muted"
                 >
                   Clear
                 </button>
@@ -214,8 +214,8 @@ function HeatmapControls({
                     onClick={() => handleSectorToggle(sector)}
                     className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors ${
                       isSelected
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                        ? 'bg-primary text-white'
+                        : 'bg-surface-hover text-muted-fg hover:bg-surface-inset'
                     }`}
                     title={sector}
                   >
@@ -224,7 +224,7 @@ function HeatmapControls({
                 );
               })}
               {availableSectors.length > 6 && (
-                <span className="px-1.5 py-0.5 text-[9px] text-slate-400">
+                <span className="px-1.5 py-0.5 text-[9px] text-muted-fg">
                   +{availableSectors.length - 6}
                 </span>
               )}

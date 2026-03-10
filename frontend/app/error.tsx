@@ -14,9 +14,9 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
-        <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
+    <div className="min-h-screen bg-surface-hover flex items-center justify-center px-4">
+      <div className="bg-surface rounded-lg shadow-lg p-8 max-w-md w-full">
+        <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-500/15 rounded-full mb-4">
           <svg
             className="w-6 h-6 text-red-600"
             fill="none"
@@ -31,15 +31,15 @@ export default function Error({
             />
           </svg>
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 text-center mb-2">
+        <h2 className="text-2xl font-bold text-foreground text-center mb-2">
           Something went wrong!
         </h2>
-        <p className="text-gray-600 text-center mb-6">
+        <p className="text-foreground/80 text-center mb-6">
           Ha ocurrido un error inesperado. Por favor, intenta de nuevo.
         </p>
         {error.message && (
-          <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
-            <p className="text-sm text-red-800 font-mono">{error.message}</p>
+          <div className="bg-red-500/10 border border-red-500/30 rounded-md p-3 mb-4">
+            <p className="text-sm text-red-700 dark:text-red-400 font-mono">{error.message}</p>
           </div>
         )}
         <button

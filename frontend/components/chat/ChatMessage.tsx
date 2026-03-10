@@ -258,7 +258,7 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
           </button>
         )}
         
-        <span className="text-[9px] text-slate-400">{time}</span>
+        <span className="text-[9px] text-muted-fg">{time}</span>
         {' '}
         <span className={nameColor}>{message.user_name}</span>
         <span className="text-muted-foreground/30">:</span>
@@ -303,7 +303,7 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
           }}
           className={cn(
             "absolute right-1 top-0 p-0.5 rounded transition-opacity",
-            "hover:bg-muted text-slate-500",
+            "hover:bg-muted text-muted-fg",
             isHovered ? "opacity-100" : "opacity-0"
           )}
         >
@@ -384,7 +384,7 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
       {/* Full emoji picker - minimal white design */}
       {showEmojiPicker && (
         <div 
-          className="fixed z-[100] rounded-xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-gray-100"
+          className="fixed z-[100] rounded-xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-border-subtle"
           style={{
             left: Math.min(Math.max(menuPosition.x - 100, 10), window.innerWidth - 270),
             top: Math.min(Math.max(menuPosition.y - 50, 10), window.innerHeight - 300),

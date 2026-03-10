@@ -845,50 +845,50 @@ function TradingChartComponent({
     // RENDER
     // ====================================================================
     return (
-        <div className="h-full flex flex-col bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="h-full flex flex-col bg-surface border border-border rounded-lg overflow-hidden">
             {minimal ? (
-                <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface-hover">
                     <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-600 tracking-wide">PRICE CHART</span>
-                        <span className="text-[10px] text-slate-400">1 Year</span>
+                        <span className="text-xs font-bold text-foreground/80 tracking-wide">PRICE CHART</span>
+                        <span className="text-[10px] text-muted-fg">1 Year</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        {onOpenChart && <button onClick={onOpenChart} className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors" title="Open Chart Window">G <span className="font-normal">&gt;</span></button>}
-                        {onOpenNews && <button onClick={onOpenNews} className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors" title="Open News Window">N <span className="font-normal">&gt;</span></button>}
+                        {onOpenChart && <button onClick={onOpenChart} className="text-xs font-bold text-primary hover:text-primary transition-colors" title="Open Chart Window">G <span className="font-normal">&gt;</span></button>}
+                        {onOpenNews && <button onClick={onOpenNews} className="text-xs font-bold text-primary hover:text-primary transition-colors" title="Open News Window">N <span className="font-normal">&gt;</span></button>}
                     </div>
                 </div>
             ) : (
-                <div className="flex items-center gap-0.5 px-1 py-[2px] border-b border-slate-200 bg-white text-[11px]" style={{ fontFamily }}>
+                <div className="flex items-center gap-0.5 px-1 py-[2px] border-b border-border bg-surface text-[11px]" style={{ fontFamily }}>
                     {/* Timeframe selector */}
                     <div className="relative">
-                        <button onClick={() => setShowIntervalDropdown(!showIntervalDropdown)} className="flex items-center gap-0.5 px-1.5 py-1 rounded hover:bg-slate-100 text-slate-700 font-medium text-[12px]">
+                        <button onClick={() => setShowIntervalDropdown(!showIntervalDropdown)} className="flex items-center gap-0.5 px-1.5 py-1 rounded hover:bg-surface-hover text-foreground font-medium text-[12px]">
                             {INTERVALS.find(i => i.interval === selectedInterval)?.shortLabel || '1D'}
-                            <ChevronDown className="w-3 h-3 text-slate-400" />
+                            <ChevronDown className="w-3 h-3 text-muted-fg" />
                         </button>
                         {showIntervalDropdown && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setShowIntervalDropdown(false)} />
-                                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 min-w-[140px] py-1">
-                                    <div className="px-2 py-0.5 text-[9px] text-slate-400 font-semibold uppercase tracking-wider">Minutes</div>
+                                <div className="absolute top-full left-0 mt-1 bg-surface border border-border rounded-lg shadow-xl z-50 min-w-[140px] py-1">
+                                    <div className="px-2 py-0.5 text-[9px] text-muted-fg font-semibold uppercase tracking-wider">Minutes</div>
                                     {INTERVALS.filter(i => ['1min', '2min', '5min', '15min', '30min'].includes(i.interval)).map((int) => (
                                         <button key={int.interval} onClick={() => { handleIntervalChange(int.interval); setShowIntervalDropdown(false); }}
-                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-slate-50 ${selectedInterval === int.interval ? 'bg-blue-50 text-blue-600 font-medium' : 'text-slate-600'}`}>
+                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-surface-hover ${selectedInterval === int.interval ? 'bg-primary/10 text-primary font-medium' : 'text-foreground/80'}`}>
                                             {int.label}
                                         </button>
                                     ))}
-                                    <div className="border-t border-slate-100 my-0.5" />
-                                    <div className="px-2 py-0.5 text-[9px] text-slate-400 font-semibold uppercase tracking-wider">Hours</div>
+                                    <div className="border-t border-border-subtle my-0.5" />
+                                    <div className="px-2 py-0.5 text-[9px] text-muted-fg font-semibold uppercase tracking-wider">Hours</div>
                                     {INTERVALS.filter(i => ['1hour', '4hour', '12hour'].includes(i.interval)).map((int) => (
                                         <button key={int.interval} onClick={() => { handleIntervalChange(int.interval); setShowIntervalDropdown(false); }}
-                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-slate-50 ${selectedInterval === int.interval ? 'bg-blue-50 text-blue-600 font-medium' : 'text-slate-600'}`}>
+                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-surface-hover ${selectedInterval === int.interval ? 'bg-primary/10 text-primary font-medium' : 'text-foreground/80'}`}>
                                             {int.label}
                                         </button>
                                     ))}
-                                    <div className="border-t border-slate-100 my-0.5" />
-                                    <div className="px-2 py-0.5 text-[9px] text-slate-400 font-semibold uppercase tracking-wider">Days+</div>
+                                    <div className="border-t border-border-subtle my-0.5" />
+                                    <div className="px-2 py-0.5 text-[9px] text-muted-fg font-semibold uppercase tracking-wider">Days+</div>
                                     {INTERVALS.filter(i => ['1day', '1week', '1month', '3month', '1year'].includes(i.interval)).map((int) => (
                                         <button key={int.interval} onClick={() => { handleIntervalChange(int.interval); setShowIntervalDropdown(false); }}
-                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-slate-50 ${selectedInterval === int.interval ? 'bg-blue-50 text-blue-600 font-medium' : 'text-slate-600'}`}>
+                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-surface-hover ${selectedInterval === int.interval ? 'bg-primary/10 text-primary font-medium' : 'text-foreground/80'}`}>
                                             {int.label}
                                         </button>
                                     ))}
@@ -896,97 +896,97 @@ function TradingChartComponent({
                             </>
                         )}
                     </div>
-                    <div className="w-px h-4 bg-slate-200" />
-                    <button className="p-1 rounded hover:bg-slate-100 text-slate-500" title="Candle Type">
+                    <div className="w-px h-4 bg-muted" />
+                    <button className="p-1 rounded hover:bg-surface-hover text-muted-fg" title="Candle Type">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 4v4M9 14v6M15 4v6M15 18v2" /><rect x="7" y="8" width="4" height="6" rx="0.5" fill="currentColor" stroke="none" /><rect x="13" y="10" width="4" height="8" rx="0.5" stroke="currentColor" fill="none" /></svg>
                     </button>
-                    <div className="w-px h-4 bg-slate-200" />
+                    <div className="w-px h-4 bg-muted" />
                     <HeaderDrawingTools activeTool={activeTool} setActiveTool={setActiveTool} />
-                    <div className="w-px h-4 bg-slate-200" />
+                    <div className="w-px h-4 bg-muted" />
                     {/* Indicators dropdown */}
                     <div className="relative" ref={indicatorDropdownRef}>
-                        <button onClick={() => setShowIndicatorDropdown(!showIndicatorDropdown)} className={`flex items-center gap-1 px-1.5 py-1 rounded hover:bg-slate-100 text-[12px] font-medium ${showIndicatorDropdown || activeIndicatorCount > 0 ? 'text-blue-600' : 'text-slate-500'}`} title="Indicators">
+                        <button onClick={() => setShowIndicatorDropdown(!showIndicatorDropdown)} className={`flex items-center gap-1 px-1.5 py-1 rounded hover:bg-surface-hover text-[12px] font-medium ${showIndicatorDropdown || activeIndicatorCount > 0 ? 'text-primary' : 'text-muted-fg'}`} title="Indicators">
                             <IndicatorsIcon className="w-[14px] h-[14px]" />
                             <span>Indicadores</span>
-                            {activeIndicatorCount > 0 && <span className="text-[8px] bg-blue-600 text-white rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">{activeIndicatorCount}</span>}
-                            <ChevronDown className="w-3 h-3 text-slate-400" />
+                            {activeIndicatorCount > 0 && <span className="text-[8px] bg-primary text-white rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">{activeIndicatorCount}</span>}
+                            <ChevronDown className="w-3 h-3 text-muted-fg" />
                         </button>
                         {showIndicatorDropdown && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorDropdown(false)} />
-                                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 min-w-[200px] max-h-[420px] overflow-y-auto py-1">
-                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100 sticky top-0">Overlays</div>
+                                <div className="absolute top-full left-0 mt-1 bg-surface border border-border rounded-lg shadow-xl z-50 min-w-[200px] max-h-[420px] overflow-y-auto py-1">
+                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-muted-fg uppercase tracking-wider bg-surface-hover border-b border-border-subtle sticky top-0">Overlays</div>
                                     {[{ type: 'sma', label: 'SMA' }, { type: 'ema', label: 'EMA' }, { type: 'bb', label: 'Bollinger Bands' }, { type: 'keltner', label: 'Keltner Channels' }, { type: 'vwap', label: 'VWAP' }].map(p => (
-                                        <button key={p.type} onClick={() => addIndicator(p.type)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 text-slate-600"><span className="flex-1 text-left">{p.label}</span></button>
+                                        <button key={p.type} onClick={() => addIndicator(p.type)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover text-foreground/80"><span className="flex-1 text-left">{p.label}</span></button>
                                     ))}
-                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-y border-slate-100">Oscillators</div>
+                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-muted-fg uppercase tracking-wider bg-surface-hover border-y border-border-subtle">Oscillators</div>
                                     {[{ type: 'rsi', label: 'RSI' }, { type: 'macd', label: 'MACD' }, { type: 'stoch', label: 'Stochastic' }, { type: 'adx', label: 'ADX / DMI' }].map(p => (
-                                        <button key={p.type} onClick={() => addIndicator(p.type)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 text-slate-600"><span className="flex-1 text-left">{p.label}</span></button>
+                                        <button key={p.type} onClick={() => addIndicator(p.type)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover text-foreground/80"><span className="flex-1 text-left">{p.label}</span></button>
                                     ))}
-                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-y border-slate-100">Volatility & Volume</div>
+                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-muted-fg uppercase tracking-wider bg-surface-hover border-y border-border-subtle">Volatility & Volume</div>
                                     {[{ type: 'atr', label: 'ATR' }, { type: 'squeeze', label: 'TTM Squeeze' }, { type: 'obv', label: 'OBV' }, { type: 'rvol', label: 'RVOL' }].map(p => (
-                                        <button key={p.type} onClick={() => addIndicator(p.type)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 text-slate-600"><span className="flex-1 text-left">{p.label}</span></button>
+                                        <button key={p.type} onClick={() => addIndicator(p.type)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover text-foreground/80"><span className="flex-1 text-left">{p.label}</span></button>
                                     ))}
-                                    <button onClick={() => setShowVolume(!showVolume)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 ${showVolume ? 'text-blue-600 font-medium' : 'text-slate-600'}`}>
+                                    <button onClick={() => setShowVolume(!showVolume)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover ${showVolume ? 'text-primary font-medium' : 'text-foreground/80'}`}>
                                         <span className="flex-1 text-left">Volume</span>{showVolume && <span className="text-emerald-500 text-[9px]">&#10003;</span>}
                                     </button>
-                                    <div className="border-t border-slate-100 mt-1" />
-                                    <button onClick={() => setShowNewsMarkers(!showNewsMarkers)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 ${showNewsMarkers ? 'text-amber-600' : 'text-slate-600'}`}>
+                                    <div className="border-t border-border-subtle mt-1" />
+                                    <button onClick={() => setShowNewsMarkers(!showNewsMarkers)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover ${showNewsMarkers ? 'text-amber-600' : 'text-foreground/80'}`}>
                                         <Newspaper className="w-3.5 h-3.5 flex-shrink-0" /><span className="flex-1 text-left">News Markers</span>{showNewsMarkers && <span className="text-emerald-500 text-[9px]">&#10003;</span>}
                                     </button>
-                                    <button onClick={() => setShowEarningsMarkers(!showEarningsMarkers)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 ${showEarningsMarkers ? 'text-blue-600' : 'text-slate-600'}`}>
+                                    <button onClick={() => setShowEarningsMarkers(!showEarningsMarkers)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover ${showEarningsMarkers ? 'text-blue-600' : 'text-foreground/80'}`}>
                                         <span className="w-3.5 h-3.5 flex-shrink-0 text-center font-bold text-[9px] leading-3 border border-current rounded-full">E</span><span className="flex-1 text-left">Earnings</span>{showEarningsMarkers && <span className="text-emerald-500 text-[9px]">&#10003;</span>}
                                     </button>
                                 </div>
                             </>
                         )}
                     </div>
-                    <div className="w-px h-4 bg-slate-200" />
-                    <button className="p-1 rounded hover:bg-slate-100 text-slate-500" title="Layout"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="3" width="8" height="8" rx="1" /><rect x="3" y="13" width="8" height="8" rx="1" /><rect x="13" y="13" width="8" height="8" rx="1" /></svg></button>
-                    <div className="w-px h-4 bg-slate-200" />
-                    <button className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-slate-100 text-slate-500 text-[12px]" title="Alert"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9" /><path d="M12 8v4l2 2" /><path d="M20 4l1.5-1.5M4 4L2.5 2.5" /></svg><span>Alerta</span></button>
+                    <div className="w-px h-4 bg-muted" />
+                    <button className="p-1 rounded hover:bg-surface-hover text-muted-fg" title="Layout"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="3" width="8" height="8" rx="1" /><rect x="3" y="13" width="8" height="8" rx="1" /><rect x="13" y="13" width="8" height="8" rx="1" /></svg></button>
+                    <div className="w-px h-4 bg-muted" />
+                    <button className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-surface-hover text-muted-fg text-[12px]" title="Alert"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9" /><path d="M12 8v4l2 2" /><path d="M20 4l1.5-1.5M4 4L2.5 2.5" /></svg><span>Alerta</span></button>
                     {replay.replayState.mode === 'idle' ? (
-                        <button onClick={replay.enterSelectingMode} className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-slate-100 text-slate-500 text-[12px]" title="Replay">
+                        <button onClick={replay.enterSelectingMode} className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-surface-hover text-muted-fg text-[12px]" title="Replay">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polygon points="11,5 3,10 11,15" /><polygon points="20,5 12,10 20,15" /></svg>
                             <span>Replay</span>
                         </button>
                     ) : replay.replayState.mode === 'selecting' ? (
-                        <div className="flex items-center gap-1 px-1.5 py-1 rounded bg-blue-50 text-blue-600 text-[11px] font-medium">
+                        <div className="flex items-center gap-1 px-1.5 py-1 rounded bg-primary/10 text-primary text-[11px] font-medium">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></svg>
                             <span>Click en el gráfico para elegir punto de inicio</span>
-                            <button onClick={replay.exitReplay} className="ml-1 px-1 rounded hover:bg-blue-100 text-blue-500">✕</button>
+                            <button onClick={replay.exitReplay} className="ml-1 px-1 rounded hover:bg-primary/15 text-primary">✕</button>
                         </div>
                     ) : (
-                        <div className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-slate-50 border border-slate-200">
-                            <button onClick={() => replay.stepBackward()} className="p-0.5 rounded hover:bg-slate-200 text-slate-600" title="Step Back (Shift+←)">
+                        <div className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-surface-hover border border-border">
+                            <button onClick={() => replay.stepBackward()} className="p-0.5 rounded hover:bg-muted text-foreground/80" title="Step Back (Shift+←)">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11,5 3,12 11,19" fill="currentColor" /><line x1="19" y1="5" x2="19" y2="19" /></svg>
                             </button>
-                            <button onClick={replay.togglePlay} className="p-0.5 rounded hover:bg-slate-200 text-slate-600" title={replay.replayState.mode === 'playing' ? 'Pause (Shift+↓)' : 'Play (Shift+↓)'}>
+                            <button onClick={replay.togglePlay} className="p-0.5 rounded hover:bg-muted text-foreground/80" title={replay.replayState.mode === 'playing' ? 'Pause (Shift+↓)' : 'Play (Shift+↓)'}>
                                 {replay.replayState.mode === 'playing' ? (
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
                                 ) : (
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20" /></svg>
                                 )}
                             </button>
-                            <button onClick={() => replay.stepForward()} className="p-0.5 rounded hover:bg-slate-200 text-slate-600" title="Step Forward (Shift+→)">
+                            <button onClick={() => replay.stepForward()} className="p-0.5 rounded hover:bg-muted text-foreground/80" title="Step Forward (Shift+→)">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13,5 21,12 13,19" fill="currentColor" /><line x1="5" y1="5" x2="5" y2="19" /></svg>
                             </button>
-                            <button onClick={replay.cycleSpeed} className="px-1.5 py-0.5 rounded hover:bg-slate-200 text-[10px] font-bold text-slate-600 min-w-[32px]" title="Speed">
+                            <button onClick={replay.cycleSpeed} className="px-1.5 py-0.5 rounded hover:bg-muted text-[10px] font-bold text-foreground/80 min-w-[32px]" title="Speed">
                                 {replay.replayState.speed}x
                             </button>
-                            <div className="text-[10px] text-slate-400 px-1 tabular-nums">
+                            <div className="text-[10px] text-muted-fg px-1 tabular-nums">
                                 {replay.replayState.currentIndex - replay.replayState.startIndex}/{replay.replayState.totalBars - replay.replayState.startIndex}
                             </div>
-                            <button onClick={replay.exitReplay} className="p-0.5 rounded hover:bg-red-100 text-red-500 ml-0.5" title="Exit Replay">
+                            <button onClick={replay.exitReplay} className="p-0.5 rounded hover:bg-red-500/15 text-red-500 ml-0.5" title="Exit Replay">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                             </button>
                         </div>
                     )}
-                    <div className="w-px h-4 bg-slate-200" />
+                    <div className="w-px h-4 bg-muted" />
                     <div className="flex-1" />
-                    <button className="p-1 rounded hover:bg-slate-100 text-slate-400" title="Undo"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 10h13a4 4 0 0 1 0 8H11" /><path d="M7 6l-4 4 4 4" /></svg></button>
-                    <button className="p-1 rounded hover:bg-slate-100 text-slate-400" title="Redo"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 10H8a4 4 0 0 0 0 8h5" /><path d="M17 6l4 4-4 4" /></svg></button>
-                    <button onClick={toggleFullscreen} className="p-1 rounded hover:bg-slate-100 text-slate-400" title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
+                    <button className="p-1 rounded hover:bg-surface-hover text-muted-fg" title="Undo"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 10h13a4 4 0 0 1 0 8H11" /><path d="M7 6l-4 4 4 4" /></svg></button>
+                    <button className="p-1 rounded hover:bg-surface-hover text-muted-fg" title="Redo"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 10H8a4 4 0 0 0 0 8h5" /><path d="M17 6l4 4-4 4" /></svg></button>
+                    <button onClick={toggleFullscreen} className="p-1 rounded hover:bg-surface-hover text-muted-fg" title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
                         {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
                     </button>
                 </div>
@@ -1007,14 +1007,14 @@ function TradingChartComponent({
                                 ) : (
                                     <div className="w-4 h-4 rounded-sm bg-blue-500 flex items-center justify-center text-white text-[8px] font-bold flex-shrink-0">{currentTicker?.[0] || '?'}</div>
                                 )}
-                                <span className="font-semibold text-slate-700">{tickerMeta?.company_name || currentTicker}</span>
-                                {tickerMeta?.exchange && <span className="text-slate-400 text-[9px]">{tickerMeta.exchange}</span>}
+                                <span className="font-semibold text-foreground">{tickerMeta?.company_name || currentTicker}</span>
+                                {tickerMeta?.exchange && <span className="text-muted-fg text-[9px]">{tickerMeta.exchange}</span>}
                                 {displayBar && (
                                     <>
-                                        <span className="text-slate-400 ml-1">O<span className="text-slate-600 font-medium">{formatPrice(displayBar.open)}</span></span>
-                                        <span className="text-slate-400">H<span className="text-emerald-600 font-medium">{formatPrice(displayBar.high)}</span></span>
-                                        <span className="text-slate-400">L<span className="text-red-500 font-medium">{formatPrice(displayBar.low)}</span></span>
-                                        <span className="text-slate-400">C<span className="text-slate-600 font-medium">{formatPrice(displayBar.close)}</span></span>
+                                        <span className="text-muted-fg ml-1">O<span className="text-foreground/80 font-medium">{formatPrice(displayBar.open)}</span></span>
+                                        <span className="text-muted-fg">H<span className="text-emerald-600 font-medium">{formatPrice(displayBar.high)}</span></span>
+                                        <span className="text-muted-fg">L<span className="text-red-500 font-medium">{formatPrice(displayBar.low)}</span></span>
+                                        <span className="text-muted-fg">C<span className="text-foreground/80 font-medium">{formatPrice(displayBar.close)}</span></span>
                                         {prevBar && <span className={`font-medium ${isPositive ? 'text-emerald-600' : 'text-red-500'}`}>{isPositive ? '+' : ''}{priceChange.toFixed(2)} ({isPositive ? '+' : ''}{priceChangePercent.toFixed(2)}%)</span>}
                                     </>
                                 )}
@@ -1026,7 +1026,7 @@ function TradingChartComponent({
                     {indicators.filter(i => i.visible).length > 0 && (
                         <div className="absolute top-5 left-2 z-10 pointer-events-none">
                             <div className="pointer-events-auto flex items-center gap-1 mb-0.5">
-                                <button onClick={() => setLegendExpanded(!legendExpanded)} className="text-[10px] text-slate-500 hover:text-slate-700 font-medium flex items-center gap-0.5">
+                                <button onClick={() => setLegendExpanded(!legendExpanded)} className="text-[10px] text-muted-fg hover:text-foreground font-medium flex items-center gap-0.5">
                                     <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">{legendExpanded ? <path d="M19 9l-7 7-7-7" /> : <path d="M9 5l7 7-7 7" />}</svg>
                                     <span>{indicators.filter(i => i.visible).length}</span>
                                 </button>
@@ -1037,12 +1037,12 @@ function TradingChartComponent({
                                         const label = getInstanceLabel(inst);
                                         const mainColor = (inst.styles.color || inst.styles.upperColor || inst.styles.macdColor || inst.styles.kColor || inst.styles.adxColor || inst.styles.onColor || '#888') as string;
                                         return (
-                                            <div key={inst.id} className={`flex items-center gap-1.5 pointer-events-auto group px-1 rounded cursor-pointer ${selectedIndicator === inst.id ? 'bg-blue-50 ring-1 ring-blue-400' : 'hover:bg-slate-50'}`} onClick={() => setSelectedIndicator(inst.id)}>
+                                            <div key={inst.id} className={`flex items-center gap-1.5 pointer-events-auto group px-1 rounded cursor-pointer ${selectedIndicator === inst.id ? 'bg-primary/10 ring-1 ring-primary' : 'hover:bg-surface-hover'}`} onClick={() => setSelectedIndicator(inst.id)}>
                                                 <span className="w-3 h-[2px] rounded" style={{ background: mainColor }}></span>
-                                                <span className="text-[11px] text-slate-700 font-medium cursor-pointer" onDoubleClick={(e) => openIndicatorSettings(inst.id, e)}>{label}</span>
+                                                <span className="text-[11px] text-foreground font-medium cursor-pointer" onDoubleClick={(e) => openIndicatorSettings(inst.id, e)}>{label}</span>
                                                 <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-                                                    <button onClick={(e) => { e.stopPropagation(); openIndicatorSettings(inst.id, e); }} className="text-slate-400 hover:text-slate-600" title="Settings"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" /></svg></button>
-                                                    <button onClick={(e) => { e.stopPropagation(); removeIndicator(inst.id); }} className="text-slate-400 hover:text-red-500" title="Remove"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6M10 11v6M14 11v6" /></svg></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); openIndicatorSettings(inst.id, e); }} className="text-muted-fg hover:text-foreground/80" title="Settings"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" /></svg></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); removeIndicator(inst.id); }} className="text-muted-fg hover:text-red-500" title="Remove"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6M10 11v6M14 11v6" /></svg></button>
                                                 </div>
                                             </div>
                                         );
@@ -1062,7 +1062,7 @@ function TradingChartComponent({
                         </div>
                     )}
                     {isScrolledAway && isLive && replay.replayState.mode === 'idle' && (
-                        <button onClick={() => chartRef.current?.timeScale().scrollToRealTime()} className="absolute bottom-3 right-14 z-20 flex items-center gap-1 px-2 py-1 bg-blue-600 text-white text-[10px] font-medium rounded shadow-lg hover:bg-blue-700 transition-colors">
+                        <button onClick={() => chartRef.current?.timeScale().scrollToRealTime()} className="absolute bottom-3 right-14 z-20 flex items-center gap-1 px-2 py-1 bg-primary text-white text-[10px] font-medium rounded shadow-lg hover:bg-blue-700 transition-colors">
                             <Radio className="w-2.5 h-2.5" /> Realtime
                         </button>
                     )}
@@ -1082,42 +1082,42 @@ function TradingChartComponent({
                     {editPopup.visible && editingDrawing && (
                         <>
                             <div className="absolute inset-0 z-40" onClick={closeEditPopup} />
-                            <div className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-3 min-w-[160px]" style={{ left: Math.min(editPopup.x, (containerRef.current?.clientWidth || 300) - 180), top: Math.min(editPopup.y, (containerRef.current?.clientHeight || 200) - 150) }}>
-                                <div className="text-xs font-semibold text-slate-700 mb-2 pb-2 border-b border-slate-100">Edit line</div>
+                            <div className="absolute z-50 bg-surface rounded-lg shadow-xl border border-border p-3 min-w-[160px]" style={{ left: Math.min(editPopup.x, (containerRef.current?.clientWidth || 300) - 180), top: Math.min(editPopup.y, (containerRef.current?.clientHeight || 200) - 150) }}>
+                                <div className="text-xs font-semibold text-foreground mb-2 pb-2 border-b border-border-subtle">Edit line</div>
                                 <div className="mb-3">
-                                    <div className="text-[10px] text-slate-500 mb-1.5">Color</div>
+                                    <div className="text-[10px] text-muted-fg mb-1.5">Color</div>
                                     <div className="flex gap-1.5">
                                         {drawingColors.map(color => (
-                                            <button key={color} onClick={() => handleEditColor(color)} className={`w-5 h-5 rounded-full transition-all ${editingDrawing.color === color ? 'ring-2 ring-offset-1 ring-slate-400 scale-110' : 'hover:scale-110'}`} style={{ backgroundColor: color }} />
+                                            <button key={color} onClick={() => handleEditColor(color)} className={`w-5 h-5 rounded-full transition-all ${editingDrawing.color === color ? 'ring-2 ring-offset-1 ring-muted-fg scale-110' : 'hover:scale-110'}`} style={{ backgroundColor: color }} />
                                         ))}
                                     </div>
                                 </div>
                                 <div className="mb-3">
-                                    <div className="text-[10px] text-slate-500 mb-1.5">Width</div>
+                                    <div className="text-[10px] text-muted-fg mb-1.5">Width</div>
                                     <div className="flex gap-1">
                                         {[1, 2, 3, 4].map(width => (
-                                            <button key={width} onClick={() => handleEditLineWidth(width)} className={`flex-1 h-6 flex items-center justify-center rounded border transition-all ${editingDrawing.lineWidth === width ? 'bg-blue-50 border-blue-300' : 'border-slate-200 hover:bg-slate-50'}`}>
+                                            <button key={width} onClick={() => handleEditLineWidth(width)} className={`flex-1 h-6 flex items-center justify-center rounded border transition-all ${editingDrawing.lineWidth === width ? 'bg-blue-500/10 border-blue-300' : 'border-border hover:bg-surface-hover'}`}>
                                                 <div className="rounded-full" style={{ width: '16px', height: `${width}px`, backgroundColor: editingDrawing.color }} />
                                             </button>
                                         ))}
                                     </div>
                                 </div>
-                                <div className="flex gap-2 pt-2 border-t border-slate-100">
-                                    <button onClick={handleEditDelete} className="flex-1 px-2 py-1 text-[10px] font-medium text-red-600 bg-red-50 rounded hover:bg-red-100">Delete</button>
-                                    <button onClick={closeEditPopup} className="flex-1 px-2 py-1 text-[10px] font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200">Close</button>
+                                <div className="flex gap-2 pt-2 border-t border-border-subtle">
+                                    <button onClick={handleEditDelete} className="flex-1 px-2 py-1 text-[10px] font-medium text-red-600 bg-red-500/10 rounded hover:bg-red-500/15">Delete</button>
+                                    <button onClick={closeEditPopup} className="flex-1 px-2 py-1 text-[10px] font-medium text-foreground/80 bg-surface-inset rounded hover:bg-muted">Close</button>
                                 </div>
                             </div>
                         </>
                     )}
 
                     {loading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
-                            <div className="flex items-center gap-2 text-slate-500"><RefreshCw className="w-5 h-5 animate-spin text-blue-500" /><span className="text-sm">Loading {currentTicker}...</span></div>
+                        <div className="absolute inset-0 flex items-center justify-center bg-surface/90 z-10">
+                            <div className="flex items-center gap-2 text-muted-fg"><RefreshCw className="w-5 h-5 animate-spin text-blue-500" /><span className="text-sm">Loading {currentTicker}...</span></div>
                         </div>
                     )}
                     {error && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
-                            <div className="text-center"><p className="text-red-500 text-sm mb-2">Failed to load chart</p><p className="text-slate-400 text-xs mb-3">{error}</p><button onClick={refetch} className="px-4 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors">Retry</button></div>
+                        <div className="absolute inset-0 flex items-center justify-center bg-surface/90 z-10">
+                            <div className="text-center"><p className="text-red-500 text-sm mb-2">Failed to load chart</p><p className="text-muted-fg text-xs mb-3">{error}</p><button onClick={refetch} className="px-4 py-1.5 bg-primary text-white text-xs rounded-md hover:bg-blue-700 transition-colors">Retry</button></div>
                         </div>
                     )}
 
@@ -1137,8 +1137,8 @@ function TradingChartComponent({
             </div>
 
             {!minimal && (
-                <div className="flex items-center justify-end px-2 py-0.5 border-t border-slate-100 text-[9px]" style={{ fontFamily }}>
-                    <div className="flex items-center gap-2 text-slate-400">
+                <div className="flex items-center justify-end px-2 py-0.5 border-t border-border-subtle text-[9px]" style={{ fontFamily }}>
+                    <div className="flex items-center gap-2 text-muted-fg">
                         {displayBar && <span className="font-mono">V:{formatVolume(displayBar.volume)}</span>}
                         {loadingMore && <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-500" />}
                         <span>{data.length.toLocaleString()} bars</span>

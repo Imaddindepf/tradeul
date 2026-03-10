@@ -63,12 +63,12 @@ function DivBar({ value, domain, label, changed }: { value: number; domain: [num
   useEffect(() => { if (changed) { setFlash(true); const t = setTimeout(() => setFlash(false), 600); return () => clearTimeout(t); } }, [changed, value]);
   return (
     <div className="flex items-center gap-1.5 flex-1 min-w-0 h-full">
-      <div className="relative flex-1 h-[14px] rounded-[3px] overflow-hidden bg-slate-100">
-        <div className="absolute top-0 left-1/2 h-full w-px bg-slate-200" />
+      <div className="relative flex-1 h-[14px] rounded-[3px] overflow-hidden bg-surface-inset">
+        <div className="absolute top-0 left-1/2 h-full w-px bg-muted" />
         <div className={`absolute top-0 bottom-0 rounded-[3px] transition-all duration-500 ease-out ${pos ? 'left-1/2' : 'right-1/2'}`}
           style={{ width: `${pct}%`, backgroundColor: pos ? BAR_BLUE : BAR_PINK }} />
       </div>
-      <span className={`text-[11px] font-semibold font-mono tabular-nums w-[50px] text-right shrink-0 transition-colors duration-400 ${flash ? (pos ? 'text-blue-800' : 'text-pink-800') : (pos ? 'text-blue-600' : 'text-pink-600')
+      <span className={`text-[11px] font-semibold font-mono tabular-nums w-[50px] text-right shrink-0 transition-colors duration-400 ${flash ? (pos ? 'text-primary' : 'text-pink-800') : (pos ? 'text-primary' : 'text-pink-600')
         }`}>{label}</span>
     </div>
   );
@@ -78,10 +78,10 @@ function PosBar({ value, domain, label }: { value: number; domain: [number, numb
   const norm = clamp((value - domain[0]) / ((domain[1] - domain[0]) || 1), 0, 1);
   return (
     <div className="flex items-center gap-1.5 flex-1 min-w-0 h-full">
-      <div className="relative flex-1 h-[14px] rounded-[3px] overflow-hidden bg-slate-100">
+      <div className="relative flex-1 h-[14px] rounded-[3px] overflow-hidden bg-surface-inset">
         <div className="absolute top-0 bottom-0 left-0 rounded-[3px] transition-all duration-500 ease-out" style={{ width: `${norm * 100}%`, backgroundColor: BAR_BLUE }} />
       </div>
-      <span className="text-[12px] font-semibold font-mono tabular-nums w-[56px] text-right shrink-0 text-slate-700">{label}</span>
+      <span className="text-[12px] font-semibold font-mono tabular-nums w-[56px] text-right shrink-0 text-foreground">{label}</span>
     </div>
   );
 }
@@ -92,7 +92,7 @@ function NumCell({ value, col, changed }: { value: number; col: ColumnDef; chang
   const pos = value >= 0;
   const div = col.colorScale === 'diverging';
   return (
-    <span className={`text-[12px] font-semibold font-mono tabular-nums text-right block px-1 transition-colors duration-400 ${flash ? (pos ? 'text-blue-800' : 'text-pink-800') : (div ? (pos ? 'text-blue-600' : 'text-red-500') : 'text-slate-700')
+    <span className={`text-[12px] font-semibold font-mono tabular-nums text-right block px-1 transition-colors duration-400 ${flash ? (pos ? 'text-primary' : 'text-pink-800') : (div ? (pos ? 'text-primary' : 'text-red-500') : 'text-foreground')
       }`}>{col.format(value)}</span>
   );
 }
@@ -108,11 +108,11 @@ function HeatCell({ value, col }: { value: number; col: ColumnDef }) {
     const norm = clamp((value - domain[0]) / ((domain[1] - domain[0]) || 1), 0, 1);
     bg = `rgba(37,99,235,${(norm * 0.45).toFixed(2)})`;
   }
-  return <span className="text-[12px] font-semibold font-mono tabular-nums text-right block rounded px-1.5 py-px text-slate-800" style={{ backgroundColor: bg }}>{col.format(value)}</span>;
+  return <span className="text-[12px] font-semibold font-mono tabular-nums text-right block rounded px-1.5 py-px text-foreground" style={{ backgroundColor: bg }}>{col.format(value)}</span>;
 }
 
 function ColCell({ value, col, mode, changed }: { value: number; col: ColumnDef; mode: RenderMode; changed: boolean }) {
-  if (value == null || isNaN(value)) return <span className="text-[11px] text-slate-400 text-right block">-</span>;
+  if (value == null || isNaN(value)) return <span className="text-[11px] text-muted-fg text-right block">-</span>;
   if (mode === 'bar') return col.colorScale === 'diverging'
     ? <DivBar value={value} domain={col.domain || [-1, 1]} label={col.format(value)} changed={changed} />
     : <PosBar value={value} domain={col.domain || [0, 1]} label={col.format(value)} />;
@@ -125,12 +125,12 @@ function ColCell({ value, col, mode, changed }: { value: number; col: ColumnDef;
 function ColPicker({ visible, allCols, onAdd, onClose }: { visible: string[]; allCols: ColumnDef[]; onAdd: (k: string) => void; onClose: () => void }) {
   const avail = allCols.filter(c => !visible.includes(c.key));
   return (
-    <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-lg shadow-xl py-1 w-[190px] max-h-[280px] overflow-auto">
+    <div className="absolute right-0 top-full mt-1 z-50 bg-surface border border-border rounded-lg shadow-xl py-1 w-[190px] max-h-[280px] overflow-auto">
       {avail.map(c => (
-        <button key={c.key} onClick={() => onAdd(c.key)} className="w-full text-left px-3 py-1.5 text-[12px] text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors font-medium">{c.label}</button>
+        <button key={c.key} onClick={() => onAdd(c.key)} className="w-full text-left px-3 py-1.5 text-[12px] text-foreground hover:bg-primary/10 hover:text-primary transition-colors font-medium">{c.label}</button>
       ))}
-      <div className="border-t border-slate-200 mt-0.5 pt-0.5">
-        <button onClick={onClose} className="w-full py-1 text-[11px] text-slate-500 hover:text-slate-700 text-center font-medium">Close</button>
+      <div className="border-t border-border mt-0.5 pt-0.5">
+        <button onClick={onClose} className="w-full py-1 text-[11px] text-muted-fg hover:text-foreground text-center font-medium">Close</button>
       </div>
     </div>
   );
@@ -146,27 +146,27 @@ function ColumnHeaders({ columns, sortKey, sortDir, modes, onSort, onCycleMode, 
   firstColLabel: string;
 }) {
   return (
-    <div className="flex items-center gap-2.5 pl-4 pr-2 py-1 border-b border-slate-200 bg-slate-50 shrink-0">
+    <div className="flex items-center gap-2.5 pl-4 pr-2 py-1 border-b border-border bg-surface-hover shrink-0">
       <div className="w-[150px] min-w-[150px] shrink-0">
-        <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">{firstColLabel}</span>
+        <span className="text-[10px] font-bold text-foreground uppercase tracking-wider">{firstColLabel}</span>
       </div>
       {columns.map(col => (
         <div key={col.key} className="group/hd flex-1 min-w-[70px] flex items-center gap-0.5">
           <button onClick={() => onSort(col.key)} className="flex items-center gap-0.5" title={col.description}>
-            <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider hover:text-blue-600 transition-colors">{col.shortLabel}</span>
-            {sortKey === col.key && (sortDir === 'desc' ? <ArrowDown className="w-3 h-3 text-blue-600" /> : <ArrowUp className="w-3 h-3 text-blue-600" />)}
+            <span className="text-[10px] font-bold text-foreground uppercase tracking-wider hover:text-primary transition-colors">{col.shortLabel}</span>
+            {sortKey === col.key && (sortDir === 'desc' ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />)}
           </button>
-          <button onClick={() => onCycleMode(col.key)} className="ml-0.5 w-4 h-4 rounded text-[8px] font-bold text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors flex items-center justify-center" title="bar / numeric / heatmap">
+          <button onClick={() => onCycleMode(col.key)} className="ml-0.5 w-4 h-4 rounded text-[8px] font-bold text-muted-fg hover:text-primary hover:bg-primary/10 transition-colors flex items-center justify-center" title="bar / numeric / heatmap">
             {(modes[col.key] || col.defaultMode)[0].toUpperCase()}
           </button>
-          <button onClick={() => onRemove(col.key)} className="w-4 h-4 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all flex items-center justify-center opacity-0 group-hover/hd:opacity-100">
+          <button onClick={() => onRemove(col.key)} className="w-4 h-4 rounded text-muted-fg hover:text-red-600 hover:bg-red-500/10 transition-all flex items-center justify-center opacity-0 group-hover/hd:opacity-100">
             <X className="w-3 h-3" />
           </button>
         </div>
       ))}
       <div ref={pickerRef} className="relative shrink-0" onMouseDown={e => e.stopPropagation()}>
-        <button onClick={onPickerToggle} className="w-5 h-5 rounded border border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50 transition-colors flex items-center justify-center" title="Add column">
-          <Plus className="w-3 h-3 text-slate-500" />
+        <button onClick={onPickerToggle} className="w-5 h-5 rounded border border-dashed border-border hover:border-primary hover:bg-primary/10 transition-colors flex items-center justify-center" title="Add column">
+          <Plus className="w-3 h-3 text-muted-fg" />
         </button>
         {pickerOpen && <ColPicker visible={visibleKeys} allCols={allCols} onAdd={onAdd} onClose={onPickerClose} />}
       </div>
@@ -188,9 +188,9 @@ function GroupRow({ entry, columns, modes, onClick, isTheme }: {
 }) {
   const name = isTheme ? fmtTheme(entry.name) : entry.name;
   return (
-    <button onClick={onClick} className="w-full flex items-center gap-2.5 pl-4 pr-2 h-full hover:bg-blue-50/40 transition-colors text-left group/row border-b border-slate-100">
+    <button onClick={onClick} className="w-full flex items-center gap-2.5 pl-4 pr-2 h-full hover:bg-surface-hover transition-colors text-left group/row border-b border-border-subtle">
       <div className="w-[150px] min-w-[150px] shrink-0 flex items-center gap-1">
-        <span className="text-[11px] font-semibold text-slate-900 whitespace-nowrap truncate">{name}</span>
+        <span className="text-[11px] font-semibold text-foreground whitespace-nowrap truncate">{name}</span>
         {entry._rankShift !== undefined && entry._rankShift !== 0 && (
           <span className={`text-[8px] font-mono font-bold shrink-0 ${entry._rankShift > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
             {entry._rankShift > 0 ? `\u25B2${entry._rankShift}` : `\u25BC${Math.abs(entry._rankShift)}`}
@@ -199,14 +199,14 @@ function GroupRow({ entry, columns, modes, onClick, isTheme }: {
         {entry._divergence && (
           <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" title="Breadth divergence" />
         )}
-        <span className="text-[9px] text-slate-400 font-mono tabular-nums shrink-0">{entry.count}</span>
+        <span className="text-[9px] text-muted-fg font-mono tabular-nums shrink-0">{entry.count}</span>
       </div>
       {columns.map(col => (
         <div key={col.key} className="flex-1 min-w-[70px] flex items-center">
           <ColCell value={(entry as any)[col.key]} col={col} mode={modes[col.key] || col.defaultMode} changed={entry._changedKeys?.has(col.key) || false} />
         </div>
       ))}
-      <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover/row:text-slate-500 transition-colors shrink-0" />
+      <ChevronRight className="w-3.5 h-3.5 text-muted-fg/50 group-hover/row:text-muted-fg transition-colors shrink-0" />
     </button>
   );
 }
@@ -217,10 +217,10 @@ function DDRow({ t, columns, modes, onOpenTicker }: {
   t: DrilldownTicker; columns: ColumnDef[]; modes: Record<string, RenderMode>; onOpenTicker?: (sym: string) => void;
 }) {
   return (
-    <div className="flex items-center gap-2.5 pl-4 pr-2 h-full hover:bg-blue-50/40 transition-colors border-b border-slate-100 group/row">
+    <div className="flex items-center gap-2.5 pl-4 pr-2 h-full hover:bg-surface-hover transition-colors border-b border-border-subtle group/row">
       <button onClick={() => onOpenTicker?.(t.symbol)} className="w-[150px] min-w-[150px] shrink-0 text-left flex items-center gap-1" title={`Open ${t.symbol}`}>
-        <span className="text-[11px] font-bold text-blue-600 hover:text-blue-800 transition-colors">{t.symbol}</span>
-        <ExternalLink className="w-2.5 h-2.5 text-slate-300 group-hover/row:text-blue-400 transition-colors shrink-0" />
+        <span className="text-[11px] font-bold text-primary hover:text-primary transition-colors">{t.symbol}</span>
+        <ExternalLink className="w-2.5 h-2.5 text-muted-fg/50 group-hover/row:text-primary transition-colors shrink-0" />
       </button>
       {columns.map(col => (
         <div key={col.key} className="flex-1 min-w-[70px] flex items-center">
@@ -395,54 +395,54 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
   const avgChgLabel = dd ? `avg ${dd.avgChange >= 0 ? '+' : ''}${dd.avgChange.toFixed(2)}%` : '';
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg overflow-hidden">
+    <div className="flex flex-col h-full bg-surface rounded-lg overflow-hidden">
       {/* Header */}
-      <div className="table-drag-handle flex items-center justify-between px-4 py-1.5 border-b border-slate-200 bg-slate-50 shrink-0 cursor-move select-none">
+      <div className="table-drag-handle flex items-center justify-between px-4 py-1.5 border-b border-border bg-surface-hover shrink-0 cursor-move select-none">
         <div className="flex items-center gap-2">
-          <GripHorizontal className="w-4 h-4 text-slate-500" />
+          <GripHorizontal className="w-4 h-4 text-muted-fg" />
           {tickerCtx ? (
             <>
-              <button onClick={handleSearchClear} onMouseDown={e => e.stopPropagation()} className="flex items-center gap-1 text-[12px] text-slate-600 hover:text-slate-900 font-medium">
+              <button onClick={handleSearchClear} onMouseDown={e => e.stopPropagation()} className="flex items-center gap-1 text-[12px] text-foreground/80 hover:text-foreground font-medium">
                 <ArrowLeft className="w-3.5 h-3.5" /> Back
               </button>
-              <span className="text-[13px] font-black text-blue-600 ml-1">{tickerCtx.symbol}</span>
-              <span className="text-[10px] text-slate-400 font-medium">{tickerCtx.sector} · {tickerCtx.industry}</span>
+              <span className="text-[13px] font-black text-primary ml-1">{tickerCtx.symbol}</span>
+              <span className="text-[10px] text-muted-fg font-medium">{tickerCtx.sector} · {tickerCtx.industry}</span>
             </>
           ) : dd ? (
             <>
-              <button onClick={doBack} onMouseDown={e => e.stopPropagation()} className="flex items-center gap-1 text-[12px] text-slate-600 hover:text-slate-900 font-medium">
+              <button onClick={doBack} onMouseDown={e => e.stopPropagation()} className="flex items-center gap-1 text-[12px] text-foreground/80 hover:text-foreground font-medium">
                 <ArrowLeft className="w-3.5 h-3.5" /> Back
               </button>
-              <span className="text-[13px] font-semibold text-slate-900 ml-1">{dd.label}</span>
-              <span className="text-[10px] text-slate-500 font-medium">{ddTotal}</span>
-              <span className={`text-[10px] font-mono font-semibold ml-1 ${dd.avgChange >= 0 ? 'text-blue-600' : 'text-pink-600'}`}>{avgChgLabel}</span>
+              <span className="text-[13px] font-semibold text-foreground ml-1">{dd.label}</span>
+              <span className="text-[10px] text-muted-fg font-medium">{ddTotal}</span>
+              <span className={`text-[10px] font-mono font-semibold ml-1 ${dd.avgChange >= 0 ? 'text-primary' : 'text-pink-600'}`}>{avgChgLabel}</span>
             </>
           ) : (
             <>
-              <span className="text-[11px] font-semibold text-slate-700">Market Pulse</span>
+              <span className="text-[11px] font-semibold text-foreground">Market Pulse</span>
               {/* View switcher dropdown */}
               <div ref={viewMenuRef} className="relative" onMouseDown={e => e.stopPropagation()}>
                 <button
                   onClick={() => setViewMenuOpen(v => !v)}
                   className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors ${
                     viewMenuOpen
-                      ? 'bg-blue-50 text-blue-600 border border-blue-300'
-                      : 'bg-slate-100 text-slate-500 border border-transparent hover:border-slate-300 hover:text-slate-700'
+                      ? 'bg-primary/10 text-primary border border-primary'
+                      : 'bg-surface-inset text-muted-fg border border-transparent hover:border-border hover:text-foreground'
                   }`}
                 >
                   {activeViewDef.shortLabel}
                   <ChevronDown className="w-2.5 h-2.5" />
                 </button>
                 {viewMenuOpen && (
-                  <div className="absolute top-full left-0 mt-1 w-36 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-0.5">
+                  <div className="absolute top-full left-0 mt-1 w-36 bg-surface border border-border rounded-lg shadow-lg z-50 py-0.5">
                     {VIEW_DEFINITIONS.map(v => (
                       <button
                         key={v.key}
                         onClick={() => handleViewChange(v.key)}
                         className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
                           activeView === v.key
-                            ? 'text-blue-600 bg-blue-50 font-semibold'
-                            : 'text-slate-700 hover:bg-slate-50 font-medium'
+                            ? 'text-primary bg-primary/10 font-semibold'
+                            : 'text-foreground hover:bg-surface-hover font-medium'
                         }`}
                       >
                         {v.label}
@@ -465,18 +465,18 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
                     value={searchInput}
                     onChange={e => setSearchInput(e.target.value.toUpperCase())}
                     placeholder="Ticker..."
-                    className="w-[80px] h-[22px] text-[11px] font-mono font-semibold pl-1.5 pr-5 rounded border border-slate-300 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none bg-white text-slate-800 placeholder:text-slate-300"
+                    className="w-[80px] h-[22px] text-[11px] font-mono font-semibold pl-1.5 pr-5 rounded border border-border focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none bg-surface text-foreground placeholder:text-muted-fg/50"
                     maxLength={10}
                   />
-                  {searchLoading && <RefreshCw className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 animate-spin" />}
+                  {searchLoading && <RefreshCw className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-fg animate-spin" />}
                 </div>
-                <button type="button" onClick={handleSearchClear} className="p-0.5 hover:bg-slate-200 rounded">
-                  <X className="w-3 h-3 text-slate-400" />
+                <button type="button" onClick={handleSearchClear} className="p-0.5 hover:bg-surface-hover rounded">
+                  <X className="w-3 h-3 text-muted-fg" />
                 </button>
               </form>
             ) : (
-              <button onClick={() => setSearchOpen(true)} className="p-0.5 hover:bg-blue-100 rounded transition-colors group" title="Search ticker">
-                <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600" />
+              <button onClick={() => setSearchOpen(true)} className="p-0.5 hover:bg-primary/10 rounded transition-colors group" title="Search ticker">
+                <Search className="w-3.5 h-3.5 text-muted-fg group-hover:text-primary" />
               </button>
             )
           )}
@@ -484,28 +484,28 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
             <span className="text-[9px] text-amber-600 font-medium">Not found</span>
           )}
           {!dd && !tickerCtx && (
-            <div className="flex bg-slate-100 rounded p-px gap-px">
+            <div className="flex bg-surface-inset rounded p-px gap-px">
               {[{ l: 'All', v: 0 }, { l: '>300M', v: 3e8 }, { l: '>2B', v: 2e9 }, { l: '>10B', v: 1e10 }].map(p => (
                 <button key={p.v} onClick={() => setMinCap(p.v)}
                   className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors ${
-                    minCap === p.v ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                    minCap === p.v ? 'bg-surface text-foreground shadow-sm' : 'text-muted-fg hover:text-foreground/80'
                   }`}>{p.l}</button>
               ))}
             </div>
           )}
-          {!dd && !tickerCtx && totalTickers > 0 && <span className="text-[10px] text-slate-500 font-medium tabular-nums">{totalTickers.toLocaleString()}</span>}
+          {!dd && !tickerCtx && totalTickers > 0 && <span className="text-[10px] text-muted-fg font-medium tabular-nums">{totalTickers.toLocaleString()}</span>}
           <LiveDot tick={dd ? ddTickCount : tickCount} />
-          <span className="text-[10px] text-slate-500 font-mono tabular-nums">{ts}</span>
-          <button className="p-0.5 hover:bg-blue-100 rounded transition-colors group" title="Pop out"><ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-blue-600" /></button>
-          <button onClick={closeWindow} className="p-0.5 hover:bg-red-100 rounded transition-colors" title="Close"><X className="w-3.5 h-3.5 text-slate-500 hover:text-red-600" /></button>
+          <span className="text-[10px] text-muted-fg font-mono tabular-nums">{ts}</span>
+          <button className="p-0.5 hover:bg-primary/10 rounded transition-colors group" title="Pop out"><ExternalLink className="w-3.5 h-3.5 text-muted-fg group-hover:text-primary" /></button>
+          <button onClick={closeWindow} className="p-0.5 hover:bg-red-500/15 rounded transition-colors" title="Close"><X className="w-3.5 h-3.5 text-muted-fg hover:text-red-600" /></button>
         </div>
       </div>
 
       {/* Tabs (main view only — visible for all view types) */}
       {!dd && !tickerCtx && (
-        <div className="flex shrink-0 border-b border-slate-200">
+        <div className="flex shrink-0 border-b border-border">
           {TABS.map(t => (
-            <button key={t.key} onClick={() => doTab(t.key)} className={`flex-1 py-1.5 text-[10px] font-bold tracking-widest uppercase transition-colors ${tab === t.key ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'
+            <button key={t.key} onClick={() => doTab(t.key)} className={`flex-1 py-1.5 text-[10px] font-bold tracking-widest uppercase transition-colors ${tab === t.key ? 'text-primary border-b-2 border-primary' : 'text-muted-fg hover:text-foreground'
               }`}>{t.label}</button>
           ))}
         </div>
@@ -540,12 +540,12 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
 
       {error && !tickerCtx && (
         <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
-          <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center mb-3">
+          <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center mb-3">
             <RefreshCw className="w-5 h-5 text-amber-500" />
           </div>
-          <p className="text-[13px] font-medium text-slate-700 mb-1">Market data unavailable</p>
-          <p className="text-[11px] text-slate-500 mb-4">{error}</p>
-          <button onClick={refetch} className="px-3 py-1.5 text-[11px] font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors">
+          <p className="text-[13px] font-medium text-foreground mb-1">Market data unavailable</p>
+          <p className="text-[11px] text-muted-fg mb-4">{error}</p>
+          <button onClick={refetch} className="px-3 py-1.5 text-[11px] font-medium text-primary hover:text-primary bg-primary/10 hover:bg-primary/20 rounded-md transition-colors">
             Retry
           </button>
         </div>
@@ -554,14 +554,14 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
       {/* ── TABLE VIEW ── */}
       {!error && !dd && !tickerCtx && activeView === 'table' && (
         loading && !sorted.length ? (
-          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-slate-400 animate-spin" /></div>
+          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-muted-fg animate-spin" /></div>
         ) : !sorted.length ? (
           <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
-            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+            <div className="w-10 h-10 rounded-full bg-surface-inset flex items-center justify-center mb-3">
               <span className="text-lg">📊</span>
             </div>
-            <p className="text-[13px] font-medium text-slate-700 mb-1">Market closed</p>
-            <p className="text-[11px] text-slate-500">Data will refresh when the market opens</p>
+            <p className="text-[13px] font-medium text-foreground mb-1">Market closed</p>
+            <p className="text-[11px] text-muted-fg">Data will refresh when the market opens</p>
           </div>
         ) : (
           <div ref={pRef} className="flex-1 overflow-auto">
@@ -579,11 +579,11 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
       {/* ── CHART VIEWS (only when no drilldown, no error, data loaded) ── */}
       {!error && !dd && !tickerCtx && activeView !== 'table' && (
         loading && !data.length ? (
-          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-slate-400 animate-spin" /></div>
+          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-muted-fg animate-spin" /></div>
         ) : !data.length ? (
           <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
-            <p className="text-[13px] font-medium text-slate-700 mb-1">Market closed</p>
-            <p className="text-[11px] text-slate-500">Data will refresh when the market opens</p>
+            <p className="text-[13px] font-medium text-foreground mb-1">Market closed</p>
+            <p className="text-[11px] text-muted-fg">Data will refresh when the market opens</p>
           </div>
         ) : (
           <>
@@ -612,7 +612,7 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
       {/* Drilldown list */}
       {!error && !tickerCtx && dd && (
         ddLoad && !ddSorted.length ? (
-          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-slate-400 animate-spin" /></div>
+          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-muted-fg animate-spin" /></div>
         ) : (
           <div ref={ddPRef} className="flex-1 overflow-auto">
             <div style={{ height: ddVirt.getTotalSize(), position: 'relative' }}>

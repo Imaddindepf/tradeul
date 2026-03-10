@@ -356,10 +356,10 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   // ================================================================
   if (!stats.initialLoadComplete && !isSearchMode) {
     return (
-      <div className="flex items-center justify-center h-full bg-white">
+      <div className="flex items-center justify-center h-full bg-surface">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3" />
-          <p className="text-slate-600 text-sm">{t('news.loadingNews')}</p>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-3" />
+          <p className="text-foreground/80 text-sm">{t('news.loadingNews')}</p>
         </div>
       </div>
     );
@@ -375,18 +375,18 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     const hasTeaser = selectedArticle.teaser && selectedArticle.teaser.trim().length > 0;
 
     return (
-      <div className="flex flex-col h-full bg-white">
-        <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+      <div className="flex flex-col h-full bg-surface">
+        <div className="flex items-center justify-between px-3 py-2 bg-surface-hover border-b border-border">
           <button
             onClick={() => setSelectedArticle(null)}
-            className="px-2 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-medium flex items-center gap-1"
+            className="px-2 py-1 bg-muted text-foreground rounded hover:bg-muted/80 text-xs font-medium flex items-center gap-1"
           >
             <ArrowLeft className="w-3 h-3" /> {t('common.back')}
           </button>
-          <div className="text-xs text-slate-600 font-mono flex items-center gap-2">
+          <div className="text-xs text-foreground/80 font-mono flex items-center gap-2">
             {ticker && (
               <>
-                <span className="font-semibold text-blue-600">{ticker}</span>
+                <span className="font-semibold text-primary">{ticker}</span>
                 <span>·</span>
               </>
             )}
@@ -407,14 +407,14 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
         <div className="flex-1 overflow-auto">
           <div className="p-4">
-            <h1 className="text-lg font-semibold text-slate-900 mb-3">
+            <h1 className="text-lg font-semibold text-foreground mb-3">
               {decodeHtmlEntities(selectedArticle.title)}
             </h1>
 
-            <div className="flex items-center gap-3 text-xs text-slate-500 mb-4">
+            <div className="flex items-center gap-3 text-xs text-muted-fg mb-4">
               <span>By {selectedArticle.author}</span>
               {selectedArticle.channels && selectedArticle.channels.length > 0 && (
-                <span className="text-slate-400">
+                <span className="text-muted-fg">
                   {selectedArticle.channels.join(', ')}
                 </span>
               )}
@@ -422,22 +422,22 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
             {hasBody ? (
               <div
-                className="prose prose-sm max-w-none text-slate-700 leading-relaxed"
+                className="prose prose-sm max-w-none text-foreground leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: selectedArticle.body || '' }}
               />
             ) : hasTeaser ? (
-              <div className="text-slate-700 leading-relaxed">
+              <div className="text-foreground leading-relaxed">
                 <p className="mb-4">{decodeHtmlEntities(selectedArticle.teaser || '')}</p>
                 <a href={selectedArticle.url} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-sm">
+                  className="inline-flex items-center gap-1 text-primary hover:text-primary-hover font-medium text-sm">
                   {t('news.readMore')} <ExternalLink className="w-3.5 h-3.5" />
                 </a>
               </div>
             ) : (
               <div className="text-center py-8">
-                <p className="text-slate-500 mb-4">{t('news.fullContentNotAvailable')}</p>
+                <p className="text-muted-fg mb-4">{t('news.fullContentNotAvailable')}</p>
                 <a href={selectedArticle.url} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-hover font-medium text-sm">
                   <ExternalLink className="w-4 h-4" /> {t('news.openOnBenzinga')}
                 </a>
               </div>
@@ -452,19 +452,19 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   // MAIN VIEW
   // ================================================================
   return (
-    <div className="flex flex-col h-full bg-white" style={{ fontFamily }}>
+    <div className="flex flex-col h-full bg-surface" style={{ fontFamily }}>
       {/* Title bar toggle via portal */}
       {portalTarget && createPortal(
-        <div className="flex items-center bg-slate-200 rounded p-0.5 mr-1.5" style={{ fontFamily }}>
+        <div className="flex items-center bg-muted rounded p-0.5 mr-1.5" style={{ fontFamily }}>
           <button
             onClick={isSearchMode ? handleExitSearch : undefined}
-            className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${!isSearchMode ? 'bg-white text-emerald-700 shadow-sm font-medium' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${!isSearchMode ? 'bg-surface text-emerald-700 shadow-sm font-medium' : 'text-muted-fg hover:text-foreground'}`}
           >
             {t('news.liveMode')}
           </button>
           <button
             onClick={!isSearchMode ? handleEnterSearch : undefined}
-            className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${isSearchMode ? 'bg-white text-slate-800 shadow-sm font-medium' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${isSearchMode ? 'bg-surface text-foreground shadow-sm font-medium' : 'text-muted-fg hover:text-foreground'}`}
           >
             {t('news.searchMode')}
           </button>
@@ -473,14 +473,14 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
       )}
 
       {/* Header Row 1 */}
-      <div className={`flex items-center justify-between px-2 py-1 border-b border-slate-200 bg-slate-50`}>
+      <div className={`flex items-center justify-between px-2 py-1 border-b border-border bg-surface-hover`}>
         <div className="flex items-center gap-2">
           {!isSearchMode ? (
             <>
               {/* Live mode controls */}
               <div className="flex items-center gap-1">
-                <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                <span className={`text-[10px] ${isConnected ? 'text-emerald-600' : 'text-slate-500'}`} style={{ fontFamily }}>
+                <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-muted'}`} />
+                <span className={`text-[10px] ${isConnected ? 'text-emerald-600' : 'text-muted-fg'}`} style={{ fontFamily }}>
                   {isConnected ? t('common.live') : t('common.offline')}
                 </span>
               </div>
@@ -496,13 +496,13 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               />
 
               {isPaused && pausedBuffer.length > 0 && (
-                <span className="text-slate-500 text-[10px]" style={{ fontFamily }}>(+{pausedBuffer.length})</span>
+                <span className="text-muted-fg text-[10px]" style={{ fontFamily }}>(+{pausedBuffer.length})</span>
               )}
 
               {/* Ticker Filter (live mode) */}
               <form
                 onSubmit={(e) => { e.preventDefault(); handleApplyFilter(); }}
-                className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-300"
+                className="flex items-center gap-1 ml-2 pl-2 border-l border-border"
               >
                 <TickerSearch
                   value={tickerInputValue}
@@ -517,7 +517,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               </form>
             </>
           ) : (
-            <span className="text-[10px] text-slate-500" style={{ fontFamily }}>
+            <span className="text-[10px] text-muted-fg" style={{ fontFamily }}>
               {searchExecuted ? `${searchResults.length} ${t('news.searchResults').toLowerCase()}` : ''}
             </span>
           )}
@@ -527,9 +527,9 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           {!isSearchMode && (
             <div className="flex items-center gap-1.5 text-[10px]" style={{ fontFamily }}>
               {tickerFilter && (
-                <span className="px-1 py-0.5 bg-blue-100 text-blue-700 rounded">{tickerFilter}</span>
+                <span className="px-1 py-0.5 bg-blue-500/15 text-blue-700 dark:text-blue-400 rounded">{tickerFilter}</span>
               )}
-              <span className="text-slate-600">
+              <span className="text-foreground/80">
                 {filteredNews.length}{tickerFilter ? ` / ${articles.length}` : ''}
               </span>
               {liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
@@ -537,7 +537,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           )}
 
           <button ref={menuBtnRef} onClick={handleNewsMenuBtn}
-            className="p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors" title="Menu">
+            className="p-0.5 rounded text-muted-fg hover:text-foreground/80 hover:bg-surface-hover transition-colors" title="Menu">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
             </svg>
@@ -547,7 +547,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
       {/* Search Filters Row (only in search mode) */}
       {isSearchMode && (
-        <div className="px-2 py-1.5 bg-slate-50 border-b border-slate-200">
+        <div className="px-2 py-1.5 bg-surface-hover border-b border-border">
           <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="flex flex-wrap items-center gap-1.5">
             {/* Ticker */}
             <input
@@ -555,30 +555,30 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               value={searchFilters.tickers}
               onChange={(e) => updateSearchFilter('tickers', e.target.value)}
               placeholder={t('news.ticker')}
-              className="w-16 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+              className="w-16 px-1.5 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-blue-400 bg-surface"
               style={{ fontFamily }}
             />
 
             {/* Date From */}
             <div className="flex items-center gap-0.5">
-              <span className="text-[9px] text-slate-400">{t('news.dateFrom')}</span>
+              <span className="text-[9px] text-muted-fg">{t('news.dateFrom')}</span>
               <input
                 type="date"
                 value={searchFilters.dateFrom}
                 onChange={(e) => updateSearchFilter('dateFrom', e.target.value)}
-                className="w-[105px] px-1 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+                className="w-[105px] px-1 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-blue-400 bg-surface"
                 style={{ fontFamily }}
               />
             </div>
 
             {/* Date To */}
             <div className="flex items-center gap-0.5">
-              <span className="text-[9px] text-slate-400">{t('news.dateTo')}</span>
+              <span className="text-[9px] text-muted-fg">{t('news.dateTo')}</span>
               <input
                 type="date"
                 value={searchFilters.dateTo}
                 onChange={(e) => updateSearchFilter('dateTo', e.target.value)}
-                className="w-[105px] px-1 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+                className="w-[105px] px-1 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-blue-400 bg-surface"
                 style={{ fontFamily }}
               />
             </div>
@@ -593,20 +593,20 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 { label: 'YTD', days: -1 },
               ].map(r => (
                 <button key={r.label} type="button" onClick={() => handleQuickDate(r.days)}
-                  className="px-1.5 py-0.5 text-[9px] text-blue-600 border border-blue-200 hover:border-blue-400 hover:bg-blue-50 rounded transition-colors"
+                  className="px-1.5 py-0.5 text-[9px] text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:border-blue-500/50 hover:bg-blue-500/10 rounded transition-colors"
                   style={{ fontFamily }}>
                   {r.label}
                 </button>
               ))}
               {(searchFilters.dateFrom || searchFilters.dateTo) && (
                 <button type="button" onClick={() => setSearchFilters(prev => ({ ...prev, dateFrom: '', dateTo: '' }))}
-                  className="p-0.5 text-slate-400 hover:text-slate-600">
+                  className="p-0.5 text-muted-fg hover:text-foreground/80">
                   <X className="w-3 h-3" />
                 </button>
               )}
             </div>
 
-            <span className="text-slate-300">|</span>
+            <span className="text-muted-fg/50">|</span>
 
             {/* Tags */}
             <input
@@ -614,7 +614,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               value={searchFilters.tags}
               onChange={(e) => updateSearchFilter('tags', e.target.value)}
               placeholder={t('news.tags')}
-              className="w-20 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+              className="w-20 px-1.5 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-primary bg-surface"
               style={{ fontFamily }}
             />
 
@@ -624,7 +624,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               value={searchFilters.channels}
               onChange={(e) => updateSearchFilter('channels', e.target.value)}
               placeholder={t('news.channels')}
-              className="w-20 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+              className="w-20 px-1.5 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-primary bg-surface"
               style={{ fontFamily }}
             />
 
@@ -634,7 +634,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               value={searchFilters.author}
               onChange={(e) => updateSearchFilter('author', e.target.value)}
               placeholder={t('news.author')}
-              className="w-20 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+              className="w-20 px-1.5 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-primary bg-surface"
               style={{ fontFamily }}
             />
 
@@ -652,7 +652,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             {/* Clear filters */}
             {searchExecuted && (
               <button type="button" onClick={() => { setSearchFilters(EMPTY_FILTERS); setSearchResults([]); setSearchNextUrl(null); setSearchExecuted(false); }}
-                className="px-1.5 py-0.5 text-[10px] text-slate-500 hover:text-slate-700" style={{ fontFamily }}>
+                className="px-1.5 py-0.5 text-[10px] text-muted-fg hover:text-foreground" style={{ fontFamily }}>
                 {t('common.clear')}
               </button>
             )}
@@ -663,15 +663,15 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
       {/* Context menu */}
       {newsMenu && (
         <div ref={newsMenuRef}
-          className="fixed z-[9999] bg-white border border-slate-200 rounded shadow-lg py-1 min-w-[160px]"
+          className="fixed z-[9999] bg-surface border border-border rounded shadow-lg py-1 min-w-[160px]"
           style={{ left: newsMenu.x, top: newsMenu.y }}>
           <button onClick={openColPanel}
-            className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-700">
+            className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-primary/10 hover:text-primary">
             Configure...
           </button>
-          <div className="border-t border-slate-100 my-0.5" />
+          <div className="border-t border-border-subtle my-0.5" />
           <button onClick={resetCols}
-            className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-700">
+            className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-primary/10 hover:text-primary">
             Reset columns
           </button>
         </div>
@@ -680,27 +680,27 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
       {/* Column config panel */}
       {colPanel && (
         <div ref={colPanelRef}
-          className="fixed z-[9999] bg-white border border-slate-200 rounded-lg shadow-xl w-[170px]"
+          className="fixed z-[9999] bg-surface border border-border rounded-lg shadow-xl w-[170px]"
           style={{ left: colPanel.x, top: colPanel.y }}>
-          <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-[11px] font-medium text-slate-700">Columns</span>
-            <span className="text-[10px] text-slate-400">{5 - hiddenCols.size}/5</span>
+          <div className="px-3 py-1.5 border-b border-border-subtle flex items-center justify-between">
+            <span className="text-[11px] font-medium text-foreground">Columns</span>
+            <span className="text-[10px] text-muted-fg">{5 - hiddenCols.size}/5</span>
           </div>
           <div className="py-1">
             {NEWS_COLS.map(col => (
-              <label key={col} className="flex items-center gap-2 px-3 py-1 cursor-pointer hover:bg-slate-50">
+              <label key={col} className="flex items-center gap-2 px-3 py-1 cursor-pointer hover:bg-surface-hover">
                 <input type="checkbox" checked={!hiddenCols.has(col)}
                   onChange={() => toggleCol(col)} disabled={col === 'headline'}
-                  className="w-3 h-3 rounded border-slate-300 text-blue-600 focus:ring-0 focus:ring-offset-0" />
-                <span className={`text-[11px] ${hiddenCols.has(col) ? 'text-slate-400' : 'text-slate-700'}`}>
+                  className="w-3 h-3 rounded border-border text-primary focus:ring-0 focus:ring-offset-0" />
+                <span className={`text-[11px] ${hiddenCols.has(col) ? 'text-muted-fg' : 'text-foreground'}`}>
                   {COL_LABELS[col]}
                 </span>
               </label>
             ))}
           </div>
-          <div className="px-3 py-1.5 border-t border-slate-100">
+          <div className="px-3 py-1.5 border-t border-border-subtle">
             <button onClick={resetCols}
-              className="w-full py-0.5 rounded border border-slate-200 text-[10px] text-slate-600 hover:bg-slate-50 transition-colors">
+              className="w-full py-0.5 rounded border border-border text-[10px] text-foreground/80 hover:bg-surface-hover transition-colors">
               Reset defaults
             </button>
           </div>
@@ -709,21 +709,21 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
       {/* Search: loading/error/empty states */}
       {isSearchMode && searchLoading && (
-        <div className="flex items-center justify-center py-8 bg-white">
-          <Loader2 className="w-6 h-6 animate-spin text-slate-400 mr-2" />
-          <span className="text-sm text-slate-500">{t('news.searching')}</span>
+        <div className="flex items-center justify-center py-8 bg-surface">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-fg mr-2" />
+          <span className="text-sm text-muted-fg">{t('news.searching')}</span>
         </div>
       )}
 
       {isSearchMode && searchError && (
-        <div className="flex items-center justify-center py-8 bg-white">
+        <div className="flex items-center justify-center py-8 bg-surface">
           <span className="text-sm text-red-500">{searchError}</span>
         </div>
       )}
 
       {isSearchMode && searchExecuted && !searchLoading && !searchError && searchResults.length === 0 && (
-        <div className="flex items-center justify-center py-8 bg-white">
-          <span className="text-sm text-slate-500">{t('news.noSearchResults')}</span>
+        <div className="flex items-center justify-center py-8 bg-surface">
+          <span className="text-sm text-muted-fg">{t('news.noSearchResults')}</span>
         </div>
       )}
 
@@ -737,7 +737,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             overscan={20}
             endReached={isSearchMode ? undefined : handleEndReached}
             fixedHeaderContent={() => (
-              <tr className={`text-left uppercase tracking-wide 'text-slate-600 bg-slate-100'`}>
+              <tr className="text-left uppercase tracking-wide text-foreground/80 bg-surface-inset">
                 {!hiddenCols.has('ticker') && <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>}
                 <th className="px-1.5 py-1 font-medium text-[11px]" style={{ fontFamily }}>{t('news.headline')}</th>
                 {!hiddenCols.has('date') && <th className="px-1.5 py-1 font-medium w-20 text-center text-[11px]" style={{ fontFamily }}>{t('news.date')}</th>}
@@ -758,40 +758,40 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 <>
                   {!hiddenCols.has('ticker') && (
                     <td
-                      className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                      className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
                       style={{ fontFamily, height: ROW_HEIGHT }}
                       onClick={() => setSelectedArticle(article)}
                     >
-                      <span className="text-blue-600 font-semibold">
+                      <span className="text-primary font-semibold">
                         {displayTicker}
-                        {hasMultipleTickers && <span className="text-slate-400 text-[9px] ml-0.5">+{(article.tickers?.length || 1) - 1}</span>}
+                        {hasMultipleTickers && <span className="text-muted-fg text-[9px] ml-0.5">+{(article.tickers?.length || 1) - 1}</span>}
                       </span>
                     </td>
                   )}
                   <td
-                    className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                    className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
                     style={{ fontFamily, height: ROW_HEIGHT }}
                     onClick={() => setSelectedArticle(article)}
                   >
                     <div className="flex items-center gap-1">
                       {article.isLive && <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />}
-                      <span className="text-slate-800 truncate" style={{ maxWidth: '450px' }}>{decodeHtmlEntities(article.title)}</span>
+                      <span className="text-foreground truncate" style={{ maxWidth: '450px' }}>{decodeHtmlEntities(article.title)}</span>
                     </div>
                   </td>
                   {!hiddenCols.has('date') && (
-                    <td className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                    <td className={`px-1.5 py-0.5 text-center text-muted-fg text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
                       style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
                       {dt.date}
                     </td>
                   )}
                   {!hiddenCols.has('time') && (
-                    <td className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                    <td className={`px-1.5 py-0.5 text-center text-muted-fg text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
                       style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
                       {dt.time}
                     </td>
                   )}
                   {!hiddenCols.has('source') && (
-                    <td className={`px-1.5 py-0.5 text-slate-500 truncate text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                    <td className={`px-1.5 py-0.5 text-muted-fg truncate text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
                       style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
                       {article.author}
                     </td>
@@ -807,14 +807,14 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 <thead {...props} ref={ref} style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }} />
               )),
               TableRow: ({ style, ...props }) => (
-                <tr {...props} style={{ ...style }} className="hover:bg-slate-50 transition-colors border-b border-slate-100" />
+                <tr {...props} style={{ ...style }} className="hover:bg-surface-hover transition-colors border-b border-border-subtle" />
               ),
               TableFoot: React.forwardRef(({ style, ...props }, ref) => (
                 <tfoot {...props} ref={ref} style={style}>
                   {/* Live mode: loading more */}
                   {!isSearchMode && isLoadingMore && (
                     <tr>
-                      <td colSpan={5 - hiddenCols.size} className="text-center py-2 text-xs text-slate-400" style={{ fontFamily }}>
+                      <td colSpan={5 - hiddenCols.size} className="text-center py-2 text-xs text-muted-fg" style={{ fontFamily }}>
                         Loading more...
                       </td>
                     </tr>
@@ -826,7 +826,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                         <button
                           onClick={handleLoadMoreSearch}
                           disabled={searchLoadingMore}
-                          className="px-3 py-1 text-[10px] bg-slate-100 text-slate-700 rounded hover:bg-slate-200 disabled:opacity-50 transition-colors"
+                          className="px-3 py-1 text-[10px] bg-surface-inset text-foreground rounded hover:bg-surface-hover disabled:opacity-50 transition-colors"
                           style={{ fontFamily }}
                         >
                           {searchLoadingMore ? (

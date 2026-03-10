@@ -138,8 +138,8 @@ function TickerStripComponent({ symbol, exchange = 'US', previousClose, onClose 
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-xs font-mono">
-        <span className="text-slate-600 font-semibold">{symbol}</span>
-        <span className="text-slate-400">...</span>
+        <span className="text-foreground/80 font-semibold">{symbol}</span>
+        <span className="text-muted-fg">...</span>
       </div>
     );
   }
@@ -147,30 +147,30 @@ function TickerStripComponent({ symbol, exchange = 'US', previousClose, onClose 
   return (
     <div className="flex items-center gap-2 text-xs font-mono select-none">
       {/* Symbol & Exchange */}
-      <span className="font-bold text-slate-800">{symbol}</span>
-      <span className="text-slate-400 text-[10px]">{exchange}</span>
+      <span className="font-bold text-foreground">{symbol}</span>
+      <span className="text-muted-fg text-[10px]">{exchange}</span>
 
       {/* Direction Arrow */}
-      <span ref={arrowRef} className="text-[10px] text-slate-400">▲</span>
+      <span ref={arrowRef} className="text-[10px] text-muted-fg">▲</span>
 
       {/* Price */}
-      <span ref={priceRef} className="font-semibold text-slate-800">
+      <span ref={priceRef} className="font-semibold text-foreground">
         {quote ? `$${formatPrice(quote.midPrice)}` : '--'}
       </span>
 
       {/* Bid/Ask compact */}
-      <span className="text-slate-400">
+      <span className="text-muted-fg">
         <span ref={bidRef} className="text-green-600">
           {quote ? `B${formatPrice(quote.bidPrice)}` : 'B--'}
         </span>
-        <span className="text-slate-300">/</span>
+        <span className="text-muted-fg/50">/</span>
         <span ref={askRef} className="text-red-500">
           {quote ? `${formatPrice(quote.askPrice)}A` : '--A'}
         </span>
       </span>
 
       {/* Timestamp */}
-      <span ref={timeRef} className="text-slate-400 text-[10px]">
+      <span ref={timeRef} className="text-muted-fg text-[10px]">
         {quote ? formatTime(quote.lastUpdate) : '--:--:--'}
       </span>
 

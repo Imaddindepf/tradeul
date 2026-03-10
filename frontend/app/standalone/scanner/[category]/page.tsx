@@ -36,7 +36,7 @@ export default function StandaloneTablePage({ params }: StandaloneTablePageProps
   const categoryName = categoryNameMap[category] || category;
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-white">
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-surface">
       <div className="flex-1 min-h-0">
         <CategoryTableV2
           title={categoryName}

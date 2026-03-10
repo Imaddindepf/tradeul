@@ -215,7 +215,7 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
                     }}
                     placeholder={defaultPlaceholder}
                     autoFocus={autoFocus}
-                    className={`w-full px-1.5 py-0.5 ${value ? 'pr-6' : ''} border ${error ? 'border-red-400' : 'border-slate-300'} rounded bg-white text-slate-900 text-xs focus:outline-none focus:ring-1 ${error ? 'focus:ring-red-500' : 'focus:ring-blue-500'} placeholder:text-slate-400 font-mono ${className}`}
+                    className={`w-full px-1.5 py-0.5 ${value ? 'pr-6' : ''} border ${error ? 'border-red-400' : 'border-border'} rounded bg-surface text-foreground text-xs focus:outline-none focus:ring-1 ${error ? 'focus:ring-red-500' : 'focus:ring-primary'} placeholder:text-muted-fg font-mono ${className}`}
                 />
 
                 {/* Right icons */}
@@ -232,7 +232,7 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
                         <button
                             type="button"
                             onClick={handleClear}
-                            className="text-slate-400 hover:text-slate-600 p-0.5"
+                            className="text-muted-fg hover:text-foreground/80 p-0.5"
                         >
                             <X className="w-3 h-3" />
                         </button>
@@ -244,7 +244,7 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
             {isOpen && results.length > 0 && !error && (
                 <div
                     ref={dropdownRef}
-                    className="absolute z-50 w-full min-w-[250px] mt-0.5 bg-white border border-slate-300 rounded shadow-lg max-h-60 overflow-y-auto"
+                    className="absolute z-50 w-full min-w-[250px] mt-0.5 bg-surface border border-border rounded shadow-lg max-h-60 overflow-y-auto"
                 >
                     {results.map((ticker, index) => (
                         <button
@@ -252,18 +252,18 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
                             type="button"
                             onClick={() => handleSelect(ticker)}
                             onMouseEnter={() => setSelectedIndex(index)}
-                            className={`w-full px-2 py-1.5 text-left text-xs hover:bg-blue-50 transition-colors border-b border-slate-100 last:border-0 ${index === selectedIndex ? 'bg-blue-50' : ''
+                            className={`w-full px-2 py-1.5 text-left text-xs hover:bg-primary/10 transition-colors border-b border-border-subtle last:border-0 ${index === selectedIndex ? 'bg-primary/10' : ''
                                 }`}
                         >
                             <div className="flex items-center gap-2">
                                 <span className="font-mono font-semibold text-blue-600 min-w-[50px]">
                                     {ticker.symbol}
                                 </span>
-                                <span className="text-slate-600 flex-1 truncate">
+                                <span className="text-foreground/80 flex-1 truncate">
                                     {ticker.name || t('tickerSearch.noName')}
                                 </span>
                                 {ticker.exchange && (
-                                    <span className="text-[10px] text-slate-400 font-mono uppercase">
+                                    <span className="text-[10px] text-muted-fg font-mono uppercase">
                                         {ticker.exchange}
                                     </span>
                                 )}
@@ -277,9 +277,9 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
             {isOpen && !loading && !error && value.length >= 1 && results.length === 0 && (
                 <div
                     ref={dropdownRef}
-                    className="absolute z-50 w-full min-w-[250px] mt-0.5 bg-white border border-slate-300 rounded shadow-lg"
+                    className="absolute z-50 w-full min-w-[250px] mt-0.5 bg-surface border border-border rounded shadow-lg"
                 >
-                    <div className="px-2 py-2 text-xs text-slate-500 text-center">
+                    <div className="px-2 py-2 text-xs text-muted-fg text-center">
                         {t('tickerSearch.noTickersFound', { query: value })}
                     </div>
                 </div>

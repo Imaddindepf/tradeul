@@ -29,7 +29,7 @@ export function AnnouncementBanner() {
 
     return (
         <div
-            className="fixed bottom-6 right-6 max-w-sm bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-5 fade-in duration-300"
+            className="fixed bottom-6 right-6 max-w-sm bg-surface rounded-xl shadow-2xl border border-border overflow-hidden animate-in slide-in-from-bottom-5 fade-in duration-300"
             style={{ zIndex: 9999 }}
         >
             {/* Header con gradiente */}
@@ -54,14 +54,14 @@ export function AnnouncementBanner() {
             <div className="p-4 space-y-3">
                 {/* Feature 1: Community Chat */}
                 <div className="flex items-start gap-3">
-                    <div className="p-1.5 bg-blue-50 rounded-lg flex-shrink-0">
-                        <MessageCircle className="w-4 h-4 text-blue-600" />
+                    <div className="p-1.5 bg-primary/10 rounded-lg flex-shrink-0">
+                        <MessageCircle className="w-4 h-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-slate-900 text-sm">
+                        <h3 className="font-semibold text-foreground text-sm">
                             {t('announcement.communityChat')}
                         </h3>
-                        <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
+                        <p className="text-xs text-muted-fg leading-relaxed mt-0.5">
                             {t('announcement.communityChatDesc')}
                         </p>
                     </div>
@@ -69,14 +69,14 @@ export function AnnouncementBanner() {
 
                 {/* Feature 2: Groups & DMs */}
                 <div className="flex items-start gap-3">
-                    <div className="p-1.5 bg-purple-50 rounded-lg flex-shrink-0">
+                    <div className="p-1.5 bg-purple-500/10 rounded-lg flex-shrink-0">
                         <Users className="w-4 h-4 text-purple-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-slate-900 text-sm">
+                        <h3 className="font-semibold text-foreground text-sm">
                             {t('announcement.groupsAndDMs')}
                         </h3>
-                        <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
+                        <p className="text-xs text-muted-fg leading-relaxed mt-0.5">
                             {t('announcement.groupsAndDMsDesc')}
                         </p>
                     </div>
@@ -84,14 +84,14 @@ export function AnnouncementBanner() {
 
                 {/* Feature 3: Pop-out Window */}
                 <div className="flex items-start gap-3">
-                    <div className="p-1.5 bg-emerald-50 rounded-lg flex-shrink-0">
+                    <div className="p-1.5 bg-emerald-500/10 rounded-lg flex-shrink-0">
                         <ExternalLink className="w-4 h-4 text-emerald-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-slate-900 text-sm">
+                        <h3 className="font-semibold text-foreground text-sm">
                             {t('announcement.chatPopOut')}
                         </h3>
-                        <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
+                        <p className="text-xs text-muted-fg leading-relaxed mt-0.5">
                             {t('announcement.chatPopOutDesc')}
                         </p>
                     </div>
@@ -101,7 +101,7 @@ export function AnnouncementBanner() {
                 <div className="pt-2 flex justify-end">
                     <button
                         onClick={handleDismiss}
-                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+                        className="px-4 py-1.5 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-lg transition-colors"
                     >
                         {t('announcement.dismiss')}
                     </button>

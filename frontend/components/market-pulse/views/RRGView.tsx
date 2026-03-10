@@ -39,7 +39,7 @@ function fmtName(n: string, tab: string) {
 }
 
 function getQuadrantColor(q: string) {
-  return QUADRANTS[q as keyof typeof QUADRANTS]?.color || '#94a3b8';
+  return QUADRANTS[q as keyof typeof QUADRANTS]?.color || 'var(--color-muted-fg)';
 }
 
 function getQuadrantLabel(q: string) {
@@ -156,29 +156,29 @@ function RRGChart({ groups, width, height, activeTab, hoveredGroup, onHover, onS
       {ticksX.map(t => (
         <g key={`gx-${t}`}>
           <line x1={scaleX(t)} y1={PADDING.top} x2={scaleX(t)} y2={PADDING.top + chartH}
-            stroke={t === 100 ? '#94a3b8' : '#e2e8f0'}
+            stroke={t === 100 ? 'var(--color-muted-fg)' : 'var(--color-border)'}
             strokeWidth={t === 100 ? 1.5 : 0.5}
             strokeDasharray={t === 100 ? '' : '2,4'} />
           <text x={scaleX(t)} y={height - 8} textAnchor="middle"
-            className="fill-slate-400 text-[9px]">{t}</text>
+            className="fill-muted-fg text-[9px]">{t}</text>
         </g>
       ))}
       {ticksY.map(t => (
         <g key={`gy-${t}`}>
           <line x1={PADDING.left} y1={scaleY(t)} x2={PADDING.left + chartW} y2={scaleY(t)}
-            stroke={t === 100 ? '#94a3b8' : '#e2e8f0'}
+            stroke={t === 100 ? 'var(--color-muted-fg)' : 'var(--color-border)'}
             strokeWidth={t === 100 ? 1.5 : 0.5}
             strokeDasharray={t === 100 ? '' : '2,4'} />
           <text x={PADDING.left - 8} y={scaleY(t) + 3} textAnchor="end"
-            className="fill-slate-400 text-[9px]">{t}</text>
+            className="fill-muted-fg text-[9px]">{t}</text>
         </g>
       ))}
 
       {/* Axis titles */}
       <text x={PADDING.left + chartW / 2} y={height - 0} textAnchor="middle"
-        className="fill-slate-500 text-[10px] font-semibold">Relative Strength</text>
+        className="fill-muted-fg text-[10px] font-semibold">Relative Strength</text>
       <text x={12} y={PADDING.top + chartH / 2} textAnchor="middle"
-        className="fill-slate-500 text-[10px] font-semibold"
+        className="fill-muted-fg text-[10px] font-semibold"
         transform={`rotate(-90, 12, ${PADDING.top + chartH / 2})`}>Momentum</text>
 
       {/* Quadrant corner labels */}
@@ -191,13 +191,13 @@ function RRGChart({ groups, width, height, activeTab, hoveredGroup, onHover, onS
           <text x={PADDING.left + (cx - PADDING.left) / 2} y={PADDING.top + chartH - 6}
             textAnchor="middle" className="fill-red-500/40 text-[10px] font-bold uppercase">Lagging</text>
           <text x={PADDING.left + (cx - PADDING.left) / 2} y={PADDING.top + 16}
-            textAnchor="middle" className="fill-blue-500/40 text-[10px] font-bold uppercase">Improving</text>
+            textAnchor="middle" className="fill-primary/40 text-[10px] font-bold uppercase">Improving</text>
         </>
       )}
 
       {/* Chart border */}
       <rect x={PADDING.left} y={PADDING.top} width={chartW} height={chartH}
-        fill="none" stroke="#e2e8f0" strokeWidth={1} />
+        fill="none" stroke="var(--color-border)" strokeWidth={1} />
 
       {/* Trails */}
       {groups.map(group => {
@@ -283,7 +283,7 @@ function RRGChart({ groups, width, height, activeTab, hoveredGroup, onHover, onS
             {/* Head: circle + direction arrow */}
             <circle
               cx={hx} cy={hy} r={isHovered ? 5.5 : 4}
-              fill={trailColor} stroke="white" strokeWidth={1.5}
+              fill={trailColor} stroke="var(--color-bg)" strokeWidth={1.5}
             />
 
             {/* Direction arrowhead */}
@@ -310,7 +310,7 @@ function RRGChart({ groups, width, height, activeTab, hoveredGroup, onHover, onS
             <text
               x={hx + 9}
               y={hy - 7}
-              className={`text-[9px] font-semibold ${isHovered ? 'fill-slate-900' : 'fill-slate-600'}`}
+              className={`text-[9px] font-semibold ${isHovered ? 'fill-foreground' : 'fill-foreground/80'}`}
               style={{ transition: 'fill 200ms', pointerEvents: 'none' }}
             >
               {fmtName(group.name, activeTab)}
@@ -341,15 +341,15 @@ function RRGChart({ groups, width, height, activeTab, hoveredGroup, onHover, onS
               {fmtName(hoveredData.name, activeTab)}
             </text>
             <text x={ttx + 8} y={tty + 29}
-              className="text-[9px] fill-slate-300">
+              className="text-[9px] fill-muted-fg/50">
               Strength: {hoveredData.current.x.toFixed(2)} ({xDir})
             </text>
             <text x={ttx + 8} y={tty + 41}
-              className="text-[9px] fill-slate-300">
+              className="text-[9px] fill-muted-fg/50">
               Momentum: {hoveredData.current.y.toFixed(2)} ({yDir})
             </text>
             <text x={ttx + 8} y={tty + 55}
-              className="text-[9px] fill-slate-400">
+              className="text-[9px] fill-muted-fg">
               Distance from center: {dist.toFixed(2)}
             </text>
             <text x={ttx + 8} y={tty + 67}
@@ -468,13 +468,13 @@ function RRGView({ data: _pulseData, activeTab, onSelect: _onSelect }: PulseView
   return (
     <div className="flex flex-col h-full">
       {/* Controls bar */}
-      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-slate-200 bg-slate-50/50 flex-shrink-0">
+      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border bg-surface-hover/50 flex-shrink-0">
         <div className="flex items-center gap-1" title="Timeframe for measuring relative strength">
-          <span className="text-[9px] text-slate-500 uppercase font-semibold tracking-wider">Timeframe</span>
+          <span className="text-[9px] text-muted-fg uppercase font-semibold tracking-wider">Timeframe</span>
           <select
             value={rsMetric}
             onChange={e => setRsMetric(e.target.value)}
-            className="text-[10px] border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            className="text-[10px] border border-border rounded px-1.5 py-0.5 bg-surface focus:ring-1 focus:ring-primary focus:outline-none"
           >
             {RS_OPTIONS.map(m => (
               <option key={m.key} value={m.key} title={m.title}>{m.label}</option>
@@ -483,11 +483,11 @@ function RRGView({ data: _pulseData, activeTab, onSelect: _onSelect }: PulseView
         </div>
 
         <div className="flex items-center gap-1" title="How many days of history to show in the trail">
-          <span className="text-[9px] text-slate-500 uppercase font-semibold tracking-wider">Trail</span>
+          <span className="text-[9px] text-muted-fg uppercase font-semibold tracking-wider">Trail</span>
           <select
             value={tailLength}
             onChange={e => setTailLength(Number(e.target.value))}
-            className="text-[10px] border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            className="text-[10px] border border-border rounded px-1.5 py-0.5 bg-surface focus:ring-1 focus:ring-primary focus:outline-none"
           >
             {HEAD_OPTIONS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -496,11 +496,11 @@ function RRGView({ data: _pulseData, activeTab, onSelect: _onSelect }: PulseView
         </div>
 
         <div className="flex items-center gap-1" title="Compare against S&P 500 or show absolute performance">
-          <span className="text-[9px] text-slate-500 uppercase font-semibold tracking-wider">Compare</span>
+          <span className="text-[9px] text-muted-fg uppercase font-semibold tracking-wider">Compare</span>
           <select
             value={benchmark}
             onChange={e => setBenchmark(e.target.value)}
-            className="text-[10px] border border-slate-200 rounded px-1.5 py-0.5 bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            className="text-[10px] border border-border rounded px-1.5 py-0.5 bg-surface focus:ring-1 focus:ring-primary focus:outline-none"
           >
             {BENCHMARK_OPTIONS.map(m => (
               <option key={m.key} value={m.key} title={m.title}>{m.label}</option>
@@ -509,34 +509,34 @@ function RRGView({ data: _pulseData, activeTab, onSelect: _onSelect }: PulseView
         </div>
 
         {/* Animation controls */}
-        <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+        <div className="flex items-center gap-1 border-l border-border pl-2">
           <button
             onClick={togglePlay}
-            className="p-0.5 rounded hover:bg-slate-200 transition-colors"
+            className="p-0.5 rounded hover:bg-surface-hover transition-colors"
             title={isPlaying ? 'Pause animation' : 'Animate rotation over time'}
           >
             {isPlaying
-              ? <Pause className="w-3.5 h-3.5 text-slate-600" />
-              : <Play className="w-3.5 h-3.5 text-slate-600" />
+              ? <Pause className="w-3.5 h-3.5 text-foreground/80" />
+              : <Play className="w-3.5 h-3.5 text-foreground/80" />
             }
           </button>
           {animFrame > 0 && (
             <button
               onClick={stopAnimation}
-              className="p-0.5 rounded hover:bg-slate-200 transition-colors"
+              className="p-0.5 rounded hover:bg-surface-hover transition-colors"
               title="Reset"
             >
-              <RotateCcw className="w-3 h-3 text-slate-400" />
+              <RotateCcw className="w-3 h-3 text-muted-fg" />
             </button>
           )}
         </div>
 
-        {loading && <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />}
+        {loading && <Loader2 className="w-3 h-3 text-primary animate-spin" />}
 
         <div className="flex-1" />
 
         {rrg && (
-          <span className="text-[9px] text-slate-400">
+          <span className="text-[9px] text-muted-fg">
             {rrg.rs_metric_label}{rrg.benchmark === 'spy' ? ' vs SPY' : ''} · &gt;100 = outperforming
           </span>
         )}
@@ -564,18 +564,18 @@ function RRGView({ data: _pulseData, activeTab, onSelect: _onSelect }: PulseView
         )}
         {!error && !loading && rrg && rrg.groups.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xs text-slate-400">No data available</span>
+            <span className="text-xs text-muted-fg">No data available</span>
           </div>
         )}
       </div>
 
       {/* Quadrant distribution legend */}
       {rrg?.quadrant_distribution && (
-        <div className="flex items-center justify-center gap-4 px-3 py-1 border-t border-slate-200 bg-slate-50/30 flex-shrink-0">
+        <div className="flex items-center justify-center gap-4 px-3 py-1 border-t border-border bg-surface-hover/30 flex-shrink-0">
           {Object.entries(QUADRANTS).map(([key, cfg]) => (
             <div key={key} className="flex items-center gap-1">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cfg.color }} />
-              <span className="text-[9px] text-slate-600 font-medium">
+              <span className="text-[9px] text-foreground/80 font-medium">
                 {cfg.label}: {rrg.quadrant_distribution[key] ?? 0}%
               </span>
             </div>

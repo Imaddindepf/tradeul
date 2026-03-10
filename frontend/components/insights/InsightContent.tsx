@@ -175,14 +175,14 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
             if (matched.startsWith('**') && matched.endsWith('**')) {
                 // Bold text
                 parts.push(
-                    <span key={`${key}-${partIndex++}`} className="font-semibold text-slate-900">
+                    <span key={`${key}-${partIndex++}`} className="font-semibold text-foreground">
                         {matched.slice(2, -2)}
                     </span>
                 );
             } else if (matched.includes('%')) {
                 // Porcentaje - verde si positivo, rojo si negativo
                 const value = parseFloat(matched);
-                const colorClass = value > 0 ? 'text-emerald-600 font-medium' : value < 0 ? 'text-red-600 font-medium' : 'text-slate-700';
+                const colorClass = value > 0 ? 'text-emerald-600 font-medium' : value < 0 ? 'text-red-600 font-medium' : 'text-foreground';
                 parts.push(
                     <span key={`${key}-${partIndex++}`} className={colorClass}>
                         {matched}
@@ -259,7 +259,7 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
             );
             if (isEditionLine) {
                 elements.push(
-                    <div key={index} className="text-slate-500 text-center text-[10px] mt-3">
+                    <div key={index} className="text-muted-fg text-center text-[10px] mt-3">
                         {trimmedLine}
                     </div>
                 );
@@ -269,7 +269,7 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
             // Fecha (dias de la semana)
             if (trimmedLine.match(/^(LUNES|MARTES|MIERCOLES|JUEVES|VIERNES|SABADO|DOMINGO|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY),/i)) {
                 elements.push(
-                    <div key={index} className="text-slate-700 text-center text-[12px] font-medium mb-4">
+                    <div key={index} className="text-foreground text-center text-[12px] font-medium mb-4">
                         {trimmedLine}
                     </div>
                 );
@@ -283,7 +283,7 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
 
             if (isSection && trimmedLine.length < 60) {
                 elements.push(
-                    <div key={index} className="text-blue-600 font-bold text-[11px] mt-5 mb-2 border-b border-blue-100 pb-1">
+                    <div key={index} className="text-primary font-bold text-[11px] mt-5 mb-2 border-b border-primary/15 pb-1">
                         {trimmedLine}
                     </div>
                 );
@@ -296,9 +296,9 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
                 const tickerMatch = trimmedLine.match(/^([A-Z]{1,5})\s+(.*)$/);
                 if (tickerMatch) {
                     elements.push(
-                        <div key={index} className="text-slate-700 text-[12px] pl-3 py-0.5">
-                            <span className="font-bold text-slate-900">{tickerMatch[1]}</span>
-                            <span className="text-slate-600"> {formatText(tickerMatch[2], `ticker-${index}`)}</span>
+                        <div key={index} className="text-foreground text-[12px] pl-3 py-0.5">
+                            <span className="font-bold text-foreground">{tickerMatch[1]}</span>
+                            <span className="text-foreground/80"> {formatText(tickerMatch[2], `ticker-${index}`)}</span>
                         </div>
                     );
                     return;
@@ -310,9 +310,9 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
                 const ticker = trimmedLine.split('(')[0].trim();
                 const rest = trimmedLine.split('(').slice(1).join('(');
                 elements.push(
-                    <div key={index} className="text-slate-700 text-[12px] pl-3 py-0.5">
-                        <span className="font-bold text-slate-900">{ticker}</span>
-                        <span className="text-slate-600"> ({formatText(rest, `ticker-p-${index}`)}</span>
+                    <div key={index} className="text-foreground text-[12px] pl-3 py-0.5">
+                        <span className="font-bold text-foreground">{ticker}</span>
+                        <span className="text-foreground/80"> ({formatText(rest, `ticker-p-${index}`)}</span>
                     </div>
                 );
                 return;
@@ -321,7 +321,7 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
             // Lineas numeradas (1. 2. 3.)
             if (trimmedLine.match(/^\d+\.\s/)) {
                 elements.push(
-                    <div key={index} className="text-slate-700 text-[12px] pl-3 py-0.5">
+                    <div key={index} className="text-foreground text-[12px] pl-3 py-0.5">
                         {trimmedLine}
                     </div>
                 );
@@ -331,9 +331,9 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
             // Lineas de horario de eventos (hora)
             if (trimmedLine.match(/^\d{2}:\d{2}\s/)) {
                 elements.push(
-                    <div key={index} className="text-slate-700 text-[12px] pl-3 py-0.5">
-                        <span className="font-bold text-slate-900">{trimmedLine.substring(0, 5)}</span>
-                        <span className="text-slate-600">{trimmedLine.substring(5)}</span>
+                    <div key={index} className="text-foreground text-[12px] pl-3 py-0.5">
+                        <span className="font-bold text-foreground">{trimmedLine.substring(0, 5)}</span>
+                        <span className="text-foreground/80">{trimmedLine.substring(5)}</span>
                     </div>
                 );
                 return;
@@ -347,7 +347,7 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
 
             // Texto normal - con bold y colores
             elements.push(
-                <div key={index} className="text-slate-700 text-[12px] leading-relaxed">
+                <div key={index} className="text-foreground text-[12px] leading-relaxed">
                     {formatText(line, `line-${index}`)}
                 </div>
             );
@@ -359,11 +359,11 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
     // Loading state
     if (loading) {
         return (
-            <div className={`h-full flex flex-col bg-white ${fontClass}`}>
+            <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
                 <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
                         <RefreshCw className="w-5 h-5 mx-auto mb-2 text-blue-600 animate-spin" />
-                        <p className="text-[11px] text-slate-500">
+                        <p className="text-[11px] text-muted-fg">
                             {language === 'es' ? 'Cargando...' : 'Loading...'}
                         </p>
                     </div>
@@ -375,14 +375,14 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
     // Error state
     if (error) {
         return (
-            <div className={`h-full flex flex-col bg-white ${fontClass}`}>
+            <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
                 <div className="flex-1 flex items-center justify-center">
                     <div className="text-center max-w-md px-4">
                         <AlertTriangle className="w-5 h-5 mx-auto mb-2 text-amber-500" />
-                        <p className="text-[11px] text-slate-600 mb-3">{error}</p>
+                        <p className="text-[11px] text-foreground/80 mb-3">{error}</p>
                         <button
                             onClick={fetchInsight}
-                            className="px-3 py-1 text-[10px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700"
+                            className="px-3 py-1 text-[10px] font-medium bg-primary text-white rounded hover:bg-primary-hover"
                         >
                             {language === 'es' ? 'Reintentar' : 'Retry'}
                         </button>
@@ -395,11 +395,11 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
     // No data state
     if (!data) {
         return (
-            <div className={`h-full flex flex-col bg-white ${fontClass}`}>
+            <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
                 <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
-                        <Calendar className="w-5 h-5 mx-auto mb-2 text-slate-300" />
-                        <p className="text-[11px] text-slate-500">
+                        <Calendar className="w-5 h-5 mx-auto mb-2 text-muted-fg/50" />
+                        <p className="text-[11px] text-muted-fg">
                             {language === 'es' ? 'No disponible' : 'Not available'}
                         </p>
                     </div>
@@ -409,26 +409,26 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
     }
 
     return (
-        <div className={`h-full flex flex-col bg-white ${fontClass}`}>
+        <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
             {/* Header */}
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface-hover">
                 <div>
-                    <h2 className="text-[11px] font-semibold text-blue-600">
+                    <h2 className="text-[11px] font-semibold text-primary">
                         {insightTypeLabel}
                     </h2>
-                    <p className="text-[9px] text-slate-500">
+                    <p className="text-[9px] text-muted-fg">
                         {data.date_formatted}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className="text-[9px] text-slate-400 flex items-center gap-1">
+                    <div className="text-[9px] text-muted-fg flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         <span>{formatGeneratedTime(data.generated_at)}</span>
                     </div>
                     <button
                         onClick={fetchInsight}
                         disabled={loading}
-                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                        className="p-1 text-muted-fg hover:text-primary hover:bg-primary/10 rounded"
                     >
                         <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
                     </button>
@@ -443,7 +443,7 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-center px-3 py-1 border-t border-slate-200 bg-slate-50 text-[9px] text-slate-400">
+            <div className="flex items-center justify-center px-3 py-1 border-t border-border bg-surface-hover text-[9px] text-muted-fg">
                 <span>Insights</span>
             </div>
         </div>

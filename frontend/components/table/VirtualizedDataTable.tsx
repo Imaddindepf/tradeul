@@ -79,10 +79,10 @@ function ColumnResizeHandle({ header }: ColumnResizeHandleProps) {
         absolute right-0 top-0 h-full cursor-col-resize
         transition-all duration-200
         ${isHovered || header.column.getIsResizing()
-          ? 'w-1 bg-blue-500'
-          : 'w-px bg-slate-200 hover:bg-blue-400'
+          ? 'w-1 bg-primary'
+          : 'w-px bg-border hover:bg-primary'
         }
-        ${header.column.getIsResizing() ? 'bg-blue-600' : ''}
+        ${header.column.getIsResizing() ? 'bg-primary' : ''}
         group
       `}
       style={{
@@ -375,7 +375,7 @@ export function VirtualizedDataTable<T>({
   return (
     <div
       ref={containerRef}
-      className={`relative bg-white overflow-hidden ${className}`}
+      className={`relative bg-surface overflow-hidden ${className}`}
       style={
         showResizeHandles
           ? {
@@ -411,24 +411,24 @@ export function VirtualizedDataTable<T>({
       >
         {isLoading ? (
           loadingState || (
-            <div className="flex items-center justify-center h-full bg-slate-50">
+            <div className="flex items-center justify-center h-full bg-surface-hover">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4" />
-                <p className="text-slate-700 font-medium">Loading data...</p>
+                <p className="text-foreground font-medium">Loading data...</p>
               </div>
             </div>
           )
         ) : rows.length === 0 ? (
           emptyState || (
-            <div className="flex items-center justify-center h-full bg-slate-50">
-              <p className="text-slate-700 font-medium">No data available</p>
+            <div className="flex items-center justify-center h-full bg-surface-hover">
+              <p className="text-foreground font-medium">No data available</p>
             </div>
           )
         ) : (<>
           <table className="w-full border-collapse table-fixed">
             {/* Header */}
             <thead
-              className={`bg-white border-b border-slate-200 ${stickyHeader ? 'sticky top-0 z-20 shadow-sm' : ''
+              className={`bg-surface border-b border-border ${stickyHeader ? 'sticky top-0 z-20 shadow-sm' : ''
                 }`}
               style={{ display: 'block' }}
             >
@@ -468,7 +468,7 @@ export function VirtualizedDataTable<T>({
                           table.setColumnOrder(newOrder);
                         }
                       }}
-                      className="relative text-left font-semibold text-slate-600 uppercase tracking-wide border-r border-slate-100 last:border-r-0 bg-slate-50 cursor-move hover:bg-slate-100 transition-colors text-[10px] flex-shrink-0"
+                      className="relative text-left font-semibold text-foreground/80 uppercase tracking-wide border-r border-border-subtle last:border-r-0 bg-[var(--color-table-header)] cursor-move hover:bg-surface-hover transition-colors text-[10px] flex-shrink-0"
                       style={{
                         width: header.getSize(),
                         minWidth: header.getSize(),
@@ -521,7 +521,7 @@ export function VirtualizedDataTable<T>({
 
             {/* Body (VIRTUALIZED) */}
             <tbody
-              className="bg-white"
+              className="bg-surface"
               style={{
                 display: 'block',
                 height: `${totalSize}px`, // Total height for scrollbar
@@ -538,7 +538,7 @@ export function VirtualizedDataTable<T>({
                   <tr
                     key={row.id}
                     data-index={virtualRow.index}
-                    className={`hover:bg-slate-50 transition-colors duration-150 border-b border-slate-100 ${getRowClassName ? getRowClassName(row) : ''
+                    className={`hover:bg-[var(--color-table-row-hover)] transition-colors duration-150 border-b border-border-subtle ${getRowClassName ? getRowClassName(row) : ''
                       }`}
                     style={{
                       display: 'flex',
@@ -581,13 +581,13 @@ export function VirtualizedDataTable<T>({
 
           {/* Infinite scroll: loading indicator at bottom */}
           {loadingMore && (
-            <div className="flex items-center justify-center py-2 text-xs text-slate-400">
-              <div className="animate-spin rounded-full h-3 w-3 border-b border-blue-500 mr-2" />
+            <div className="flex items-center justify-center py-2 text-xs text-muted-fg">
+              <div className="animate-spin rounded-full h-3 w-3 border-b border-primary mr-2" />
               Loading earlier events...
             </div>
           )}
           {!hasMore && rows.length > 0 && !loadingMore && rows.length >= 200 && (
-            <div className="text-center py-1.5 text-[10px] text-slate-300">
+            <div className="text-center py-1.5 text-[10px] text-muted-fg/50">
               All session events loaded
             </div>
           )}
@@ -602,8 +602,8 @@ export function VirtualizedDataTable<T>({
           <div
             className={`
               absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize
-              bg-blue-500 hover:bg-blue-600 transition-all duration-200 rounded-tl
-              ${isResizing && resizeDirection === 'both' ? 'bg-blue-600 w-4 h-4' : ''}
+              bg-primary hover:bg-primary transition-all duration-200 rounded-tl
+              ${isResizing && resizeDirection === 'both' ? 'bg-primary w-4 h-4' : ''}
             `}
             onMouseDown={(e) => handleResizeStart(e, 'both')}
           >
@@ -616,36 +616,36 @@ export function VirtualizedDataTable<T>({
           <div
             className={`
               absolute bottom-0 left-0 right-3 h-1 cursor-ns-resize
-              hover:bg-blue-500 transition-all duration-200
-              ${isResizing && resizeDirection === 'height' ? 'bg-blue-600 h-1.5' : 'bg-transparent'}
+              hover:bg-primary transition-all duration-200
+              ${isResizing && resizeDirection === 'height' ? 'bg-primary h-1.5' : 'bg-transparent'}
             `}
             onMouseDown={(e) => handleResizeStart(e, 'height')}
           >
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-slate-300 rounded-t hover:bg-blue-500 transition-colors"></div>
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-muted-fg/50 rounded-t hover:bg-primary transition-colors"></div>
           </div>
 
           {/* Right edge */}
           <div
             className={`
               absolute top-0 right-0 bottom-3 w-1 cursor-ew-resize
-              hover:bg-blue-500 transition-all duration-200
-              ${isResizing && resizeDirection === 'width' ? 'bg-blue-600 w-1.5' : 'bg-transparent'}
+              hover:bg-primary transition-all duration-200
+              ${isResizing && resizeDirection === 'width' ? 'bg-primary w-1.5' : 'bg-transparent'}
             `}
             onMouseDown={(e) => handleResizeStart(e, 'width')}
           >
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-slate-300 rounded-l hover:bg-blue-500 transition-colors"></div>
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-muted-fg/50 rounded-l hover:bg-primary transition-colors"></div>
           </div>
         </>
       )}
 
       {/* Resize indicator */}
       {isResizing && (
-        <div className="absolute top-3 right-3 bg-white text-slate-700 text-xs font-mono px-3 py-1.5 shadow-xl border border-slate-200 rounded z-30">
-          <span className="text-blue-600 font-semibold">
+        <div className="absolute top-3 right-3 bg-surface text-foreground text-xs font-mono px-3 py-1.5 shadow-xl border border-border rounded z-30">
+          <span className="text-primary font-semibold">
             {Math.round(dimensions.width)}
           </span>
-          <span className="text-slate-400 mx-1">×</span>
-          <span className="text-blue-600 font-semibold">
+          <span className="text-muted-fg mx-1">×</span>
+          <span className="text-primary font-semibold">
             {Math.round(dimensions.height)}
           </span>
         </div>

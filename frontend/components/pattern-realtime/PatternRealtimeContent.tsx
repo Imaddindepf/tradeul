@@ -437,18 +437,18 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
 
     return (
         <div
-            className="h-full flex flex-col bg-white text-slate-800 overflow-hidden font-mono text-xs"
+            className="h-full flex flex-col bg-surface text-foreground overflow-hidden font-mono text-xs"
             style={{ fontFamily }}
         >
             {/* Row 1: Inputs */}
-            <div className="flex-shrink-0 grid grid-cols-3 gap-4 p-4 border-b border-slate-200 bg-white">
+            <div className="flex-shrink-0 grid grid-cols-3 gap-4 p-4 border-b border-border bg-surface">
                 {/* Column 1: Symbols */}
                 <div className="flex flex-col">
-                    <label className="text-slate-600 mb-1">Symbols (space/comma/newline)</label>
+                    <label className="text-foreground/80 mb-1">Symbols (space/comma/newline)</label>
                     <textarea
                         value={symbolsText}
                         onChange={(e) => setSymbolsText(e.target.value)}
-                        className="flex-1 min-h-[120px] p-2 bg-white border border-slate-300 rounded text-slate-800 resize-none focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        className="flex-1 min-h-[120px] p-2 bg-surface border border-border rounded text-foreground resize-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                         placeholder="AAPL NVDA META..."
                     />
                 </div>
@@ -457,21 +457,21 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                 <div className="flex flex-col gap-2">
                     <div className="flex gap-4">
                         <div className="flex-1">
-                            <label className="text-slate-600 text-[10px]">Timestamp (ignored in real-time; using {currentTime})</label>
+                            <label className="text-foreground/80 text-[10px]">Timestamp (ignored in real-time; using {currentTime})</label>
                             <input
                                 type="text"
                                 value={timestamp}
                                 onChange={(e) => setTimestamp(e.target.value)}
                                 placeholder="2024-03-18 10:02"
-                                className="w-full mt-0.5 px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="w-full mt-0.5 px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                             />
                         </div>
                         <div className="w-24">
-                            <label className="text-slate-600 text-[10px]">TZ (applies to "now")</label>
+                            <label className="text-foreground/80 text-[10px]">TZ (applies to "now")</label>
                             <select
                                 value={timezone}
                                 onChange={(e) => setTimezone(e.target.value as 'ET' | 'UTC')}
-                                className="w-full mt-0.5 px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500"
+                                className="w-full mt-0.5 px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary"
                             >
                                 <option value="ET">ET</option>
                                 <option value="UTC">UTC</option>
@@ -481,38 +481,38 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
 
                     <div className="grid grid-cols-2 gap-2">
                         <div>
-                            <label className="text-slate-600 text-[10px]">k</label>
+                            <label className="text-foreground/80 text-[10px]">k</label>
                             <input
                                 type="number"
                                 value={k}
                                 onChange={(e) => setK(Number(e.target.value))}
-                                className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                             />
                         </div>
                         <div>
-                            <label className="text-slate-600 text-[10px]">extend</label>
+                            <label className="text-foreground/80 text-[10px]">extend</label>
                             <input
                                 type="number"
                                 value={extend}
                                 onChange={(e) => setExtend(Number(e.target.value))}
-                                className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                             />
                         </div>
                         <div>
-                            <label className="text-slate-600 text-[10px]">Horizon (min)</label>
+                            <label className="text-foreground/80 text-[10px]">Horizon (min)</label>
                             <input
                                 type="number"
                                 value={horizon}
                                 onChange={(e) => setHorizon(Number(e.target.value))}
-                                className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                             />
                         </div>
                         <div>
-                            <label className="text-slate-600 text-[10px]">Weighting</label>
+                            <label className="text-foreground/80 text-[10px]">Weighting</label>
                             <select
                                 value={weighting}
                                 onChange={(e) => setWeighting(e.target.value as 'softmax' | 'uniform')}
-                                className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500"
+                                className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary"
                             >
                                 <option value="softmax">softmax</option>
                                 <option value="uniform">uniform</option>
@@ -522,16 +522,16 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
 
                     <div className="grid grid-cols-2 gap-2">
                         <div>
-                            <label className="text-slate-600 text-[10px]">alpha</label>
+                            <label className="text-foreground/80 text-[10px]">alpha</label>
                             <input
                                 type="number"
                                 value={alpha}
                                 onChange={(e) => setAlpha(Number(e.target.value))}
-                                className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                             />
                         </div>
                         <div className="flex items-end pb-1">
-                            <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
+                            <label className="flex items-center gap-2 text-foreground cursor-pointer">
                                 <input
                                     type="checkbox"
                                     checked={excludeSelf}
@@ -542,27 +542,27 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                             </label>
                         </div>
                         <div>
-                            <label className="text-slate-600 text-[10px]">trim lo (%)</label>
+                            <label className="text-foreground/80 text-[10px]">trim lo (%)</label>
                             <input
                                 type="number"
                                 value={trimLo}
                                 onChange={(e) => setTrimLo(Number(e.target.value))}
-                                className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                             />
                         </div>
                         <div>
-                            <label className="text-slate-600 text-[10px]">trim hi (%)</label>
+                            <label className="text-foreground/80 text-[10px]">trim hi (%)</label>
                             <input
                                 type="number"
                                 value={trimHi}
                                 onChange={(e) => setTrimHi(Number(e.target.value))}
-                                className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                             />
                         </div>
                     </div>
 
                     <div className="flex flex-col gap-1">
-                        <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
+                        <label className="flex items-center gap-2 text-foreground cursor-pointer">
                             <input
                                 type="checkbox"
                                 checked={includeWeights}
@@ -571,7 +571,7 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                             />
                             include weights (audit)
                         </label>
-                        <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
+                        <label className="flex items-center gap-2 text-foreground cursor-pointer">
                             <input
                                 type="checkbox"
                                 checked={useRealtime}
@@ -589,8 +589,8 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                             className={cn(
                                 "flex-1 flex items-center justify-center gap-2 py-2 rounded font-medium transition-colors",
                                 isScanning
-                                    ? "bg-slate-300 text-slate-500 cursor-not-allowed"
-                                    : "bg-blue-600 text-white hover:bg-blue-500"
+                                    ? "bg-muted text-muted-fg cursor-not-allowed"
+                                    : "bg-primary text-white hover:bg-primary-hover"
                             )}
                         >
                             {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
@@ -602,8 +602,8 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                             className={cn(
                                 "flex-1 flex items-center justify-center gap-2 py-2 rounded font-medium border transition-colors",
                                 isScanning
-                                    ? "border-red-500 text-red-600 hover:bg-red-50"
-                                    : "border-slate-300 text-slate-400 cursor-not-allowed"
+                                    ? "border-red-500 text-red-600 hover:bg-red-500/10"
+                                    : "border-border text-muted-fg cursor-not-allowed"
                             )}
                         >
                             <Square className="w-4 h-4" />
@@ -615,8 +615,8 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                             className={cn(
                                 "px-3 py-2 rounded font-medium border transition-colors",
                                 !isScanning && (predictions.length > 0 || failures.length > 0)
-                                    ? "border-slate-400 text-slate-600 hover:bg-slate-100"
-                                    : "border-slate-200 text-slate-300 cursor-not-allowed"
+                                    ? "border-muted text-foreground/80 hover:bg-surface-hover"
+                                    : "border-border text-muted-fg/50 cursor-not-allowed"
                             )}
                             title="Clear all results"
                         >
@@ -628,24 +628,24 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                 {/* Column 3: Progress + Filters */}
                 <div className="flex flex-col gap-2">
                     <div>
-                        <label className="text-slate-600 text-[10px]">Progress</label>
-                        <div className="mt-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <label className="text-foreground/80 text-[10px]">Progress</label>
+                        <div className="mt-1 h-2 bg-muted rounded-full overflow-hidden">
                             <div
                                 className="h-full bg-blue-500 transition-all duration-300"
                                 style={{ width: progress.total > 0 ? `${(progress.completed / progress.total) * 100}%` : '0%' }}
                             />
                         </div>
-                        <div className="mt-1 text-blue-600 font-medium">{progress.completed} / {progress.total}</div>
-                        <div className="text-slate-500">Failures in last batch: <span className="text-slate-700">{progress.failed}</span></div>
+                        <div className="mt-1 text-primary font-medium">{progress.completed} / {progress.total}</div>
+                        <div className="text-muted-fg">Failures in last batch: <span className="text-foreground">{progress.failed}</span></div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
                         <div>
-                            <label className="text-slate-600 text-[10px]">Sort by</label>
+                            <label className="text-foreground/80 text-[10px]">Sort by</label>
                             <select
                                 value={sortBy}
                                 onChange={(e) => setSortBy(e.target.value as SortField)}
-                                className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500"
+                                className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary"
                             >
                                 <option value="edge">edge</option>
                                 <option value="prob_up">prob_up</option>
@@ -654,11 +654,11 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                             </select>
                         </div>
                         <div>
-                            <label className="text-slate-600 text-[10px]">Direction</label>
+                            <label className="text-foreground/80 text-[10px]">Direction</label>
                             <select
                                 value={direction}
                                 onChange={(e) => setDirection(e.target.value as DirectionFilter)}
-                                className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500"
+                                className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary"
                             >
                                 <option value="ALL">ALL</option>
                                 <option value="LONG">LONG</option>
@@ -668,22 +668,22 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                     </div>
 
                     <div>
-                        <label className="text-slate-600 text-[10px]">Show top N</label>
+                        <label className="text-foreground/80 text-[10px]">Show top N</label>
                         <input
                             type="number"
                             value={showTopN}
                             onChange={(e) => setShowTopN(Number(e.target.value))}
-                            className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            className="w-full px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
                         />
                     </div>
 
                     <div>
-                        <label className="text-slate-600 text-[10px]">Saved runs (local)</label>
+                        <label className="text-foreground/80 text-[10px]">Saved runs (local)</label>
                         <div className="flex gap-2">
                             <select
                                 value={selectedRun}
                                 onChange={(e) => setSelectedRun(e.target.value)}
-                                className="flex-1 px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-blue-500"
+                                className="flex-1 px-2 py-1 bg-surface border border-border rounded text-foreground focus:outline-none focus:border-primary"
                             >
                                 <option value="">— Select —</option>
                                 {savedRuns.map(run => (
@@ -693,30 +693,30 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                             <button
                                 onClick={deleteSelectedRun}
                                 disabled={!selectedRun}
-                                className="px-3 py-1 border border-slate-300 rounded text-slate-600 hover:text-red-600 hover:border-red-500 disabled:opacity-50"
+                                className="px-3 py-1 border border-border rounded text-foreground/80 hover:text-red-600 hover:border-red-500 disabled:opacity-50"
                             >
                                 Delete
                             </button>
                         </div>
                     </div>
 
-                    <div className="text-right text-slate-500 mt-auto">
-                        as of <span className="text-slate-700 font-medium">{currentTime}</span> ET
+                    <div className="text-right text-muted-fg mt-auto">
+                        as of <span className="text-foreground font-medium">{currentTime}</span> ET
                     </div>
                 </div>
             </div>
 
             {/* Row 2: Tables */}
-            <div className="flex-1 grid grid-cols-2 gap-2 p-2 overflow-hidden bg-slate-50">
+            <div className="flex-1 grid grid-cols-2 gap-2 p-2 overflow-hidden bg-surface-hover">
                 {/* Performance Summary */}
-                <div className="border border-slate-200 rounded bg-white overflow-hidden flex flex-col">
-                    <div className="px-2 py-1.5 bg-slate-100 border-b border-slate-200 text-slate-700 font-medium">
+                <div className="border border-border rounded bg-surface overflow-hidden flex flex-col">
+                    <div className="px-2 py-1.5 bg-surface-inset border-b border-border text-foreground font-medium">
                         Performance Summary @ {horizon}m (directional P&L)
                     </div>
                     <div className="flex-1 overflow-auto">
                         <table className="w-full text-[11px]">
-                            <thead className="bg-slate-50 sticky top-0">
-                                <tr className="text-slate-500">
+                            <thead className="bg-surface-hover sticky top-0">
+                                <tr className="text-muted-fg">
                                     <th className="px-2 py-1 text-left font-medium">Bucket</th>
                                     <th className="px-2 py-1 text-center font-medium">N</th>
                                     <th className="px-2 py-1 text-center font-medium">Long</th>
@@ -733,15 +733,15 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                                 <PerformanceRow label="All" stats={stats?.all_stats} />
                             </tbody>
                         </table>
-                        <div className="px-2 py-1 text-[10px] text-slate-500 border-t border-slate-100">
+                        <div className="px-2 py-1 text-[10px] text-muted-fg border-t border-border-subtle">
                             P&L is computed as <span className="italic">actual</span> for LONG and <span className="italic">-actual</span> for SHORT.
                         </div>
                     </div>
                 </div>
 
                 {/* Top Suggestions */}
-                <div className="border border-slate-200 rounded bg-white overflow-hidden flex flex-col">
-                    <div className="px-2 py-1.5 bg-slate-100 border-b border-slate-200 text-slate-700 font-medium">
+                <div className="border border-border rounded bg-surface overflow-hidden flex flex-col">
+                    <div className="px-2 py-1.5 bg-surface-inset border-b border-border text-foreground font-medium">
                         Top suggestions @ {horizon}m (ranked by edge)
                     </div>
                     <div className="flex-1 overflow-auto">
@@ -750,8 +750,8 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                 </div>
 
                 {/* All Scanned */}
-                <div className="border border-slate-200 rounded bg-white overflow-hidden flex flex-col">
-                    <div className="px-2 py-1.5 bg-slate-100 border-b border-slate-200 text-slate-700 font-medium">
+                <div className="border border-border rounded bg-surface overflow-hidden flex flex-col">
+                    <div className="px-2 py-1.5 bg-surface-inset border-b border-border text-foreground font-medium">
                         All scanned (latest batch)
                     </div>
                     <div className="flex-1 overflow-auto">
@@ -760,14 +760,14 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                 </div>
 
                 {/* Failures */}
-                <div className="border border-slate-200 rounded bg-white overflow-hidden flex flex-col">
-                    <div className="px-2 py-1.5 bg-slate-100 border-b border-slate-200 text-slate-700 font-medium">
+                <div className="border border-border rounded bg-surface overflow-hidden flex flex-col">
+                    <div className="px-2 py-1.5 bg-surface-inset border-b border-border text-foreground font-medium">
                         Failures (this batch)
                     </div>
                     <div className="flex-1 overflow-auto">
                         <table className="w-full text-[11px]">
-                            <thead className="bg-slate-50 sticky top-0">
-                                <tr className="text-slate-500">
+                            <thead className="bg-surface-hover sticky top-0">
+                                <tr className="text-muted-fg">
                                     <th className="px-2 py-1 text-left font-medium">symbol</th>
                                     <th className="px-2 py-1 text-left font-medium">time (ET)</th>
                                     <th className="px-2 py-1 text-left font-medium">code</th>
@@ -780,24 +780,24 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
                             <tbody>
                                 {failures.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="px-2 py-2 text-slate-400">No failures</td>
+                                        <td colSpan={7} className="px-2 py-2 text-muted-fg">No failures</td>
                                     </tr>
                                 ) : (
                                     failures.map((f, i) => (
-                                        <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
-                                            <td className="px-2 py-1 text-slate-800 font-medium">{f.symbol}</td>
-                                            <td className="px-2 py-1 text-slate-500">{f.scan_time?.slice(0, 16)}</td>
+                                        <tr key={i} className="border-t border-border-subtle hover:bg-surface-hover">
+                                            <td className="px-2 py-1 text-foreground font-medium">{f.symbol}</td>
+                                            <td className="px-2 py-1 text-muted-fg">{f.scan_time?.slice(0, 16)}</td>
                                             <td className="px-2 py-1 text-orange-600">{f.error_code}</td>
-                                            <td className="px-2 py-1 text-slate-600">{f.error_code}</td>
-                                            <td className="px-2 py-1 text-slate-500">{f.reason}</td>
-                                            <td className="px-2 py-1 text-center text-slate-600">{f.bars_since_open ?? '—'}</td>
-                                            <td className="px-2 py-1 text-center text-slate-600">{f.bars_until_close ?? '—'}</td>
+                                            <td className="px-2 py-1 text-foreground/80">{f.error_code}</td>
+                                            <td className="px-2 py-1 text-muted-fg">{f.reason}</td>
+                                            <td className="px-2 py-1 text-center text-foreground/80">{f.bars_since_open ?? '—'}</td>
+                                            <td className="px-2 py-1 text-center text-foreground/80">{f.bars_until_close ?? '—'}</td>
                                         </tr>
                                     ))
                                 )}
                             </tbody>
                         </table>
-                        <div className="px-2 py-1 text-[10px] text-slate-400 border-t border-slate-100">
+                        <div className="px-2 py-1 text-[10px] text-muted-fg border-t border-border-subtle">
                             E_WEEKEND: Saturday/Sunday  E_MARKET_CLOSED: outside 09:30-16:00 ET  E_WINDOW: index or tuple couldn't form a contiguous 30-bar window ending the requested
                         </div>
                     </div>
@@ -813,18 +813,18 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
 
 function PerformanceRow({ label, stats }: { label: string; stats?: BucketStats | null }) {
     return (
-        <tr className="border-t border-slate-100 hover:bg-slate-50">
-            <td className="px-2 py-1 text-slate-800">{label}</td>
-            <td className="px-2 py-1 text-center text-slate-600">{stats?.n ?? '—'}</td>
-            <td className="px-2 py-1 text-center text-slate-600">{stats?.long_count ?? 0}</td>
-            <td className="px-2 py-1 text-center text-slate-600">{stats?.short_count ?? 0}</td>
-            <td className="px-2 py-1 text-center text-slate-600">
+        <tr className="border-t border-border-subtle hover:bg-surface-hover">
+            <td className="px-2 py-1 text-foreground">{label}</td>
+            <td className="px-2 py-1 text-center text-foreground/80">{stats?.n ?? '—'}</td>
+            <td className="px-2 py-1 text-center text-foreground/80">{stats?.long_count ?? 0}</td>
+            <td className="px-2 py-1 text-center text-foreground/80">{stats?.short_count ?? 0}</td>
+            <td className="px-2 py-1 text-center text-foreground/80">
                 {stats?.win_rate != null ? `${(stats.win_rate * 100).toFixed(1)}%` : '—'}
             </td>
-            <td className="px-2 py-1 text-center text-slate-600">
+            <td className="px-2 py-1 text-center text-foreground/80">
                 {stats?.mean_pnl != null ? `${stats.mean_pnl.toFixed(2)}%` : '—'}
             </td>
-            <td className="px-2 py-1 text-center text-slate-600">
+            <td className="px-2 py-1 text-center text-foreground/80">
                 {stats?.median_pnl != null ? `${stats.median_pnl.toFixed(2)}%` : '—'}
             </td>
         </tr>
@@ -839,8 +839,8 @@ interface PredictionsTableProps {
 function PredictionsTable({ predictions, realtimePrices }: PredictionsTableProps) {
     return (
         <table className="w-full text-[11px]">
-            <thead className="bg-slate-50 sticky top-0">
-                <tr className="text-slate-500">
+            <thead className="bg-surface-hover sticky top-0">
+                <tr className="text-muted-fg">
                     <th className="px-2 py-1 text-left font-medium">symbol</th>
                     <th className="px-2 py-1 text-left font-medium">time</th>
                     <th className="px-2 py-1 text-center font-medium">dir</th>
@@ -857,7 +857,7 @@ function PredictionsTable({ predictions, realtimePrices }: PredictionsTableProps
             <tbody>
                 {predictions.length === 0 ? (
                     <tr>
-                        <td colSpan={11} className="px-2 py-4 text-center text-slate-400">No data</td>
+                        <td colSpan={11} className="px-2 py-4 text-center text-muted-fg">No data</td>
                     </tr>
                 ) : (
                     predictions.map((p) => {
@@ -871,12 +871,12 @@ function PredictionsTable({ predictions, realtimePrices }: PredictionsTableProps
                             <tr
                                 key={p.id}
                                 className={cn(
-                                    "border-t border-slate-100 hover:bg-slate-50",
-                                    isRealtime && "animate-pulse bg-blue-50/50"
+                                    "border-t border-border-subtle hover:bg-surface-hover",
+                                    isRealtime && "animate-pulse bg-primary/10"
                                 )}
                             >
-                                <td className="px-2 py-1 text-slate-800 font-medium">{p.symbol}</td>
-                                <td className="px-2 py-1 text-slate-500">
+                                <td className="px-2 py-1 text-foreground font-medium">{p.symbol}</td>
+                                <td className="px-2 py-1 text-muted-fg">
                                     {new Date(p.scan_time).toLocaleDateString('en-CA')} {new Date(p.scan_time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
                                 </td>
                                 <td className={cn(
@@ -885,8 +885,8 @@ function PredictionsTable({ predictions, realtimePrices }: PredictionsTableProps
                                 )}>
                                     {p.direction === 'UP' ? 'LONG' : 'SHORT'}
                                 </td>
-                                <td className="px-2 py-1 text-right text-slate-800 font-medium">{(p.edge * 100).toFixed(2)}%</td>
-                                <td className="px-2 py-1 text-right text-slate-600">{(p.prob_up * 100).toFixed(1)}%</td>
+                                <td className="px-2 py-1 text-right text-foreground font-medium">{(p.edge * 100).toFixed(2)}%</td>
+                                <td className="px-2 py-1 text-right text-foreground/80">{(p.prob_up * 100).toFixed(1)}%</td>
                                 <td className={cn(
                                     "px-2 py-1 text-right",
                                     p.mean_return >= 0 ? 'text-emerald-600' : 'text-red-600'
@@ -895,13 +895,13 @@ function PredictionsTable({ predictions, realtimePrices }: PredictionsTableProps
                                 </td>
                                 <td className="px-2 py-1 text-right text-red-500">{p.p10?.toFixed(2) ?? '—'}%</td>
                                 <td className="px-2 py-1 text-right text-emerald-500">{p.p90?.toFixed(2) ?? '—'}%</td>
-                                <td className="px-2 py-1 text-center text-slate-600">{p.n_neighbors}</td>
-                                <td className="px-2 py-1 text-right text-slate-500">{p.dist1?.toFixed(6) ?? '—'}</td>
+                                <td className="px-2 py-1 text-center text-foreground/80">{p.n_neighbors}</td>
+                                <td className="px-2 py-1 text-right text-muted-fg">{p.dist1?.toFixed(6) ?? '—'}</td>
                                 <td className={cn(
                                     "px-2 py-1 text-right font-medium",
                                     displayReturn != null
                                         ? (displayReturn >= 0 ? 'text-emerald-600' : 'text-red-600')
-                                        : 'text-slate-400',
+                                        : 'text-muted-fg',
                                     isRealtime && "relative"
                                 )}>
                                     {displayReturn != null ? (

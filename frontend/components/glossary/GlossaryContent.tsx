@@ -96,19 +96,19 @@ export function GlossaryContent() {
 
     return (
         <div 
-            className="h-full flex flex-col bg-white text-slate-800 overflow-hidden"
+            className="h-full flex flex-col bg-surface text-foreground overflow-hidden"
             style={{ fontFamily: `var(--font-${font})` }}
         >
             {/* Search */}
-            <div className="flex-shrink-0 p-2 border-b border-slate-100">
+            <div className="flex-shrink-0 p-2 border-b border-border-subtle">
                 <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-fg" />
                     <input
                         type="text"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="Search indicators..."
-                        className="w-full pl-7 pr-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded focus:outline-none focus:border-slate-300"
+                        className="w-full pl-7 pr-2 py-1 text-xs bg-surface-hover border border-border rounded focus:outline-none focus:border-border"
                         style={{ fontFamily: `var(--font-${font})` }}
                     />
                 </div>
@@ -117,15 +117,15 @@ export function GlossaryContent() {
             {/* Categories */}
             <div className="flex-1 overflow-y-auto">
                 {Object.entries(filteredIndicators).map(([category, indicators]) => (
-                    <div key={category} className="border-b border-slate-100 last:border-0">
+                    <div key={category} className="border-b border-border-subtle last:border-0">
                         <button
                             onClick={() => setExpandedCategory(expandedCategory === category ? null : category)}
-                            className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                            className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-surface-hover transition-colors"
                         >
-                            <span className="text-[10px] font-medium text-slate-600 uppercase tracking-wide">
+                            <span className="text-[10px] font-medium text-foreground/80 uppercase tracking-wide">
                                 {CATEGORY_NAMES[category] || category}
                             </span>
-                            <span className="text-[9px] text-slate-400">
+                            <span className="text-[9px] text-muted-fg">
                                 {indicators.length}
                             </span>
                         </button>
@@ -134,10 +134,10 @@ export function GlossaryContent() {
                             <div className="px-3 pb-2 space-y-1">
                                 {indicators.map((ind) => (
                                     <div key={ind.id} className="py-1">
-                                        <div className="text-[10px] font-medium text-slate-700">
+                                        <div className="text-[10px] font-medium text-foreground">
                                             {ind.name}
                                         </div>
-                                        <div className="text-[9px] text-slate-500 leading-tight">
+                                        <div className="text-[9px] text-muted-fg leading-tight">
                                             {ind.desc}
                                         </div>
                                     </div>
@@ -149,8 +149,8 @@ export function GlossaryContent() {
             </div>
 
             {/* Footer */}
-            <div className="flex-shrink-0 px-3 py-1.5 border-t border-slate-100 bg-slate-50">
-                <div className="text-[8px] text-slate-400 text-center">
+            <div className="flex-shrink-0 px-3 py-1.5 border-t border-border-subtle bg-surface-hover">
+                <div className="text-[8px] text-muted-fg text-center">
                     {Object.values(INDICATORS).flat().length} indicators
                 </div>
             </div>

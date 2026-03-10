@@ -134,7 +134,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
             if (match[1]) {
                 // Ticker entre paréntesis: (AAPL)
                 parts.push(
-                    <span key={`${keyPrefix}-${partIndex++}`} className="font-semibold text-blue-700">
+                    <span key={`${keyPrefix}-${partIndex++}`} className="font-semibold text-primary">
                         ({ticker})
                     </span>
                 );
@@ -146,7 +146,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
                     </span>
                 );
                 parts.push(
-                    <span key={`${keyPrefix}-${partIndex++}`} className="font-bold text-slate-900">
+                    <span key={`${keyPrefix}-${partIndex++}`} className="font-bold text-foreground">
                         {ticker}
                     </span>
                 );
@@ -177,7 +177,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
                 {parts.map((part, i) => {
                     if (part.match(/^\([A-Z]{1,5}(?:\/[A-Z]{1,5})?\)$/)) {
                         return (
-                            <span key={`${keyPrefix}-${i}`} className="font-semibold text-blue-700">
+                            <span key={`${keyPrefix}-${i}`} className="font-semibold text-primary">
                                 {part}
                             </span>
                         );
@@ -201,7 +201,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
             // Header principal (linea de ====)
             if (trimmedLine.match(/^={10,}$/)) {
                 elements.push(
-                    <div key={index} className="text-blue-600 text-center select-none">
+                    <div key={index} className="text-primary text-center select-none">
                         {'═'.repeat(60)}
                     </div>
                 );
@@ -211,7 +211,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
             // Titulo TRADEUL.COM
             if (trimmedLine === 'TRADEUL.COM') {
                 elements.push(
-                    <div key={index} className="text-blue-600 font-bold text-center text-[14px] mt-2">
+                    <div key={index} className="text-primary font-bold text-center text-[14px] mt-2">
                         TRADEUL.COM
                     </div>
                 );
@@ -221,7 +221,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
             // Subtitulo MORNING NEWS CALL
             if (trimmedLine === 'MORNING NEWS CALL') {
                 elements.push(
-                    <div key={index} className="text-blue-600 font-bold text-center text-[12px] mb-2">
+                    <div key={index} className="text-primary font-bold text-center text-[12px] mb-2">
                         MORNING NEWS CALL
                     </div>
                 );
@@ -231,7 +231,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
             // USA EDITION
             if (trimmedLine === 'USA EDITION') {
                 elements.push(
-                    <div key={index} className="text-slate-500 text-center text-[10px] mt-3">
+                    <div key={index} className="text-muted-fg text-center text-[10px] mt-3">
                         USA EDITION
                     </div>
                 );
@@ -241,7 +241,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
             // Fecha (dias de la semana en español o inglés)
             if (trimmedLine.match(/^(LUNES|MARTES|MIERCOLES|JUEVES|VIERNES|SABADO|DOMINGO|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY),/i)) {
                 elements.push(
-                    <div key={index} className="text-slate-700 text-center text-[13px] font-medium mb-4">
+                    <div key={index} className="text-foreground text-center text-[13px] font-medium mb-4">
                         {trimmedLine}
                     </div>
                 );
@@ -255,7 +255,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
 
             if (isSection && trimmedLine.length < 60) {
                 elements.push(
-                    <div key={index} className="text-blue-600 font-bold text-[12px] mt-6 mb-2 border-b border-blue-100 pb-1">
+                    <div key={index} className="text-primary font-bold text-[12px] mt-6 mb-2 border-b border-primary/15 pb-1">
                         {trimmedLine}
                     </div>
                 );
@@ -268,10 +268,10 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
                 const [, companyName, ticker] = stockMatch;
                 const restOfLine = trimmedLine.slice(stockMatch[0].length);
                 elements.push(
-                    <div key={index} className="text-slate-700 text-[13px] mb-3 leading-relaxed">
-                        <span className="font-bold text-slate-900">{companyName}</span>
-                        <span className="font-semibold text-blue-700"> ({ticker})</span>
-                        <span className="text-slate-600">:{renderWithTickers(restOfLine, `line-${index}`)}</span>
+                    <div key={index} className="text-foreground text-[13px] mb-3 leading-relaxed">
+                        <span className="font-bold text-foreground">{companyName}</span>
+                        <span className="font-semibold text-primary"> ({ticker})</span>
+                        <span className="text-foreground/80">:{renderWithTickers(restOfLine, `line-${index}`)}</span>
                     </div>
                 );
                 return;
@@ -282,10 +282,10 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
             if (trimmedLine.match(/^[A-Z][A-Za-z0-9\s&.,'-]+\s+\([A-Z]{1,5}\):/)) {
                 const parts = trimmedLine.split(/(\([A-Z]{1,5}\))/);
                 elements.push(
-                    <div key={index} className="text-slate-700 text-[13px] mb-3 leading-relaxed">
-                        <span className="font-bold text-slate-900">{parts[0].trim()}</span>
-                        <span className="font-semibold text-blue-700"> {parts[1]}</span>
-                        <span className="text-slate-600">{renderWithTickers(parts.slice(2).join(''), `fallback-${index}`)}</span>
+                    <div key={index} className="text-foreground text-[13px] mb-3 leading-relaxed">
+                        <span className="font-bold text-foreground">{parts[0].trim()}</span>
+                        <span className="font-semibold text-primary"> {parts[1]}</span>
+                        <span className="text-foreground/80">{renderWithTickers(parts.slice(2).join(''), `fallback-${index}`)}</span>
                     </div>
                 );
                 return;
@@ -297,9 +297,9 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
                 const time = timeMatch ? timeMatch[1] : trimmedLine.substring(0, 5);
                 const rest = trimmedLine.slice(time.length);
                 elements.push(
-                    <div key={index} className="text-slate-700 text-[13px] pl-4 py-0.5">
-                        <span className="font-bold text-slate-900">{time}</span>
-                        <span className="text-slate-600">{renderWithTickers(rest, `time-${index}`)}</span>
+                    <div key={index} className="text-foreground text-[13px] pl-4 py-0.5">
+                        <span className="font-bold text-foreground">{time}</span>
+                        <span className="text-foreground/80">{renderWithTickers(rest, `time-${index}`)}</span>
                     </div>
                 );
                 return;
@@ -313,7 +313,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
 
             // Texto normal con tickers resaltados
             elements.push(
-                <div key={index} className="text-slate-700 text-[13px] leading-relaxed">
+                <div key={index} className="text-foreground text-[13px] leading-relaxed">
                     {renderWithTickers(line, `text-${index}`)}
                 </div>
             );
@@ -325,11 +325,11 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
     // Loading state
     if (loading) {
         return (
-            <div className={`h-full flex flex-col bg-white ${fontClass}`}>
+            <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
                 <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
-                        <RefreshCw className="w-6 h-6 mx-auto mb-3 text-blue-600 animate-spin" />
-                        <p className="text-[13px] text-slate-500">Cargando Morning News...</p>
+                        <RefreshCw className="w-6 h-6 mx-auto mb-3 text-primary animate-spin" />
+                        <p className="text-[13px] text-muted-fg">Cargando Morning News...</p>
                     </div>
                 </div>
             </div>
@@ -339,14 +339,14 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
     // Error state
     if (error) {
         return (
-            <div className={`h-full flex flex-col bg-white ${fontClass}`}>
+            <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
                 <div className="flex-1 flex items-center justify-center">
                     <div className="text-center max-w-md px-4">
                         <AlertTriangle className="w-6 h-6 mx-auto mb-3 text-amber-500" />
-                        <p className="text-[13px] text-slate-600 mb-3">{error}</p>
+                        <p className="text-[13px] text-foreground/80 mb-3">{error}</p>
                         <button
                             onClick={fetchMorningNews}
-                            className="px-3 py-1.5 text-[10px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700"
+                            className="px-3 py-1.5 text-[10px] font-medium bg-primary text-white rounded hover:bg-primary-hover"
                         >
                             Reintentar
                         </button>
@@ -359,12 +359,12 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
     // No data state
     if (!newsData) {
         return (
-            <div className={`h-full flex flex-col bg-white ${fontClass}`}>
+            <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
                 <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
-                        <Calendar className="w-6 h-6 mx-auto mb-3 text-slate-300" />
-                        <p className="text-[13px] text-slate-500">No hay Morning News disponible</p>
-                        <p className="text-[10px] text-slate-400 mt-1">Se genera a las 7:30 AM ET</p>
+                        <Calendar className="w-6 h-6 mx-auto mb-3 text-muted-fg/50" />
+                        <p className="text-[13px] text-muted-fg">No hay Morning News disponible</p>
+                        <p className="text-[10px] text-muted-fg mt-1">Se genera a las 7:30 AM ET</p>
                     </div>
                 </div>
             </div>
@@ -374,21 +374,21 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
     const { time: generatedTime } = formatGeneratedTime(newsData.generated_at);
 
     return (
-        <div className={`h-full flex flex-col bg-white ${fontClass}`}>
+        <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-gradient-to-r from-primary/10 to-surface">
                 <div className="flex items-center gap-3">
                     <div>
-                        <h2 className="text-[12px] font-semibold text-blue-600">
+                        <h2 className="text-[12px] font-semibold text-primary">
                             Morning News Call
                         </h2>
-                        <p className="text-[10px] text-slate-500">
+                        <p className="text-[10px] text-muted-fg">
                             {newsData.date_formatted}
                         </p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className="text-[9px] text-slate-400 text-right">
+                    <div className="text-[9px] text-muted-fg text-right">
                         <div className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
                             <span>{generatedTime}</span>
@@ -397,7 +397,7 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
                     <button
                         onClick={fetchMorningNews}
                         disabled={loading}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        className="p-1.5 text-muted-fg hover:text-primary hover:bg-primary/10 rounded transition-colors"
                         title="Actualizar"
                     >
                         <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -406,14 +406,14 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-auto bg-white">
+            <div className="flex-1 overflow-auto bg-surface">
                 <div className="px-6 py-4 max-w-3xl mx-auto">
                     {renderedReport}
                 </div>
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-center px-4 py-1.5 border-t border-slate-200 bg-gradient-to-r from-white to-blue-50 text-[9px] text-slate-400">
+            <div className="flex items-center justify-center px-4 py-1.5 border-t border-border bg-gradient-to-r from-surface to-primary/10 text-[9px] text-muted-fg">
                 <span>USA Edition</span>
             </div>
         </div>

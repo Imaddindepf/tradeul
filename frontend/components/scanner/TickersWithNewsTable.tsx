@@ -146,34 +146,34 @@ function MiniNewsWindow({ ticker, articles }: { ticker: string; articles: NewsAr
 
   if (articles.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full bg-white p-4">
-        <p className="text-slate-500 text-sm">{t('news.noNewsForTicker', { ticker })}</p>
+      <div className="flex items-center justify-center h-full bg-surface p-4">
+        <p className="text-muted-fg text-sm">{t('news.noNewsForTicker', { ticker })}</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+    <div className="flex flex-col h-full bg-surface">
+      <div className="px-3 py-2 bg-surface-hover border-b border-border">
         <span className="text-sm font-bold text-blue-600">{ticker}</span>
-        <span className="text-xs text-slate-500 ml-2">
+        <span className="text-xs text-muted-fg ml-2">
           {articles.length} {t('news.articles', { count: articles.length })}
         </span>
       </div>
-      <div className="flex-1 overflow-auto divide-y divide-slate-100">
+      <div className="flex-1 overflow-auto divide-y divide-border-subtle">
         {articles.map((article, i) => (
           <a
             key={article.benzinga_id || article.id || i}
             href={article.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="block px-3 py-2 hover:bg-slate-50 group"
+            className="block px-3 py-2 hover:bg-surface-hover group"
           >
             <div className="flex items-start gap-2">
-              <span className="text-xs text-slate-800 flex-1 leading-snug">{article.title}</span>
-              <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-500 flex-shrink-0" />
+              <span className="text-xs text-foreground flex-1 leading-snug">{article.title}</span>
+              <ExternalLink className="w-3 h-3 text-muted-fg group-hover:text-blue-500 flex-shrink-0" />
             </div>
-            <div className="text-xs text-slate-400 mt-1">
+            <div className="text-xs text-muted-fg mt-1">
               {formatTime(article.published)} · {article.author}
             </div>
           </a>
@@ -476,7 +476,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
         id: 'row_number',
         header: '#',
         size: 40,
-        cell: (info) => <div className="text-center text-slate-400">{info.row.index + 1}</div>,
+        cell: (info) => <div className="text-center text-muted-fg">{info.row.index + 1}</div>,
       }),
       columnHelper.accessor('symbol', {
         header: t('scanner.tableHeaders.symbol'),
@@ -487,7 +487,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
           return (
             <button
               type="button"
-              className="font-bold text-blue-600 cursor-pointer hover:underline text-left"
+              className="font-bold text-primary cursor-pointer hover:underline text-left"
               onClick={() => {
                 const currentLinkGroup = linkGroupRef.current;
                 if (currentLinkGroup) {
@@ -532,7 +532,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
           return (
             <button
               type="button"
-              className={`font-mono font-semibold text-center cursor-pointer hover:underline w-full ${count >= 3 ? 'text-orange-600' : count >= 2 ? 'text-amber-600' : 'text-blue-600'
+              className={`font-mono font-semibold text-center cursor-pointer hover:underline w-full ${count >= 3 ? 'text-orange-600' : count >= 2 ? 'text-amber-600' : 'text-primary'
                 }`}
               onClick={() => handleOpenNews(row.symbol, row.articles)}
               title="Click para ver noticias"
@@ -547,18 +547,18 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
         size: 70,
         cell: (info) => {
           const isoTime = info.getValue();
-          if (!isoTime) return <span className="text-slate-400">—</span>;
+          if (!isoTime) return <span className="text-muted-fg">—</span>;
           try {
             const d = new Date(isoTime);
             const time = d.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', hour12: false });
             const isRecent = Date.now() - d.getTime() < 30 * 60 * 1000; // < 30 min
             return (
-              <div className={`font-mono text-xs ${isRecent ? 'text-emerald-600 font-semibold' : 'text-slate-600'}`}>
+              <div className={`font-mono text-xs ${isRecent ? 'text-emerald-600 font-semibold' : 'text-foreground/80'}`}>
                 {time}
               </div>
             );
           } catch {
-            return <span className="text-slate-400">—</span>;
+            return <span className="text-muted-fg">—</span>;
           }
         },
       }),
@@ -570,7 +570,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
               className="cursor-help"
               title="G↑=Gap Up | G↓=Gap Down | M↑=Momentum Up | M↓=Momentum Down | W=Winners | L=Losers | H=New Highs | Lo=New Lows | A=Anomalies | V=High Volume | R=Reversals"
             >
-              <Info className="w-3 h-3 text-slate-400 hover:text-blue-500" />
+              <Info className="w-3 h-3 text-muted-fg hover:text-blue-500" />
             </span>
           </div>
         ),
@@ -597,11 +597,11 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
             typeof cat === 'string' && cat.length > 0 && categoryLabels[cat] !== undefined
           );
 
-          if (categories.length === 0) return <span className="text-slate-400">—</span>;
+          if (categories.length === 0) return <span className="text-muted-fg">—</span>;
 
           // Mostrar como texto simple separado por espacios (no se corta)
           return (
-            <span className="text-[10px] font-medium text-slate-600">
+            <span className="text-[10px] font-medium text-foreground/80">
               {categories.map(cat => categoryLabels[cat]).join(' ')}
             </span>
           );
@@ -629,7 +629,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
         size: 80,
         cell: (info) => {
           const value = info.getValue() as number | null | undefined;
-          if (value == null) return <span className="text-slate-400">-</span>;
+          if (value == null) return <span className="text-muted-fg">-</span>;
           return (
             <div className={`font-mono font-semibold ${value > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
               {formatPercent(value)}
@@ -640,7 +640,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
       columnHelper.accessor('volume_today', {
         header: t('scanner.tableHeaders.volume'),
         size: 90,
-        cell: (info) => <div className="font-mono text-slate-700">{formatNumber(info.getValue())}</div>,
+        cell: (info) => <div className="font-mono text-foreground">{formatNumber(info.getValue())}</div>,
       }),
       columnHelper.accessor((row) => row.rvol_slot ?? row.rvol, {
         id: 'rvol',
@@ -649,7 +649,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
         cell: (info) => {
           const value = info.getValue() ?? 0;
           return (
-            <div className={`font-mono font-semibold ${value > 3 ? 'text-blue-700' : value > 1.5 ? 'text-blue-600' : 'text-slate-500'}`}>
+            <div className={`font-mono font-semibold ${value > 3 ? 'text-blue-700' : value > 1.5 ? 'text-blue-600' : 'text-muted-fg'}`}>
               {formatRVOL(value)}
             </div>
           );
@@ -658,7 +658,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
       columnHelper.accessor('market_cap', {
         header: t('scanner.tableHeaders.marketCap'),
         size: 100,
-        cell: (info) => <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>,
+        cell: (info) => <div className="font-mono text-foreground/80">{formatNumber(info.getValue())}</div>,
       }),
     ],
     [t, executeTickerCommand, handleOpenNews]
@@ -685,10 +685,10 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
     return (
       <div className="h-full flex flex-col">
         <MarketTableLayout title={title} isLive={ws.isConnected} listName="with_news" onClose={onClose} />
-        <div className="flex-1 flex items-center justify-center bg-slate-50">
+        <div className="flex-1 flex items-center justify-center bg-surface-hover">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3" />
-            <p className="text-slate-600 text-sm">{t('news.loadingNews')}</p>
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-3" />
+            <p className="text-foreground/80 text-sm">{t('news.loadingNews')}</p>
           </div>
         </div>
       </div>
@@ -700,13 +700,13 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
     return (
       <div className="h-full flex flex-col">
         <MarketTableLayout title={title} isLive={ws.isConnected} listName="with_news" onClose={onClose} />
-        <div className="flex-1 flex items-center justify-center bg-slate-50">
+        <div className="flex-1 flex items-center justify-center bg-surface-hover">
           <div className="text-center p-6">
-            <Newspaper className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-            <h3 className="text-lg font-semibold text-slate-700 mb-2">
+            <Newspaper className="w-12 h-12 text-muted-fg/50 mx-auto mb-3" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">
               {t('scanner.noTickersWithNews')}
             </h3>
-            <p className="text-sm text-slate-500 max-w-xs">
+            <p className="text-sm text-muted-fg max-w-xs">
               {scannerTickersCount > 0
                 ? t('scanner.noTickersWithNewsButScanner', { count: scannerTickersCount })
                 : t('scanner.noTickersWithNewsDescription')}

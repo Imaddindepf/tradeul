@@ -25,34 +25,34 @@ export function ChartNewsPopup({ ticker, articles }: { ticker: string; articles:
 
     if (articles.length === 0) {
         return (
-            <div className="flex items-center justify-center h-full bg-white p-4">
-                <p className="text-slate-500 text-sm">No news for {ticker}</p>
+            <div className="flex items-center justify-center h-full bg-surface p-4">
+                <p className="text-muted-fg text-sm">No news for {ticker}</p>
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col h-full bg-white">
-            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
-                <span className="text-sm font-bold text-blue-600">{ticker}</span>
-                <span className="text-xs text-slate-500 ml-2">
+        <div className="flex flex-col h-full bg-surface">
+            <div className="px-3 py-2 bg-surface-hover border-b border-border">
+                <span className="text-sm font-bold text-primary">{ticker}</span>
+                <span className="text-xs text-muted-fg ml-2">
                     {articles.length} article{articles.length !== 1 ? 's' : ''}
                 </span>
             </div>
-            <div className="flex-1 overflow-auto divide-y divide-slate-100">
+            <div className="flex-1 overflow-auto divide-y divide-border">
                 {articles.map((article, i) => (
                     <a
                         key={article.benzinga_id || article.id || i}
                         href={article.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block px-3 py-2 hover:bg-slate-50 group"
+                        className="block px-3 py-2 hover:bg-surface-hover group"
                     >
                         <div className="flex items-start gap-2">
-                            <span className="text-xs text-slate-800 flex-1 leading-snug">{article.title}</span>
-                            <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-500 flex-shrink-0" />
+                            <span className="text-xs text-foreground flex-1 leading-snug">{article.title}</span>
+                            <ExternalLink className="w-3 h-3 text-muted-fg group-hover:text-primary flex-shrink-0" />
                         </div>
-                        <div className="text-xs text-slate-400 mt-1">
+                        <div className="text-xs text-muted-fg mt-1">
                             {formatTime(article.published)} · {article.author || 'Benzinga'}
                         </div>
                     </a>

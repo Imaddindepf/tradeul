@@ -57,13 +57,13 @@ type StatusFilter = 'all' | 'pending' | 'new' | 'history' | 'rumor' | 'withdrawn
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: typeof Clock }> = {
-  pending: { label: 'PENDING', color: 'text-amber-700', bg: 'bg-amber-50', icon: Clock },
-  new: { label: 'NEW', color: 'text-emerald-700', bg: 'bg-emerald-50', icon: Rocket },
-  history: { label: 'LISTED', color: 'text-blue-700', bg: 'bg-blue-50', icon: CheckCircle },
-  rumor: { label: 'RUMOR', color: 'text-purple-700', bg: 'bg-purple-50', icon: HelpCircle },
-  withdrawn: { label: 'WITHDRAWN', color: 'text-red-700', bg: 'bg-red-50', icon: XCircle },
-  direct_listing_process: { label: 'DLP', color: 'text-cyan-700', bg: 'bg-cyan-50', icon: TrendingUp },
-  postponed: { label: 'POSTPONED', color: 'text-slate-700', bg: 'bg-slate-100', icon: Clock },
+  pending: { label: 'PENDING', color: 'text-amber-700', bg: 'bg-amber-500/10', icon: Clock },
+  new: { label: 'NEW', color: 'text-emerald-700', bg: 'bg-emerald-500/10', icon: Rocket },
+  history: { label: 'LISTED', color: 'text-blue-700', bg: 'bg-blue-500/10', icon: CheckCircle },
+  rumor: { label: 'RUMOR', color: 'text-purple-700', bg: 'bg-purple-500/10', icon: HelpCircle },
+  withdrawn: { label: 'WITHDRAWN', color: 'text-red-700', bg: 'bg-red-500/10', icon: XCircle },
+  direct_listing_process: { label: 'DLP', color: 'text-cyan-700', bg: 'bg-cyan-500/10', icon: TrendingUp },
+  postponed: { label: 'POSTPONED', color: 'text-foreground', bg: 'bg-surface-inset', icon: Clock },
 };
 
 const EXCHANGE_MAP: Record<string, string> = {
@@ -229,26 +229,26 @@ export function IPOContent() {
     const filings = prospectusData?.filings || [];
 
     return (
-      <div className="h-full flex flex-col bg-white">
+      <div className="h-full flex flex-col bg-surface">
         {/* Header */}
-        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-slate-200">
-          <button onClick={handleBack} className="p-1 hover:bg-slate-100 rounded transition-colors">
-            <ArrowLeft className="w-3.5 h-3.5 text-slate-600" />
+        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border">
+          <button onClick={handleBack} className="p-1 hover:bg-surface-hover rounded transition-colors">
+            <ArrowLeft className="w-3.5 h-3.5 text-foreground/80" />
           </button>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-mono font-semibold text-sm">{selectedIPO.ticker}</span>
-              <span className="text-[9px] px-1 py-0.5 rounded bg-slate-100 text-slate-600">
+              <span className="text-[9px] px-1 py-0.5 rounded bg-surface-inset text-foreground/80">
                 {STATUS_CONFIG[selectedIPO.ipoStatus]?.label || selectedIPO.ipoStatus}
               </span>
             </div>
-            <p className="text-[10px] text-slate-500 truncate">{selectedIPO.issuerName}</p>
+            <p className="text-[10px] text-muted-fg truncate">{selectedIPO.issuerName}</p>
           </div>
           <a
             href={`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=${encodeURIComponent(selectedIPO.issuerName)}&type=S-1&dateb=&owner=include&count=40`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1 px-2 py-1 text-[10px] text-slate-600 hover:bg-slate-100 rounded transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-[10px] text-foreground/80 hover:bg-surface-hover rounded transition-colors"
           >
             SEC EDGAR <ExternalLink className="w-2.5 h-2.5" />
           </a>
@@ -259,11 +259,11 @@ export function IPOContent() {
           {structuredData ? (
             <>
               {/* Filing Info */}
-              <div className="flex items-center gap-3 text-[10px] text-slate-500">
-                <span className="font-mono font-semibold text-slate-700">{structuredData.form_type}</span>
+              <div className="flex items-center gap-3 text-[10px] text-muted-fg">
+                <span className="font-mono font-semibold text-foreground">{structuredData.form_type}</span>
                 <span>Filed: {formatDate(structuredData.filed_at)}</span>
                 {structuredData.filing_url && (
-                  <a href={structuredData.filing_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-600 hover:underline">
+                  <a href={structuredData.filing_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:underline">
                     View <ExternalLink className="w-2.5 h-2.5" />
                   </a>
                 )}
@@ -271,19 +271,19 @@ export function IPOContent() {
 
               {/* Offering Price */}
               {structuredData.public_offering_price && (
-                <div className="border border-slate-200 rounded p-2">
-                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-slate-700">
+                <div className="border border-border rounded p-2">
+                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-foreground">
                     <TrendingUp className="w-3 h-3" /> Offering Price
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[10px]">
                     <div>
-                      <span className="text-slate-500">Per Share</span>
+                      <span className="text-muted-fg">Per Share</span>
                       <span className="ml-2 font-mono font-semibold">
                         {structuredData.public_offering_price.perShareText || formatPrice(structuredData.public_offering_price.perShare)}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500">Total</span>
+                      <span className="text-muted-fg">Total</span>
                       <span className="ml-2 font-mono font-semibold">
                         {structuredData.public_offering_price.totalText || formatSize(structuredData.public_offering_price.total)}
                       </span>
@@ -294,11 +294,11 @@ export function IPOContent() {
 
               {/* Securities */}
               {structuredData.securities?.length > 0 && (
-                <div className="border border-slate-200 rounded p-2">
-                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-slate-700">
+                <div className="border border-border rounded p-2">
+                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-foreground">
                     <ClipboardList className="w-3 h-3" /> Securities ({structuredData.securities.length})
                   </div>
-                  <div className="space-y-0.5 text-[10px] text-slate-600">
+                  <div className="space-y-0.5 text-[10px] text-foreground/80">
                     {structuredData.securities.map((sec: any, i: number) => (
                       <div key={i}>{sec.name}</div>
                     ))}
@@ -308,18 +308,18 @@ export function IPOContent() {
 
               {/* Underwriters */}
               {structuredData.underwriters?.length > 0 && (
-                <div className="border border-slate-200 rounded p-2">
-                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-slate-700">
+                <div className="border border-border rounded p-2">
+                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-foreground">
                     <Building2 className="w-3 h-3" /> Underwriters ({structuredData.underwriters.length})
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {structuredData.underwriters.slice(0, 10).map((uw: any, i: number) => (
-                      <span key={i} className={`px-1.5 py-0.5 rounded text-[9px] ${i === 0 ? 'bg-slate-200 font-medium' : 'bg-slate-100'} text-slate-700`}>
+                      <span key={i} className={`px-1.5 py-0.5 rounded text-[9px] ${i === 0 ? 'bg-muted font-medium' : 'bg-surface-inset'} text-foreground`}>
                         {uw.name}
                       </span>
                     ))}
                     {structuredData.underwriters.length > 10 && (
-                      <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px]">+{structuredData.underwriters.length - 10}</span>
+                      <span className="px-1.5 py-0.5 bg-surface-inset text-muted-fg rounded text-[9px]">+{structuredData.underwriters.length - 10}</span>
                     )}
                   </div>
                 </div>
@@ -327,27 +327,27 @@ export function IPOContent() {
 
               {/* Management */}
               {structuredData.management?.length > 0 && (
-                <div className="border border-slate-200 rounded p-2">
-                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-slate-700">
+                <div className="border border-border rounded p-2">
+                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-foreground">
                     <Users className="w-3 h-3" /> Management ({structuredData.management.length})
                   </div>
                   <div className="space-y-1 text-[10px]">
                     {structuredData.management.slice(0, 6).map((m: any, i: number) => (
                       <div key={i} className="flex items-center gap-2">
-                        <span className="font-medium text-slate-700">{m.name}</span>
-                        {m.age && <span className="text-slate-400">({m.age})</span>}
-                        <span className="text-slate-500 truncate">{m.position}</span>
+                        <span className="font-medium text-foreground">{m.name}</span>
+                        {m.age && <span className="text-muted-fg">({m.age})</span>}
+                        <span className="text-muted-fg truncate">{m.position}</span>
                       </div>
                     ))}
-                    {structuredData.management.length > 6 && <div className="text-slate-400">+{structuredData.management.length - 6} more</div>}
+                    {structuredData.management.length > 6 && <div className="text-muted-fg">+{structuredData.management.length - 6} more</div>}
                   </div>
                 </div>
               )}
 
               {/* Employees */}
               {structuredData.employees?.total && (
-                <div className="border border-slate-200 rounded p-2 flex items-center justify-between">
-                  <span className="text-[10px] text-slate-500">Employees</span>
+                <div className="border border-border rounded p-2 flex items-center justify-between">
+                  <span className="text-[10px] text-muted-fg">Employees</span>
                   <span className="font-mono font-semibold text-sm">{structuredData.employees.total.toLocaleString()}</span>
                 </div>
               )}
@@ -355,21 +355,21 @@ export function IPOContent() {
               {/* Law Firms & Auditors */}
               <div className="grid grid-cols-2 gap-2">
                 {structuredData.law_firms?.length > 0 && (
-                  <div className="border border-slate-200 rounded p-2">
-                    <div className="flex items-center gap-1.5 mb-1 text-[10px] font-medium text-slate-700">
+                  <div className="border border-border rounded p-2">
+                    <div className="flex items-center gap-1.5 mb-1 text-[10px] font-medium text-foreground">
                       <Scale className="w-3 h-3" /> Law Firms
                     </div>
-                    <div className="space-y-0.5 text-[9px] text-slate-600">
+                    <div className="space-y-0.5 text-[9px] text-foreground/80">
                       {structuredData.law_firms.slice(0, 3).map((lf: any, i: number) => <div key={i} className="truncate">{lf.name}</div>)}
                     </div>
                   </div>
                 )}
                 {structuredData.auditors?.length > 0 && (
-                  <div className="border border-slate-200 rounded p-2">
-                    <div className="flex items-center gap-1.5 mb-1 text-[10px] font-medium text-slate-700">
+                  <div className="border border-border rounded p-2">
+                    <div className="flex items-center gap-1.5 mb-1 text-[10px] font-medium text-foreground">
                       <ClipboardList className="w-3 h-3" /> Auditors
                     </div>
-                    <div className="space-y-0.5 text-[9px] text-slate-600">
+                    <div className="space-y-0.5 text-[9px] text-foreground/80">
                       {structuredData.auditors.map((a: any, i: number) => <div key={i} className="truncate">{a.name}</div>)}
                     </div>
                   </div>
@@ -380,16 +380,16 @@ export function IPOContent() {
             <div className="text-center py-6">
               {selectedIPO.ipoStatus === 'pending' || selectedIPO.ipoStatus === 'rumor' ? (
                 <>
-                  <Clock className="w-6 h-6 mx-auto mb-2 text-slate-400" />
-                  <p className="text-[11px] font-medium text-slate-700 mb-1">S-1 Not Yet Filed</p>
-                  <p className="text-[10px] text-slate-500 max-w-xs mx-auto">
+                  <Clock className="w-6 h-6 mx-auto mb-2 text-muted-fg" />
+                  <p className="text-[11px] font-medium text-foreground mb-1">S-1 Not Yet Filed</p>
+                  <p className="text-[10px] text-muted-fg max-w-xs mx-auto">
                     {prospectusData?.message || "The S-1 Registration Statement has not yet been filed with the SEC."}
                   </p>
                 </>
               ) : (
                 <>
-                  <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-slate-400" />
-                  <p className="text-[11px] text-slate-500">{prospectusData?.message || "No SEC filings found."}</p>
+                  <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-muted-fg" />
+                  <p className="text-[11px] text-muted-fg">{prospectusData?.message || "No SEC filings found."}</p>
                 </>
               )}
             </div>
@@ -397,16 +397,16 @@ export function IPOContent() {
 
           {/* All Filings */}
           {filings.length > 0 && (
-            <div className="border-t border-slate-200 pt-2">
-              <div className="text-[10px] font-medium text-slate-700 mb-1.5">All Filings ({filings.length})</div>
+              <div className="border-t border-border pt-2">
+              <div className="text-[10px] font-medium text-foreground mb-1.5">All Filings ({filings.length})</div>
               <div className="space-y-1">
                 {filings.map((f: any, i: number) => (
-                  <a key={i} href={f.filing_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between px-2 py-1 bg-slate-50 rounded hover:bg-slate-100 transition-colors text-[10px]">
+                  <a key={i} href={f.filing_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between px-2 py-1 bg-surface-hover rounded hover:bg-surface-inset transition-colors text-[10px]">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono font-semibold text-slate-700">{f.form_type}</span>
-                      <span className="text-slate-500">{formatDate(f.filed_at)}</span>
+                      <span className="font-mono font-semibold text-foreground">{f.form_type}</span>
+                      <span className="text-muted-fg">{formatDate(f.filed_at)}</span>
                     </div>
-                    <ExternalLink className="w-2.5 h-2.5 text-slate-400" />
+                    <ExternalLink className="w-2.5 h-2.5 text-muted-fg" />
                   </a>
                 ))}
               </div>
@@ -415,17 +415,17 @@ export function IPOContent() {
         </div>
 
         {/* Footer */}
-        <div className="px-2 py-0.5 border-t border-slate-200 text-[8px] text-slate-400">SEC-API.io</div>
+        <div className="px-2 py-0.5 border-t border-border text-[8px] text-muted-fg">SEC-API.io</div>
       </div>
     );
   }
 
   if (loading && ipos.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full bg-white">
+      <div className="flex items-center justify-center h-full bg-surface">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2" />
-          <p className="text-slate-500 text-xs">Loading IPOs...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2" />
+          <p className="text-muted-fg text-xs">Loading IPOs...</p>
         </div>
       </div>
     );
@@ -433,11 +433,11 @@ export function IPOContent() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full bg-white">
+      <div className="flex items-center justify-center h-full bg-surface">
         <div className="text-center">
           <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
           <p className="text-red-600 text-sm">{error}</p>
-          <button onClick={() => fetchIPOs()} className="mt-2 text-blue-600 text-xs hover:underline">
+          <button onClick={() => fetchIPOs()} className="mt-2 text-primary text-xs hover:underline">
             Retry
           </button>
         </div>
@@ -446,20 +446,20 @@ export function IPOContent() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-surface">
       {/* Header */}
-      <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200">
+      <div className="flex items-center justify-between px-2 py-1 bg-surface-hover border-b border-border">
         <div className="flex items-center gap-2">
-          <Rocket className="w-4 h-4 text-blue-600" />
-          <span className="text-xs font-semibold text-slate-700">IPOs</span>
-          <span className="text-[10px] text-slate-400">({filteredIPOs.length})</span>
+          <Rocket className="w-4 h-4 text-primary" />
+          <span className="text-xs font-semibold text-foreground">IPOs</span>
+          <span className="text-[10px] text-muted-fg">({filteredIPOs.length})</span>
         </div>
         <div className="flex items-center gap-2">
-          {cached && <span className="text-[9px] text-slate-400">Cached (24h)</span>}
+          {cached && <span className="text-[9px] text-muted-fg">Cached (24h)</span>}
           <button
             onClick={() => fetchIPOs(true)}
             disabled={loading}
-            className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+            className="p-1 text-muted-fg hover:text-primary transition-colors"
             title="Refresh"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
@@ -468,14 +468,14 @@ export function IPOContent() {
       </div>
 
       {/* Status Tabs */}
-      <div className="flex items-center gap-0.5 px-2 py-1 bg-slate-100 border-b border-slate-200 overflow-x-auto">
+      <div className="flex items-center gap-0.5 px-2 py-1 bg-surface-inset border-b border-border overflow-x-auto">
         {STATUS_TABS.map(tab => (
           <button
             key={tab.id}
             onClick={() => setStatusFilter(tab.id)}
             className={`px-2 py-0.5 text-[9px] font-medium rounded whitespace-nowrap transition-colors ${statusFilter === tab.id
-              ? 'bg-blue-600 text-white'
-              : 'text-slate-600 hover:bg-slate-200'
+              ? 'bg-primary text-white'
+              : 'text-foreground/80 hover:bg-muted'
               }`}
           >
             {tab.label}
@@ -486,7 +486,7 @@ export function IPOContent() {
       {/* Virtualized Table */}
       <div className="flex-1">
         {filteredIPOs.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+          <div className="flex items-center justify-center h-full text-muted-fg text-sm">
             No IPOs found for this filter
           </div>
         ) : (
@@ -496,7 +496,7 @@ export function IPOContent() {
             data={filteredIPOs}
             overscan={20}
             fixedHeaderContent={() => (
-              <tr className="text-left text-slate-500 uppercase tracking-wide bg-slate-100">
+              <tr className="text-left text-muted-fg uppercase tracking-wide bg-surface-inset">
                 <th className="px-1 py-0.5 font-medium w-12 text-[10px]">{t('ipo.tableHeaders.ticker')}</th>
                 <th className="px-1 py-0.5 font-medium w-10 text-center text-[10px]">{t('ipo.tableHeaders.status')}</th>
                 <th className="px-1 py-0.5 font-medium text-[10px]">{t('ipo.tableHeaders.company')}</th>
@@ -523,7 +523,7 @@ export function IPOContent() {
                     <button
                       onClick={() => openProspectus(ipo.ticker, ipo.ipo_status, ipo.issuer_name)}
                       disabled={loadingProspectus === ipo.ticker}
-                      className="flex items-center gap-0.5 font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer disabled:opacity-50"
+                      className="flex items-center gap-0.5 font-mono font-semibold text-primary hover:text-primary-hover hover:underline cursor-pointer disabled:opacity-50"
                       title="View SEC Prospectus (S-1/424B4)"
                     >
                       {loadingProspectus === ipo.ticker ? (
@@ -539,22 +539,22 @@ export function IPOContent() {
                       {statusCfg.label}
                     </span>
                   </td>
-                  <td className="px-1 py-0.5 text-slate-700 truncate max-w-[200px] text-[10px]" style={{ height: ROW_HEIGHT }} title={ipo.issuer_name}>
+                  <td className="px-1 py-0.5 text-foreground truncate max-w-[200px] text-[10px]" style={{ height: ROW_HEIGHT }} title={ipo.issuer_name}>
                     {ipo.issuer_name}
                   </td>
-                  <td className="px-1 py-0.5 text-center text-slate-500 font-mono text-[10px]" style={{ height: ROW_HEIGHT }}>
+                  <td className="px-1 py-0.5 text-center text-muted-fg font-mono text-[10px]" style={{ height: ROW_HEIGHT }}>
                     {EXCHANGE_MAP[ipo.primary_exchange || ''] || ipo.primary_exchange || '—'}
                   </td>
-                  <td className="px-1 py-0.5 text-right font-mono text-slate-700 text-[10px]" style={{ height: ROW_HEIGHT }}>
+                  <td className="px-1 py-0.5 text-right font-mono text-foreground text-[10px]" style={{ height: ROW_HEIGHT }}>
                     {priceRange}
                   </td>
-                  <td className="px-1 py-0.5 text-right font-mono text-slate-600 text-[10px]" style={{ height: ROW_HEIGHT }}>
+                  <td className="px-1 py-0.5 text-right font-mono text-foreground/80 text-[10px]" style={{ height: ROW_HEIGHT }}>
                     {formatSize(ipo.total_offer_size)}
                   </td>
-                  <td className="px-1 py-0.5 text-right font-mono text-slate-500 text-[10px]" style={{ height: ROW_HEIGHT }}>
+                  <td className="px-1 py-0.5 text-right font-mono text-muted-fg text-[10px]" style={{ height: ROW_HEIGHT }}>
                     {formatShares(ipo.max_shares_offered)}
                   </td>
-                  <td className="px-1 py-0.5 text-center font-mono text-slate-500 text-[10px]" style={{ height: ROW_HEIGHT }}>
+                  <td className="px-1 py-0.5 text-center font-mono text-muted-fg text-[10px]" style={{ height: ROW_HEIGHT }}>
                     {formatDate(ipo.listing_date || ipo.announced_date)}
                   </td>
                 </>
@@ -579,7 +579,7 @@ export function IPOContent() {
                 <tr 
                   {...props} 
                   style={{ ...style }}
-                  className="hover:bg-blue-50/50 group border-b border-slate-50"
+                  className="hover:bg-primary/10 group border-b border-border-subtle"
                 />
               ),
             }}
@@ -588,7 +588,7 @@ export function IPOContent() {
       </div>
 
       {/* Footer */}
-      <div className="px-2 py-0.5 bg-slate-50 border-t border-slate-200 text-[8px] text-slate-400 flex justify-between">
+      <div className="px-2 py-0.5 bg-surface-hover border-t border-border text-[8px] text-muted-fg flex justify-between">
         <span>Polygon.io</span>
         <span>{filteredIPOs.length} of {ipos.length}</span>
       </div>

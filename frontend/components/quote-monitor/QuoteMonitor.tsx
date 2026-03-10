@@ -66,13 +66,13 @@ const QuoteRow = memo(function QuoteRow({ ticker, quote, onRemove, onRowClick, o
       draggable
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      className={`border-b border-slate-100 hover:bg-blue-50/50 cursor-pointer group h-[22px] ${isDragging ? 'opacity-50' : ''
+      className={`border-b border-border-subtle hover:bg-primary/10 cursor-pointer group h-[22px] ${isDragging ? 'opacity-50' : ''
         }`}
       onClick={onRowClick}
     >
       {/* Drag Handle */}
       <td className="w-[20px] px-0.5 py-0 cursor-grab active:cursor-grabbing">
-        <GripVertical className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+        <GripVertical className="w-3 h-3 text-muted-fg/50 group-hover:text-muted-fg" />
       </td>
 
       {/* Symbol */}
@@ -82,7 +82,7 @@ const QuoteRow = memo(function QuoteRow({ ticker, quote, onRemove, onRowClick, o
 
       {/* Last Price (midPrice) */}
       <td className="w-[55px] px-1.5 py-0 text-right">
-        <span ref={priceRef} className="font-mono text-[11px] tabular-nums text-slate-800">
+        <span ref={priceRef} className="font-mono text-[11px] tabular-nums text-foreground">
           {quote?.midPrice ? quote.midPrice.toFixed(2) : '-.--'}
         </span>
       </td>
@@ -113,14 +113,14 @@ const QuoteRow = memo(function QuoteRow({ ticker, quote, onRemove, onRowClick, o
 
       {/* Spread */}
       <td className="w-[45px] px-1.5 py-0 text-right">
-        <span className="font-mono text-[11px] tabular-nums text-slate-500">
+        <span className="font-mono text-[11px] tabular-nums text-muted-fg">
           {quote?.spread ? quote.spread.toFixed(2) : '-.--'}
         </span>
       </td>
 
       {/* Volume (bidSize) */}
       <td className="w-[45px] px-1.5 py-0 text-right">
-        <span className="font-mono text-[11px] tabular-nums text-slate-500">
+        <span className="font-mono text-[11px] tabular-nums text-muted-fg">
           {quote?.bidSize ? formatVolume(quote.bidSize) : '-'}
         </span>
       </td>
@@ -141,7 +141,7 @@ const QuoteRow = memo(function QuoteRow({ ticker, quote, onRemove, onRowClick, o
             e.stopPropagation();
             onRemove();
           }}
-          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500"
+          className="opacity-0 group-hover:opacity-100 text-muted-fg hover:text-red-500"
         >
           <X className="w-3 h-3" />
         </button>
@@ -251,7 +251,7 @@ const SectionHeader = memo(function SectionHeader({
 
   return (
     <tr
-      className={`bg-slate-50 border-b border-slate-200 ${isDragOver ? 'bg-blue-100 border-blue-300' : ''}`}
+      className={`bg-surface-hover border-b border-border ${isDragOver ? 'bg-primary/15 border-border' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -260,12 +260,12 @@ const SectionHeader = memo(function SectionHeader({
         <div className="flex items-center gap-1 group">
           <button
             onClick={onToggle}
-            className="p-0.5 hover:bg-slate-200 rounded transition-colors"
+            className="p-0.5 hover:bg-muted rounded transition-colors"
           >
             {isCollapsed ? (
-              <ChevronRight className="w-3 h-3 text-slate-500" />
+              <ChevronRight className="w-3 h-3 text-muted-fg" />
             ) : (
-              <ChevronDown className="w-3 h-3 text-slate-500" />
+              <ChevronDown className="w-3 h-3 text-muted-fg" />
             )}
           </button>
 
@@ -291,19 +291,19 @@ const SectionHeader = memo(function SectionHeader({
                   setIsEditing(false);
                 }
               }}
-              className="flex-1 px-1 text-[11px] font-medium bg-white border border-blue-400 rounded outline-none"
+              className="flex-1 px-1 text-[11px] font-medium bg-surface border border-blue-400 rounded outline-none"
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
             <span
-              className="text-[11px] font-medium text-slate-700 cursor-pointer"
+              className="text-[11px] font-medium text-foreground cursor-pointer"
               onDoubleClick={() => setIsEditing(true)}
             >
               {section.name}
             </span>
           )}
 
-          <span className="text-[10px] text-slate-400">
+          <span className="text-[10px] text-muted-fg">
             ({tickerCount})
           </span>
 
@@ -314,7 +314,7 @@ const SectionHeader = memo(function SectionHeader({
               e.stopPropagation();
               onDelete();
             }}
-            className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-red-500 rounded"
+            className="opacity-0 group-hover:opacity-100 p-0.5 text-muted-fg hover:text-red-500 rounded"
           >
             <Trash2 className="w-3 h-3" />
           </button>
@@ -366,8 +366,8 @@ const Tab = memo(function Tab({ watchlist, isActive, onClick, onRename, onDelete
   return (
     <div
       className={`group flex items-center gap-0.5 px-2 py-1 rounded-t cursor-pointer text-[11px] ${isActive
-        ? 'bg-white border-t border-l border-r border-slate-200 -mb-px font-medium'
-        : 'bg-slate-200/50 hover:bg-slate-200 text-slate-500'
+        ? 'bg-surface border-t border-l border-r border-border -mb-px font-medium'
+        : 'bg-muted/50 hover:bg-muted text-muted-fg'
         }`}
       style={{ borderColor: isActive && watchlist.color ? watchlist.color : undefined }}
       onClick={onClick}
@@ -393,7 +393,7 @@ const Tab = memo(function Tab({ watchlist, isActive, onClick, onRename, onDelete
               setIsEditing(false);
             }
           }}
-          className="w-16 px-0.5 text-[11px] bg-transparent border-b border-blue-500 outline-none"
+          className="w-16 px-0.5 text-[11px] bg-transparent border-b border-primary outline-none"
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
@@ -407,7 +407,7 @@ const Tab = memo(function Tab({ watchlist, isActive, onClick, onRename, onDelete
         </span>
       )}
 
-      <span className="text-[9px] text-slate-400">
+      <span className="text-[9px] text-muted-fg">
         {totalTickers}
       </span>
 
@@ -417,7 +417,7 @@ const Tab = memo(function Tab({ watchlist, isActive, onClick, onRename, onDelete
             e.stopPropagation();
             onDelete();
           }}
-          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500"
+          className="opacity-0 group-hover:opacity-100 text-muted-fg hover:text-red-500"
         >
           <X className="w-2.5 h-2.5" />
         </button>
@@ -596,9 +596,9 @@ export function QuoteMonitor() {
   const showInitialLoader = loading && watchlists.length === 0;
 
   return (
-    <div className="h-full flex flex-col bg-white relative">
+    <div className="h-full flex flex-col bg-surface relative">
       {/* Tab Bar - Compact */}
-      <div className="flex items-center gap-0.5 px-1 pt-1 bg-slate-100 border-b border-slate-200">
+      <div className="flex items-center gap-0.5 px-1 pt-1 bg-surface-inset border-b border-border">
         {watchlists.map((wl) => (
           <Tab
             key={wl.id}
@@ -612,7 +612,7 @@ export function QuoteMonitor() {
 
         {/* Add Tab Button */}
         {isAddingWatchlist ? (
-          <div className="flex items-center gap-0.5 px-1.5 py-1 bg-white rounded-t border border-slate-200">
+          <div className="flex items-center gap-0.5 px-1.5 py-1 bg-surface rounded-t border border-border">
             <input
               type="text"
               value={newWatchlistName}
@@ -636,14 +636,14 @@ export function QuoteMonitor() {
                 }
               }}
               placeholder="Name"
-              className="w-20 px-0.5 text-[11px] bg-transparent border-b border-blue-500 outline-none text-slate-800"
+              className="w-20 px-0.5 text-[11px] bg-transparent border-b border-blue-500 outline-none text-foreground"
               autoFocus
             />
           </div>
         ) : (
           <button
             onClick={() => setIsAddingWatchlist(true)}
-            className="flex items-center px-1.5 py-1 text-slate-400 hover:text-blue-600 hover:bg-slate-200 rounded-t"
+            className="flex items-center px-1.5 py-1 text-muted-fg hover:text-blue-600 hover:bg-surface-inset rounded-t"
             title="Add watchlist"
           >
             <Plus className="w-3 h-3" />
@@ -656,7 +656,7 @@ export function QuoteMonitor() {
         {activeWatchlist && (
           <button
             onClick={() => setIsAddingSection(true)}
-            className="flex items-center gap-0.5 px-1.5 py-1 text-slate-400 hover:text-blue-600 hover:bg-slate-200 rounded text-[10px]"
+            className="flex items-center gap-0.5 px-1.5 py-1 text-muted-fg hover:text-blue-600 hover:bg-surface-inset rounded text-[10px]"
             title="Add section"
           >
             <FolderPlus className="w-3 h-3" />
@@ -667,7 +667,7 @@ export function QuoteMonitor() {
 
       {/* New Section Input */}
       {isAddingSection && (
-        <div className="flex items-center gap-2 px-2 py-1.5 bg-blue-50 border-b border-blue-200">
+        <div className="flex items-center gap-2 px-2 py-1.5 bg-blue-500/10 border-b border-blue-500/30">
           <FolderPlus className="w-3.5 h-3.5 text-blue-500" />
           <input
             ref={sectionInputRef}
@@ -686,14 +686,14 @@ export function QuoteMonitor() {
               }
             }}
             placeholder="Section name..."
-            className="flex-1 px-2 py-0.5 bg-white text-slate-800 text-[11px] rounded border border-blue-300 
-                       placeholder-slate-400 focus:outline-none focus:border-blue-500"
+            className="flex-1 px-2 py-0.5 bg-surface text-foreground text-[11px] rounded border border-blue-300 
+                       placeholder:text-muted-fg focus:outline-none focus:border-blue-500"
           />
           <button
             onClick={handleCreateSection}
             disabled={!newSectionName.trim()}
             className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-medium rounded 
-                       hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                       hover:bg-blue-700 disabled:bg-muted disabled:cursor-not-allowed"
           >
             Create
           </button>
@@ -702,7 +702,7 @@ export function QuoteMonitor() {
               setNewSectionName('');
               setIsAddingSection(false);
             }}
-            className="text-slate-400 hover:text-slate-600"
+            className="text-muted-fg hover:text-foreground/80"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -710,24 +710,24 @@ export function QuoteMonitor() {
       )}
 
       {/* Table */}
-      <div className="flex-1 overflow-auto bg-white">
+      <div className="flex-1 overflow-auto bg-surface">
         {showInitialLoader ? (
           <div className="h-full flex items-center justify-center">
             <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
           </div>
         ) : activeWatchlist ? (
           <table className="w-full border-collapse table-fixed">
-            <thead className="sticky top-0 bg-slate-100 border-b border-slate-200 z-10">
+            <thead className="sticky top-0 bg-surface-inset border-b border-border z-10">
               <tr className="h-[20px]">
                 <th className="w-[20px] px-0.5 py-0"></th>
-                <th className="w-[60px] px-1.5 py-0 text-left text-[10px] font-semibold text-slate-500 uppercase">Ticker</th>
-                <th className="w-[55px] px-1.5 py-0 text-right text-[10px] font-semibold text-slate-500 uppercase">Last</th>
-                <th className="w-[55px] px-1.5 py-0 text-right text-[10px] font-semibold text-slate-500 uppercase">Chg%</th>
-                <th className="w-[55px] px-1.5 py-0 text-right text-[10px] font-semibold text-slate-500 uppercase">Bid</th>
-                <th className="w-[55px] px-1.5 py-0 text-right text-[10px] font-semibold text-slate-500 uppercase">Ask</th>
-                <th className="w-[45px] px-1.5 py-0 text-right text-[10px] font-semibold text-slate-500 uppercase">Sprd</th>
-                <th className="w-[45px] px-1.5 py-0 text-right text-[10px] font-semibold text-slate-500 uppercase">Vol</th>
-                <th className="w-[40px] px-1.5 py-0 text-right text-[10px] font-semibold text-slate-500 uppercase">Lat</th>
+                <th className="w-[60px] px-1.5 py-0 text-left text-[10px] font-semibold text-muted-fg uppercase">Ticker</th>
+                <th className="w-[55px] px-1.5 py-0 text-right text-[10px] font-semibold text-muted-fg uppercase">Last</th>
+                <th className="w-[55px] px-1.5 py-0 text-right text-[10px] font-semibold text-muted-fg uppercase">Chg%</th>
+                <th className="w-[55px] px-1.5 py-0 text-right text-[10px] font-semibold text-muted-fg uppercase">Bid</th>
+                <th className="w-[55px] px-1.5 py-0 text-right text-[10px] font-semibold text-muted-fg uppercase">Ask</th>
+                <th className="w-[45px] px-1.5 py-0 text-right text-[10px] font-semibold text-muted-fg uppercase">Sprd</th>
+                <th className="w-[45px] px-1.5 py-0 text-right text-[10px] font-semibold text-muted-fg uppercase">Vol</th>
+                <th className="w-[40px] px-1.5 py-0 text-right text-[10px] font-semibold text-muted-fg uppercase">Lat</th>
                 <th className="w-[16px]"></th>
               </tr>
             </thead>
@@ -755,12 +755,12 @@ export function QuoteMonitor() {
               {/* Render unsorted tickers */}
               {hasUnsortedTickers && hasSections && (
                 <tr
-                  className="bg-slate-50/50 border-b border-slate-200"
+                  className="bg-surface-hover/50 border-b border-border"
                   onDragOver={handleDragOverUnsorted}
                   onDrop={handleDropOnUnsorted}
                 >
                   <td colSpan={10} className="px-1.5 py-0.5">
-                    <span className="text-[10px] text-slate-400 italic">
+                    <span className="text-[10px] text-muted-fg italic">
                       Unsorted ({activeWatchlist.tickers.length})
                     </span>
                   </td>
@@ -780,7 +780,7 @@ export function QuoteMonitor() {
             </tbody>
           </table>
         ) : !showInitialLoader ? (
-          <div className="flex items-center justify-center h-full text-slate-400">
+          <div className="flex items-center justify-center h-full text-muted-fg">
             No watchlist selected
           </div>
         ) : null}
@@ -788,7 +788,7 @@ export function QuoteMonitor() {
 
       {/* Add Ticker Input - Compact */}
       {activeWatchlist && (
-        <div className="flex items-center gap-2 px-2 py-1.5 bg-slate-50 border-t border-slate-200">
+        <div className="flex items-center gap-2 px-2 py-1.5 bg-surface-hover border-t border-border">
           <input
             ref={inputRef}
             type="text"
@@ -802,14 +802,14 @@ export function QuoteMonitor() {
               }
             }}
             placeholder="Add ticker..."
-            className="flex-1 px-2 py-1 bg-white text-slate-800 text-[11px] rounded border border-slate-200 
-                       placeholder-slate-400 focus:outline-none focus:border-blue-400"
+            className="flex-1 px-2 py-1 bg-surface text-foreground text-[11px] rounded border border-border 
+                       placeholder:text-muted-fg focus:outline-none focus:border-primary"
           />
           <button
             onClick={handleAddTicker}
             disabled={!newTickerInput.trim()}
             className="px-2 py-1 bg-blue-600 text-white text-[10px] font-medium rounded 
-                       hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                       hover:bg-blue-700 disabled:bg-muted disabled:cursor-not-allowed"
           >
             Add
           </button>
@@ -819,7 +819,7 @@ export function QuoteMonitor() {
       {/* Empty State */}
       {activeWatchlist && !totalItems && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ top: '60px' }}>
-          <div className="text-center text-slate-300">
+          <div className="text-center text-muted-fg/50">
             <p className="text-sm">Empty watchlist</p>
             <p className="text-xs mt-1">Add tickers or create sections</p>
           </div>

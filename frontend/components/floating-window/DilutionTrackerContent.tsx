@@ -298,20 +298,20 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
   ];
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-surface">
       {/* Job Completion Notification Toast - Minimalista */}
       {jobNotification && (
         <div
-          className="mx-2 mt-1 px-3 py-2 border-b border-slate-200 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50"
+          className="mx-2 mt-1 px-3 py-2 border-b border-border flex items-center justify-between gap-2 cursor-pointer hover:bg-surface-hover"
           onClick={() => {
             setInputValue(jobNotification.ticker);
             fetchTickerData(jobNotification.ticker);
             setJobNotification(null);
           }}
         >
-          <span className="text-sm text-slate-700">{jobNotification.message}</span>
+          <span className="text-sm text-foreground">{jobNotification.message}</span>
           <button
-            className="text-xs text-slate-500 hover:text-slate-700 font-medium"
+            className="text-xs text-muted-fg hover:text-foreground font-medium"
             onClick={(e) => {
               e.stopPropagation();
               setInputValue(jobNotification.ticker);
@@ -325,7 +325,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
       )}
 
       {/* Search Bar - Minimalista */}
-      <div className="px-3 py-2 border-b border-slate-200">
+      <div className="px-3 py-2 border-b border-border">
         <form onSubmit={handleSearch} className="flex items-center gap-2">
           <TickerSearch
             value={inputValue}
@@ -341,7 +341,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
           <button
             type="submit"
             disabled={loading}
-            className="px-3 py-1 text-sm font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
+            className="px-3 py-1 text-sm font-medium text-foreground/80 hover:text-foreground disabled:opacity-50"
           >
             {loading ? '...' : 'Go'}
           </button>
@@ -350,7 +350,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
 
       {/* Error Message */}
       {error && (
-        <div className="px-3 py-2 text-sm text-red-600 border-b border-slate-200">
+        <div className="px-3 py-2 text-sm text-red-600 border-b border-border">
           {error}
         </div>
       )}
@@ -359,15 +359,15 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
       {selectedTicker ? (
         <div className="flex-1 overflow-auto min-h-0">
           {/* Company Header */}
-          <div className="bg-white border-b border-slate-200 p-4">
+          <div className="bg-surface border-b border-border p-4">
             {/* Company Name */}
-            <h2 className="text-xl font-bold text-slate-900 mb-2">
+            <h2 className="text-xl font-bold text-foreground mb-2">
               {loading ? t('common.loading') : tickerData?.summary?.company_name || selectedTicker}
             </h2>
 
             {/* Info Lines */}
             <div className="space-y-1 text-sm">
-              <div className="text-slate-600">
+              <div className="text-foreground/80">
                 <span className="font-medium">Sector:</span> {tickerData?.summary?.sector || "..."}
                 <span className="mx-2">•</span>
                 <span className="font-medium">Industry:</span> {tickerData?.summary?.industry || "..."}
@@ -379,25 +379,25 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
                 )}
               </div>
 
-              <div className="text-slate-700 font-medium">
-                <span className="text-slate-500">Mkt Cap & EV:</span> {tickerData?.summary?.market_cap ? `$${(tickerData.summary.market_cap / 1_000_000_000).toFixed(2)}B` : '--'}
+              <div className="text-foreground font-medium">
+                <span className="text-muted-fg">Mkt Cap & EV:</span> {tickerData?.summary?.market_cap ? `$${(tickerData.summary.market_cap / 1_000_000_000).toFixed(2)}B` : '--'}
                 <span className="mx-3">•</span>
-                <span className="text-slate-500">Float & OS:</span> {tickerData?.summary?.free_float && tickerData?.summary?.shares_outstanding ? `${(tickerData.summary.free_float / 1_000_000).toFixed(1)}M / ${(tickerData.summary.shares_outstanding / 1_000_000).toFixed(1)}M` : '--'}
+                <span className="text-muted-fg">Float & OS:</span> {tickerData?.summary?.free_float && tickerData?.summary?.shares_outstanding ? `${(tickerData.summary.free_float / 1_000_000).toFixed(1)}M / ${(tickerData.summary.shares_outstanding / 1_000_000).toFixed(1)}M` : '--'}
                 <span className="mx-3">•</span>
-                <span className="text-slate-500">Inst Own:</span> {tickerData?.summary?.institutional_ownership ? `${tickerData.summary.institutional_ownership.toFixed(1)}%` : '--'}
+                <span className="text-muted-fg">Inst Own:</span> {tickerData?.summary?.institutional_ownership ? `${tickerData.summary.institutional_ownership.toFixed(1)}%` : '--'}
               </div>
             </div>
 
             {/* Description */}
             {tickerData?.summary?.description && (
-              <div className="mt-3 pt-3 border-t border-slate-200">
-                <p className={`text-sm text-slate-600 leading-relaxed ${!descriptionExpanded ? 'line-clamp-2' : ''
+              <div className="mt-3 pt-3 border-t border-border">
+                <p className={`text-sm text-foreground/80 leading-relaxed ${!descriptionExpanded ? 'line-clamp-2' : ''
                   }`}>
                   {tickerData.summary.description}
                 </p>
                 <button
                   onClick={() => setDescriptionExpanded(!descriptionExpanded)}
-                  className="mt-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  className="mt-1 text-xs text-primary hover:text-primary-hover font-medium"
                 >
                   {descriptionExpanded ? '(show less)' : '(show more)'}
                 </button>
@@ -406,14 +406,14 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
 
             {/* Links */}
             <div className="flex gap-4 mt-3">
-              <a href={`https://finviz.com/quote.ashx?t=${selectedTicker}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 font-medium">
+              <a href={`https://finviz.com/quote.ashx?t=${selectedTicker}`} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:text-primary-hover font-medium">
                 Finviz →
               </a>
-              <a href={`https://finance.yahoo.com/quote/${selectedTicker}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 font-medium">
+              <a href={`https://finance.yahoo.com/quote/${selectedTicker}`} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:text-primary-hover font-medium">
                 Yahoo →
               </a>
               {tickerData?.summary?.homepage_url && (
-                <a href={tickerData.summary.homepage_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                <a href={tickerData.summary.homepage_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:text-primary-hover font-medium">
                   Website →
                 </a>
               )}
@@ -421,7 +421,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
           </div>
 
           {/* Tabs - Minimalista */}
-          <div className="border-b border-slate-200 bg-white sticky top-0 z-10">
+          <div className="border-b border-border bg-surface sticky top-0 z-10">
             <div className="flex px-4">
               {tabs.map((tab) => (
                 <button
@@ -430,8 +430,8 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
                   className={`
                     px-4 py-2 text-sm font-medium border-b-2 transition-colors
                     ${activeTab === tab.id
-                      ? "border-blue-600 text-blue-600"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-fg hover:text-foreground"
                     }
                   `}
                 >
@@ -513,7 +513,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <p className="text-slate-500">Enter a ticker to begin</p>
+            <p className="text-muted-fg">Enter a ticker to begin</p>
           </div>
         </div>
       )}

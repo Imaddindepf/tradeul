@@ -367,12 +367,12 @@ function ChartToolbarComponent({
 
   // Button style helper
   const btnBase = 'w-[32px] h-[32px] flex items-center justify-center rounded-[4px] transition-all duration-100 relative';
-  const btnIdle = 'text-slate-500 hover:text-slate-800 hover:bg-slate-100';
-  const btnActive = 'text-blue-600 bg-blue-50/80';
-  const btnDisabled = 'text-slate-300 cursor-default';
+  const btnIdle = 'text-muted-fg hover:text-foreground hover:bg-surface-hover';
+  const btnActive = 'text-primary bg-primary/10';
+  const btnDisabled = 'text-muted-fg/50 cursor-default';
 
   return (
-    <div className="w-[38px] flex-shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col items-center pt-1.5 pb-1 select-none z-10">
+    <div className="w-[38px] flex-shrink-0 bg-surface-hover border-r border-border flex flex-col items-center pt-1.5 pb-1 select-none z-10">
 
       {SIDEBAR_CATEGORIES.map((cat, idx) => {
         const isActive = activeCatId === cat.id;
@@ -386,13 +386,13 @@ function ChartToolbarComponent({
           <div key={cat.id}>
             {/* Separator */}
             {idx > 0 && idx !== 9 && (
-              <div className="w-5 h-px bg-slate-150 mx-auto my-[3px]" style={{ backgroundColor: '#cbd5e1' }} />
+              <div className="w-5 h-px bg-border mx-auto my-[3px]" />
             )}
 
             {cat.id === 'magnet' ? (
               <button
                 onClick={onCycleMagnet}
-                className={`${btnBase} ${magnetMode !== 'off' ? 'text-blue-600 bg-blue-50/80' : btnIdle}`}
+                className={`${btnBase} ${magnetMode !== 'off' ? 'text-primary bg-primary/10' : btnIdle}`}
                 title={`Magnet: ${magnetMode === 'off' ? 'Off' : magnetMode === 'weak' ? 'Weak' : 'Strong'} (Ctrl to toggle temporarily)`}
               >
                 <MagnetIcon className="w-[18px] h-[18px]" />
@@ -428,7 +428,7 @@ function ChartToolbarComponent({
 
                 {/* Flyout */}
                 {openFlyout === cat.id && (
-                  <div className="absolute left-full top-0 ml-0.5 bg-white border border-slate-200 rounded-md shadow-lg py-1 min-w-[180px] z-50">
+                  <div className="absolute left-full top-0 ml-0.5 bg-surface border border-border rounded-md shadow-lg py-1 min-w-[180px] z-50">
                     {cat.tools.map(tool => {
                       const ToolIcon = tool.icon;
                       const isToolActive = activeTool === tool.id;
@@ -438,16 +438,16 @@ function ChartToolbarComponent({
                           onClick={() => tool.enabled && selectTool(cat.id, tool.id)}
                           className={`w-full flex items-center gap-2.5 px-3 py-[6px] text-[12px] transition-colors ${
                             !tool.enabled
-                              ? 'text-slate-300 cursor-default'
+                              ? 'text-muted-fg/50 cursor-default'
                               : isToolActive
-                                ? 'text-blue-600 bg-blue-50'
-                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+                                ? 'text-blue-600 bg-primary/10'
+                                : 'text-foreground/80 hover:bg-surface-hover hover:text-foreground'
                           }`}
                         >
                           <ToolIcon className={`w-4 h-4 flex-shrink-0 ${!tool.enabled ? 'opacity-40' : ''}`} />
                           <span className="flex-1 text-left">{tool.label}</span>
-                          {tool.shortcut && <span className="text-[10px] text-slate-400 font-mono">{tool.shortcut}</span>}
-                          {!tool.enabled && <span className="text-[9px] text-slate-300 italic">soon</span>}
+                          {tool.shortcut && <span className="text-[10px] text-muted-fg font-mono">{tool.shortcut}</span>}
+                          {!tool.enabled && <span className="text-[9px] text-muted-fg/50 italic">soon</span>}
                         </button>
                       );
                     })}
@@ -469,7 +469,7 @@ function ChartToolbarComponent({
         {/* Lock */}
         <button
           onClick={() => setLocked(!locked)}
-          className={`${btnBase} ${locked ? 'text-blue-600 bg-blue-50/80' : btnIdle}`}
+          className={`${btnBase} ${locked ? 'text-primary bg-primary/10' : btnIdle}`}
           title={locked ? 'Unlock drawings' : 'Lock drawings'}
         >
           {locked ? <LockIcon className="w-[18px] h-[18px]" /> : <UnlockIcon className="w-[18px] h-[18px]" />}
@@ -478,7 +478,7 @@ function ChartToolbarComponent({
         {/* Visibility */}
         <button
           onClick={toggleDrawingsVisibility}
-          className={`${btnBase} ${!drawingsVisible ? 'text-slate-300' : btnIdle}`}
+          className={`${btnBase} ${!drawingsVisible ? 'text-muted-fg/50' : btnIdle}`}
           title={drawingsVisible ? 'Hide drawings' : 'Show drawings'}
         >
           {drawingsVisible ? <EyeIcon className="w-[18px] h-[18px]" /> : <EyeOffIcon className="w-[18px] h-[18px]" />}
@@ -488,14 +488,14 @@ function ChartToolbarComponent({
         {drawingCount > 0 && (
           <button
             onClick={clearAllDrawings}
-            className={`${btnBase} text-slate-400 hover:text-red-500 hover:bg-red-50`}
+            className={`${btnBase} text-muted-fg hover:text-red-500 hover:bg-red-500/10`}
             title={`Clear all (${drawingCount})`}
           >
             <TrashIcon className="w-[18px] h-[18px]" />
           </button>
         )}
 
-        <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: '#cbd5e1' }} />
+        <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: 'var(--color-border)' }} />
 
         {/* Favorites */}
         <button className={`${btnBase} ${btnDisabled}`} title="Favorites (coming soon)">
@@ -536,10 +536,10 @@ function HeaderDrawingToolsComponent({ activeTool, setActiveTool }: HeaderDrawin
             }}
             className={`w-[22px] h-[22px] flex items-center justify-center rounded-[3px] transition-colors ${
               !enabled
-                ? 'text-slate-300 cursor-default'
+                ? 'text-muted-fg/50 cursor-default'
                 : isActive
-                  ? 'bg-blue-50 text-blue-600'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-fg hover:text-foreground hover:bg-surface-hover'
             }`}
             title={`${label}${shortcut ? ` (${shortcut})` : ''}${!enabled ? ' — coming soon' : ''}`}
           >

@@ -90,15 +90,15 @@ export function SECFilingsFilterPanel({
     (filters.importanceLevel !== 'all' ? 1 : 0);
 
   return (
-    <div className={`absolute inset-0 z-50 bg-white flex flex-col ${fontClass}`}>
+    <div className={`absolute inset-0 z-50 bg-surface flex flex-col ${fontClass}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <div className="flex items-center gap-3">
-          <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">
+          <span className="text-[10px] font-medium text-muted-fg uppercase tracking-wider">
             Filters
           </span>
           {activeFiltersCount > 0 && (
-            <span className="text-[10px] text-slate-500">
+            <span className="text-[10px] text-muted-fg">
               {activeFiltersCount} active
             </span>
           )}
@@ -106,14 +106,14 @@ export function SECFilingsFilterPanel({
         <div className="flex items-center gap-2">
           <button
             onClick={handleReset}
-            className="flex items-center gap-1 px-2 py-1 text-[10px] text-slate-500 hover:text-slate-700 transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-[10px] text-muted-fg hover:text-foreground transition-colors"
           >
             <RotateCcw className="w-3 h-3" />
             Reset
           </button>
           <button
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
+            className="p-1 text-muted-fg hover:text-foreground/80 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -121,7 +121,7 @@ export function SECFilingsFilterPanel({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-200">
+      <div className="flex border-b border-border">
         {[
           { id: 'categories', label: 'Categories', count: filters.categories.length },
           { id: 'forms', label: 'Forms', count: filters.formTypes.length },
@@ -134,12 +134,12 @@ export function SECFilingsFilterPanel({
             className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] border-b-2 transition-colors ${
               activeTab === tab.id
                 ? 'border-blue-600 text-blue-600 font-medium'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
+                : 'border-transparent text-muted-fg hover:text-foreground'
             }`}
           >
             {tab.label}
             {tab.count > 0 && (
-              <span className="text-[9px] text-slate-400">
+              <span className="text-[9px] text-muted-fg">
                 ({tab.count})
               </span>
             )}
@@ -152,7 +152,7 @@ export function SECFilingsFilterPanel({
         {/* Categories Tab */}
         {activeTab === 'categories' && (
           <div className="space-y-2">
-            <p className="text-[10px] text-slate-400 mb-3">
+            <p className="text-[10px] text-muted-fg mb-3">
               Select categories to filter by related form types
             </p>
             <div className="grid grid-cols-2 gap-2">
@@ -165,16 +165,16 @@ export function SECFilingsFilterPanel({
                     className={`text-left p-2 rounded border-2 transition-all ${
                       isSelected
                         ? 'border-blue-600'
-                        : 'border-slate-200 hover:border-slate-300'
+                        : 'border-border hover:border-border'
                     }`}
                   >
-                    <div className={`text-[11px] font-medium ${isSelected ? 'text-blue-600' : 'text-slate-700'}`}>
+                    <div className={`text-[11px] font-medium ${isSelected ? 'text-blue-600' : 'text-foreground'}`}>
                       {category.label}
                     </div>
-                    <div className="text-[9px] mt-0.5 text-slate-400">
+                    <div className="text-[9px] mt-0.5 text-muted-fg">
                       {category.description}
                     </div>
-                    <div className="text-[9px] mt-1 text-slate-400">
+                    <div className="text-[9px] mt-1 text-muted-fg">
                       {category.types.slice(0, 4).join(', ')}{category.types.length > 4 ? '...' : ''}
                     </div>
                   </button>
@@ -187,17 +187,17 @@ export function SECFilingsFilterPanel({
         {/* Form Types Tab */}
         {activeTab === 'forms' && (
           <div className="space-y-3">
-            <p className="text-[10px] text-slate-400">
+            <p className="text-[10px] text-muted-fg">
               Select specific form types
             </p>
             
             {/* Quick selects */}
-            <div className="flex flex-wrap gap-1 pb-2 border-b border-slate-100">
+            <div className="flex flex-wrap gap-1 pb-2 border-b border-border-subtle">
               {Object.entries(FILING_CATEGORIES).map(([key, cat]) => (
                 <button
                   key={key}
                   onClick={() => selectAllInCategory(key)}
-                  className="px-2 py-0.5 text-[9px] text-blue-600 hover:text-blue-700 border border-blue-200 hover:border-blue-300 rounded transition-colors"
+                  className="px-2 py-0.5 text-[9px] text-blue-600 dark:text-blue-400 hover:text-blue-700 border border-blue-500/30 hover:border-blue-500/40 rounded transition-colors"
                 >
                   + {cat.label}
                 </button>
@@ -216,7 +216,7 @@ export function SECFilingsFilterPanel({
                     className={`px-2 py-1 text-[10px] rounded border-2 transition-all ${
                       isSelected
                         ? 'border-blue-600 text-blue-600 font-medium'
-                        : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                        : 'border-border text-muted-fg hover:border-border'
                     }`}
                   >
                     {formType}
@@ -227,8 +227,8 @@ export function SECFilingsFilterPanel({
 
             {/* Selected forms */}
             {filters.formTypes.length > 0 && (
-              <div className="pt-2 border-t border-slate-100">
-                <div className="text-[9px] text-slate-400 mb-1">Selected:</div>
+              <div className="pt-2 border-t border-border-subtle">
+                <div className="text-[9px] text-muted-fg mb-1">Selected:</div>
                 <div className="flex flex-wrap gap-1">
                   {filters.formTypes.map(ft => (
                     <span
@@ -248,12 +248,12 @@ export function SECFilingsFilterPanel({
         {/* 8-K Items Tab */}
         {activeTab === 'items' && (
           <div className="space-y-3">
-            <p className="text-[10px] text-slate-400">
+            <p className="text-[10px] text-muted-fg">
               Filter 8-K filings by disclosure items
             </p>
 
             {/* Quick selects by group */}
-            <div className="flex flex-wrap gap-1 pb-2 border-b border-slate-100">
+            <div className="flex flex-wrap gap-1 pb-2 border-b border-border-subtle">
               {Object.entries(EIGHT_K_GROUPS).map(([key, group]) => {
                 const groupItems = group.items as readonly string[];
                 const allSelected = groupItems.every(item => filters.items8K.includes(item));
@@ -271,7 +271,7 @@ export function SECFilingsFilterPanel({
                     className={`px-2 py-0.5 text-[9px] rounded border ${
                       allSelected
                         ? 'bg-blue-600 text-white border-blue-600'
-                        : 'text-slate-600 border-slate-200 hover:border-slate-400'
+                        : 'text-foreground/80 border-border hover:border-border'
                     }`}
                   >
                     {group.label}
@@ -280,7 +280,7 @@ export function SECFilingsFilterPanel({
               })}
               <button
                 onClick={() => updateFilterAndApply('items8K', [])}
-                className="px-2 py-0.5 text-[9px] text-slate-400 hover:text-slate-600"
+                className="px-2 py-0.5 text-[9px] text-muted-fg hover:text-foreground/80"
               >
                 Clear
               </button>
@@ -297,16 +297,16 @@ export function SECFilingsFilterPanel({
                     className={`w-full flex items-center gap-2 px-2 py-1.5 text-left rounded border-2 transition-all ${
                       isSelected
                         ? 'border-blue-600'
-                        : 'border-slate-200 hover:border-slate-300'
+                        : 'border-border hover:border-border'
                     }`}
                   >
-                    <span className={`text-[10px] w-10 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`}>
+                    <span className={`text-[10px] w-10 ${isSelected ? 'text-blue-600' : 'text-muted-fg'}`}>
                       {itemId}
                     </span>
-                    <span className={`text-[10px] flex-1 ${isSelected ? 'text-blue-600' : 'text-slate-600'}`}>
+                    <span className={`text-[10px] flex-1 ${isSelected ? 'text-blue-600' : 'text-foreground/80'}`}>
                       {info.description}
                     </span>
-                    <span className="text-[8px] uppercase tracking-wider text-slate-400">
+                    <span className="text-[8px] uppercase tracking-wider text-muted-fg">
                       {info.importance}
                     </span>
                   </button>
@@ -319,34 +319,34 @@ export function SECFilingsFilterPanel({
         {/* Dates Tab */}
         {activeTab === 'dates' && (
           <div className="space-y-4">
-            <p className="text-[10px] text-slate-400">
+            <p className="text-[10px] text-muted-fg">
               Filter by date range
             </p>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] text-slate-500 mb-1">From</label>
+                <label className="block text-[10px] text-muted-fg mb-1">From</label>
                 <input
                   type="date"
                   value={filters.dateFrom}
                   onChange={(e) => updateFilterAndApply('dateFrom', e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border-2 border-slate-200 rounded focus:outline-none focus:border-blue-400"
+                  className="w-full px-2 py-1.5 text-xs border-2 border-border rounded focus:outline-none focus:border-primary"
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-slate-500 mb-1">To</label>
+                <label className="block text-[10px] text-muted-fg mb-1">To</label>
                 <input
                   type="date"
                   value={filters.dateTo}
                   onChange={(e) => updateFilterAndApply('dateTo', e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs border-2 border-slate-200 rounded focus:outline-none focus:border-blue-400"
+                  className="w-full px-2 py-1.5 text-xs border-2 border-border rounded focus:outline-none focus:border-primary"
                 />
               </div>
             </div>
 
             {/* Quick ranges */}
-            <div className="pt-2 border-t border-slate-100">
-              <div className="text-[10px] text-slate-500 mb-2">Quick</div>
+            <div className="pt-2 border-t border-border-subtle">
+              <div className="text-[10px] text-muted-fg mb-2">Quick</div>
               <div className="flex flex-wrap gap-1">
                 {[
                   { label: 'Today', days: 0 },
@@ -374,7 +374,7 @@ export function SECFilingsFilterPanel({
                       onFiltersChange(newFilters);
                       setTimeout(() => onApply(newFilters), 50);
                     }}
-                    className="px-2 py-1 text-[10px] text-blue-600 border-2 border-blue-200 hover:border-blue-400 rounded transition-colors"
+                    className="px-2 py-1 text-[10px] text-primary border-2 border-primary/30 hover:border-primary rounded transition-colors"
                   >
                     {range.label}
                   </button>
@@ -383,8 +383,8 @@ export function SECFilingsFilterPanel({
             </div>
 
             {/* Importance filter */}
-            <div className="pt-3 border-t border-slate-100">
-              <div className="text-[10px] text-slate-500 mb-2">Min Importance (8-K)</div>
+            <div className="pt-3 border-t border-border-subtle">
+              <div className="text-[10px] text-muted-fg mb-2">Min Importance (8-K)</div>
               <div className="flex gap-1">
                 {[
                   { value: 'all', label: 'All' },
@@ -398,7 +398,7 @@ export function SECFilingsFilterPanel({
                     className={`px-3 py-1 text-[10px] rounded border-2 transition-all ${
                       filters.importanceLevel === opt.value
                         ? 'border-blue-600 text-blue-600 font-medium'
-                        : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                        : 'border-border text-muted-fg hover:border-border'
                     }`}
                   >
                     {opt.label}
@@ -412,29 +412,29 @@ export function SECFilingsFilterPanel({
 
       {/* Footer */}
       {activeFiltersCount > 0 && (
-        <div className="px-3 py-2 border-t border-slate-200">
+        <div className="px-3 py-2 border-t border-border">
           <div className="flex flex-wrap gap-1 items-center">
-            <span className="text-[9px] text-slate-400 mr-1">Active:</span>
+            <span className="text-[9px] text-muted-fg mr-1">Active:</span>
             {filters.categories.map(cat => (
-              <span key={cat} className="px-1.5 py-0.5 text-[9px] border border-blue-300 text-blue-600 rounded">
+              <span key={cat} className="px-1.5 py-0.5 text-[9px] border border-primary/50 text-primary rounded">
                 {FILING_CATEGORIES[cat as keyof typeof FILING_CATEGORIES]?.label || cat}
               </span>
             ))}
             {filters.formTypes.slice(0, 5).map(ft => (
-              <span key={ft} className="px-1.5 py-0.5 text-[9px] border border-blue-300 text-blue-600 rounded">
+              <span key={ft} className="px-1.5 py-0.5 text-[9px] border border-primary/50 text-primary rounded">
                 {ft}
               </span>
             ))}
             {filters.formTypes.length > 5 && (
-              <span className="text-[9px] text-slate-400">+{filters.formTypes.length - 5}</span>
+              <span className="text-[9px] text-muted-fg">+{filters.formTypes.length - 5}</span>
             )}
             {filters.items8K.length > 0 && (
-              <span className="px-1.5 py-0.5 text-[9px] border border-blue-300 text-blue-600 rounded">
+              <span className="px-1.5 py-0.5 text-[9px] border border-primary/50 text-primary rounded">
                 {filters.items8K.length} items
               </span>
             )}
             {(filters.dateFrom || filters.dateTo) && (
-              <span className="px-1.5 py-0.5 text-[9px] border border-blue-300 text-blue-600 rounded">
+              <span className="px-1.5 py-0.5 text-[9px] border border-primary/50 text-primary rounded">
                 {filters.dateFrom || '*'} - {filters.dateTo || '*'}
               </span>
             )}

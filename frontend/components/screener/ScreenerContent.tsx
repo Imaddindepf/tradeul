@@ -529,8 +529,8 @@ function FieldSelect({
     }, [open]);
 
     const triggerClass = variant === 'field-compare'
-        ? 'bg-transparent text-blue-600 border-slate-200 hover:border-blue-400'
-        : 'bg-transparent text-slate-900 border-slate-200 hover:border-blue-400';
+        ? 'bg-transparent text-primary border-border hover:border-primary'
+        : 'bg-transparent text-foreground border-border hover:border-primary';
 
     return (
         <div ref={containerRef} className="relative" style={{ fontFamily }}>
@@ -540,36 +540,36 @@ function FieldSelect({
                 style={{ fontSize: '12px', minWidth, maxWidth: 160 }}
             >
                 <span className="truncate">{currentOption?.label || value}</span>
-                <ChevronDown className={`w-3 h-3 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-3 h-3 shrink-0 text-muted-fg transition-transform ${open ? 'rotate-180' : ''}`} />
             </button>
 
             {open && (
                 <div
-                    className="absolute top-full left-0 mt-0.5 bg-white border border-slate-200 rounded shadow-lg z-50 overflow-hidden"
+                    className="absolute top-full left-0 mt-0.5 bg-surface border border-border rounded shadow-lg z-50 overflow-hidden"
                     style={{ minWidth: Math.max(minWidth, 180), maxHeight: 280, fontFamily }}
                 >
-                    <div className="px-1.5 py-1 border-b border-slate-100">
+                    <div className="px-1.5 py-1 border-b border-border-subtle">
                         <input
                             ref={searchRef}
                             type="text"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder="Search..."
-                            className="w-full px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-slate-800 outline-none focus:border-blue-300"
+                            className="w-full px-1.5 py-0.5 rounded bg-surface-hover border border-border text-foreground outline-none focus:border-primary"
                             style={{ fontSize: '12px', fontFamily }}
                         />
                     </div>
                     <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
                         {search ? (
                             filtered.length === 0 ? (
-                                <div className="px-2 py-2 text-slate-400" style={{ fontSize: '11px' }}>No results</div>
+                                <div className="px-2 py-2 text-muted-fg" style={{ fontSize: '11px' }}>No results</div>
                             ) : (
                                 filtered.map(o => (
                                     <button
                                         key={o.value}
                                         onClick={() => { onChange(o.value); setOpen(false); }}
-                                        className={`w-full text-left px-2 py-1 hover:bg-slate-50 transition-colors ${
-                                            o.value === value ? 'text-blue-600 font-medium' : 'text-slate-900'
+                                        className={`w-full text-left px-2 py-1 hover:bg-surface-hover transition-colors ${
+                                            o.value === value ? 'text-primary font-medium' : 'text-foreground'
                                         }`}
                                         style={{ fontSize: '12px', fontFamily }}
                                     >
@@ -583,15 +583,15 @@ function FieldSelect({
                                 if (catOptions.length === 0) return null;
                                 return (
                                     <div key={cat}>
-                                        <div className="px-2 py-0.5 text-slate-500 font-medium uppercase tracking-wider bg-slate-50 border-b border-slate-100" style={{ fontSize: '10px', fontFamily }}>
+                                        <div className="px-2 py-0.5 text-muted-fg font-medium uppercase tracking-wider bg-surface-hover border-b border-border-subtle" style={{ fontSize: '10px', fontFamily }}>
                                             {cat}
                                         </div>
                                         {catOptions.map(o => (
                                             <button
                                                 key={o.value}
                                                 onClick={() => { onChange(o.value); setOpen(false); }}
-                                                className={`w-full text-left px-2 py-1 hover:bg-slate-50 transition-colors ${
-                                                    o.value === value ? 'text-blue-600 font-medium' : 'text-slate-900'
+                                                className={`w-full text-left px-2 py-1 hover:bg-surface-hover transition-colors ${
+                                                    o.value === value ? 'text-primary font-medium' : 'text-foreground'
                                                 }`}
                                                 style={{ fontSize: '12px', fontFamily }}
                                             >
@@ -638,24 +638,24 @@ function OperatorSelect({
         <div ref={containerRef} className="relative" style={{ fontFamily }}>
             <button
                 onClick={() => setOpen(!open)}
-                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-transparent text-slate-900 font-medium hover:border-blue-400 transition-colors border border-slate-200"
+                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-transparent text-foreground font-medium hover:border-primary transition-colors border border-border"
                 style={{ fontSize: '12px', minWidth: 44 }}
             >
                 {current?.label || value}
-                <ChevronDown className={`w-2.5 h-2.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-2.5 h-2.5 text-muted-fg transition-transform ${open ? 'rotate-180' : ''}`} />
             </button>
 
             {open && (
                 <div
-                    className="absolute top-full left-0 mt-0.5 bg-white border border-slate-200 rounded shadow-lg z-50 overflow-hidden"
+                    className="absolute top-full left-0 mt-0.5 bg-surface border border-border rounded shadow-lg z-50 overflow-hidden"
                     style={{ minWidth: 100, fontFamily }}
                 >
                     {options.map(op => (
                         <button
                             key={op.value}
                             onClick={() => { onChange(op.value); setOpen(false); }}
-                            className={`w-full text-left px-2 py-1 hover:bg-slate-50 transition-colors ${
-                                op.value === value ? 'text-blue-600 font-medium' : 'text-slate-900'
+                            className={`w-full text-left px-2 py-1 hover:bg-surface-hover transition-colors ${
+                                op.value === value ? 'text-primary font-medium' : 'text-foreground'
                             }`}
                             style={{ fontSize: '12px', fontFamily }}
                         >
@@ -775,8 +775,8 @@ function FilterBuilder({
                             }}
                             className={`px-2 py-0.5 rounded-full border transition-all ${
                                 isActive
-                                    ? 'text-blue-600 border-blue-400 bg-blue-50/40'
-                                    : 'text-slate-800 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                                    ? 'text-primary border-primary bg-primary/10'
+                                    : 'text-foreground border-border hover:border-border hover:text-foreground'
                             }`}
                             style={{ fontSize: '11px', fontFamily }}
                             title={signal.label}
@@ -797,7 +797,7 @@ function FilterBuilder({
                 const operators = isFieldMode ? FIELD_OPERATORS : VALUE_OPERATORS;
 
                 return (
-                    <div key={realIndex} className="flex items-center gap-1 bg-white rounded-md border border-slate-200 px-1.5 py-1 shadow-sm">
+                    <div key={realIndex} className="flex items-center gap-1 bg-surface rounded-md border border-border px-1.5 py-1 shadow-sm">
                         {/* ── Left Field ── */}
                         <FieldSelect
                             value={filter.field}
@@ -820,7 +820,7 @@ function FilterBuilder({
                                 }}
                                 min={2}
                                 max={200}
-                                className="w-[36px] px-1 py-0.5 rounded bg-transparent text-blue-600 font-medium border border-blue-200 text-center"
+                                className="w-[36px] px-1 py-0.5 rounded bg-transparent text-primary font-medium border border-primary/30 text-center"
                                 style={{ fontSize: '11px', fontFamily }}
                                 title="Period (2-200)"
                             />
@@ -835,13 +835,13 @@ function FilterBuilder({
                         />
 
                         {/* ── Mode toggle: Value vs Field ── */}
-                        <div className="flex rounded overflow-hidden border border-slate-200">
+                        <div className="flex rounded overflow-hidden border border-border">
                             <button
                                 onClick={() => updateFilter(realIndex, { compareMode: 'value' })}
                                 className={`px-1.5 py-0.5 transition-colors ${
                                     !isFieldMode
-                                        ? 'text-blue-600 bg-blue-50/50'
-                                        : 'text-slate-800 hover:text-slate-900'
+                                        ? 'text-primary bg-primary/10'
+                                        : 'text-foreground hover:text-foreground'
                                 }`}
                                 style={{ fontSize: '12px', fontWeight: 600, fontFamily }}
                                 title="Compare to numeric value"
@@ -850,10 +850,10 @@ function FilterBuilder({
                             </button>
                             <button
                                 onClick={() => updateFilter(realIndex, { compareMode: 'field' })}
-                                className={`px-1.5 py-0.5 transition-colors border-l border-slate-200 ${
+                                className={`px-1.5 py-0.5 transition-colors border-l border-border ${
                                     isFieldMode
-                                        ? 'text-blue-600 bg-blue-50/50'
-                                        : 'text-slate-800 hover:text-slate-900'
+                                        ? 'text-primary bg-primary/10'
+                                        : 'text-foreground hover:text-foreground'
                                 }`}
                                 style={{ fontSize: '12px', fontWeight: 600, fontStyle: 'italic', fontFamily }}
                                 title="Compare to another indicator"
@@ -889,10 +889,10 @@ function FilterBuilder({
                                             multiplier: mult
                                         } as any);
                                     }}
-                                    className="w-[42px] px-1 py-0.5 rounded border border-slate-300 bg-white text-slate-900 font-medium"
+                                    className="w-[42px] px-1 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
                                     style={{ fontSize: '12px', fontFamily }}
                                 />
-                                <span className="text-slate-700" style={{ fontSize: '12px', fontFamily }}>to</span>
+                                <span className="text-foreground" style={{ fontSize: '12px', fontFamily }}>to</span>
                                 <input
                                     type="number"
                                     value={(filter as any).displayMax ?? 100}
@@ -907,7 +907,7 @@ function FilterBuilder({
                                             multiplier: mult
                                         } as any);
                                     }}
-                                    className="w-[42px] px-1 py-0.5 rounded border border-slate-300 bg-white text-slate-900 font-medium"
+                                    className="w-[42px] px-1 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
                                     style={{ fontSize: '12px', fontFamily }}
                                 />
                                 <select
@@ -921,7 +921,7 @@ function FilterBuilder({
                                             multiplier: mult
                                         } as any);
                                     }}
-                                    className="px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-900"
+                                    className="px-1 py-0.5 rounded border border-border bg-surface-hover text-foreground"
                                     style={{ fontSize: '11px', fontFamily }}
                                 >
                                     <option value={1000}>K</option>
@@ -936,20 +936,20 @@ function FilterBuilder({
                                     onChange={(val) => updateFilter(realIndex, {
                                         value: [val, Array.isArray(filter.value) ? filter.value[1] : 0]
                                     })}
-                                    className="w-[55px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-900 font-medium"
+                                    className="w-[55px] px-1.5 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
                                     style={{ fontSize: '12px' }}
                                 />
-                                <span className="text-slate-700" style={{ fontSize: '12px', fontFamily }}>to</span>
+                                <span className="text-foreground" style={{ fontSize: '12px', fontFamily }}>to</span>
                                 <NumberInput
                                     value={Array.isArray(filter.value) ? filter.value[1] : 0}
                                     onChange={(val) => updateFilter(realIndex, {
                                         value: [Array.isArray(filter.value) ? filter.value[0] : 0, val]
                                     })}
-                                    className="w-[55px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-900 font-medium"
+                                    className="w-[55px] px-1.5 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
                                     style={{ fontSize: '12px', fontFamily }}
                                 />
                                 {fieldInfo?.unit && (
-                                    <span className="text-slate-700" style={{ fontSize: '11px', fontFamily }}>{fieldInfo.unit}</span>
+                                    <span className="text-foreground" style={{ fontSize: '11px', fontFamily }}>{fieldInfo.unit}</span>
                                 )}
                             </div>
                         ) : fieldInfo?.type === 'units' ? (
@@ -962,7 +962,7 @@ function FilterBuilder({
                                         const mult = (filter as any).multiplier || 1_000_000;
                                         updateFilter(realIndex, { value: num * mult, displayValue: num, multiplier: mult } as any);
                                     }}
-                                    className="w-[48px] px-1.5 py-0.5 rounded-l border border-slate-300 bg-white text-slate-900 font-medium"
+                                    className="w-[48px] px-1.5 py-0.5 rounded-l border border-border bg-[var(--color-input-bg)] text-foreground font-medium"
                                     style={{ fontSize: '12px', fontFamily }}
                                 />
                                 <select
@@ -972,7 +972,7 @@ function FilterBuilder({
                                         const num = (filter as any).displayValue ?? 0;
                                         updateFilter(realIndex, { value: num * mult, multiplier: mult } as any);
                                     }}
-                                    className="px-1 py-0.5 rounded-r border border-l-0 border-slate-300 bg-slate-50 text-slate-900"
+                                    className="px-1 py-0.5 rounded-r border border-l-0 border-border bg-surface-hover text-foreground"
                                     style={{ fontSize: '12px', fontFamily }}
                                 >
                                     <option value={1000}>K</option>
@@ -985,11 +985,11 @@ function FilterBuilder({
                                 <NumberInput
                                     value={typeof filter.value === 'number' ? filter.value : 0}
                                     onChange={(val) => updateFilter(realIndex, { value: val })}
-                                    className="w-[60px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-900 font-medium"
+                                    className="w-[60px] px-1.5 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
                                     style={{ fontSize: '12px', fontFamily }}
                                 />
                                 {fieldInfo?.unit && (
-                                    <span className="text-slate-700" style={{ fontSize: '11px', fontFamily }}>{fieldInfo.unit}</span>
+                                    <span className="text-foreground" style={{ fontSize: '11px', fontFamily }}>{fieldInfo.unit}</span>
                                 )}
                             </div>
                         )}
@@ -997,7 +997,7 @@ function FilterBuilder({
                         {/* Remove */}
                         <button
                             onClick={() => removeFilter(realIndex)}
-                            className="p-0.5 text-slate-400 hover:text-red-500 ml-auto"
+                            className="p-0.5 text-muted-fg hover:text-red-500 ml-auto"
                         >
                             <X className="w-3 h-3" />
                         </button>
@@ -1007,7 +1007,7 @@ function FilterBuilder({
 
             <button
                 onClick={addFilter}
-                className="flex items-center gap-1 px-2 py-1 text-blue-600 hover:bg-blue-50 rounded border border-dashed border-blue-200"
+                className="flex items-center gap-1 px-2 py-1 text-primary hover:bg-primary/10 rounded border border-dashed border-primary/30"
                 style={{ fontSize: '12px' }}
             >
                 <Plus className="w-3 h-3" />
@@ -1061,7 +1061,7 @@ const formatNumber = (value: number | null, decimals = 1) => {
 };
 
 const getChangeColor = (value: number | null) => {
-    if (value === null) return 'text-slate-400';
+    if (value === null) return 'text-muted-fg';
     return value >= 0 ? 'text-emerald-600' : 'text-red-500';
 };
 
@@ -1106,7 +1106,7 @@ const screenerColumns = [
             return (
                 <button
                     onClick={() => onSymbolClick?.(symbol)}
-                    className="font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                    className="font-semibold text-primary hover:text-primary-hover hover:underline cursor-pointer"
                 >
                     {symbol}
                 </button>
@@ -1116,14 +1116,14 @@ const screenerColumns = [
     screenerColumnHelper.accessor('sector', {
         header: 'Sector',
         size: 90,
-        cell: (info) => <span className="text-slate-700 truncate">{info.getValue() || '-'}</span>,
+        cell: (info) => <span className="text-foreground truncate">{info.getValue() || '-'}</span>,
     }),
 
     // ── Price ──
     screenerColumnHelper.accessor('price', {
         header: 'Price',
         size: 75,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
 
     // ── Changes ──
@@ -1180,30 +1180,30 @@ const screenerColumns = [
     screenerColumnHelper.accessor('volume', {
         header: 'Volume',
         size: 80,
-        cell: (info) => <span className="text-slate-900">{formatVolume(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatVolume(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('relative_volume', {
         header: 'RVol',
         size: 65,
-        cell: (info) => <span className="text-slate-900">{formatMultiplier(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatMultiplier(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('avg_volume_20', {
         header: 'AvgVol 20',
         size: 80,
-        cell: (info) => <span className="text-slate-900">{formatVolume(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatVolume(info.getValue())}</span>,
     }),
 
     // ── Fundamentals ──
     screenerColumnHelper.accessor('market_cap', {
         header: 'MCap',
         size: 80,
-        cell: (info) => <span className="text-slate-900">{formatVolume(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatVolume(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('free_float', {
         id: 'free_float',
         header: 'Float',
         size: 80,
-        cell: (info) => <span className="text-slate-900">{formatVolume(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatVolume(info.getValue())}</span>,
     }),
 
     // ── 52 Week ──
@@ -1213,7 +1213,7 @@ const screenerColumns = [
         cell: (info) => {
             const v = info.getValue();
             const near = v !== null && v > -5;
-            return <span className={near ? 'text-emerald-600 font-medium' : 'text-slate-900'}>{formatPercent(v)}</span>;
+            return <span className={near ? 'text-emerald-600 font-medium' : 'text-foreground'}>{formatPercent(v)}</span>;
         },
     }),
     screenerColumnHelper.accessor('from_52w_low', {
@@ -1227,12 +1227,12 @@ const screenerColumns = [
     screenerColumnHelper.accessor('high_52w', {
         header: '52W High',
         size: 75,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('low_52w', {
         header: '52W Low',
         size: 75,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
 
     // ── Momentum ──
@@ -1241,8 +1241,8 @@ const screenerColumns = [
         size: 55,
         cell: (info) => {
             const v = info.getValue();
-            if (v === null) return <span className="text-slate-400">-</span>;
-            const color = v < 30 ? 'text-red-500' : v > 70 ? 'text-emerald-600' : 'text-slate-900';
+            if (v === null) return <span className="text-muted-fg">-</span>;
+            const color = v < 30 ? 'text-red-500' : v > 70 ? 'text-emerald-600' : 'text-foreground';
             return <span className={color}>{v.toFixed(0)}</span>;
         },
     }),
@@ -1251,17 +1251,17 @@ const screenerColumns = [
     screenerColumnHelper.accessor('sma_20', {
         header: 'SMA 20',
         size: 75,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('sma_50', {
         header: 'SMA 50',
         size: 75,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('sma_200', {
         header: 'SMA 200',
         size: 75,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('dist_sma_20', {
         header: 'Dist SMA20',
@@ -1284,49 +1284,49 @@ const screenerColumns = [
     screenerColumnHelper.accessor('atr_14', {
         header: 'ATR',
         size: 65,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('atr_percent', {
         header: 'ATR%',
         size: 65,
-        cell: (info) => <span className="text-slate-900">{formatPercent(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPercent(info.getValue())}</span>,
     }),
 
     // ── Bollinger Bands ──
     screenerColumnHelper.accessor('bb_upper', {
         header: 'BB Up',
         size: 70,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('bb_lower', {
         header: 'BB Low',
         size: 70,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('bb_width', {
         header: 'BB W%',
         size: 65,
         cell: (info) => {
             const v = info.getValue();
-            return <span className="text-slate-900">{v !== null ? `${v.toFixed(1)}%` : '-'}</span>;
+            return <span className="text-foreground">{v !== null ? `${v.toFixed(1)}%` : '-'}</span>;
         },
     }),
     screenerColumnHelper.accessor('bb_position', {
         header: 'BB Pos%',
         size: 65,
-        cell: (info) => <span className="text-slate-900">{formatPercent(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPercent(info.getValue())}</span>,
     }),
 
     // ── Keltner Channels ──
     screenerColumnHelper.accessor('keltner_upper', {
         header: 'KC Up',
         size: 70,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('keltner_lower', {
         header: 'KC Low',
         size: 70,
-        cell: (info) => <span className="text-slate-900">{formatPrice(info.getValue())}</span>,
+        cell: (info) => <span className="text-foreground">{formatPrice(info.getValue())}</span>,
     }),
 
     // ── TTM Squeeze ──
@@ -1335,8 +1335,8 @@ const screenerColumns = [
         size: 65,
         cell: (info) => {
             const v = info.getValue();
-            if (v === null) return <span className="text-slate-400">-</span>;
-            return <span className={v === 1 ? 'text-amber-600 font-medium' : 'text-slate-500'}>{v === 1 ? 'ON' : 'OFF'}</span>;
+            if (v === null) return <span className="text-muted-fg">-</span>;
+            return <span className={v === 1 ? 'text-amber-600 font-medium' : 'text-muted-fg'}>{v === 1 ? 'ON' : 'OFF'}</span>;
         },
     }),
     screenerColumnHelper.accessor('squeeze_momentum', {
@@ -1354,9 +1354,9 @@ const screenerColumns = [
         size: 55,
         cell: (info) => {
             const v = info.getValue();
-            if (v === null) return <span className="text-slate-400">-</span>;
+            if (v === null) return <span className="text-muted-fg">-</span>;
             const strong = v > 25;
-            return <span className={strong ? 'text-slate-900 font-medium' : 'text-slate-600'}>{v.toFixed(0)}</span>;
+            return <span className={strong ? 'text-foreground font-medium' : 'text-foreground/80'}>{v.toFixed(0)}</span>;
         },
     }),
     screenerColumnHelper.accessor('plus_di_14', {
@@ -1451,7 +1451,7 @@ function ResultsTable({
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
             {/* Table Settings */}
-            <div className="flex-shrink-0 flex justify-end px-2 py-1 bg-slate-50/50 border-b border-slate-100">
+            <div className="flex-shrink-0 flex justify-end px-2 py-1 bg-surface-hover/50 border-b border-border-subtle">
                 <TableSettings
                     table={table}
                     fontFamily={fontFamily}
@@ -1471,7 +1471,7 @@ function ResultsTable({
             {/* Table (virtualized) */}
             <div ref={scrollContainerRef} className="overflow-auto flex-1">
                 <table className="w-full text-left" style={{ fontSize: '12px', fontFamily }}>
-                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+                    <thead className="sticky top-0 bg-surface-hover border-b border-border z-10">
                         {table.getHeaderGroups().map((headerGroup) => (
                             <tr key={headerGroup.id}>
                                 {headerGroup.headers.map((header, headerIndex) => {
@@ -1508,7 +1508,7 @@ function ResultsTable({
                                                     table.setColumnOrder(newOrder);
                                                 }
                                             }}
-                                            className={`px-2 py-1.5 font-semibold text-slate-900 cursor-grab select-none hover:bg-slate-100 ${isFirstColumn ? 'text-left' : 'text-right'}`}
+                                            className={`px-2 py-1.5 font-semibold text-foreground cursor-grab select-none hover:bg-surface-hover ${isFirstColumn ? 'text-left' : 'text-right'}`}
                                             style={{ width: header.getSize(), fontSize: '11px' }}
                                             onClick={header.column.getToggleSortingHandler()}
                                         >
@@ -1535,7 +1535,7 @@ function ResultsTable({
                             return (
                                 <tr
                                     key={row.id}
-                                    className={`border-b border-slate-50 hover:bg-slate-50/80 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
+                                    className={`border-b border-border-subtle hover:bg-surface-hover/80 ${i % 2 === 0 ? 'bg-surface' : 'bg-surface-hover/30'}`}
                                 >
                                     {row.getVisibleCells().map((cell, cellIndex) => {
                                         const isFirstColumn = cellIndex === 0;
@@ -1795,9 +1795,9 @@ export function ScreenerContent() {
     };
 
     return (
-        <div className="h-full flex flex-col bg-white text-slate-800" style={{ fontFamily }}>
+        <div className="h-full flex flex-col bg-surface text-foreground" style={{ fontFamily }}>
             {/* Compact Header */}
-            <div className="flex-shrink-0 px-2 py-1.5 border-b border-slate-100 flex items-center gap-2" style={{ fontFamily }}>
+            <div className="flex-shrink-0 px-2 py-1.5 border-b border-border-subtle flex items-center gap-2" style={{ fontFamily }}>
                 <div className="w-[140px]">
                     <TickerSearch
                         value={symbolInput}
@@ -1812,7 +1812,7 @@ export function ScreenerContent() {
                         {symbols.map((s) => (
                             <span
                                 key={s}
-                                className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-blue-50 text-blue-700 rounded"
+                                className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-primary/10 text-primary rounded"
                                 style={{ fontSize: '11px' }}
                             >
                                 {s}
@@ -1825,20 +1825,20 @@ export function ScreenerContent() {
                 )}
                 <div className="flex-1" />
                 {queryTime !== null && (
-                    <span className="text-slate-500" style={{ fontSize: '11px', fontFamily }}>
+                    <span className="text-muted-fg" style={{ fontSize: '11px', fontFamily }}>
                         {queryTime < 1000 ? `${queryTime.toFixed(0)}ms` : `${(queryTime / 1000).toFixed(1)}s`}
                     </span>
                 )}
                 <button
                     onClick={() => setShowFilters(!showFilters)}
-                    className={`p-1 rounded transition-colors ${showFilters ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                    className={`p-1 rounded transition-colors ${showFilters ? 'bg-primary/10 text-primary' : 'text-muted-fg hover:text-foreground'}`}
                 >
                     <Settings2 className="w-3.5 h-3.5" />
                 </button>
                 <button
                     onClick={handleSearch}
                     disabled={loading}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    className="flex items-center gap-1 px-2.5 py-1 bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-50"
                     style={{ fontSize: '12px', fontFamily }}
                 >
                     {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
@@ -1847,7 +1847,7 @@ export function ScreenerContent() {
             </div>
 
             {/* Templates Row - Compact with dropdown for system presets */}
-            <div className="flex-shrink-0 px-2 py-1.5 border-b border-slate-100 bg-slate-50/30" style={{ fontFamily }}>
+            <div className="flex-shrink-0 px-2 py-1.5 border-b border-border-subtle bg-surface-hover/30" style={{ fontFamily }}>
                 <div className="flex items-center gap-1.5">
                     {/* System Presets Dropdown */}
                     <div className="relative">
@@ -1860,7 +1860,7 @@ export function ScreenerContent() {
                                     setActiveUserTemplate(null);
                                 }
                             }}
-                            className={`px-2 py-1 rounded border text-slate-900 bg-white cursor-pointer appearance-none pr-6 ${activePreset && !activeUserTemplate ? 'border-blue-400 bg-blue-50/50 text-blue-700' : 'border-slate-200 hover:border-slate-300'
+                            className={`px-2 py-1 rounded border text-foreground bg-surface cursor-pointer appearance-none pr-6 ${activePreset && !activeUserTemplate ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-border'
                                 }`}
                             style={{ fontSize: '12px', fontFamily }}
                         >
@@ -1869,11 +1869,11 @@ export function ScreenerContent() {
                                 <option key={preset.id} value={preset.id}>{preset.name}</option>
                             ))}
                         </select>
-                        <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                        <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-fg pointer-events-none" />
                     </div>
 
                     {/* Separator */}
-                    <div className="h-4 w-px bg-slate-200" />
+                    <div className="h-4 w-px bg-muted" />
 
                     {/* User templates */}
                     <div className="flex items-center gap-1 overflow-x-auto">
@@ -1882,8 +1882,8 @@ export function ScreenerContent() {
                                 <button
                                     onClick={() => applyUserTemplate(template)}
                                     className={`flex items-center gap-1 px-2 py-1 rounded-l border transition-all ${activeUserTemplate === template.id
-                                        ? 'border-blue-400 bg-blue-50/50 text-blue-700 shadow-sm'
-                                        : 'border-slate-200 text-slate-900 hover:border-blue-300 hover:bg-blue-50/50'
+                                        ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                                        : 'border-border text-foreground hover:border-primary hover:bg-primary/10'
                                         }`}
                                     style={{ fontSize: '12px', fontFamily }}
                                     title={`${template.name} (${template.useCount}x)`}
@@ -1893,7 +1893,7 @@ export function ScreenerContent() {
                                 </button>
                                 <button
                                     onClick={() => deleteTemplate(template.id)}
-                                    className="px-1 py-1 border border-l-0 border-slate-200 rounded-r text-slate-500 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    className="px-1 py-1 border border-l-0 border-border rounded-r text-muted-fg hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
                                     style={{ fontSize: '12px' }}
                                     title="Delete"
                                 >
@@ -1905,7 +1905,7 @@ export function ScreenerContent() {
                         {/* Save button */}
                         <button
                             onClick={() => setShowSaveModal(true)}
-                            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded border border-dashed border-slate-300 text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 transition-all"
+                            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded border border-dashed border-border text-muted-fg hover:border-primary hover:text-primary hover:bg-primary/10 transition-all"
                             style={{ fontSize: '12px' }}
                             title="Save current configuration"
                         >
@@ -1919,17 +1919,17 @@ export function ScreenerContent() {
             {showSaveModal && (
                 <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowSaveModal(false)}>
                     <div
-                        className="bg-white rounded-lg shadow-xl p-4 w-80"
+                        className="bg-surface rounded-lg shadow-xl p-4 w-80"
                         onClick={e => e.stopPropagation()}
                         style={{ fontFamily }}
                     >
-                        <h3 className="font-medium text-slate-800 mb-3" style={{ fontSize: '13px' }}>Save Template</h3>
+                        <h3 className="font-medium text-foreground mb-3" style={{ fontSize: '13px' }}>Save Template</h3>
                         <input
                             type="text"
                             value={templateName}
                             onChange={(e) => setTemplateName(e.target.value)}
                             placeholder="Template name..."
-                            className="w-full px-3 py-2 border border-slate-200 rounded focus:outline-none focus:border-blue-400"
+                            className="w-full px-3 py-2 border border-border rounded focus:outline-none focus:border-primary"
                             style={{ fontSize: '12px' }}
                             autoFocus
                             onKeyDown={(e) => e.key === 'Enter' && handleSaveTemplate()}
@@ -1937,7 +1937,7 @@ export function ScreenerContent() {
                         <div className="flex justify-end gap-2 mt-3">
                             <button
                                 onClick={() => setShowSaveModal(false)}
-                                className="px-3 py-1.5 text-slate-900 hover:bg-slate-100 rounded"
+                                className="px-3 py-1.5 text-foreground hover:bg-surface-hover rounded"
                                 style={{ fontSize: '11px', fontFamily }}
                             >
                                 Cancel
@@ -1945,7 +1945,7 @@ export function ScreenerContent() {
                             <button
                                 onClick={handleSaveTemplate}
                                 disabled={!templateName.trim()}
-                                className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                                className="px-3 py-1.5 bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-50"
                                 style={{ fontSize: '11px' }}
                             >
                                 Save
@@ -1957,16 +1957,16 @@ export function ScreenerContent() {
 
             {/* Filters Panel - Always editable */}
             {showFilters && (
-                <div className="flex-shrink-0 px-2 py-2 border-b border-slate-100 bg-slate-50/50">
+                <div className="flex-shrink-0 px-2 py-2 border-b border-border-subtle bg-surface-hover/50">
                     <FilterBuilder filters={filters} onFiltersChange={handleFiltersChange} fontFamily={fontFamily} />
 
                     {/* Sort controls */}
-                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200">
-                        <span className="text-slate-800" style={{ fontSize: '11px', fontFamily }}>Sort:</span>
+                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
+                        <span className="text-foreground" style={{ fontSize: '11px', fontFamily }}>Sort:</span>
                         <select
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value)}
-                            className="px-1.5 py-0.5 rounded border border-slate-200 bg-white text-slate-900"
+                            className="px-1.5 py-0.5 rounded border border-border bg-surface text-foreground"
                             style={{ fontSize: '12px', fontFamily }}
                         >
                             {SORT_OPTIONS.map((opt) => (
@@ -1975,7 +1975,7 @@ export function ScreenerContent() {
                         </select>
                         <button
                             onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
-                            className={`px-1.5 py-0.5 rounded border text-slate-900 hover:bg-slate-100 ${sortOrder === 'asc' ? 'border-blue-300 bg-blue-50/50' : 'border-slate-200'
+                            className={`px-1.5 py-0.5 rounded border text-foreground hover:bg-surface-hover ${sortOrder === 'asc' ? 'border-primary bg-primary/10' : 'border-border'
                                 }`}
                             style={{ fontSize: '12px', fontFamily }}
                         >
@@ -1984,7 +1984,7 @@ export function ScreenerContent() {
                         <div className="flex-1" />
                         <button
                             onClick={() => executeCommand('glossary')}
-                            className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700"
+                            className="p-1 rounded hover:bg-surface-hover text-muted-fg hover:text-foreground"
                             title="Indicator glossary"
                         >
                             <HelpCircle className="w-3.5 h-3.5" />
@@ -1992,7 +1992,7 @@ export function ScreenerContent() {
                         <select
                             value={limit}
                             onChange={(e) => setLimit(parseInt(e.target.value))}
-                            className="px-1.5 py-0.5 rounded border border-slate-200 bg-white text-slate-900"
+                            className="px-1.5 py-0.5 rounded border border-border bg-surface text-foreground"
                             style={{ fontSize: '12px', fontFamily }}
                         >
                             <option value={25}>25 results</option>
@@ -2005,7 +2005,7 @@ export function ScreenerContent() {
 
             {/* Error */}
             {error && (
-                <div className="px-4 py-2 bg-red-50 border-b border-red-100">
+                <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/20">
                     <div className="flex items-center gap-2 text-red-600" style={{ fontSize: '11px' }}>
                         <AlertCircle className="w-4 h-4" />
                         {error}
@@ -2021,7 +2021,7 @@ export function ScreenerContent() {
                     fontFamily={fontFamily}
                 />
             ) : (
-                <div className="flex-1 flex items-center justify-center text-slate-700" style={{ fontSize: '13px', fontFamily }}>
+                <div className="flex-1 flex items-center justify-center text-foreground" style={{ fontSize: '13px', fontFamily }}>
                     {loading ? (
                         <div className="flex items-center gap-1.5">
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -2031,7 +2031,7 @@ export function ScreenerContent() {
                         <div className="text-center">
                             <Filter className="w-6 h-6 mx-auto mb-2 opacity-30" />
                             <p className="mb-1">Select a preset or customize filters</p>
-                            <p className="text-slate-400">Then click Scan</p>
+                            <p className="text-muted-fg">Then click Scan</p>
                         </div>
                     )}
                 </div>
@@ -2039,8 +2039,8 @@ export function ScreenerContent() {
 
             {/* Footer */}
             {results.length > 0 && (
-                <div className="flex-shrink-0 px-2 py-1 border-t border-slate-100 bg-slate-50/50">
-                    <div className="flex items-center justify-between text-slate-700" style={{ fontSize: '11px', fontFamily }}>
+                <div className="flex-shrink-0 px-2 py-1 border-t border-border-subtle bg-surface-hover/50">
+                    <div className="flex items-center justify-between text-foreground" style={{ fontSize: '11px', fontFamily }}>
                         <span>{results.length} results</span>
                         <span>Daily Data</span>
                     </div>

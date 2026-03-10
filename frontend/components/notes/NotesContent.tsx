@@ -29,7 +29,7 @@ function ToolbarButton({
       title={title}
       className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-all duration-150 ${active
           ? 'bg-slate-700 text-white'
-          : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+          : 'text-muted-fg hover:text-foreground hover:bg-surface-hover'
         }`}
     >
       {children}
@@ -84,8 +84,8 @@ function NoteTab({
   return (
     <div
       className={`group flex items-center gap-1 px-2 py-1 rounded-t border-b-2 transition-all duration-150 cursor-pointer min-w-0 max-w-[120px] ${isActive
-          ? 'bg-white border-slate-700 text-slate-800'
-          : 'bg-slate-50 border-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+          ? 'bg-surface border-slate-700 text-foreground'
+          : 'bg-surface-hover border-transparent text-muted-fg hover:bg-surface-hover hover:text-foreground/80'
         }`}
       onClick={onSelect}
     >
@@ -117,7 +117,7 @@ function NoteTab({
           e.stopPropagation();
           onClose();
         }}
-        className="ml-auto opacity-0 group-hover:opacity-100 text-[10px] text-slate-400 hover:text-red-500 transition-all duration-150"
+        className="ml-auto opacity-0 group-hover:opacity-100 text-[10px] text-muted-fg hover:text-red-500 transition-all duration-150"
       >
         ×
       </button>
@@ -149,14 +149,14 @@ function TipTapEditor({
     content,
     editorProps: {
       attributes: {
-        class: 'h-full outline-none prose prose-sm max-w-none p-3 text-slate-800 ' +
+        class: 'h-full outline-none prose prose-sm max-w-none p-3 text-foreground ' +
           '[&_h1]:text-base [&_h1]:font-bold [&_h1]:mb-2 [&_h1]:mt-2 ' +
           '[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-1 [&_h2]:mt-2 ' +
           '[&_h3]:text-xs [&_h3]:font-semibold [&_h3]:mb-1 [&_h3]:mt-1 ' +
           '[&_ul]:list-disc [&_ul]:pl-4 [&_ul]:my-1 ' +
           '[&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:my-1 ' +
           '[&_li]:my-0.5 [&_p]:my-1 ' +
-          '[&_.is-editor-empty:first-child::before]:text-slate-400 ' +
+          '[&_.is-editor-empty:first-child::before]:text-muted-fg ' +
           '[&_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] ' +
           '[&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:h-0 ' +
           '[&_.is-editor-empty:first-child::before]:pointer-events-none',
@@ -190,7 +190,7 @@ function TipTapEditor({
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-slate-200 bg-slate-50/50">
+      <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-border bg-surface-hover/50">
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBold().run()}
           active={editor.isActive('bold')}
@@ -213,7 +213,7 @@ function TipTapEditor({
           S̶
         </ToolbarButton>
 
-        <div className="w-px h-4 bg-slate-200 mx-1" />
+        <div className="w-px h-4 bg-muted mx-1" />
 
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
@@ -230,7 +230,7 @@ function TipTapEditor({
           H2
         </ToolbarButton>
 
-        <div className="w-px h-4 bg-slate-200 mx-1" />
+        <div className="w-px h-4 bg-muted mx-1" />
 
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -247,7 +247,7 @@ function TipTapEditor({
           <ListOrdered className="w-3.5 h-3.5" />
         </ToolbarButton>
 
-        <div className="w-px h-4 bg-slate-200 mx-1" />
+        <div className="w-px h-4 bg-muted mx-1" />
 
         <ToolbarButton
           onClick={insertLink}
@@ -271,11 +271,11 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   const { t } = useTranslation();
 
   return (
-    <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-3 p-6">
-      <p className="text-xs text-slate-500">{t('notes.noNotes', 'No notes yet')}</p>
+    <div className="h-full flex flex-col items-center justify-center text-muted-fg gap-3 p-6">
+      <p className="text-xs text-muted-fg">{t('notes.noNotes', 'No notes yet')}</p>
       <button
         onClick={onCreate}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded transition-colors"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-foreground/80 hover:text-foreground bg-surface-hover hover:bg-muted rounded transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />
         {t('notes.newNote', 'New note')}
@@ -411,16 +411,16 @@ export function NotesContent() {
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center text-slate-400 text-xs">
+      <div className="h-full flex items-center justify-center text-muted-fg text-xs">
         Loading...
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col bg-white text-slate-900">
+    <div className="h-full flex flex-col bg-surface text-foreground">
       {/* Header with tabs */}
-      <div className="flex items-center border-b border-slate-200 bg-slate-50/50">
+      <div className="flex items-center border-b border-border bg-surface-hover/50">
         {/* Tabs */}
         <div className="flex-1 flex items-end gap-0.5 px-1 pt-1 overflow-x-auto scrollbar-thin">
           {notes.map((note) => (
@@ -438,14 +438,14 @@ export function NotesContent() {
         {/* Actions */}
         <div className="flex items-center gap-2 px-2 py-1">
           {saveStatus && (
-            <span className={`text-[9px] ${saveStatus === 'saved' ? 'text-green-600' : 'text-slate-400'}`}>
+            <span className={`text-[9px] ${saveStatus === 'saved' ? 'text-green-600' : 'text-muted-fg'}`}>
               {saveStatus === 'saved' ? '✓' : '...'}
             </span>
           )}
 
           <button
             onClick={handleCreateNote}
-            className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
+            className="p-1 text-muted-fg hover:text-foreground hover:bg-surface-hover rounded transition-colors"
             title={t('notes.newNote', 'New note')}
           >
             <Plus className="w-4 h-4" />
@@ -469,7 +469,7 @@ export function NotesContent() {
       </div>
 
       {/* Footer - minimal */}
-      <div className="flex items-center justify-between px-2 py-1 border-t border-slate-100 bg-slate-50/30 text-[9px] text-slate-400">
+      <div className="flex items-center justify-between px-2 py-1 border-t border-border-subtle bg-surface-hover/30 text-[9px] text-muted-fg">
         <span>{user?.id ? 'synced' : 'local'}</span>
         {activeNote && (
           <span>

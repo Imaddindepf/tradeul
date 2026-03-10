@@ -256,7 +256,7 @@ export const AIAgentContent = memo(function AIAgentContent({
   }, [clearHistory, history]);
 
   return (
-    <div ref={containerRef} className="flex flex-col h-full w-full min-h-0 bg-[#f7f8fb] overflow-hidden">
+    <div ref={containerRef} className="flex flex-col h-full w-full min-h-0 bg-surface overflow-hidden">
       <div className="flex-1 min-h-0 flex overflow-hidden relative">
 
         {/* CONVERSATION HISTORY SIDEBAR */}
@@ -277,34 +277,34 @@ export const AIAgentContent = memo(function AIAgentContent({
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
 
           {/* HEADER — always visible */}
-          <div className="flex-shrink-0 px-4 py-2 border-b border-slate-200/60 bg-white/60 backdrop-blur-sm flex items-center justify-between">
+          <div className="flex-shrink-0 px-4 py-2 border-b border-border bg-surface/60 backdrop-blur-sm flex items-center justify-between">
             <div className="flex items-center gap-2">
               <button
                 onClick={history.toggle}
-                className={`p-1.5 rounded-lg transition-all ${history.isOpen ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+                className={`p-1.5 rounded-lg transition-all ${history.isOpen ? 'bg-primary/10 text-primary' : 'text-muted-fg hover:text-foreground/80 hover:bg-surface-hover'}`}
                 title="Historial de conversaciones"
               >
                 <History className="w-4 h-4" />
               </button>
-              <span className="text-[12px] font-medium text-slate-700">Chat</span>
+              <span className="text-[12px] font-medium text-foreground">Chat</span>
             </div>
             <div className="flex items-center gap-3 text-[10px]">
               {messages.length > 0 && (
-                <button onClick={handleNewSession} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <button onClick={handleNewSession} className="text-muted-fg hover:text-foreground/80 transition-colors">
                   Nueva sesión
                 </button>
               )}
               {!isNarrow && (
                 <button
                   onClick={() => setShowPipeline(p => !p)}
-                  className={`transition-colors ${showPipeline ? 'text-slate-600 font-medium' : 'text-slate-400 hover:text-slate-600'}`}
+                  className={`transition-colors ${showPipeline ? 'text-foreground/80 font-medium' : 'text-muted-fg hover:text-foreground/80'}`}
                 >
                   Pipeline
                 </button>
               )}
               <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-slate-300 animate-pulse'}`} />
-                <span className="text-slate-400">{isConnected ? 'Live' : 'Connecting...'}</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-muted-fg/50 animate-pulse'}`} />
+                <span className="text-muted-fg">{isConnected ? 'Live' : 'Connecting...'}</span>
               </div>
             </div>
           </div>
@@ -337,7 +337,7 @@ export const AIAgentContent = memo(function AIAgentContent({
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mt-3 px-3 py-2 bg-red-50 border border-red-200/60 rounded-lg text-[11px] text-red-600 max-w-[600px] mx-auto"
+                  className="mt-3 px-3 py-2 bg-red-500/10 border border-red-500/25 rounded-lg text-[11px] text-red-600 dark:text-red-400 max-w-[600px] mx-auto"
                 >
                   {error}
                 </motion.div>
@@ -347,18 +347,18 @@ export const AIAgentContent = memo(function AIAgentContent({
           </div>
 
           {/* INPUT BAR */}
-          <div className="flex-shrink-0 border-t border-slate-200/60 bg-white/80 backdrop-blur-xl">
+          <div className="flex-shrink-0 border-t border-border bg-surface/80 backdrop-blur-xl">
             <div className="max-w-[860px] mx-auto px-5 py-2.5">
 
               {!isLoading && timeline.length <= 1 && (
                 <div className="flex items-center gap-1 mb-2 text-[11px] flex-wrap">
                   {QUICK_ACTIONS.slice(0, isNarrow ? 2 : 4).map((a, i) => (
                     <span key={a.query} className="flex items-center gap-1">
-                      {i > 0 && <span className="text-slate-200">&middot;</span>}
+                      {i > 0 && <span className="text-muted-fg/50">&middot;</span>}
                       <button
                         onClick={() => handleQuickAction(a.query)}
                         disabled={!isConnected}
-                        className="text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-40"
+                        className="text-muted-fg hover:text-primary transition-colors disabled:opacity-40"
                       >
                         {a.label}
                       </button>
@@ -388,11 +388,11 @@ export const AIAgentContent = memo(function AIAgentContent({
                     placeholder={isConnected ? 'Escribe tu consulta o / para comandos...' : 'Conectando...'}
                     disabled={!isConnected || isLoading}
                     rows={1}
-                    className="w-full px-3.5 py-2.5 text-[13px] bg-slate-50 border border-slate-200 rounded-2xl text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 disabled:opacity-50 transition-all"
+                    className="w-full px-3.5 py-2.5 text-[13px] bg-surface-hover border border-border rounded-2xl text-foreground placeholder-muted-fg resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-50 transition-all"
                     style={{ maxHeight: '120px' }}
                   />
                   {input.startsWith('/backtest ') && (
-                    <span className="absolute top-1 right-2 text-[8px] text-indigo-400 bg-indigo-50 px-1.5 py-0.5 rounded">
+                    <span className="absolute top-1 right-2 text-[8px] text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
                       BACKTEST
                     </span>
                   )}
@@ -400,7 +400,7 @@ export const AIAgentContent = memo(function AIAgentContent({
                 <button
                   type="submit"
                   disabled={!input.trim() || isLoading || !isConnected}
-                  className="flex-shrink-0 px-3.5 py-2.5 text-[12px] font-medium text-slate-500 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 transition-all"
+                  className="flex-shrink-0 px-3.5 py-2.5 text-[12px] font-medium text-muted-fg bg-surface-hover border border-border rounded-2xl hover:bg-surface-hover hover:text-foreground disabled:opacity-30 transition-all"
                 >
                   {isLoading ? '···' : 'Enviar'}
                 </button>
@@ -440,8 +440,8 @@ const EmptyState = memo(function EmptyState({
       transition={{ duration: 0.5 }}
       className="flex flex-col items-center justify-center min-h-[40vh] text-center"
     >
-      <h2 className={`font-semibold text-slate-800 mb-1.5 ${isNarrow ? 'text-[14px]' : 'text-[16px]'}`}>¿Qué quieres analizar?</h2>
-      <p className="text-[11px] text-slate-400 max-w-[340px] mb-6 leading-relaxed">
+      <h2 className={`font-semibold text-foreground mb-1.5 ${isNarrow ? 'text-[14px]' : 'text-[16px]'}`}>¿Qué quieres analizar?</h2>
+      <p className="text-[11px] text-muted-fg max-w-[340px] mb-6 leading-relaxed">
         Sistema multi-agente: mercados, screeners, financials y noticias en tiempo real.
       </p>
       <div className={`grid gap-2 w-full ${isNarrow ? 'grid-cols-1 max-w-[240px]' : 'grid-cols-2 max-w-[380px]'}`}>
@@ -452,16 +452,16 @@ const EmptyState = memo(function EmptyState({
             disabled={!isConnected}
             whileHover={{ y: -1 }}
             whileTap={{ scale: 0.98 }}
-            className="px-3 py-2.5 bg-white border border-slate-200/80 rounded-lg text-left hover:border-slate-300 hover:shadow-sm transition-all disabled:opacity-40"
+            className="px-3 py-2.5 bg-surface border border-border rounded-lg text-left hover:border-border hover:shadow-sm transition-all disabled:opacity-40"
           >
-            <span className="text-[11px] font-medium text-slate-700 block">{action.label}</span>
-            <span className="text-[9px] text-slate-400 block mt-0.5 truncate">{action.query}</span>
+            <span className="text-[11px] font-medium text-foreground block">{action.label}</span>
+            <span className="text-[9px] text-muted-fg block mt-0.5 truncate">{action.query}</span>
           </motion.button>
         ))}
       </div>
       <button
         onClick={onOpenHistory}
-        className="mt-4 flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-indigo-500 transition-colors"
+        className="mt-4 flex items-center gap-1.5 text-[10px] text-muted-fg hover:text-primary transition-colors"
       >
         <History className="w-3 h-3" />
         <span>Ver conversaciones anteriores</span>
@@ -513,9 +513,9 @@ const TimelineItem = memo(function TimelineItem({
 const UserBubble = memo(function UserBubble({ message }: { message: Message }) {
   return (
     <div className="flex justify-end">
-      <div className="inline-flex items-baseline gap-2 bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5 max-w-[80%]">
-        <p className="text-[11px] text-slate-800 leading-normal">{message.content}</p>
-        <span className="text-[9px] text-slate-300 whitespace-nowrap flex-shrink-0">
+      <div className="inline-flex items-baseline gap-2 bg-surface border border-border rounded-lg px-2.5 py-1.5 max-w-[80%]">
+        <p className="text-[11px] text-foreground leading-normal">{message.content}</p>
+        <span className="text-[9px] text-muted-fg/50 whitespace-nowrap flex-shrink-0">
           {message.timestamp.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
@@ -561,9 +561,9 @@ const AgentResponse = memo(function AgentResponse({
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="px-3 py-2 bg-white border border-slate-200/80 rounded-lg"
+        className="px-3 py-2 bg-surface border border-border rounded-lg"
       >
-        <span className="text-[11px] text-slate-500">
+        <span className="text-[11px] text-muted-fg">
           {thinkingSeconds > 0 ? `Analizando... ${thinkingSeconds}s` : 'Iniciando análisis...'}
         </span>
         <LoadingDots className="ml-2" />
@@ -595,7 +595,7 @@ const AgentResponse = memo(function AgentResponse({
 
   if (isError) {
     return (
-      <div className="px-3 py-2 bg-red-50 border border-red-200/60 rounded-lg text-[11px] text-red-600">
+      <div className="px-3 py-2 bg-red-500/10 border border-red-500/25 rounded-lg text-[11px] text-red-600 dark:text-red-400">
         {message.content || 'Error al procesar la solicitud'}
       </div>
     );
@@ -620,19 +620,19 @@ const AgentResponse = memo(function AgentResponse({
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
-          className="bg-white border border-slate-200/80 rounded-lg overflow-hidden"
+          className="bg-surface border border-border rounded-lg overflow-hidden"
         >
           <div className="p-3">
             {results.map((block) => (
               <ResultBlock key={block.id} block={block} onToggleCode={() => onToggleCode(block.id)} />
             ))}
           </div>
-          <div className="px-3 py-1.5 border-t border-slate-100 flex items-center justify-end gap-2 text-[9px] text-slate-400 tabular-nums">
+          <div className="px-3 py-1.5 border-t border-border-subtle flex items-center justify-end gap-2 text-[9px] text-muted-fg tabular-nums">
             {execMs != null && execMs > 0 && (
               <span>{execMs < 1000 ? `${execMs}ms` : `${(execMs / 1000).toFixed(1)}s`}</span>
             )}
             {ts && (
-              <span className="text-slate-300">
+              <span className="text-muted-fg/50">
                 {ts.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
@@ -648,7 +648,7 @@ const AgentResponse = memo(function AgentResponse({
 
   if (isComplete) {
     return (
-      <div className="px-3 py-2 bg-white border border-slate-200/80 rounded-lg text-[11px] text-slate-500">
+      <div className="px-3 py-2 bg-surface border border-border rounded-lg text-[11px] text-muted-fg">
         Análisis completado
       </div>
     );
@@ -679,7 +679,7 @@ const FollowUpSuggestions = memo(function FollowUpSuggestions({
         <button
           key={i}
           onClick={() => onSelect(q)}
-          className="text-left px-2.5 py-1.5 text-[10px] text-slate-500 bg-white border border-slate-200/80 rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-all leading-snug"
+          className="text-left px-2.5 py-1.5 text-[10px] text-muted-fg bg-surface border border-border rounded-lg hover:border-border hover:bg-surface-hover transition-all leading-snug"
         >
           {q}
         </button>
@@ -699,9 +699,9 @@ const LoadingDots = memo(function LoadingDots({ className = '' }: { className?: 
       animate={{ opacity: [0.3, 1, 0.3] }}
       transition={{ duration: 1.4, repeat: Infinity }}
     >
-      <span className="w-[3px] h-[3px] rounded-full bg-slate-400" />
-      <span className="w-[3px] h-[3px] rounded-full bg-slate-400" />
-      <span className="w-[3px] h-[3px] rounded-full bg-slate-400" />
+      <span className="w-[3px] h-[3px] rounded-full bg-muted-fg" />
+      <span className="w-[3px] h-[3px] rounded-full bg-muted-fg" />
+      <span className="w-[3px] h-[3px] rounded-full bg-muted-fg" />
     </motion.span>
   );
 });
@@ -740,7 +740,7 @@ const ClarificationCard = memo(function ClarificationCard({
 
   if (disabled && chosen === null) {
     return (
-      <div className="px-3 py-2 bg-white border border-slate-200/80 rounded-lg text-[10px] text-slate-400 italic">
+      <div className="px-3 py-2 bg-surface border border-border rounded-lg text-[10px] text-muted-fg italic">
         Clarificación omitida
       </div>
     );
@@ -750,9 +750,9 @@ const ClarificationCard = memo(function ClarificationCard({
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white border border-amber-200/60 rounded-lg p-3 space-y-2"
+      className="bg-surface border border-amber-500/25 rounded-lg p-3 space-y-2"
     >
-      <p className="text-[11px] text-slate-700 leading-relaxed">{data.message}</p>
+      <p className="text-[11px] text-foreground leading-relaxed">{data.message}</p>
 
       <div className="space-y-1.5">
         {data.options.map((opt, idx) => {
@@ -764,11 +764,11 @@ const ClarificationCard = memo(function ClarificationCard({
               onClick={() => pick(idx, opt.rewrite)}
               disabled={isLocked}
               className={`w-full text-left px-2.5 py-2 rounded-lg border text-[11px] leading-snug transition-all
-                ${sel ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                  : dim ? 'border-slate-100 bg-slate-50 text-slate-300 cursor-default'
-                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 cursor-pointer'}`}
+                ${sel ? 'border-primary bg-primary/10 text-primary'
+                  : dim ? 'border-border-subtle bg-surface-hover text-muted-fg/50 cursor-default'
+                    : 'border-border bg-surface text-foreground hover:border-border hover:bg-surface-hover cursor-pointer'}`}
             >
-              <span className="font-medium text-[11px] text-slate-400 mr-2">{String.fromCharCode(65 + idx)}.</span>
+              <span className="font-medium text-[11px] text-muted-fg mr-2">{String.fromCharCode(65 + idx)}.</span>
               {opt.label}
             </button>
           );
@@ -777,7 +777,7 @@ const ClarificationCard = memo(function ClarificationCard({
         {!showCustom && !isLocked && (
           <button
             onClick={() => { setShowCustom(true); setTimeout(() => customRef.current?.focus(), 50); }}
-            className="w-full text-left px-2.5 py-2 rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-500 hover:border-slate-300 hover:bg-slate-50 transition-all cursor-pointer"
+            className="w-full text-left px-2.5 py-2 rounded-lg border border-dashed border-border text-[11px] text-muted-fg hover:border-border hover:bg-surface-hover transition-all cursor-pointer"
           >
             Otra cosa...
           </button>
@@ -791,12 +791,12 @@ const ClarificationCard = memo(function ClarificationCard({
               onChange={(e) => setCustomText(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && submitCustom()}
               placeholder="Escribe lo que necesitas..."
-              className="flex-1 px-2.5 py-1.5 text-[11px] border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 focus:outline-none focus:border-indigo-300"
+              className="flex-1 px-2.5 py-1.5 text-[11px] border border-border rounded-lg text-foreground placeholder-muted-fg focus:outline-none focus:border-primary"
             />
             <button
               onClick={submitCustom}
               disabled={!customText.trim()}
-              className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-white bg-indigo-500 disabled:opacity-30 hover:bg-indigo-600 transition-colors"
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-white bg-primary disabled:opacity-30 hover:bg-primary-hover transition-colors"
             >
               Enviar
             </button>
@@ -804,14 +804,14 @@ const ClarificationCard = memo(function ClarificationCard({
         )}
 
         {chosen === -1 && (
-          <div className="px-2.5 py-1.5 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 text-[11px]">
+          <div className="px-2.5 py-1.5 rounded-lg border border-primary bg-primary/10 text-primary text-[11px]">
             {customText}
           </div>
         )}
       </div>
 
       {chosen !== null && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-1.5 text-[10px] text-indigo-500">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-1.5 text-[10px] text-primary">
           <LoadingDots />
           <span>Procesando...</span>
         </motion.div>
@@ -837,18 +837,18 @@ const ChartContextChip = memo(function ChartContextChip({
   const to = snap.visibleDateRange?.to ? fmt(snap.visibleDateRange.to) : '';
 
   return (
-    <div className="flex items-center gap-1.5 mb-1.5 px-2.5 py-1 bg-blue-50 border border-blue-200/60 rounded-lg text-[10px] flex-wrap">
-      <span className="font-semibold text-blue-700">{chartContext.ticker}</span>
-      <span className="text-blue-500 font-medium">{chartContext.interval}</span>
-      {from && to && <span className="text-blue-600">{from} &rarr; {to}</span>}
-      <span className="text-slate-400">({snap.recentBars?.length || 0} bars)</span>
+    <div className="flex items-center gap-1.5 mb-1.5 px-2.5 py-1 bg-primary/10 border border-primary/30 rounded-lg text-[10px] flex-wrap">
+      <span className="font-semibold text-primary">{chartContext.ticker}</span>
+      <span className="text-primary font-medium">{chartContext.interval}</span>
+      {from && to && <span className="text-primary">{from} &rarr; {to}</span>}
+      <span className="text-muted-fg">({snap.recentBars?.length || 0} bars)</span>
       {chartContext.targetCandle && (
-        <span className="text-blue-400 font-medium">candle: {fmt(chartContext.targetCandle.date)}</span>
+        <span className="text-primary font-medium">candle: {fmt(chartContext.targetCandle.date)}</span>
       )}
       {snap.isHistorical && (
-        <span className="text-amber-600 font-semibold bg-amber-50 px-1.5 py-0.5 rounded">Historical</span>
+        <span className="text-amber-600 dark:text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded">Historical</span>
       )}
-      <button onClick={onClear} className="ml-auto text-blue-400 hover:text-blue-600 text-[14px] leading-none font-light">
+      <button onClick={onClear} className="ml-auto text-primary hover:text-primary-hover text-[14px] leading-none font-light">
         &times;
       </button>
     </div>
@@ -870,17 +870,17 @@ const PipelineSidebar = memo(function PipelineSidebar({ steps }: { steps: AgentS
       animate={{ width: 200, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
-      className="flex-shrink-0 border-l border-slate-200/60 bg-white overflow-hidden"
+      className="flex-shrink-0 border-l border-border bg-surface overflow-hidden"
     >
       <div className="w-[200px] h-full flex flex-col">
-        <div className="flex-shrink-0 px-3 py-2 border-b border-slate-100">
-          <span className="text-[10px] font-semibold text-slate-700">Pipeline</span>
+        <div className="flex-shrink-0 px-3 py-2 border-b border-border-subtle">
+          <span className="text-[10px] font-semibold text-foreground">Pipeline</span>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-2">
           {steps.length === 0 ? (
             <div className="flex items-center justify-center h-full">
-              <p className="text-[10px] text-slate-400 text-center px-2 leading-relaxed">
+              <p className="text-[10px] text-muted-fg text-center px-2 leading-relaxed">
                 Los pasos del agente aparecerán aquí.
               </p>
             </div>
@@ -888,14 +888,14 @@ const PipelineSidebar = memo(function PipelineSidebar({ steps }: { steps: AgentS
             <div>
               <div className="mb-2">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[9px] text-slate-400 font-medium uppercase tracking-wider">
+                  <span className="text-[9px] text-muted-fg font-medium uppercase tracking-wider">
                     {isProcessing ? 'En progreso' : hasErrors ? 'Error' : 'Completado'}
                   </span>
-                  <span className="text-[9px] text-slate-400 tabular-nums">{completedCount}/{steps.length}</span>
+                  <span className="text-[9px] text-muted-fg tabular-nums">{completedCount}/{steps.length}</span>
                 </div>
-                <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-1 bg-surface-inset rounded-full overflow-hidden">
                   <motion.div
-                    className={`h-full rounded-full ${hasErrors ? 'bg-red-400' : isProcessing ? 'bg-indigo-500' : 'bg-emerald-500'}`}
+                    className={`h-full rounded-full ${hasErrors ? 'bg-red-400' : isProcessing ? 'bg-primary' : 'bg-emerald-500'}`}
                     animate={{ width: `${steps.length > 0 ? (completedCount / steps.length) * 100 : 0}%` }}
                     transition={{ duration: 0.5 }}
                   />
@@ -912,15 +912,15 @@ const PipelineSidebar = memo(function PipelineSidebar({ steps }: { steps: AgentS
                     initial={{ opacity: 0, x: -6 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.2, delay: idx * 0.04 }}
-                    className="flex items-center gap-2 py-1.5 border-b border-slate-50 last:border-0"
+                    className="flex items-center gap-2 py-1.5 border-b border-border-subtle last:border-0"
                   >
                     <span className={`text-[9px] leading-none font-medium ${
-                      running ? 'text-indigo-500' : done ? 'text-emerald-500' : err ? 'text-red-400' : 'text-slate-300'
+                      running ? 'text-primary' : done ? 'text-emerald-500' : err ? 'text-red-400' : 'text-muted-fg/50'
                     }`}>
                       {running ? '\u25CF' : done ? '\u2713' : err ? '\u00D7' : '\u25CB'}
                     </span>
                     <span className={`text-[10px] flex-1 truncate ${
-                      running ? 'text-indigo-700 font-medium' : done ? 'text-slate-600' : err ? 'text-red-600' : 'text-slate-400'
+                      running ? 'text-primary font-medium' : done ? 'text-foreground/80' : err ? 'text-red-600' : 'text-muted-fg'
                     }`}>
                       {step.title}
                     </span>
@@ -942,7 +942,7 @@ const PipelineSidebar = memo(function PipelineSidebar({ steps }: { steps: AgentS
 
 export function AIAgentWindow() {
   return (
-    <div className="h-full w-full bg-[#f7f8fb]">
+    <div className="h-full w-full bg-surface">
       <AIAgentContent />
     </div>
   );

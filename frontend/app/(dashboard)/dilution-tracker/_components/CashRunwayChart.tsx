@@ -82,10 +82,10 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
   // Loading state
   if (loading) {
     return (
-      <div className="border border-slate-200 rounded-lg p-4">
+      <div className="border border-border rounded-lg p-4">
         <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-slate-200 rounded w-1/3"></div>
-          <div className="h-48 bg-slate-100 rounded"></div>
+          <div className="h-4 bg-muted rounded w-1/3"></div>
+          <div className="h-48 bg-surface-inset rounded"></div>
         </div>
       </div>
     );
@@ -164,7 +164,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
       if (data.quarterly_operating_cf >= 0) {
         return { text: 'Cash Positive', color: 'text-green-600' };
       }
-      return { text: 'N/A', color: 'text-slate-400' };
+      return { text: 'N/A', color: 'text-muted-fg' };
     }
 
     const months = data.runway_months;
@@ -182,12 +182,12 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
   // Risk badge
   const getRiskBadge = (level: string) => {
     const badges: Record<string, { bg: string; text: string; label: string }> = {
-      critical: { bg: 'bg-red-100', text: 'text-red-700', label: 'Critical' },
-      high: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'High Risk' },
-      medium: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Moderate' },
-      moderate: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Moderate' },
-      low: { bg: 'bg-green-100', text: 'text-green-700', label: 'Low Risk' },
-      healthy: { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Healthy' },
+      critical: { bg: 'bg-red-500/15', text: 'text-red-700 dark:text-red-400', label: 'Critical' },
+      high: { bg: 'bg-orange-500/15', text: 'text-orange-700 dark:text-orange-400', label: 'High Risk' },
+      medium: { bg: 'bg-yellow-500/15', text: 'text-yellow-700 dark:text-yellow-400', label: 'Moderate' },
+      moderate: { bg: 'bg-yellow-500/15', text: 'text-yellow-700 dark:text-yellow-400', label: 'Moderate' },
+      low: { bg: 'bg-green-500/15', text: 'text-green-700 dark:text-green-400', label: 'Low Risk' },
+      healthy: { bg: 'bg-emerald-500/15', text: 'text-emerald-700 dark:text-emerald-400', label: 'Healthy' },
     };
     return badges[level] || badges.low;
   };
@@ -224,7 +224,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
     return (
       <div className="bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">
         <p className="font-semibold mb-1">{typeLabels[item.type] || label}</p>
-        {item.fullDate && <p className="text-slate-400 text-[10px] mb-1">{item.fullDate}</p>}
+        {item.fullDate && <p className="text-muted-fg text-[10px] mb-1">{item.fullDate}</p>}
         <p className={item.value < 0 ? 'text-red-300' : 'text-green-300'}>
           {item.value < 0 ? '-' : ''}{formatCashFull(item.value)}
         </p>
@@ -233,14 +233,14 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
   };
 
   return (
-    <div className="border border-slate-200 rounded-lg p-4">
+    <div className="border border-border rounded-lg p-4">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h4 className="text-sm font-medium text-slate-700">
+          <h4 className="text-sm font-medium text-foreground">
             Cash Position & Runway
           </h4>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-muted-fg mt-0.5">
             SEC XBRL data • Last report: {formatDate(data.historical_cash_date)} • {data.days_since_report} days ago
           </p>
         </div>
@@ -248,7 +248,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
         {/* Runway & Risk */}
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <span className="text-xs text-slate-400">Runway:</span>
+            <span className="text-xs text-muted-fg">Runway:</span>
             <span className={`ml-1 text-sm font-semibold ${runway.color}`}>
               {runway.text}
             </span>
@@ -263,23 +263,23 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
       <div className="flex flex-wrap gap-3 mb-3 text-[10px]">
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.historical }}></div>
-          <span className="text-slate-500">Historical</span>
+          <span className="text-muted-fg">Historical</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.reported }}></div>
-          <span className="text-slate-500">Reported</span>
+          <span className="text-muted-fg">Reported</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.burn }}></div>
-          <span className="text-slate-500">Prorated CF</span>
+          <span className="text-muted-fg">Prorated CF</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.raise }}></div>
-          <span className="text-slate-500">Cap. Raise</span>
+          <span className="text-muted-fg">Cap. Raise</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.estimate }}></div>
-          <span className="text-slate-500">Estimate</span>
+          <span className="text-muted-fg">Estimate</span>
         </div>
       </div>
 
@@ -320,45 +320,45 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
 
       {/* Summary Cards */}
       <div className="grid grid-cols-4 gap-2 mt-4 text-xs">
-        <div className="bg-blue-50 rounded p-2 text-center">
-          <p className="text-slate-500 text-[10px]">Reported</p>
+        <div className="bg-blue-500/10 rounded p-2 text-center">
+          <p className="text-muted-fg text-[10px]">Reported</p>
           <p className="font-semibold text-blue-700">{formatCash(data.historical_cash)}</p>
         </div>
-        <div className={`rounded p-2 text-center ${data.quarterly_operating_cf < 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-          <p className="text-slate-500 text-[10px]">Prorated CF</p>
-          <p className={`font-semibold ${data.quarterly_operating_cf < 0 ? 'text-red-700' : 'text-green-700'}`}>
+        <div className={`rounded p-2 text-center ${data.quarterly_operating_cf < 0 ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
+          <p className="text-muted-fg text-[10px]">Prorated CF</p>
+          <p className={`font-semibold ${data.quarterly_operating_cf < 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
             {data.quarterly_operating_cf < 0 ? '-' : '+'}{formatCash(Math.abs(data.prorated_cf))}
           </p>
         </div>
-        <div className="bg-green-50 rounded p-2 text-center">
-          <p className="text-slate-500 text-[10px]">Cap. Raise</p>
+        <div className="bg-green-500/10 rounded p-2 text-center">
+          <p className="text-muted-fg text-[10px]">Cap. Raise</p>
           <p className="font-semibold text-green-700">
             {data.capital_raises?.total ? `+${formatCash(data.capital_raises.total)}` : '-'}
           </p>
         </div>
-        <div className="bg-amber-50 rounded p-2 text-center">
-          <p className="text-slate-500 text-[10px]">Current Est.</p>
-          <p className="font-semibold text-amber-700">{formatCash(data.estimated_current_cash)}</p>
+        <div className="bg-amber-500/10 rounded p-2 text-center">
+          <p className="text-muted-fg text-[10px]">Current Est.</p>
+          <p className="font-semibold text-amber-700 dark:text-amber-400">{formatCash(data.estimated_current_cash)}</p>
         </div>
       </div>
 
       {/* Formula */}
-      <div className="mt-3 pt-3 border-t border-slate-100 text-[10px] text-slate-400">
+      <div className="mt-3 pt-3 border-t border-border-subtle text-[10px] text-muted-fg">
         <p>
-          <span className="text-slate-600">Current Est.</span> = Reported Cash + Prorated Operating CF + Capital Raises
+          <span className="text-foreground/80">Current Est.</span> = Reported Cash + Prorated Operating CF + Capital Raises
         </p>
         <p className="mt-0.5">Cash includes cash equivalents, short-term investments, and restricted cash (DilutionTracker methodology)</p>
       </div>
 
       {/* Capital Raise Details */}
       {data.capital_raises?.details && data.capital_raises.details.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-slate-100">
-          <p className="text-xs font-medium text-slate-600 mb-2">Recent Capital Raises</p>
+        <div className="mt-3 pt-3 border-t border-border-subtle">
+          <p className="text-xs font-medium text-foreground/80 mb-2">Recent Capital Raises</p>
           <div className="space-y-1">
             {data.capital_raises.details.slice(0, 3).map((raise, idx) => (
               <div key={idx} className="flex items-center justify-between text-xs">
-                <span className="text-slate-500">{formatDate(raise.filing_date)}</span>
-                <span className="text-slate-600 truncate max-w-[120px]">{raise.instrument_type}</span>
+                <span className="text-muted-fg">{formatDate(raise.filing_date)}</span>
+                <span className="text-foreground/80 truncate max-w-[120px]">{raise.instrument_type}</span>
                 <span className="font-medium text-green-600">+{formatCash(raise.gross_proceeds)}</span>
               </div>
             ))}

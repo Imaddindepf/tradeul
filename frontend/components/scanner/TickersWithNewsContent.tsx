@@ -15,7 +15,7 @@ export function TickersWithNewsContent({ title }: TickersWithNewsContentProps) {
     const closeCurrentWindow = useCloseCurrentWindow();
     
     return (
-        <div className="h-full w-full overflow-hidden flex flex-col bg-white">
+        <div className="h-full w-full overflow-hidden flex flex-col bg-surface">
             <TickersWithNewsTable
                 title={title}
                 onClose={closeCurrentWindow}

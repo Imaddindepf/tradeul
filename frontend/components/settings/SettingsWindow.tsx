@@ -47,11 +47,11 @@ function ColorPicker({ label, value, onChange }: ColorPickerProps) {
           }}
         />
         <div 
-          className="absolute inset-0 rounded pointer-events-none border border-slate-300"
+          className="absolute inset-0 rounded pointer-events-none border border-border"
           style={{ backgroundColor: value }}
         />
       </div>
-      <span className="text-sm text-slate-700 font-medium">{label}</span>
+      <span className="text-sm text-foreground font-medium">{label}</span>
     </div>
   );
 }
@@ -78,13 +78,13 @@ function FontSelector({ value, onChange }: FontSelectorProps) {
 
   return (
     <div className="relative">
-      <label className="block text-xs text-slate-500 mb-1">Font</label>
+      <label className="block text-xs text-muted-fg mb-1">Font</label>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-left text-sm font-medium text-slate-700 hover:border-slate-400 transition-colors flex items-center justify-between"
+        className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-left text-sm font-medium text-foreground hover:border-primary transition-colors flex items-center justify-between"
       >
         <span style={{ fontFamily: selectedFont?.preview }}>{selectedFont?.label}</span>
-        <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-4 h-4 text-muted-fg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
@@ -92,7 +92,7 @@ function FontSelector({ value, onChange }: FontSelectorProps) {
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1">
+          <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-lg shadow-lg z-50 py-1">
             {FONTS.map((font) => (
               <button
                 key={font.value}
@@ -100,8 +100,8 @@ function FontSelector({ value, onChange }: FontSelectorProps) {
                   onChange(font.value);
                   setIsOpen(false);
                 }}
-                className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 flex items-center gap-2 ${
-                  value === font.value ? 'text-blue-600 bg-blue-50' : 'text-slate-700'
+                className={`w-full px-3 py-2 text-left text-sm hover:bg-surface-hover flex items-center gap-2 ${
+                  value === font.value ? 'text-blue-600 bg-blue-500/10' : 'text-foreground'
                 }`}
                 style={{ fontFamily: font.preview }}
               >
@@ -173,15 +173,15 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-[380px] overflow-hidden">
+    <div className="bg-surface rounded-xl shadow-2xl border border-border w-[380px] overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
-        <h2 className="text-base font-semibold text-slate-800">Settings</h2>
+      <div className="flex items-center justify-between px-4 py-3 bg-surface-hover border-b border-border">
+        <h2 className="text-base font-semibold text-foreground">Settings</h2>
         <button
           onClick={onClose}
-          className="p-1 hover:bg-slate-200 rounded transition-colors"
+          className="p-1 hover:bg-surface-inset rounded transition-colors"
         >
-          <X className="w-4 h-4 text-slate-500" />
+          <X className="w-4 h-4 text-muted-fg" />
         </button>
       </div>
 
@@ -189,7 +189,7 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
       <div className="p-4 space-y-6 max-h-[500px] overflow-y-auto">
         {/* Colors Section */}
         <section>
-          <h3 className="text-sm font-semibold text-slate-800 mb-3 pb-2 border-b border-slate-100">
+          <h3 className="text-sm font-semibold text-foreground mb-3 pb-2 border-b border-border-subtle">
             Colors
           </h3>
           <div className="space-y-3">
@@ -215,7 +215,7 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
             />
             <button
               onClick={resetColors}
-              className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-700 transition-colors mt-2"
+              className="flex items-center gap-2 text-xs text-muted-fg hover:text-foreground transition-colors mt-2"
             >
               <RotateCcw className="w-3 h-3" />
               Reset to Default
@@ -225,7 +225,7 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
 
         {/* Theme Section */}
         <section>
-          <h3 className="text-sm font-semibold text-slate-800 mb-3 pb-2 border-b border-slate-100">
+          <h3 className="text-sm font-semibold text-foreground mb-3 pb-2 border-b border-border-subtle">
             Theme
           </h3>
           <div className="space-y-3">
@@ -236,17 +236,17 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
         {/* Layout Section */}
         {onSaveLayout && (
           <section>
-            <h3 className="text-sm font-semibold text-slate-800 mb-3 pb-2 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-foreground mb-3 pb-2 border-b border-border-subtle">
               Layout
             </h3>
             <button
               onClick={onSaveLayout}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors"
             >
               <Save className="w-4 h-4" />
               Save Current Layout
             </button>
-            <p className="text-xs text-slate-500 mt-2">
+            <p className="text-xs text-muted-fg mt-2">
               Saves the position and size of all open windows.
             </p>
           </section>
@@ -254,20 +254,20 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
 
         {/* Import/Export Section */}
         <section>
-          <h3 className="text-sm font-semibold text-slate-800 mb-3 pb-2 border-b border-slate-100">
+          <h3 className="text-sm font-semibold text-foreground mb-3 pb-2 border-b border-border-subtle">
             Backup & Restore
           </h3>
           <div className="flex gap-2">
             <button
               onClick={handleExport}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 border border-border rounded-lg text-sm text-foreground hover:bg-surface-hover transition-colors"
             >
               <Download className="w-4 h-4" />
               Export
             </button>
             <button
               onClick={handleImport}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 border border-border rounded-lg text-sm text-foreground hover:bg-surface-hover transition-colors"
             >
               <Upload className="w-4 h-4" />
               Import
@@ -276,14 +276,14 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
         </section>
 
         {/* Reset All */}
-        <section className="pt-2 border-t border-slate-100">
+        <section className="pt-2 border-t border-border-subtle">
           <button
             onClick={() => {
               if (confirm('Reset all preferences to default? This cannot be undone.')) {
                 resetAll();
               }
             }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-red-600 hover:bg-red-500/10 rounded-lg text-sm font-medium transition-colors"
           >
             <RotateCcw className="w-4 h-4" />
             Reset All to Default

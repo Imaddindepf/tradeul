@@ -27,7 +27,7 @@ export function SquawkButton({
   const baseClasses = `flex items-center justify-center gap-1 rounded-md font-medium transition-colors relative ${padding} ${textSize}`;
   const stateClasses = isEnabled
     ? 'bg-violet-600 text-white hover:bg-violet-700'
-    : 'bg-slate-200 text-slate-600 hover:bg-slate-300';
+    : 'bg-muted text-foreground/80 hover:bg-muted';
   const animationClasses = isSpeaking ? 'animate-pulse' : '';
 
   return (

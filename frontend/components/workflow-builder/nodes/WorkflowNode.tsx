@@ -98,7 +98,7 @@ const WorkflowNode = memo(({ data, selected }: WorkflowNodeProps) => {
           type="source"
           position={Position.Right}
           id={output}
-          className="!w-3 !h-3 !bg-white !border-2 !border-zinc-900"
+          className="!w-3 !h-3 !bg-surface !border-2 !border-zinc-900"
           style={{ top: `${30 + idx * 20}%` }}
         />
       ))}

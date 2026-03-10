@@ -9,7 +9,7 @@ import dynamic from 'next/dynamic';
 
 const LazyAutoChart = dynamic(() => import('./AutoChart').then(m => m.AutoBarChart), {
   ssr: false,
-  loading: () => <div className="h-[240px] bg-slate-50 rounded-xl animate-pulse" />,
+  loading: () => <div className="h-[240px] bg-surface-hover rounded-xl animate-pulse" />,
 });
 
 interface MetricsCard {
@@ -43,20 +43,20 @@ export interface StructuredResponse {
 
 function fmtInline(text: string): string {
   return text
-    .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-slate-800">$1</strong>')
-    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em class="text-slate-700">$1</em>')
-    .replace(/`([^`]+)`/g, '<code class="px-0.5 py-px rounded bg-slate-100 text-indigo-600 text-[10px] font-mono">$1</code>')
-    .replace(/\$(\d[\d,.]*)/g, '<span class="font-semibold tabular-nums text-slate-800">$$$1</span>');
+    .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
+    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em class="text-foreground">$1</em>')
+    .replace(/`([^`]+)`/g, '<code class="px-0.5 py-px rounded bg-surface-inset text-primary text-[10px] font-mono">$1</code>')
+    .replace(/\$(\d[\d,.]*)/g, '<span class="font-semibold tabular-nums text-foreground">$$$1</span>');
 }
 
 function MetricPill({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   const num = parseFloat(value.replace(/[^-\d.]/g, ''));
   const color = highlight
-    ? (num > 0 ? 'text-emerald-600 font-semibold' : num < 0 ? 'text-red-500 font-semibold' : 'text-slate-700')
-    : 'text-slate-700';
+    ? (num > 0 ? 'text-emerald-600 font-semibold' : num < 0 ? 'text-red-500 font-semibold' : 'text-foreground')
+    : 'text-foreground';
   return (
     <div className="min-w-0">
-      <div className="text-[8px] font-medium text-slate-400 uppercase tracking-wider truncate">{label}</div>
+      <div className="text-[8px] font-medium text-muted-fg uppercase tracking-wider truncate">{label}</div>
       <div className={`tabular-nums truncate ${color}`}>{value}</div>
     </div>
   );
@@ -67,15 +67,15 @@ function MetricsCardBlock({ m }: { m: MetricsCard }) {
   const isUp = changeNum > 0;
   const isDown = changeNum < 0;
   const TrendIcon = isUp ? ArrowUpRight : isDown ? ArrowDownRight : Minus;
-  const trendColor = isUp ? 'text-emerald-600' : isDown ? 'text-red-500' : 'text-slate-500';
-  const trendBg = isUp ? 'bg-emerald-50/60' : isDown ? 'bg-red-50/60' : 'bg-slate-50';
+  const trendColor = isUp ? 'text-emerald-600' : isDown ? 'text-red-500' : 'text-muted-fg';
+  const trendBg = isUp ? 'bg-emerald-500/10' : isDown ? 'bg-red-500/10' : 'bg-surface-hover';
 
   return (
-    <div className={`rounded-lg border border-slate-200/80 p-2.5 ${trendBg}`}>
+    <div className={`rounded-lg border border-border p-2.5 ${trendBg}`}>
       <div className="flex items-center gap-1.5 mb-1.5">
-        <span className="text-[13px] font-bold text-slate-900">{m.ticker}</span>
-        <span className="text-[10px] text-slate-500">{'\u2014'} {m.company_name}</span>
-        {m.sector && <span className="text-[9px] text-slate-400">({m.sector})</span>}
+        <span className="text-[13px] font-bold text-foreground">{m.ticker}</span>
+        <span className="text-[10px] text-muted-fg">{'\u2014'} {m.company_name}</span>
+        {m.sector && <span className="text-[9px] text-muted-fg">({m.sector})</span>}
         <TrendIcon className={`w-3.5 h-3.5 ml-auto ${trendColor}`} />
       </div>
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-x-3 gap-y-1 text-[10px]">
@@ -131,32 +131,32 @@ function StructuredTable({ table }: { table: DataTable }) {
 
   const getCellColor = (value: string): string => {
     const num = parseFloat(value.replace(/[,$%x]/g, ''));
-    if (isNaN(num)) return 'text-slate-700';
+    if (isNaN(num)) return 'text-foreground';
     if (value.includes('%')) {
       if (num > 0) return 'text-emerald-600 font-medium';
       if (num < 0) return 'text-red-500 font-medium';
     }
-    return 'text-slate-700';
+    return 'text-foreground';
   };
 
   const visibleRows = expanded ? sortedRows : sortedRows.slice(0, TABLE_PREVIEW);
 
   return (
     <div className="space-y-1.5">
-      <div className="overflow-x-auto rounded-lg border border-slate-200/80 bg-white">
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full text-[10px]">
           <thead>
-            <tr className="bg-slate-50/80">
+            <tr className="bg-surface-hover/80">
               {table.headers.map((h, i) => (
                 <th
                   key={i}
                   onClick={() => handleSort(i)}
-                  className={'px-2 py-1.5 font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors select-none whitespace-nowrap ' + (isNumeric[i] ? 'text-right' : 'text-left')}
+                  className={'px-2 py-1.5 font-semibold text-foreground/80 cursor-pointer hover:bg-surface-hover transition-colors select-none whitespace-nowrap ' + (isNumeric[i] ? 'text-right' : 'text-left')}
                 >
                   <span className="inline-flex items-center gap-0.5">
                     {h}
                     {sortCol === i && (
-                      <span className="text-[8px] text-indigo-500">
+                      <span className="text-[8px] text-primary">
                         {sortAsc ? '\u25B2' : '\u25BC'}
                       </span>
                     )}
@@ -165,15 +165,15 @@ function StructuredTable({ table }: { table: DataTable }) {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-border-subtle">
             {visibleRows.map((row, rowIdx) => (
-              <tr key={rowIdx} className="hover:bg-indigo-50/30 transition-colors">
+              <tr key={rowIdx} className="hover:bg-primary/10 transition-colors">
                 {row.map((cell, cellIdx) => (
                   <td
                     key={cellIdx}
                     className={'px-2 py-1 tabular-nums ' +
                       (isNumeric[cellIdx] ? 'text-right font-mono text-[10px] ' : 'text-left ') +
-                      (cellIdx === 0 ? 'font-medium text-slate-800 ' : getCellColor(cell))}
+                      (cellIdx === 0 ? 'font-medium text-foreground ' : getCellColor(cell))}
                   >
                     {cell}
                   </td>
@@ -185,7 +185,7 @@ function StructuredTable({ table }: { table: DataTable }) {
         {sortedRows.length > TABLE_PREVIEW && !expanded && (
           <button
             onClick={() => setExpanded(true)}
-            className="w-full py-1.5 text-[10px] text-slate-500 hover:text-slate-700 bg-slate-50 border-t border-slate-200/80 transition-colors"
+            className="w-full py-1.5 text-[10px] text-muted-fg hover:text-foreground bg-surface-hover border-t border-border transition-colors"
           >
             Show more ({sortedRows.length - TABLE_PREVIEW} more rows)
           </button>
@@ -194,7 +194,7 @@ function StructuredTable({ table }: { table: DataTable }) {
       {rows.length >= 2 && (
         <button
           onClick={() => setShowChart(!showChart)}
-          className="inline-flex items-center gap-1 px-2 py-1 text-[9px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors"
+          className="inline-flex items-center gap-1 px-2 py-1 text-[9px] font-medium text-primary bg-primary/10 hover:bg-primary/15 rounded transition-colors"
         >
           <BarChart3 className="w-3 h-3" />
           {showChart ? 'Hide Chart' : 'Visualize'}
@@ -222,8 +222,8 @@ function SectionBlock({ section }: { section: Section }) {
   return (
     <div className="space-y-1.5">
       {section.title && (
-        <h3 className="text-[12px] font-bold text-slate-800 flex items-center gap-1.5">
-          <span className="w-0.5 h-3 rounded-full bg-indigo-500 inline-block" />
+        <h3 className="text-[12px] font-bold text-foreground flex items-center gap-1.5">
+          <span className="w-0.5 h-3 rounded-full bg-primary inline-block" />
           {section.title}
         </h3>
       )}
@@ -232,21 +232,21 @@ function SectionBlock({ section }: { section: Section }) {
         const trimmed = line.trim();
         if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
           return (
-            <div key={i} className="flex gap-1.5 text-[11px] text-slate-600 leading-relaxed pl-0.5">
-              <span className="text-indigo-400 mt-0.5 select-none flex-shrink-0">&bull;</span>
+            <div key={i} className="flex gap-1.5 text-[11px] text-foreground/80 leading-relaxed pl-0.5">
+              <span className="text-primary mt-0.5 select-none flex-shrink-0">&bull;</span>
               <span dangerouslySetInnerHTML={{ __html: fmtInline(trimmed.slice(2)) }} />
             </div>
           );
         }
         if (/^#{2,4}\s/.test(trimmed)) {
           return (
-            <h4 key={i} className="text-[11px] font-semibold text-slate-700 mt-1.5">
+            <h4 key={i} className="text-[11px] font-semibold text-foreground mt-1.5">
               {trimmed.replace(/^#{2,4}\s*/, '')}
             </h4>
           );
         }
         return (
-          <p key={i} className="text-[11px] text-slate-600 leading-relaxed"
+          <p key={i} className="text-[11px] text-foreground/80 leading-relaxed"
             dangerouslySetInnerHTML={{ __html: fmtInline(trimmed) }}
           />
         );
@@ -259,8 +259,8 @@ function SectionBlock({ section }: { section: Section }) {
       {section.bullets.length > 0 && (
         <div className="space-y-0.5">
           {section.bullets.map((b, i) => (
-            <div key={i} className="flex gap-1.5 text-[11px] text-slate-600 leading-relaxed pl-0.5">
-              <span className="text-indigo-400 mt-0.5 select-none flex-shrink-0">&bull;</span>
+            <div key={i} className="flex gap-1.5 text-[11px] text-foreground/80 leading-relaxed pl-0.5">
+              <span className="text-primary mt-0.5 select-none flex-shrink-0">&bull;</span>
               <span dangerouslySetInnerHTML={{ __html: fmtInline(b) }} />
             </div>
           ))}
@@ -283,7 +283,7 @@ export const StructuredResponseRenderer = memo(function StructuredResponseRender
       className="space-y-2.5"
     >
       {data.session_context && (
-        <p className="text-[10px] text-slate-500 italic">
+        <p className="text-[10px] text-muted-fg italic">
           {data.session_context}
         </p>
       )}
@@ -298,12 +298,12 @@ export const StructuredResponseRenderer = memo(function StructuredResponseRender
 
       {data.key_takeaways.length > 0 && (
         <div className="space-y-1">
-          <h3 className="text-[12px] font-bold text-slate-800 flex items-center gap-1.5">
+          <h3 className="text-[12px] font-bold text-foreground flex items-center gap-1.5">
             <span className="w-0.5 h-3 rounded-full bg-amber-500 inline-block" />
             Key Takeaways
           </h3>
           {data.key_takeaways.map((t, i) => (
-            <div key={i} className="flex gap-1.5 text-[11px] text-slate-700 leading-relaxed pl-0.5">
+            <div key={i} className="flex gap-1.5 text-[11px] text-foreground leading-relaxed pl-0.5">
               <span className="text-amber-500 mt-0.5 select-none flex-shrink-0">&bull;</span>
               <span dangerouslySetInnerHTML={{ __html: fmtInline(t) }} />
             </div>
@@ -312,8 +312,8 @@ export const StructuredResponseRenderer = memo(function StructuredResponseRender
       )}
 
       {data.citations.length > 0 && (
-        <div className="pt-1.5 border-t border-slate-200/60">
-          <div className="text-[9px] text-slate-400 font-medium uppercase tracking-wider mb-1">Sources</div>
+        <div className="pt-1.5 border-t border-border">
+          <div className="text-[9px] text-muted-fg font-medium uppercase tracking-wider mb-1">Sources</div>
           <div className="flex flex-wrap gap-1">
             {data.citations.map((c, i) => {
               let host = '';
@@ -324,7 +324,7 @@ export const StructuredResponseRenderer = memo(function StructuredResponseRender
                   href={c.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 transition-colors"
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium bg-primary/10 text-primary rounded hover:bg-primary/15 transition-colors"
                   title={c.url}
                 >
                   [{i + 1}] {c.title || host}

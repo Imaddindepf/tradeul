@@ -13,7 +13,7 @@ interface DataTableContentProps {
 }
 
 const formatValue = (value: unknown, column: string, onOpenChart?: (t: string) => void): React.ReactNode => {
-  if (value === null || value === undefined) return <span className="text-slate-300">-</span>;
+  if (value === null || value === undefined) return <span className="text-muted-fg/50">-</span>;
   const str = String(value);
 
   // Symbol: clickeable para abrir gráfico
@@ -21,19 +21,19 @@ const formatValue = (value: unknown, column: string, onOpenChart?: (t: string) =
     return (
       <button
         onClick={() => onOpenChart(str)}
-        className="font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+        className="font-semibold text-primary hover:text-primary hover:underline cursor-pointer"
       >
         {str}
       </button>
     );
   }
 
-  if (column === 'symbol') return <span className="font-semibold text-blue-600">{str}</span>;
+  if (column === 'symbol') return <span className="font-semibold text-primary">{str}</span>;
 
   if (column.includes('percent') || column.includes('pct') || column.includes('change')) {
     const n = Number(value);
     if (isNaN(n)) return str;
-    const c = n > 0 ? 'text-[var(--color-tick-up)]' : n < 0 ? 'text-[var(--color-tick-down)]' : 'text-slate-400';
+    const c = n > 0 ? 'text-[var(--color-tick-up)]' : n < 0 ? 'text-[var(--color-tick-down)]' : 'text-muted-fg';
     return <span className={c}>{n > 0 ? '+' : ''}{n.toFixed(2)}%</span>;
   }
 
@@ -56,7 +56,7 @@ const formatValue = (value: unknown, column: string, onOpenChart?: (t: string) =
     return <span className="font-[family-name:var(--font-mono-selected)]">{fmt}</span>;
   }
 
-  return <span className="text-slate-600 truncate max-w-[120px] block">{str}</span>;
+  return <span className="text-foreground/80 truncate max-w-[120px] block">{str}</span>;
 };
 
 const COL_LABELS: Record<string, string> = {
@@ -148,25 +148,25 @@ export const DataTableContent = memo(function DataTableContent({
   };
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-surface">
       {/* Header con búsqueda */}
-      <div className="flex-shrink-0 px-2 py-1.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+      <div className="flex-shrink-0 px-2 py-1.5 border-b border-border flex items-center justify-between bg-surface-hover">
         <div className="text-[11px]">
-          <span className="text-slate-400">{filtered.length}/{total}</span>
+          <span className="text-muted-fg">{filtered.length}/{total}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-fg" />
             <input
               type="text"
               placeholder="Buscar..."
               value={search}
               onChange={e => handleSearch(e.target.value)}
-              className="pl-6 pr-2 py-1 bg-white border border-slate-200 rounded text-[11px] w-28 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="pl-6 pr-2 py-1 bg-surface border border-border rounded text-[11px] w-28 focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
-          <button onClick={exportCSV} className="p-1 hover:bg-slate-100 rounded" title="Exportar CSV">
-            <Download className="w-3.5 h-3.5 text-slate-500" />
+          <button onClick={exportCSV} className="p-1 hover:bg-surface-hover rounded" title="Exportar CSV">
+            <Download className="w-3.5 h-3.5 text-muted-fg" />
           </button>
         </div>
       </div>
@@ -174,10 +174,10 @@ export const DataTableContent = memo(function DataTableContent({
       {/* Tabla */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-[11px]">
-          <thead className="bg-slate-50 sticky top-0 text-[9px] text-slate-500 uppercase">
+          <thead className="bg-surface-hover sticky top-0 text-[9px] text-muted-fg uppercase">
             <tr>
               {cols.map(c => (
-                <th key={c} onClick={() => sort(c)} className="px-1.5 py-1 text-left cursor-pointer hover:bg-slate-100 whitespace-nowrap">
+                <th key={c} onClick={() => sort(c)} className="px-1.5 py-1 text-left cursor-pointer hover:bg-surface-hover whitespace-nowrap">
                   <span className="flex items-center gap-0.5">
                     {getLabel(c)}
                     {sortCol === c && <ArrowUpDown className={`w-2 h-2 ${sortDir === 'asc' ? 'rotate-180' : ''}`} />}
@@ -186,9 +186,9 @@ export const DataTableContent = memo(function DataTableContent({
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-border-subtle">
             {pageRows.map((row, i) => (
-              <tr key={i} className="hover:bg-slate-50/50">
+              <tr key={i} className="hover:bg-surface-hover/50">
                 {cols.map(c => (
                   <td key={c} className="px-1.5 py-1 whitespace-nowrap">
                     {formatValue(row[c], c, c === 'symbol' ? handleOpenChart : undefined)}
@@ -198,19 +198,19 @@ export const DataTableContent = memo(function DataTableContent({
             ))}
           </tbody>
         </table>
-        {pageRows.length === 0 && <div className="py-6 text-center text-[11px] text-slate-400">Sin resultados</div>}
+        {pageRows.length === 0 && <div className="py-6 text-center text-[11px] text-muted-fg">Sin resultados</div>}
       </div>
 
       {/* Pagination */}
       {pages > 1 && (
-        <div className="flex-shrink-0 px-2 py-1 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-500 bg-slate-50">
+        <div className="flex-shrink-0 px-2 py-1 border-t border-border flex items-center justify-between text-[10px] text-muted-fg bg-surface-hover">
           <span>{(page-1)*PER_PAGE+1}-{Math.min(page*PER_PAGE, filtered.length)} / {filtered.length}</span>
           <div className="flex items-center gap-1">
-            <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1} className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30">
+            <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1} className="p-0.5 rounded hover:bg-surface-hover disabled:opacity-30">
               <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="px-1">{page}/{pages}</span>
-            <button onClick={() => setPage(p => Math.min(pages, p+1))} disabled={page === pages} className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30">
+            <button onClick={() => setPage(p => Math.min(pages, p+1))} disabled={page === pages} className="p-0.5 rounded hover:bg-surface-hover disabled:opacity-30">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>

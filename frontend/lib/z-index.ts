@@ -78,17 +78,8 @@ export const Z_INDEX = {
   // ============================================================================
   // CAPA 5: NAVEGACIÓN GLOBAL (z-10000) - LÍMITE SUPERIOR DE LA APP
   // ============================================================================
-  /** Overlay del mobile menu del sidebar */
-  SIDEBAR_MOBILE_OVERLAY: 9999,
-  
-  /** Sidebar principal de navegación */
-  SIDEBAR: 10000,
-  
   /** Navbar principal - EL LÍMITE SUPERIOR, nada puede superarlo */
   NAVBAR: 10000,
-  
-  /** Botón del mobile menu (debe estar sobre el sidebar) */
-  SIDEBAR_MOBILE_BUTTON: 10001,
   
   // ============================================================================
   // CAPA 6: WORKSPACE TABS (z-10002) - Barra inferior de workspaces

@@ -60,15 +60,15 @@ export const ChatPanel = memo(function ChatPanel({
   }, [handleSubmit]);
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-surface">
       {/* Header */}
-      <div className="flex-shrink-0 px-3 py-2 border-b border-slate-200">
+      <div className="flex-shrink-0 px-3 py-2 border-b border-border">
         <div className="flex items-center justify-between">
-          <span className="text-[12px] font-medium text-slate-700">Chat</span>
+          <span className="text-[12px] font-medium text-foreground">Chat</span>
           {messages.length > 0 && (
             <button
               onClick={onClearHistory}
-              className="text-[10px] text-slate-400 hover:text-slate-600"
+              className="text-[10px] text-muted-fg hover:text-foreground/80"
             >
               Nueva
             </button>
@@ -80,8 +80,8 @@ export const ChatPanel = memo(function ChatPanel({
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center p-4">
-            <p className="text-[12px] text-slate-500 mb-3">Escribe una consulta</p>
-            <p className="text-[10px] text-slate-400">Ejemplos: top 50 gainers today, gappers this week</p>
+            <p className="text-[12px] text-muted-fg mb-3">Escribe una consulta</p>
+            <p className="text-[10px] text-muted-fg">Ejemplos: top 50 gainers today, gappers this week</p>
           </div>
         ) : (
           <div>
@@ -96,7 +96,7 @@ export const ChatPanel = memo(function ChatPanel({
         )}
 
         {error && (
-          <div className="mx-3 my-2 p-2 text-[11px] text-slate-600 border border-slate-200 rounded">
+          <div className="mx-3 my-2 p-2 text-[11px] text-foreground/80 border border-border rounded">
             {error}
           </div>
         )}
@@ -110,23 +110,23 @@ export const ChatPanel = memo(function ChatPanel({
         const rangeFrom = snap.visibleDateRange?.from ? fmtDate(snap.visibleDateRange.from) : '';
         const rangeTo = snap.visibleDateRange?.to ? fmtDate(snap.visibleDateRange.to) : '';
         return (
-          <div className="flex-shrink-0 mx-2 mt-1 flex items-center gap-1.5 px-2 py-1.5 bg-blue-50 border border-blue-200 rounded text-[10px] flex-wrap">
-            <BarChart3 className="w-3 h-3 text-blue-500 flex-shrink-0" />
-            <span className="font-semibold text-blue-700">{chartContext.ticker}</span>
-            <span className="text-blue-500 font-medium">{chartContext.interval}</span>
+          <div className="flex-shrink-0 mx-2 mt-1 flex items-center gap-1.5 px-2 py-1.5 bg-primary/10 border border-primary/30 rounded text-[10px] flex-wrap">
+            <BarChart3 className="w-3 h-3 text-primary flex-shrink-0" />
+            <span className="font-semibold text-primary">{chartContext.ticker}</span>
+            <span className="text-primary font-medium">{chartContext.interval}</span>
             {rangeFrom && rangeTo && (
-              <span className="text-blue-600">{rangeFrom} → {rangeTo}</span>
+              <span className="text-primary">{rangeFrom} → {rangeTo}</span>
             )}
-            <span className="text-slate-400">({snap.recentBars?.length || 0} bars)</span>
+            <span className="text-muted-fg">({snap.recentBars?.length || 0} bars)</span>
             {chartContext.targetCandle && (
-              <span className="text-blue-400 font-medium">
+              <span className="text-primary font-medium">
                 candle: {fmtDate(chartContext.targetCandle.date)}
               </span>
             )}
             {snap.isHistorical && (
-              <span className="text-amber-600 font-semibold bg-amber-50 px-1 rounded">Historical</span>
+              <span className="text-amber-600 dark:text-amber-400 font-semibold bg-amber-500/10 px-1 rounded">Historical</span>
             )}
-            <button onClick={onClearChartContext} className="ml-auto text-blue-400 hover:text-blue-600">
+            <button onClick={onClearChartContext} className="ml-auto text-primary hover:text-primary-hover">
               <X className="w-3 h-3" />
             </button>
           </div>
@@ -134,7 +134,7 @@ export const ChatPanel = memo(function ChatPanel({
       })()}
 
       {/* Input */}
-      <div className="flex-shrink-0 p-2 border-t border-slate-200">
+      <div className="flex-shrink-0 p-2 border-t border-border">
         <form onSubmit={handleSubmit} className="flex gap-1.5">
           <textarea
             ref={inputRef}
@@ -144,13 +144,13 @@ export const ChatPanel = memo(function ChatPanel({
             placeholder={isConnected ? "Escribe tu consulta..." : "Conectando..."}
             disabled={!isConnected || isLoading}
             rows={1}
-            className="flex-1 px-3 py-2 text-[12px] border border-slate-200 rounded text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:border-slate-400 disabled:opacity-50"
+            className="flex-1 px-3 py-2 text-[12px] border border-border rounded text-foreground placeholder-muted-fg resize-none focus:outline-none focus:border-border disabled:opacity-50"
             style={{ maxHeight: '80px' }}
           />
           <button
             type="submit"
             disabled={!input.trim() || isLoading || !isConnected}
-            className="flex-shrink-0 px-3 py-2 text-[11px] border border-slate-300 rounded text-slate-600 hover:bg-slate-50 disabled:opacity-30"
+            className="flex-shrink-0 px-3 py-2 text-[11px] border border-border rounded text-foreground/80 hover:bg-surface-hover disabled:opacity-30"
           >
             Enviar
           </button>

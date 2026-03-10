@@ -670,56 +670,56 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
             case 'scanner': {
                 const c = config as ScannerConfig;
                 return (<>
-                    <div className="flex justify-between"><span className="text-slate-400">Limit</span><span>{formatNum(c.limit || 200)}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-400">Filter</span><span>{c.filter_type || 'all'}</span></div>
-                    {c.min_volume && <div className="flex justify-between"><span className="text-slate-400">Min Vol</span><span>{formatNum(c.min_volume)}</span></div>}
+                    <div className="flex justify-between"><span className="text-muted-fg">Limit</span><span>{formatNum(c.limit || 200)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-fg">Filter</span><span>{c.filter_type || 'all'}</span></div>
+                    {c.min_volume && <div className="flex justify-between"><span className="text-muted-fg">Min Vol</span><span>{formatNum(c.min_volume)}</span></div>}
                 </>);
             }
             case 'top_movers': {
                 const c = config as TopMoversConfig;
                 return (<>
-                    <div className="flex justify-between"><span className="text-slate-400">Date</span><span>{c.date || 'yesterday'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-400">Dir</span><span className={c.direction === 'down' ? 'text-red-500' : 'text-emerald-600'}>{c.direction || 'up'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-400">Limit</span><span>{formatNum(c.limit || 50)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-fg">Date</span><span>{c.date || 'yesterday'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-fg">Dir</span><span className={c.direction === 'down' ? 'text-red-500' : 'text-emerald-600'}>{c.direction || 'up'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-fg">Limit</span><span>{formatNum(c.limit || 50)}</span></div>
                 </>);
             }
             case 'sectors': {
                 const c = config as SectorsConfig;
                 return (<>
-                    <div className="flex justify-between"><span className="text-slate-400">Date</span><span>{c.date || 'today'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-400">Max</span><span>{c.max_sectors || 20}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-fg">Date</span><span>{c.date || 'today'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-fg">Max</span><span>{c.max_sectors || 20}</span></div>
                 </>);
             }
             case 'historical': {
                 const c = config as HistoricalConfig;
                 return (<>
-                    <div className="flex justify-between"><span className="text-slate-400">Date</span><span>{c.date || 'yesterday'}</span></div>
-                    {c.start_hour && <div className="flex justify-between"><span className="text-slate-400">Hours</span><span>{c.start_hour}-{c.end_hour || 20}</span></div>}
+                    <div className="flex justify-between"><span className="text-muted-fg">Date</span><span>{c.date || 'yesterday'}</span></div>
+                    {c.start_hour && <div className="flex justify-between"><span className="text-muted-fg">Hours</span><span>{c.start_hour}-{c.end_hour || 20}</span></div>}
                 </>);
             }
             case 'news_validator':
             case 'research': {
                 const c = config as ResearchConfig;
                 return (<>
-                    <div className="flex justify-between"><span className="text-slate-400">Ticker</span><span>{c.ticker || 'from input'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-400">Risk check</span><span>Yes</span></div>
+                    <div className="flex justify-between"><span className="text-muted-fg">Ticker</span><span>{c.ticker || 'from input'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-fg">Risk check</span><span>Yes</span></div>
                 </>);
             }
             case 'results':
             case 'display':
-                return <span className="text-slate-400">Shows output from previous node</span>;
+                return <span className="text-muted-fg">Shows output from previous node</span>;
             default:
-                return <span className="text-slate-400">No config</span>;
+                return <span className="text-muted-fg">No config</span>;
         }
     };
 
     return (
         <>
-            <Handle type="target" position={Position.Left} className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+            <Handle type="target" position={Position.Left} className="!w-2.5 !h-2.5 !bg-primary !border-2 !border-white" />
 
             {/* Node - Animated neon border */}
             <motion.div
-                className="w-[220px] rounded-lg overflow-hidden bg-white border-2"
+                className="w-[220px] rounded-lg overflow-hidden bg-surface border-2"
                 animate={{
                     borderColor: selected
                         ? ['#3b82f6', '#60a5fa', '#93c5fd', '#60a5fa', '#3b82f6']
@@ -735,25 +735,25 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
                 transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
             >
                 {/* Header */}
-                <div className="px-2 py-1.5 border-b border-slate-100 flex items-center gap-1.5">
-                    <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1 py-0.5 rounded">{data.step}</span>
-                    <h3 className="flex-1 text-[11px] font-medium text-slate-700 truncate">{data.title}</h3>
+                <div className="px-2 py-1.5 border-b border-border-subtle flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono text-muted-fg bg-surface-inset px-1 py-0.5 rounded">{data.step}</span>
+                    <h3 className="flex-1 text-[11px] font-medium text-foreground truncate">{data.title}</h3>
                     <div className={`w-2 h-2 rounded-full ${data.status === 'complete' ? 'bg-emerald-500' :
-                        data.status === 'running' ? 'bg-blue-500 animate-pulse' :
-                            data.status === 'error' ? 'bg-red-500' : 'bg-slate-300'
+                        data.status === 'running' ? 'bg-primary animate-pulse' :
+                            data.status === 'error' ? 'bg-red-500' : 'bg-muted'
                         }`} />
                 </div>
 
                 {/* Tabs - Minimalist icons, no color */}
-                <div className="flex items-center px-1.5 py-0.5 border-b border-slate-100 bg-slate-50/50">
+                <div className="flex items-center px-1.5 py-0.5 border-b border-border-subtle bg-surface-hover/50">
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             title={tab.tip}
                             className={`p-1 rounded transition-all ${activeTab === tab.id
-                                ? 'bg-slate-200 text-slate-700'
-                                : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                                ? 'bg-muted text-foreground'
+                                : 'text-muted-fg hover:text-foreground/80 hover:bg-surface-inset'
                                 }`}
                         >
                             {tab.icon}
@@ -761,7 +761,7 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
                     ))}
                     <div className="flex-1" />
                     {data.status === 'complete' && (
-                        <span className="text-[9px] font-mono text-slate-400">{((data.executionTime || 0) / 1000).toFixed(1)}s</span>
+                        <span className="text-[9px] font-mono text-muted-fg">{((data.executionTime || 0) / 1000).toFixed(1)}s</span>
                     )}
                 </div>
 
@@ -775,7 +775,7 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: 8 }}
                                 transition={{ duration: 0.12 }}
-                                className="p-2 text-[9px] text-slate-600 leading-relaxed whitespace-pre-line"
+                                className="p-2 text-[9px] text-foreground/80 leading-relaxed whitespace-pre-line"
                             >
                                 {getDescription()}
                             </motion.div>
@@ -788,16 +788,16 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: 8 }}
                                 transition={{ duration: 0.12 }}
-                                className="p-1.5 font-mono text-[8px] leading-relaxed bg-slate-50"
+                                className="p-1.5 font-mono text-[8px] leading-relaxed bg-surface-hover"
                             >
                                 {getCode().split('\n').map((line, i) => (
                                     <div key={i} className="flex">
-                                        <span className="w-3 text-slate-300 select-none text-right mr-2">{i + 1}</span>
+                                        <span className="w-3 text-muted-fg/50 select-none text-right mr-2">{i + 1}</span>
                                         <span className={
-                                            line.includes('#') ? 'text-slate-400' :
-                                                line.includes('=') ? 'text-blue-600' :
+                                            line.includes('#') ? 'text-muted-fg' :
+                                                line.includes('=') ? 'text-primary' :
                                                     line.includes('"') ? 'text-emerald-600' :
-                                                        'text-slate-600'
+                                                        'text-foreground/80'
                                         }>{line || ' '}</span>
                                     </div>
                                 ))}
@@ -811,7 +811,7 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: 8 }}
                                 transition={{ duration: 0.12 }}
-                                className="p-2 font-mono text-[8px] leading-relaxed bg-slate-50 text-slate-600 whitespace-pre-line"
+                                className="p-2 font-mono text-[8px] leading-relaxed bg-surface-hover text-foreground/80 whitespace-pre-line"
                             >
                                 {getTerminal()}
                             </motion.div>
@@ -831,22 +831,22 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
                                     const isExample = !hasData;
                                     return (
                                         <>
-                                            {isExample && <p className="text-[7px] text-slate-400 mb-0.5 italic">Example:</p>}
+                                            {isExample && <p className="text-[7px] text-muted-fg mb-0.5 italic">Example:</p>}
                                             <table className="w-full text-[7px]">
                                                 <thead>
-                                                    <tr className="border-b border-slate-200">
+                                                    <tr className="border-b border-border">
                                                         {displayData.columns.slice(0, 5).map((col, i) => (
-                                                            <th key={i} className="px-1 py-1 text-left text-slate-500 font-medium uppercase">{col}</th>
+                                                            <th key={i} className="px-1 py-1 text-left text-muted-fg font-medium uppercase">{col}</th>
                                                         ))}
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {displayData.rows.slice(0, 5).map((row, i) => (
-                                                        <tr key={i} className={`border-b border-slate-50 ${isExample ? 'opacity-60' : ''}`}>
+                                                        <tr key={i} className={`border-b border-border-subtle ${isExample ? 'opacity-60' : ''}`}>
                                                             {row.slice(0, 5).map((cell, j) => (
                                                                 <td key={j} className={`px-1 py-0.5 ${cell.includes('+') ? 'text-emerald-600' :
                                                                     cell.includes('-') && !cell.includes('$') ? 'text-red-500' :
-                                                                        j === 0 ? 'text-slate-700 font-medium' : 'text-slate-500'
+                                                                        j === 0 ? 'text-foreground font-medium' : 'text-muted-fg'
                                                                     }`}>{cell}</td>
                                                             ))}
                                                         </tr>
@@ -875,7 +875,7 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
                 </div>
             </motion.div>
 
-            <Handle type="source" position={Position.Right} className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+            <Handle type="source" position={Position.Right} className="!w-2.5 !h-2.5 !bg-primary !border-2 !border-white" />
         </>
     );
 });
@@ -937,12 +937,12 @@ const NodePalette = memo(({ isOpen, onClose, onAddNode }: NodePaletteProps) => {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute left-3 top-14 w-44 bg-white rounded-lg border border-slate-200 shadow-lg z-50 overflow-hidden"
+            className="absolute left-3 top-14 w-44 bg-surface rounded-lg border border-border shadow-lg z-50 overflow-hidden"
         >
-            <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-slate-100">
-                <span className="text-[10px] font-medium text-slate-600">Add Node</span>
-                <button onClick={onClose} className="p-0.5 hover:bg-slate-100 rounded transition-colors">
-                    <X className="w-3 h-3 text-slate-400" />
+            <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-border-subtle">
+                <span className="text-[10px] font-medium text-foreground/80">Add Node</span>
+                <button onClick={onClose} className="p-0.5 hover:bg-surface-inset rounded transition-colors">
+                    <X className="w-3 h-3 text-muted-fg" />
                 </button>
             </div>
 
@@ -951,9 +951,9 @@ const NodePalette = memo(({ isOpen, onClose, onAddNode }: NodePaletteProps) => {
                     <button
                         key={template.type}
                         onClick={() => { onAddNode(template.type); onClose(); }}
-                        className="w-full flex items-center px-2 py-1 rounded hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-all text-left group"
+                        className="w-full flex items-center px-2 py-1 rounded hover:bg-primary/10 border border-transparent hover:border-primary transition-all text-left group"
                     >
-                        <span className="text-[10px] text-slate-500 group-hover:text-blue-600 transition-colors">{template.label}</span>
+                        <span className="text-[10px] text-muted-fg group-hover:text-primary transition-colors">{template.label}</span>
                     </button>
                 ))}
             </div>
@@ -984,9 +984,9 @@ const NodeConfigPanel = memo(({ node, onClose, onUpdate }: NodeConfigPanelProps)
     };
 
     const renderFields = () => {
-        const inputClass = "w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none";
-        const labelClass = "text-[9px] text-slate-500 uppercase";
-        const hintClass = "text-[8px] text-slate-400";
+        const inputClass = "w-full px-2 py-1 text-[10px] border border-border rounded focus:border-primary focus:outline-none";
+        const labelClass = "text-[9px] text-muted-fg uppercase";
+        const hintClass = "text-[8px] text-muted-fg";
 
         switch (nodeType) {
             // === SOURCE NODES ===
@@ -1378,7 +1378,7 @@ const NodeConfigPanel = memo(({ node, onClose, onUpdate }: NodeConfigPanelProps)
                 );
 
             default:
-                return <p className="text-[10px] text-slate-400">Select a node to configure</p>;
+                return <p className="text-[10px] text-muted-fg">Select a node to configure</p>;
         }
     };
 
@@ -1387,12 +1387,12 @@ const NodeConfigPanel = memo(({ node, onClose, onUpdate }: NodeConfigPanelProps)
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
-            className="absolute right-3 top-14 w-52 bg-white rounded-lg border border-slate-200 shadow-lg z-50 overflow-hidden"
+            className="absolute right-3 top-14 w-52 bg-surface rounded-lg border border-border shadow-lg z-50 overflow-hidden"
         >
-            <div className="flex items-center justify-between px-2.5 py-2 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-transparent">
-                <span className="text-[10px] font-medium text-slate-700">{node.data.title}</span>
-                <button onClick={onClose} className="p-0.5 hover:bg-slate-100 rounded transition-colors">
-                    <X className="w-3 h-3 text-slate-400" />
+            <div className="flex items-center justify-between px-2.5 py-2 border-b border-border-subtle bg-gradient-to-r from-primary/10 to-transparent">
+                <span className="text-[10px] font-medium text-foreground">{node.data.title}</span>
+                <button onClick={onClose} className="p-0.5 hover:bg-surface-inset rounded transition-colors">
+                    <X className="w-3 h-3 text-muted-fg" />
                 </button>
             </div>
 
@@ -1467,17 +1467,17 @@ const CellModal = memo(({ isOpen, onClose, title, content, rowData }: CellModalP
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
                 transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden"
+                className="bg-surface rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header with symbol badge */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-600 to-indigo-600">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-gradient-to-r from-primary to-indigo-600">
                     <div className="flex items-center gap-3">
                         {(() => {
                             const symbol = rowData?.symbol;
                             if (symbol) {
                                 return (
-                                    <span className="px-3 py-1 bg-white/20 rounded-lg text-white font-bold text-sm">
+                                    <span className="px-3 py-1 bg-surface/20 rounded-lg text-white font-bold text-sm">
                                         ${String(symbol)}
                                     </span>
                                 );
@@ -1488,7 +1488,7 @@ const CellModal = memo(({ isOpen, onClose, title, content, rowData }: CellModalP
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                        className="p-2 hover:bg-surface/20 rounded-lg transition-colors"
                     >
                         <X className="w-5 h-5 text-white" />
                     </button>
@@ -1496,13 +1496,13 @@ const CellModal = memo(({ isOpen, onClose, title, content, rowData }: CellModalP
 
                 {/* Quick stats bar */}
                 {quickData.length > 0 && (
-                    <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-4 flex-wrap">
+                    <div className="px-5 py-3 bg-surface-hover border-b border-border flex items-center gap-4 flex-wrap">
                         {quickData.map(({ key, val }) => (
                             <div key={key} className="flex items-center gap-1.5">
-                                <span className="text-xs text-slate-500 uppercase">{key.replace(/_/g, ' ')}:</span>
+                                <span className="text-xs text-muted-fg uppercase">{key.replace(/_/g, ' ')}:</span>
                                 <span className={`text-sm font-semibold ${key.includes('change') && typeof val === 'number'
                                     ? val > 0 ? 'text-emerald-600' : 'text-red-500'
-                                    : 'text-slate-700'
+                                    : 'text-foreground'
                                     }`}>
                                     {key === 'price' && typeof val === 'number' ? `$${val.toFixed(2)}` :
                                         key.includes('change') && typeof val === 'number' ? `${val > 0 ? '+' : ''}${val.toFixed(2)}%` :
@@ -1518,7 +1518,7 @@ const CellModal = memo(({ isOpen, onClose, title, content, rowData }: CellModalP
                 <div className="p-5 overflow-y-auto max-h-[50vh]">
                     <div className="space-y-3">
                         {paragraphs.map((p, i) => (
-                            <p key={i} className={`text-slate-700 leading-relaxed ${i === 0 ? 'text-base font-medium' : 'text-sm'}`}>
+                            <p key={i} className={`text-foreground leading-relaxed ${i === 0 ? 'text-base font-medium' : 'text-sm'}`}>
                                 {p}
                             </p>
                         ))}
@@ -1527,18 +1527,18 @@ const CellModal = memo(({ isOpen, onClose, title, content, rowData }: CellModalP
 
                 {/* Expandable full row data */}
                 {rowData && (
-                    <details className="border-t border-slate-200">
-                        <summary className="px-5 py-3 bg-slate-50 cursor-pointer hover:bg-slate-100 text-sm font-medium text-slate-600 flex items-center gap-2">
+                    <details className="border-t border-border">
+                        <summary className="px-5 py-3 bg-surface-hover cursor-pointer hover:bg-surface-inset text-sm font-medium text-foreground/80 flex items-center gap-2">
                             <span>View All Data Fields ({Object.keys(rowData).length} fields)</span>
                         </summary>
-                        <div className="px-5 py-4 max-h-[200px] overflow-y-auto bg-slate-50">
+                        <div className="px-5 py-4 max-h-[200px] overflow-y-auto bg-surface-hover">
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
                                 {Object.entries(rowData)
                                     .filter(([k]) => !['news_summary', 'latest_headline'].includes(k))
                                     .map(([key, val]) => (
                                         <div key={key} className="text-xs truncate">
-                                            <span className="font-medium text-slate-500">{key.replace(/_/g, ' ')}: </span>
-                                            <span className="text-slate-700">{
+                                            <span className="font-medium text-muted-fg">{key.replace(/_/g, ' ')}: </span>
+                                            <span className="text-foreground">{
                                                 typeof val === 'number' ? val.toFixed(2) :
                                                     typeof val === 'boolean' ? (val ? '✓' : '✗') :
                                                         String(val ?? '-').slice(0, 50)
@@ -1551,10 +1551,10 @@ const CellModal = memo(({ isOpen, onClose, title, content, rowData }: CellModalP
                 )}
 
                 {/* Footer */}
-                <div className="px-5 py-4 border-t border-slate-200 bg-white flex justify-end gap-3">
+                <div className="px-5 py-4 border-t border-border bg-surface flex justify-end gap-3">
                     <button
                         onClick={onClose}
-                        className="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                        className="px-5 py-2.5 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors shadow-lg shadow-primary/20"
                     >
                         Close
                     </button>
@@ -1699,10 +1699,10 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                 <div className="overflow-x-auto">
                     <div className="max-h-[400px] overflow-y-auto">
                         <table className="w-full text-[10px]">
-                            <thead className="sticky top-0 bg-white z-10">
-                                <tr className="border-b border-slate-200">
+                            <thead className="sticky top-0 bg-surface z-10">
+                                <tr className="border-b border-border">
                                     {cols.map((col, i) => (
-                                        <th key={i} className="px-2 py-1.5 text-left font-medium text-blue-600 uppercase tracking-wider whitespace-nowrap">
+                                        <th key={i} className="px-2 py-1.5 text-left font-medium text-primary uppercase tracking-wider whitespace-nowrap">
                                             {col.replace(/_/g, ' ')}
                                         </th>
                                     ))}
@@ -1710,7 +1710,7 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                             </thead>
                             <tbody>
                                 {displayRows.map((row, i) => (
-                                    <tr key={i} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                                    <tr key={i} className="border-b border-border-subtle hover:bg-primary/10/50 transition-colors">
                                         {cols.map((col, j) => {
                                             const val = row[col];
                                             const fullValue = formatValue(val, col);
@@ -1722,14 +1722,14 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                                             return (
                                                 <td
                                                     key={j}
-                                                    className={`px-2 py-1.5 ${isPositive ? 'text-emerald-600' : isNegative ? 'text-red-500' : j === 0 ? 'text-slate-700 font-medium' : 'text-slate-500'} ${isTruncated ? 'cursor-pointer hover:bg-blue-100 rounded' : ''}`}
+                                                    className={`px-2 py-1.5 ${isPositive ? 'text-emerald-600' : isNegative ? 'text-red-500' : j === 0 ? 'text-foreground font-medium' : 'text-muted-fg'} ${isTruncated ? 'cursor-pointer hover:bg-primary/15 rounded' : ''}`}
                                                     onClick={isTruncated ? () => openCellModal(col.replace(/_/g, ' '), fullValue, row) : undefined}
                                                     title={isTruncated ? 'Click to view full content' : undefined}
                                                 >
                                                     <span className="flex items-center gap-1">
                                                         {displayValue}
                                                         {isTruncated && (
-                                                            <Maximize2 className="w-3 h-3 text-blue-400 flex-shrink-0" />
+                                                            <Maximize2 className="w-3 h-3 text-primary flex-shrink-0" />
                                                         )}
                                                     </span>
                                                 </td>
@@ -1741,13 +1741,13 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                         </table>
                     </div>
                     {totalRows > 15 && (
-                        <div className="flex items-center justify-center gap-2 mt-2 pt-2 border-t border-slate-100">
-                            <span className="text-[9px] text-slate-400">
+                        <div className="flex items-center justify-center gap-2 mt-2 pt-2 border-t border-border-subtle">
+                            <span className="text-[9px] text-muted-fg">
                                 {isExpanded ? `Showing all ${totalRows} rows` : `${Math.min(15, totalRows)} of ${totalRows} rows`}
                             </span>
                             <button
                                 onClick={() => toggleNodeExpansion(nodeId)}
-                                className="text-[9px] text-blue-600 hover:text-blue-800 font-medium"
+                                className="text-[9px] text-primary hover:text-primary font-medium"
                             >
                                 {isExpanded ? 'Show Less' : 'Show All'}
                             </button>
@@ -1767,9 +1767,9 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                 <div className="overflow-x-auto">
                     <table className="w-full text-[10px]">
                         <thead>
-                            <tr className="border-b border-slate-200">
+                            <tr className="border-b border-border">
                                 {cols.map((col, i) => (
-                                    <th key={i} className="px-2 py-1.5 text-left font-medium text-blue-600 uppercase tracking-wider">
+                                    <th key={i} className="px-2 py-1.5 text-left font-medium text-primary uppercase tracking-wider">
                                         {col.replace(/_/g, ' ')}
                                     </th>
                                 ))}
@@ -1777,9 +1777,9 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                         </thead>
                         <tbody>
                             {data.slice(0, 10).map((row, i) => (
-                                <tr key={i} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                                <tr key={i} className="border-b border-border-subtle hover:bg-primary/10/50 transition-colors">
                                     {cols.map((col, j) => (
-                                        <td key={j} className={`px-2 py-1.5 ${j === 0 ? 'text-slate-700' : 'text-slate-500'}`}>
+                                        <td key={j} className={`px-2 py-1.5 ${j === 0 ? 'text-foreground' : 'text-muted-fg'}`}>
                                             {formatValue((row as Record<string, unknown>)[col], col)}
                                         </td>
                                     ))}
@@ -1815,7 +1815,7 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
             // Show summary of what we received (fallback)
             const keys = Object.keys(o).filter(k => !['type', 'success', 'displayType'].includes(k));
             if (keys.length === 0) {
-                return <p className="text-slate-400 text-[10px]">No renderable data</p>;
+                return <p className="text-muted-fg text-[10px]">No renderable data</p>;
             }
 
             // Show key-value summary with better formatting
@@ -1846,8 +1846,8 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                         }
                         return (
                             <div key={key} className="flex items-center gap-2 text-[10px]">
-                                <span className="text-slate-400">{key}:</span>
-                                <span className="text-slate-600">{display}</span>
+                                <span className="text-muted-fg">{key}:</span>
+                                <span className="text-foreground/80">{display}</span>
                             </div>
                         );
                     })}
@@ -1857,10 +1857,10 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
 
         // Primitive value
         if (data !== null && data !== undefined) {
-            return <p className="text-slate-600 text-[10px]">{String(data)}</p>;
+            return <p className="text-foreground/80 text-[10px]">{String(data)}</p>;
         }
 
-        return <p className="text-slate-400 text-[10px]">No data</p>;
+        return <p className="text-muted-fg text-[10px]">No data</p>;
     };
 
     return (
@@ -1868,22 +1868,22 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col h-full bg-slate-100 overflow-hidden"
+            className="flex flex-col h-full bg-surface-inset overflow-hidden"
         >
             {/* Header - Light */}
-            <div className="flex-shrink-0 px-5 py-3 border-b border-slate-200 bg-white">
+            <div className="flex-shrink-0 px-5 py-3 border-b border-border bg-surface">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <button
                             onClick={onBackToBuilder}
-                            className="text-[11px] text-slate-500 hover:text-blue-600 transition-colors"
+                            className="text-[11px] text-muted-fg hover:text-primary transition-colors"
                         >
                             Back to Builder
                         </button>
-                        <div className="w-px h-4 bg-slate-200" />
+                        <div className="w-px h-4 bg-muted" />
                         <div>
-                            <h2 className="text-[13px] font-medium text-slate-700">Workflow Report</h2>
-                            <p className="text-[10px] text-slate-400">
+                            <h2 className="text-[13px] font-medium text-foreground">Workflow Report</h2>
+                            <p className="text-[10px] text-muted-fg">
                                 {report.executedAt.toLocaleTimeString()} | {(report.totalTime / 1000).toFixed(1)}s total
                             </p>
                         </div>
@@ -1894,7 +1894,7 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                         <button
                             onClick={onRerun}
                             disabled={isExecuting}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-medium transition-colors disabled:opacity-50"
+                            className="px-2.5 py-1 bg-primary hover:bg-primary-hover text-white rounded text-[10px] font-medium transition-colors disabled:opacity-50"
                         >
                             {isExecuting ? 'Running...' : 'Rerun'}
                         </button>
@@ -1909,16 +1909,16 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                     <div className="flex items-center gap-1 mb-4 overflow-x-auto pb-2">
                         {nodeEntries.map(([id, result], i) => (
                             <div key={id} className="flex items-center">
-                                <div className={`px-2 py-1 rounded border ${result.status === 'success' ? 'border-blue-200 bg-blue-50' : 'border-red-200 bg-red-50'}`}>
-                                    <span className={`text-[10px] ${result.status === 'success' ? 'text-blue-600' : 'text-red-600'}`}>
+                                <div className={`px-2 py-1 rounded border ${result.status === 'success' ? 'border-primary/30 bg-primary/10' : 'border-red-500/30 bg-red-500/10'}`}>
+                                    <span className={`text-[10px] ${result.status === 'success' ? 'text-primary' : 'text-red-600'}`}>
                                         {result.title}
                                     </span>
-                                    <span className="text-[9px] text-slate-400 ml-1.5">
+                                    <span className="text-[9px] text-muted-fg ml-1.5">
                                         {(result.executionTime / 1000).toFixed(1)}s
                                     </span>
                                 </div>
                                 {i < nodeEntries.length - 1 && (
-                                    <span className="text-slate-300 mx-1">→</span>
+                                    <span className="text-muted-fg/50 mx-1">→</span>
                                 )}
                             </div>
                         ))}
@@ -1934,17 +1934,17 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: i * 0.05 }}
-                                className="bg-white rounded-lg border-2 border-blue-100 overflow-hidden shadow-sm"
+                                className="bg-surface rounded-lg border-2 border-primary/15 overflow-hidden shadow-sm"
                                 style={isSuccess ? { boxShadow: `0 0 15px ${FUTURISTIC_BLUE.glow}15` } : {}}
                             >
                                 {/* Card Header */}
-                                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-blue-50 to-transparent">
+                                <div className="px-3 py-2 border-b border-border-subtle flex items-center justify-between bg-gradient-to-r from-primary/10 to-transparent">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[9px] font-mono text-blue-500">{String(i + 1).padStart(2, '0')}</span>
-                                        <h3 className="text-[11px] font-medium text-slate-700">{result.title}</h3>
+                                        <span className="text-[9px] font-mono text-primary">{String(i + 1).padStart(2, '0')}</span>
+                                        <h3 className="text-[11px] font-medium text-foreground">{result.title}</h3>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[9px] font-mono text-slate-400">{(result.executionTime / 1000).toFixed(2)}s</span>
+                                        <span className="text-[9px] font-mono text-muted-fg">{(result.executionTime / 1000).toFixed(2)}s</span>
                                         <div className={`w-1.5 h-1.5 rounded-full ${isSuccess ? 'bg-emerald-500' : 'bg-red-500'}`} />
                                     </div>
                                 </div>
@@ -1954,7 +1954,7 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                                     {result.data ? (
                                         renderDataTable(result.data, result.title, id)
                                     ) : (
-                                        <p className="text-slate-400 text-[10px] text-center py-2">No output</p>
+                                        <p className="text-muted-fg text-[10px] text-center py-2">No output</p>
                                     )}
                                 </div>
                             </motion.div>
@@ -2422,16 +2422,16 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
 
     // Builder view (default)
     return (
-        <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
+        <div className="flex flex-col h-full bg-surface-inset overflow-hidden">
             {/* Toolbar - Light with blue accents */}
-            <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-b border-slate-200 bg-white">
+            <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-b border-border bg-surface">
                 <div className="flex items-center gap-3">
-                    <h2 className="text-[12px] font-medium text-slate-700">Workflow Builder</h2>
-                    <span className="text-[10px] text-slate-400">{nodes.length} nodes</span>
+                    <h2 className="text-[12px] font-medium text-foreground">Workflow Builder</h2>
+                    <span className="text-[10px] text-muted-fg">{nodes.length} nodes</span>
                     {workflowReport && (
                         <button
                             onClick={() => setCurrentView('report')}
-                            className="px-2 py-0.5 text-[10px] text-blue-600 hover:text-blue-700 transition-colors"
+                            className="px-2 py-0.5 text-[10px] text-primary hover:text-primary transition-colors"
                         >
                             View Report
                         </button>
@@ -2442,26 +2442,26 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                     <button
                         onClick={() => setShowPalette(!showPalette)}
                         className={`px-2.5 py-1 rounded text-[10px] font-medium transition-all ${showPalette
-                            ? 'bg-blue-600 text-white'
-                            : 'text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-300'
+                            ? 'bg-primary text-white'
+                            : 'text-muted-fg hover:text-primary border border-border hover:border-primary'
                             }`}
                     >
                         Add Node
                     </button>
 
-                    <div className="w-px h-3 bg-slate-200" />
+                    <div className="w-px h-3 bg-muted" />
 
                     <button
                         onClick={handleClearAll}
                         disabled={isExecuting}
-                        className="px-2 py-1 text-[10px] text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                        className="px-2 py-1 text-[10px] text-muted-fg hover:text-red-500 transition-colors disabled:opacity-50"
                     >
                         Clear
                     </button>
                     <button
                         onClick={handleReset}
                         disabled={isExecuting}
-                        className="px-2 py-1 text-[10px] text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50"
+                        className="px-2 py-1 text-[10px] text-muted-fg hover:text-foreground/80 transition-colors disabled:opacity-50"
                     >
                         Reset
                     </button>
@@ -2469,8 +2469,8 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                         onClick={handleExecute}
                         disabled={isExecuting}
                         className={`px-3 py-1 rounded text-[10px] font-medium transition-all ${isExecuting
-                            ? 'bg-blue-400 text-white'
-                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                            ? 'bg-primary text-white'
+                            : 'bg-primary hover:bg-primary-hover text-white'
                             }`}
                     >
                         {isExecuting ? 'Running...' : 'Run'}
@@ -2485,10 +2485,10 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="flex-shrink-0 px-4 py-1.5 bg-red-50 border-b border-red-200"
+                        className="flex-shrink-0 px-4 py-1.5 bg-red-500/10 border-b border-red-500/30"
                     >
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-red-600">{error}</span>
+                            <span className="text-[10px] text-red-600 dark:text-red-400">{error}</span>
                             <button
                                 onClick={() => setError(null)}
                                 className="ml-auto text-red-400 hover:text-red-600"
@@ -2518,7 +2518,7 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                     maxZoom={1.2}
                     defaultViewport={{ x: 100, y: 100, zoom: 0.6 }}
                     proOptions={{ hideAttribution: true }}
-                    className="bg-slate-50"
+                    className="bg-surface-hover"
                 >
                     <Background
                         variant={BackgroundVariant.Dots}
@@ -2528,12 +2528,12 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                     />
                     <Controls
                         showInteractive={false}
-                        className="!bg-white !border-slate-200 !rounded-lg [&>button]:!bg-white [&>button]:!border-slate-200 [&>button]:!text-slate-400 [&>button:hover]:!bg-slate-50 [&>button:hover]:!text-blue-600"
+                        className="!bg-surface !border-border !rounded-lg [&>button]:!bg-surface [&>button]:!border-border [&>button]:!text-muted-fg [&>button:hover]:!bg-surface-hover [&>button:hover]:!text-primary"
                     />
                     <MiniMap
                         nodeColor={nodeColor}
                         maskColor="rgba(248, 250, 252, 0.9)"
-                        className="!bg-white !border-slate-200 !rounded-lg"
+                        className="!bg-surface !border-border !rounded-lg"
                         style={{ width: 100, height: 70 }}
                     />
                 </ReactFlow>

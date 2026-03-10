@@ -42,8 +42,8 @@ export function CatalystAlertsBadge() {
       className={`
         relative flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-all
         ${enabled 
-          ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
-          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20' 
+          : 'bg-surface-inset text-muted-fg hover:bg-surface-inset'
         }
       `}
       title={enabled ? 'Catalyst Alerts ON (right-click to configure)' : 'Catalyst Alerts OFF (click to enable)'}

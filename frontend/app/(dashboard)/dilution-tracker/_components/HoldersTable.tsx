@@ -21,10 +21,10 @@ interface HoldersTableProps {
 export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
   if (loading) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+      <div className="bg-surface rounded-xl border border-border shadow-sm p-6">
         <div className="animate-pulse space-y-3">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-16 bg-slate-100 rounded-lg" />
+            <div key={i} className="h-16 bg-surface-inset rounded-lg" />
           ))}
         </div>
       </div>
@@ -34,8 +34,8 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
   if (!holders || holders.length === 0) {
     return (
       <div className="text-center py-12">
-        <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-        <p className="text-gray-600 dark:text-gray-400">No institutional holders data available</p>
+        <Building2 className="h-12 w-12 text-muted-fg mx-auto mb-4" />
+        <p className="text-foreground/80">No institutional holders data available</p>
       </div>
     );
   }
@@ -58,9 +58,9 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
       case "decrease":
         return <ArrowDown className="h-4 w-4 text-red-600 dark:text-red-400" />;
       case "new":
-        return <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded font-medium">NEW</span>;
+        return <span className="text-xs px-2 py-0.5 bg-blue-500/15 text-blue-700 dark:text-blue-300 rounded font-medium">NEW</span>;
       default:
-        return <Minus className="h-4 w-4 text-gray-400" />;
+        return <Minus className="h-4 w-4 text-muted-fg" />;
     }
   };
 
@@ -71,7 +71,7 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
       case "decrease":
         return "text-red-600 dark:text-red-400";
       default:
-        return "text-gray-500 dark:text-gray-400";
+        return "text-muted-fg";
     }
   };
 
@@ -79,23 +79,23 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
-          <tr className="border-b border-gray-200/50 dark:border-gray-700/50">
-            <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">
+          <tr className="border-b border-border/50">
+            <th className="text-left py-4 px-4 text-sm font-semibold text-foreground ">
               Institution
             </th>
-            <th className="text-right py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            <th className="text-right py-4 px-4 text-sm font-semibold text-foreground">
               Ownership %
             </th>
-            <th className="text-right py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            <th className="text-right py-4 px-4 text-sm font-semibold text-foreground ">
               Shares
             </th>
-            <th className="text-right py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            <th className="text-right py-4 px-4 text-sm font-semibold text-foreground ">
               Change
             </th>
-            <th className="text-center py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            <th className="text-center py-4 px-4 text-sm font-semibold text-foreground">
               Form
             </th>
-            <th className="text-right py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            <th className="text-right py-4 px-4 text-sm font-semibold text-foreground ">
               Date
             </th>
           </tr>
@@ -104,16 +104,16 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
           {holders.map((holder, index) => (
             <tr
               key={`${holder.holder_name}-${index}`}
-              className="border-b border-gray-100/50 dark:border-gray-800/50 hover:bg-white/50 dark:hover:bg-white/5 transition-colors"
+              className="border-b border-border-subtle/50 hover:bg-surface-hover/50 transition-colors"
             >
               {/* Institution Name */}
               <td className="py-4 px-4">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-gray-500/10 flex items-center justify-center">
-                    <Building2 className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                  <div className="h-10 w-10 rounded-lg bg-muted-fg/10 flex items-center justify-center">
+                    <Building2 className="h-5 w-5 text-foreground/80" />
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900 dark:text-white text-sm">
+                    <p className="font-medium text-foreground text-sm">
                       {holder.holder_name}
                     </p>
                   </div>
@@ -122,14 +122,14 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
 
               {/* Ownership % */}
               <td className="py-4 px-4 text-right">
-                <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                <span className="text-lg font-semibold text-foreground">
                   {holder.ownership_percent != null ? `${holder.ownership_percent.toFixed(2)}%` : '—'}
                 </span>
               </td>
 
               {/* Shares */}
               <td className="py-4 px-4 text-right">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <span className="text-sm font-medium text-foreground">
                   {formatShares(holder.shares_held)}
                 </span>
               </td>
@@ -149,14 +149,14 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
 
               {/* Form Type */}
               <td className="py-4 px-4 text-center">
-                <span className="text-xs px-2 py-1 bg-gray-500/10 text-gray-700 dark:text-gray-300 rounded font-medium">
+                <span className="text-xs px-2 py-1 bg-muted-fg/10 text-foreground rounded font-medium">
                   {holder.form_type}
                 </span>
               </td>
 
               {/* Report Date */}
               <td className="py-4 px-4 text-right">
-                <span className="text-sm text-gray-600 dark:text-gray-400">
+                <span className="text-sm text-foreground/80">
                   {new Date(holder.report_date).toLocaleDateString('en-US', {
                     year: 'numeric',
                     month: 'short',

@@ -320,10 +320,10 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+      <div className="bg-surface rounded-xl border border-border shadow-sm p-6">
         <div className="animate-pulse space-y-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 bg-slate-100 rounded-lg" />
+            <div key={i} className="h-24 bg-surface-inset rounded-lg" />
           ))}
         </div>
       </div>
@@ -332,9 +332,9 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
 
   if (!financials || financials.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
-        <DollarSign className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-        <p className="text-slate-600">No financial statements available</p>
+      <div className="bg-surface rounded-xl border border-border shadow-sm p-12 text-center">
+        <DollarSign className="h-12 w-12 text-muted-fg mx-auto mb-4" />
+        <p className="text-foreground/80">No financial statements available</p>
       </div>
     );
   }
@@ -348,16 +348,16 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
   let currentSection: string | null = null;
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+    <div className="bg-surface rounded-lg border border-border overflow-hidden shadow-sm">
       {/* Tabs + Copy Button */}
-      <div className="flex border-b border-slate-200">
+      <div className="flex border-b border-border">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`flex-1 px-4 py-3 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${activeTab === tab.id
-              ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600'
-              : 'text-slate-600 hover:bg-slate-50'
+              ? 'bg-blue-500/10 text-blue-600 border-b-2 border-blue-600'
+              : 'text-foreground/80 hover:bg-surface-hover'
               }`}
           >
             <tab.icon className="h-4 w-4" />
@@ -367,7 +367,7 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
         {/* Copy JSON Button */}
         <button
           onClick={copyToClipboard}
-          className="px-3 py-2 text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1 border-l border-slate-200"
+          className="px-3 py-2 text-muted-fg hover:text-foreground hover:bg-surface-hover transition-colors flex items-center gap-1 border-l border-border"
           title="Copy as JSON"
         >
           {copied ? (
@@ -382,21 +382,21 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="text-left py-2 px-4 text-xs font-bold text-slate-700 uppercase tracking-wider sticky left-0 bg-slate-50 z-10 min-w-[160px]">
+            <tr className="bg-surface-hover border-b border-border">
+              <th className="text-left py-2 px-4 text-xs font-bold text-foreground uppercase tracking-wider sticky left-0 bg-surface-hover z-10 min-w-[160px]">
                 Metric
               </th>
               {recentFinancials.map((f, i) => (
-                <th key={i} className="text-right py-2 px-3 text-xs font-semibold text-slate-700 min-w-[90px] whitespace-nowrap">
+                <th key={i} className="text-right py-2 px-3 text-xs font-semibold text-foreground min-w-[90px] whitespace-nowrap">
                   <div className="font-bold">{f.period_type}</div>
-                  <div className="text-[10px] text-slate-500 font-normal">
+                  <div className="text-[10px] text-muted-fg font-normal">
                     {new Date(f.period_date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
                   </div>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="bg-white">
+          <tbody className="bg-surface">
             {filteredRows.map((row, rowIndex) => {
               // Section Header
               if (row.isSectionHeader && row.section) {
@@ -405,10 +405,10 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                 return (
                   <tr
                     key={rowIndex}
-                    className="bg-slate-100 border-t border-slate-300 cursor-pointer hover:bg-slate-200"
+                    className="bg-surface-inset border-t border-border cursor-pointer hover:bg-surface-hover"
                     onClick={() => toggleSection(row.section!)}
                   >
-                    <td colSpan={recentFinancials.length + 1} className="py-2 px-4 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    <td colSpan={recentFinancials.length + 1} className="py-2 px-4 text-xs font-bold text-foreground uppercase tracking-wider">
                       <div className="flex items-center gap-2">
                         {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                         {row.section}
@@ -422,8 +422,8 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
               if (row.isSubsectionHeader) {
                 if (currentSection && collapsedSections.has(currentSection)) return null;
                 return (
-                  <tr key={rowIndex} className="bg-slate-50/50">
-                    <td colSpan={recentFinancials.length + 1} className="py-1.5 px-6 text-[11px] font-semibold text-slate-500 italic">
+                  <tr key={rowIndex} className="bg-surface-hover/50">
+                    <td colSpan={recentFinancials.length + 1} className="py-1.5 px-6 text-[11px] font-semibold text-muted-fg italic">
                       {row.subsection}
                     </td>
                   </tr>
@@ -437,9 +437,9 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
               return (
                 <tr
                   key={rowIndex}
-                  className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${row.bold ? 'bg-blue-50/30' : ''}`}
+                  className={`border-b border-border-subtle hover:bg-surface-hover transition-colors ${row.bold ? 'bg-blue-500/10' : ''}`}
                 >
-                  <td className={`py-2 px-4 text-sm sticky left-0 bg-white ${row.bold ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
+                  <td className={`py-2 px-4 text-sm sticky left-0 bg-surface ${row.bold ? 'font-semibold text-foreground' : 'text-foreground'}`}>
                     {row.label}
                   </td>
                   {recentFinancials.map((f, colIndex) => {
@@ -466,8 +466,8 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                       <td key={colIndex} className="py-2 px-3 text-right">
                         <div className="flex flex-col items-end">
                           <span className={`text-sm tabular-nums ${isNegative ? 'text-red-600' :
-                            displayValue === '-' ? 'text-slate-300' :
-                              row.bold ? 'text-slate-900 font-semibold' : 'text-slate-700'
+                            displayValue === '-' ? 'text-muted-fg' :
+                              row.bold ? 'text-foreground font-semibold' : 'text-foreground'
                             }`}>
                             {isNegative && displayValue !== '-' ? `(${displayValue.replace('-', '')})` : displayValue}
                           </span>
@@ -477,7 +477,7 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                             </span>
                           )}
                           {margin !== null && (
-                            <span className="text-[10px] text-slate-400">
+                            <span className="text-[10px] text-muted-fg">
                               {margin.toFixed(0)}%
                             </span>
                           )}

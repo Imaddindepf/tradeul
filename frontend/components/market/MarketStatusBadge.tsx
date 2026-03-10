@@ -29,7 +29,7 @@ export function MarketStatusBadge({ status, compact = false }: MarketStatusBadge
         label: 'OPEN',
         sublabel: 'Market Open',
         icon: TrendingUp,
-        bgColor: 'bg-green-100',
+        bgColor: 'bg-green-500/15',
         textColor: 'text-green-700',
         borderColor: 'border-green-400',
         dotColor: 'bg-green-500',
@@ -37,22 +37,22 @@ export function MarketStatusBadge({ status, compact = false }: MarketStatusBadge
       };
     } else if (status.market === 'extended-hours') {
       if (status.earlyHours) {
-        return {
-          label: 'PRE',
-          sublabel: 'Pre-Market',
-          icon: Sun,
-          bgColor: 'bg-blue-100',
-          textColor: 'text-blue-700',
-          borderColor: 'border-blue-400',
-          dotColor: 'bg-blue-500',
-          animate: true,
-        };
+return {
+        label: 'PRE',
+        sublabel: 'Pre-Market',
+        icon: Sun,
+        bgColor: 'bg-primary/15',
+        textColor: 'text-primary',
+        borderColor: 'border-primary',
+        dotColor: 'bg-primary',
+        animate: true,
+      };
       } else if (status.afterHours) {
         return {
           label: 'POST',
           sublabel: 'After Hours',
           icon: Moon,
-          bgColor: 'bg-orange-100',
+          bgColor: 'bg-orange-500/15',
           textColor: 'text-orange-700',
           borderColor: 'border-orange-400',
           dotColor: 'bg-orange-500',
@@ -63,7 +63,7 @@ export function MarketStatusBadge({ status, compact = false }: MarketStatusBadge
         label: 'EXT',
         sublabel: 'Extended Hours',
         icon: Clock,
-        bgColor: 'bg-purple-100',
+        bgColor: 'bg-purple-500/15',
         textColor: 'text-purple-700',
         borderColor: 'border-purple-400',
         dotColor: 'bg-purple-500',
@@ -74,10 +74,10 @@ export function MarketStatusBadge({ status, compact = false }: MarketStatusBadge
         label: 'CLOSED',
         sublabel: 'Market Closed',
         icon: Circle,
-        bgColor: 'bg-gray-100',
-        textColor: 'text-gray-700',
-        borderColor: 'border-gray-300',
-        dotColor: 'bg-gray-500',
+        bgColor: 'bg-surface-inset',
+        textColor: 'text-foreground',
+        borderColor: 'border-border',
+        dotColor: 'bg-muted-fg',
         animate: false,
       };
     }
@@ -156,14 +156,14 @@ export function MarketStatusBadge({ status, compact = false }: MarketStatusBadge
         <span className={`w-1.5 h-1.5 rounded-full ${
           status.exchanges.nyse === 'open' ? 'bg-green-500' :
           status.exchanges.nyse === 'extended-hours' ? 'bg-orange-500' :
-          'bg-gray-400'
+          'bg-muted-fg'
         }`}></span>
         <span className="mx-1">•</span>
         <span className="font-mono">NSDQ</span>
         <span className={`w-1.5 h-1.5 rounded-full ${
           status.exchanges.nasdaq === 'open' ? 'bg-green-500' :
           status.exchanges.nasdaq === 'extended-hours' ? 'bg-orange-500' :
-          'bg-gray-400'
+          'bg-muted-fg'
         }`}></span>
       </div>
       )}

@@ -186,10 +186,10 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
   // Loading or no data
   if (loading) {
     return (
-      <div className="border border-slate-200 rounded-lg p-4">
+      <div className="border border-border rounded-lg p-4">
         <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-slate-200 rounded w-1/3"></div>
-          <div className="h-48 bg-slate-100 rounded"></div>
+          <div className="h-4 bg-muted rounded w-1/3"></div>
+          <div className="h-48 bg-surface-inset rounded"></div>
         </div>
       </div>
     );
@@ -205,15 +205,15 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
   const dilutionPct = currentOS > 0 ? (totalPotential / currentOS * 100).toFixed(1) : '0';
 
   return (
-    <div className="border border-slate-200 rounded-lg p-4">
+    <div className="border border-border rounded-lg p-4">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h4 className="text-sm font-medium text-slate-700">
+          <h4 className="text-sm font-medium text-foreground">
             Historical O/S & Potential Dilution
       </h4>
           {secData?.current_price && (
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-muted-fg mt-0.5">
               Dilution calculated using market price of ${Number(secData.current_price).toFixed(4)}
             </p>
           )}
@@ -223,16 +223,16 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
         <div className="flex items-center gap-4 text-xs">
           {dilution1y !== null && dilution1y !== undefined && (
           <div>
-              <span className="text-slate-400">1Y:</span>
-              <span className={`ml-1 font-medium ${dilution1y > 0 ? 'text-red-600' : dilution1y < 0 ? 'text-green-600' : 'text-slate-600'}`}>
+              <span className="text-muted-fg">1Y:</span>
+              <span className={`ml-1 font-medium ${dilution1y > 0 ? 'text-red-600' : dilution1y < 0 ? 'text-green-600' : 'text-foreground/80'}`}>
                 {formatPercent(dilution1y)}
             </span>
           </div>
           )}
           {dilution3y !== null && dilution3y !== undefined && (
           <div>
-              <span className="text-slate-400">3Y:</span>
-              <span className={`ml-1 font-medium ${dilution3y > 0 ? 'text-red-600' : dilution3y < 0 ? 'text-green-600' : 'text-slate-600'}`}>
+              <span className="text-muted-fg">3Y:</span>
+              <span className={`ml-1 font-medium ${dilution3y > 0 ? 'text-red-600' : dilution3y < 0 ? 'text-green-600' : 'text-foreground/80'}`}>
                 {formatPercent(dilution3y)}
             </span>
                 </div>
@@ -328,15 +328,15 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
       
       {/* Legend - Potential Dilution Breakdown */}
       {hasPotentialDilution && (
-        <div className="mt-4 pt-3 border-t border-slate-100">
-          <div className="text-xs text-slate-500 mb-2">Fully Diluted Breakdown:</div>
+        <div className="mt-4 pt-3 border-t border-border-subtle">
+          <div className="text-xs text-muted-fg mb-2">Fully Diluted Breakdown:</div>
           <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-[#1e40af]"></span>
                 Current O/S
               </span>
-              <span className="font-medium text-slate-700">{formatShares(currentOS)}</span>
+              <span className="font-medium text-foreground">{formatShares(currentOS)}</span>
             </div>
             {potential.atm > 0 && (
               <div className="flex items-center justify-between">
@@ -362,7 +362,7 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
                   <span className="w-2.5 h-2.5 rounded-sm bg-[#a3a3a3]"></span>
                   Equity Line
                 </span>
-                <span className="font-medium text-slate-600">{formatShares(potential.equity_line)}</span>
+                <span className="font-medium text-foreground/80">{formatShares(potential.equity_line)}</span>
               </div>
             )}
             {potential.s1_offering > 0 && (
@@ -380,13 +380,13 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
                   <span className="w-2.5 h-2.5 rounded-sm bg-[#6b7280]"></span>
                   Convertibles
                 </span>
-                <span className="font-medium text-slate-600">{formatShares(potential.convertibles)}</span>
+                <span className="font-medium text-foreground/80">{formatShares(potential.convertibles)}</span>
               </div>
             )}
           </div>
-          <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between text-xs">
-            <span className="text-slate-500">Fully Diluted Total</span>
-            <span className="font-semibold text-slate-800">
+          <div className="mt-2 pt-2 border-t border-border-subtle flex justify-between text-xs">
+            <span className="text-muted-fg">Fully Diluted Total</span>
+            <span className="font-semibold text-foreground">
               {formatShares(fullyDiluted)} 
               <span className="text-red-500 ml-1">(+{dilutionPct}%)</span>
             </span>

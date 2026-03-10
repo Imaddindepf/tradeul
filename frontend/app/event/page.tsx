@@ -21,7 +21,7 @@ export default function EventPage() {
     <main className="min-h-screen bg-[#fafafa] text-slate-900 overflow-x-hidden">
       {/* Fondo con gradiente y patrón sutil */}
       <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-b from-white via-blue-50/30 to-slate-100" />
+        <div className="absolute inset-0 bg-gradient-to-b from-background via-primary/5 to-surface-inset" />
         <div
           className="absolute inset-0 opacity-[0.35]"
           style={{
@@ -65,7 +65,7 @@ export default function EventPage() {
           </div>
         </div>
 
-        <p className="mt-8 text-center text-xs text-slate-400">
+        <p className="mt-8 text-center text-xs text-muted-fg">
           Tradeul Live · Madrid
         </p>
       </div>

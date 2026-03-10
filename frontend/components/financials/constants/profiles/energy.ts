@@ -69,7 +69,7 @@ export const generalProfile: IndustryProfile = {
     category: 'general',
     label: 'General',
     icon: Building2,
-    color: 'text-gray-600',
+    color: 'text-foreground/80',
     description: 'General company analysis',
     kpis: [
         { name: 'Gross Margin', formula: 'Gross Profit / Revenue', calculate: (d: FinancialData) => { const i = d.income_statements[0]; return i?.gross_profit && i?.revenue ? (i.gross_profit / i.revenue) * 100 : undefined; }, format: 'percent', benchmark: { good: 40, bad: 25 }, tooltip: 'Gross profitability' },

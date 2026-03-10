@@ -175,7 +175,7 @@ function TickerLogo({ symbol, size = 24 }: { symbol: string; size?: number }) {
           opacity: loaded ? 1 : 0,
           borderRadius: 4,
           objectFit: 'contain',
-          backgroundColor: '#fff'
+          backgroundColor: 'var(--color-surface)'
         }}
         onLoad={() => setLoaded(true)}
         onError={() => setError(true)}

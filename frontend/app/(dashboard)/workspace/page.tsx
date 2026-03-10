@@ -497,7 +497,7 @@ export default function ScannerPage() {
         <div className="flex items-center h-full w-full">
           {/* Left: Command Prompt / Quote Strip */}
           <div className="flex items-center gap-1.5 relative min-w-0 w-[450px] shrink-0">
-            <span className="text-slate-300 font-mono text-xs select-none pl-1">{'>'}</span>
+            <span className="text-muted-fg/50 font-mono text-xs select-none pl-1">{'>'}</span>
 
             <div className="flex-1 relative min-w-0">
               {/* Input siempre presente */}
@@ -529,8 +529,8 @@ export default function ScannerPage() {
                     setCommandPaletteOpen(true);
                   }
                 }}
-                className={`w-full px-2 py-1.5 font-mono text-xs text-slate-800 bg-transparent
-                         border-b border-transparent focus:border-blue-400
+                className={`w-full px-2 py-1.5 font-mono text-xs text-foreground bg-transparent
+                         border-b border-transparent focus:border-primary/40
                          outline-none transition-all ${activeQuoteTicker && !commandInput ? 'opacity-0 absolute' : ''}`}
               />
 
@@ -547,7 +547,7 @@ export default function ScannerPage() {
               {/* Placeholder con cursor parpadeante */}
               {!commandInput && !activeQuoteTicker && (
                 <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
-                  <span className="text-slate-350 font-mono text-xs">command</span>
+                  <span className="text-muted-fg font-mono text-xs">command</span>
                   <span className="w-[1.5px] h-3.5 bg-blue-400 ml-0.5 animate-pulse" />
                 </div>
               )}
@@ -555,7 +555,7 @@ export default function ScannerPage() {
           </div>
 
           {/* Separator */}
-          <div className="w-px h-5 bg-slate-200 mx-1" />
+          <div className="w-px h-5 bg-muted mx-1" />
 
           {/* Center: Pinned Commands (centrados) */}
           <div className="flex-1 flex justify-center min-w-0">
@@ -568,7 +568,7 @@ export default function ScannerPage() {
           </div>
 
           {/* Separator */}
-          <div className="w-px h-5 bg-slate-200 mx-1" />
+          <div className="w-px h-5 bg-muted mx-1" />
 
           {/* Right: Market Status + User Menu */}
           <div className="flex items-center gap-3 shrink-0">
@@ -613,10 +613,10 @@ export default function ScannerPage() {
         {/* Empty state cuando no hay ventanas */}
         {hasNoWindows && (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center text-slate-500">
-              <LayoutGrid className="h-16 w-16 mx-auto mb-4 text-slate-300" />
-              <p className="text-xl font-semibold text-slate-700">{t('workspace.noWindowsOpen')}</p>
-              <p className="text-sm mt-2 text-slate-500">
+            <div className="text-center text-muted-fg">
+              <LayoutGrid className="h-16 w-16 mx-auto mb-4 text-muted-fg/50" />
+              <p className="text-xl font-semibold text-foreground">{t('workspace.noWindowsOpen')}</p>
+              <p className="text-sm mt-2 text-muted-fg">
                 {t('workspace.useCommandToOpen')}
               </p>
               <div className="mt-4 flex gap-2 justify-center">
@@ -626,7 +626,7 @@ export default function ScannerPage() {
                     <button
                       key={catId}
                       onClick={() => openScannerTable(catId, 0)}
-                      className="px-3 py-1.5 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                      className="px-3 py-1.5 text-xs font-medium bg-primary text-white rounded-md hover:bg-primary-hover"
                     >
                       {category?.name || catId}
                     </button>

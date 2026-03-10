@@ -77,7 +77,7 @@ export function LinkGroupSelector({ windowId, currentLinkGroup }: LinkGroupSelec
     ? createPortal(
         <div
           ref={dropdownRef}
-          className="fixed bg-white border border-slate-200 rounded-lg shadow-xl p-1 min-w-[100px]"
+          className="fixed bg-surface border border-border rounded-lg shadow-xl p-1 min-w-[100px]"
           style={{ top: dropdownPos.top, left: dropdownPos.left, zIndex: 99999 }}
         >
           {LINK_GROUPS.map(group => (
@@ -89,12 +89,12 @@ export function LinkGroupSelector({ windowId, currentLinkGroup }: LinkGroupSelec
                 setWindowLinkGroup(windowId, group.value);
                 setIsOpen(false);
               }}
-              className={`flex items-center gap-2 w-full px-2 py-1 rounded text-[11px] hover:bg-slate-100 transition-colors ${
-                currentLinkGroup === group.value ? 'bg-slate-50 font-semibold' : ''
+              className={`flex items-center gap-2 w-full px-2 py-1 rounded text-[11px] hover:bg-surface-hover transition-colors ${
+                currentLinkGroup === group.value ? 'bg-surface-hover font-semibold' : ''
               }`}
             >
               <ChainIcon color={group.color} size={11} />
-              <span className="text-slate-600">{group.label}</span>
+              <span className="text-foreground/80">{group.label}</span>
             </button>
           ))}
         </div>,
@@ -108,7 +108,7 @@ export function LinkGroupSelector({ windowId, currentLinkGroup }: LinkGroupSelec
         ref={buttonRef}
         onMouseDown={e => e.stopPropagation()}
         onClick={e => { e.stopPropagation(); setIsOpen(!isOpen); }}
-        className="p-0.5 rounded hover:bg-slate-200/60 transition-colors flex items-center"
+        className="p-0.5 rounded hover:bg-surface-hover transition-colors flex items-center"
         title={`Link: ${currentLinkGroup ?? 'None'}`}
       >
         <ChainIcon color={currentColor} size={13} />

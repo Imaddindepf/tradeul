@@ -15,24 +15,24 @@ function BreadthTooltip({ active, payload }: any) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
-      <div className="font-semibold text-slate-900 mb-1">{d.label}</div>
+    <div className="bg-surface border border-border rounded-lg shadow-lg px-3 py-2 text-[11px]">
+      <div className="font-semibold text-foreground mb-1">{d.label}</div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Breadth:</span>
+        <span className="text-muted-fg">Breadth:</span>
         <span className="font-medium">{(d.x * 100).toFixed(0)}%</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Wtd Change:</span>
+        <span className="text-muted-fg">Wtd Change:</span>
         <span className={d.y >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
           {d.y >= 0 ? '+' : ''}{d.y.toFixed(2)}%
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Avg Change:</span>
+        <span className="text-muted-fg">Avg Change:</span>
         <span className="font-medium">{d.avgChange >= 0 ? '+' : ''}{d.avgChange.toFixed(2)}%</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Tickers:</span>
+        <span className="text-muted-fg">Tickers:</span>
         <span className="font-medium">{d.count}</span>
       </div>
       {d.isDivergent && (

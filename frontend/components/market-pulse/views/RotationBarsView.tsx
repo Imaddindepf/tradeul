@@ -12,29 +12,29 @@ function CustomTooltip({ active, payload }: any) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
-      <div className="font-semibold text-slate-900 mb-1">{d.label}</div>
+    <div className="bg-surface border border-border rounded-lg shadow-lg px-3 py-2 text-[11px]">
+      <div className="font-semibold text-foreground mb-1">{d.label}</div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Wtd Change:</span>
+        <span className="text-muted-fg">Wtd Change:</span>
         <span className={d.change >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
           {d.change >= 0 ? '+' : ''}{d.change.toFixed(2)}%
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Avg Change:</span>
+        <span className="text-muted-fg">Avg Change:</span>
         <span className="font-medium">{d.avgChange >= 0 ? '+' : ''}{d.avgChange.toFixed(2)}%</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Breadth:</span>
+        <span className="text-muted-fg">Breadth:</span>
         <span className="font-medium">{(d.breadth * 100).toFixed(0)}%</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-slate-500">Tickers:</span>
+        <span className="text-muted-fg">Tickers:</span>
         <span className="font-medium">{d.count}</span>
       </div>
       {d.rankShift !== 0 && (
         <div className="flex items-center gap-2">
-          <span className="text-slate-500">Rank Shift:</span>
+          <span className="text-muted-fg">Rank Shift:</span>
           <span className={d.rankShift > 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
             {d.rankShift > 0 ? '\u25B2' : '\u25BC'}{Math.abs(d.rankShift)}
           </span>

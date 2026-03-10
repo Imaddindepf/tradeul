@@ -99,7 +99,7 @@ export const autoProfile: IndustryProfile = {
     category: 'auto',
     label: 'Automotive',
     icon: Car,
-    color: 'text-slate-600',
+    color: 'text-foreground/80',
     description: 'Auto manufacturers, parts, and dealerships',
     kpis: [
         { name: 'Gross Margin', formula: 'Gross Profit / Revenue', calculate: (d: FinancialData) => { const i = d.income_statements[0]; return i?.gross_profit && i?.revenue ? (i.gross_profit / i.revenue) * 100 : undefined; }, format: 'percent', benchmark: { good: 18, bad: 10 }, tooltip: 'OEMs: 10-20%, Parts: 20-30%' },

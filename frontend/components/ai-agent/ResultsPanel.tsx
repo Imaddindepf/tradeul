@@ -41,18 +41,18 @@ export const ResultsPanel = memo(function ResultsPanel({
   }, [blocks.length]);
 
   return (
-    <div className="flex flex-col h-full bg-[#f8f9fb]">
+    <div className="flex flex-col h-full bg-surface">
       {/* Header */}
-      <div className="flex-shrink-0 px-5 py-3 border-b border-slate-200/80 bg-white/90 backdrop-blur-sm">
+      <div className="flex-shrink-0 px-5 py-3 border-b border-border bg-surface/90 backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
               <Sparkles className="w-3.5 h-3.5 text-white" />
             </div>
             <div>
-              <span className="text-[13px] font-semibold text-slate-800">Results</span>
+              <span className="text-[13px] font-semibold text-foreground">Results</span>
               {blocks.length > 0 && (
-                <span className="ml-2 text-[10px] text-slate-400 tabular-nums">
+                <span className="ml-2 text-[10px] text-muted-fg tabular-nums">
                   {blocks.length} {blocks.length === 1 ? 'analysis' : 'analyses'}
                 </span>
               )}
@@ -72,13 +72,13 @@ export const ResultsPanel = memo(function ResultsPanel({
               exit={{ opacity: 0 }}
               className="flex flex-col items-center justify-center h-full text-center px-8"
             >
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-200/60 flex items-center justify-center mb-4">
-                <Sparkles className="w-7 h-7 text-slate-300" />
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-surface-inset to-surface-hover border border-border flex items-center justify-center mb-4">
+                <Sparkles className="w-7 h-7 text-muted-fg/50" />
               </div>
-              <p className="text-[13px] font-medium text-slate-400">
+              <p className="text-[13px] font-medium text-muted-fg">
                 AI analysis results will appear here
               </p>
-              <p className="text-[11px] text-slate-300 mt-1.5 max-w-[240px]">
+              <p className="text-[11px] text-muted-fg/50 mt-1.5 max-w-[240px]">
                 Ask a question using the chat panel and the multi-agent system will analyze it
               </p>
             </motion.div>
@@ -112,16 +112,16 @@ const ResultCard = memo(function ResultCard({ block, onToggleCode }: ResultCardP
   const execTime = block.result?.execution_time_ms;
 
   const borderColor = isRunning
-    ? 'border-indigo-300/60'
+    ? 'border-primary/60'
     : isError
       ? 'border-red-300/60'
-      : 'border-slate-200/80';
+      : 'border-border';
 
   const headerGlow = isRunning
-    ? 'bg-gradient-to-r from-indigo-50 to-white'
+    ? 'bg-gradient-to-r from-primary/10 to-surface'
     : isError
-      ? 'bg-gradient-to-r from-red-50 to-white'
-      : 'bg-gradient-to-r from-slate-50/80 to-white';
+      ? 'bg-gradient-to-r from-red-50 to-surface'
+      : 'bg-gradient-to-r from-surface-hover/80 to-surface';
 
   return (
     <motion.div
@@ -129,17 +129,17 @@ const ResultCard = memo(function ResultCard({ block, onToggleCode }: ResultCardP
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -8, scale: 0.98 }}
       transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
-      className={`rounded-xl border ${borderColor} bg-white shadow-sm overflow-hidden`}
+      className={`rounded-xl border ${borderColor} bg-surface shadow-sm overflow-hidden`}
     >
       {/* Card Header */}
       <div
-        className={`px-4 py-2.5 ${headerGlow} border-b border-slate-100/80 flex items-center justify-between cursor-pointer select-none`}
+        className={`px-4 py-2.5 ${headerGlow} border-b border-border-subtle flex items-center justify-between cursor-pointer select-none`}
         onClick={() => !isRunning && setCollapsed(c => !c)}
       >
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           {/* Status dot */}
           {isRunning ? (
-            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse flex-shrink-0" />
+            <span className="w-2 h-2 rounded-full bg-primary animate-pulse flex-shrink-0" />
           ) : isError ? (
             <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
           ) : (
@@ -150,13 +150,13 @@ const ResultCard = memo(function ResultCard({ block, onToggleCode }: ResultCardP
           <div className="min-w-0 flex-1">
             {block.query ? (
               <div className="flex items-center gap-1.5">
-                <MessageSquare className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                <span className="text-[12px] font-medium text-slate-700 truncate">
+                <MessageSquare className="w-3 h-3 text-muted-fg flex-shrink-0" />
+                <span className="text-[12px] font-medium text-foreground truncate">
                   {truncateQuery(block.query)}
                 </span>
               </div>
             ) : (
-              <span className="text-[12px] font-medium text-slate-600">
+              <span className="text-[12px] font-medium text-foreground/80">
                 {isRunning ? 'Processing...' : 'Analysis'}
               </span>
             )}
@@ -166,21 +166,21 @@ const ResultCard = memo(function ResultCard({ block, onToggleCode }: ResultCardP
         <div className="flex items-center gap-2.5 flex-shrink-0 ml-2">
           {/* Execution time */}
           {execTime != null && execTime > 0 && (
-            <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 tabular-nums">
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-fg tabular-nums">
               <Clock className="w-3 h-3" />
               {execTime < 1000 ? `${execTime}ms` : `${(execTime / 1000).toFixed(1)}s`}
             </span>
           )}
 
           {/* Timestamp */}
-          <span className="text-[10px] text-slate-300 tabular-nums">
+          <span className="text-[10px] text-muted-fg/50 tabular-nums">
             {formatTime(block.timestamp)}
           </span>
 
           {/* Collapse chevron */}
           {!isRunning && (
             <ChevronDown
-              className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`}
+              className={`w-3.5 h-3.5 text-muted-fg transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`}
             />
           )}
         </div>

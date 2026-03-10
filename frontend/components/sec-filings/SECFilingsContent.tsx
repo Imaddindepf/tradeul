@@ -453,22 +453,22 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
 
     // Color classes for form type badges
     const colorClasses: Record<string, string> = {
-        blue: 'bg-blue-50 text-blue-700 border-blue-200',
-        purple: 'bg-purple-50 text-purple-700 border-purple-200',
-        amber: 'bg-amber-50 text-amber-700 border-amber-200',
-        emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-        cyan: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-        rose: 'bg-rose-50 text-rose-700 border-rose-200',
-        orange: 'bg-orange-50 text-orange-700 border-orange-200',
-        slate: 'bg-slate-50 text-slate-600 border-slate-200',
+        blue: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30',
+        purple: 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30',
+        amber: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30',
+        emerald: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
+        cyan: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/30',
+        rose: 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30',
+        orange: 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/30',
+        slate: 'bg-surface-hover text-foreground/80 border-border',
     };
 
     // Importance colors for 8-K items
     const importanceColors: Record<string, string> = {
-        critical: 'text-red-600',
-        high: 'text-amber-600',
-        medium: 'text-slate-500',
-        low: 'text-slate-400',
+        critical: 'text-red-600 dark:text-red-400',
+        high: 'text-amber-600 dark:text-amber-400',
+        medium: 'text-muted-fg',
+        low: 'text-muted-fg',
     };
 
     // Filing viewer
@@ -494,33 +494,33 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
             : '';
 
         return (
-            <div className={`h-full flex flex-col bg-white ${fontClass}`}>
-                <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
+            <div className={`h-full flex flex-col bg-surface ${fontClass}`}>
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface-hover">
                     <button
                         onClick={() => setSelectedFiling(null)}
-                        className="px-2 py-1 text-[10px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                        className="px-2 py-1 text-[10px] font-medium text-primary hover:text-primary-hover hover:bg-primary/10 rounded transition-colors"
                     >
                         Back
                     </button>
-                    <div className="text-[11px] text-slate-600 flex items-center gap-2">
-                        <span className="font-semibold text-slate-900">{selectedFiling.ticker || 'N/A'}</span>
-                        <span className="text-slate-300">|</span>
+                    <div className="text-[11px] text-foreground/80 flex items-center gap-2">
+                        <span className="font-semibold text-foreground">{selectedFiling.ticker || 'N/A'}</span>
+                        <span className="text-muted-fg/50">|</span>
                         <span>{selectedFiling.formType}</span>
-                        <span className="text-slate-300">|</span>
-                        <span className="text-slate-500">{formatDateTime(selectedFiling.filedAt).date}</span>
+                        <span className="text-muted-fg/50">|</span>
+                        <span className="text-muted-fg">{formatDateTime(selectedFiling.filedAt).date}</span>
                     </div>
                     <a
                         href={filingUrl || '#'}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-primary hover:text-primary-hover hover:bg-primary/10 rounded transition-colors"
                     >
                         <ExternalLink className="w-3 h-3" />
                         Original
                     </a>
                 </div>
 
-                <div className="flex-1 bg-white">
+                <div className="flex-1 bg-surface">
                     <iframe
                         src={proxyUrl}
                         className="w-full h-full border-0"
@@ -533,7 +533,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
     }
 
     return (
-        <div className={`h-full flex flex-col bg-white relative ${fontClass}`}>
+        <div className={`h-full flex flex-col bg-surface relative ${fontClass}`}>
             {/* Filter Panel Overlay */}
             <SECFilingsFilterPanel
                 isOpen={showFilterPanel}
@@ -545,7 +545,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
             />
 
             {/* Header Row 1: Search, Dates, Count */}
-            <div className="flex items-center gap-2 px-3 py-1 border-b border-slate-100 bg-slate-50">
+            <div className="flex items-center gap-2 px-3 py-1 border-b border-border-subtle bg-surface-hover">
                 {/* Ticker Search */}
                 <form onSubmit={handleSearch} className="flex items-center gap-1">
                     <TickerSearch
@@ -562,13 +562,13 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                     <button
                         type="submit"
                         disabled={loading}
-                        className="px-2 py-0.5 text-[10px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                        className="px-2 py-0.5 text-[10px] font-medium bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-50"
                     >
                         {loading ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'Go'}
                     </button>
                 </form>
 
-                <span className="text-slate-300">|</span>
+                <span className="text-muted-fg/50">|</span>
 
                 {/* Date Range */}
                 <div className="flex items-center gap-1 text-[10px]">
@@ -580,9 +580,9 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                             setFilters(newFilters);
                             fetchFilings(1, undefined, newFilters);
                         }}
-                        className="w-[100px] px-1 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+                        className="w-[100px] px-1 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-primary bg-[var(--color-input-bg)]"
                     />
-                    <span className="text-slate-300">-</span>
+                    <span className="text-muted-fg/50">-</span>
                     <input
                         type="date"
                         value={filters.dateTo}
@@ -591,7 +591,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                             setFilters(newFilters);
                             fetchFilings(1, undefined, newFilters);
                         }}
-                        className="w-[100px] px-1 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+                        className="w-[100px] px-1 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-primary bg-[var(--color-input-bg)]"
                     />
                     {(filters.dateFrom || filters.dateTo) && (
                         <button
@@ -600,7 +600,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                                 setFilters(newFilters);
                                 fetchFilings(1, undefined, newFilters);
                             }}
-                            className="p-0.5 text-slate-400 hover:text-slate-600"
+                            className="p-0.5 text-muted-fg hover:text-foreground/80"
                         >
                             <X className="w-3 h-3" />
                         </button>
@@ -610,7 +610,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                 <div className="flex-1" />
 
                 {/* Count & Live indicator */}
-                <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                <div className="flex items-center gap-2 text-[10px] text-muted-fg">
                     <span className="tabular-nums font-medium">{displayedFilings.length}</span>
                     {realtimeFilings.length > 0 && (
                         <span className="text-emerald-600 flex items-center gap-1">
@@ -623,7 +623,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                 {hasActiveFilters && (
                     <button
                         onClick={clearAllFilters}
-                        className="px-1.5 py-0.5 text-[9px] text-slate-500 hover:text-slate-700 border border-slate-200 rounded"
+                        className="px-1.5 py-0.5 text-[9px] text-muted-fg hover:text-foreground border border-border rounded"
                     >
                         Clear
                     </button>
@@ -631,7 +631,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
             </div>
 
             {/* Header Row 2: Quick Filters */}
-            <div className="flex items-center gap-1 px-3 py-1 border-b border-slate-200 bg-white">
+            <div className="flex items-center gap-1 px-3 py-1 border-b border-border bg-surface">
                 {Object.entries(QUICK_FILTERS).map(([key, qf]) => {
                     // Cast to string[] for comparison
                     const qfCategories = qf.categories as readonly string[];
@@ -674,8 +674,8 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                             title={qf.description}
                             className={`px-2 py-0.5 text-[10px] rounded border ${
                                 isActive
-                                    ? 'bg-blue-600 text-white border-blue-600'
-                                    : 'text-slate-600 border-slate-200 hover:border-slate-400'
+                                    ? 'bg-primary text-white border-primary'
+                                    : 'text-foreground/80 border-border hover:border-border'
                             }`}
                         >
                             {qf.label}
@@ -690,35 +690,35 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                     onClick={() => setShowFilterPanel(true)}
                     className={`flex items-center gap-1 px-2 py-0.5 text-[10px] rounded border ${
                         activeFiltersCount > 0
-                            ? 'text-blue-600 border-blue-300'
-                            : 'text-slate-500 border-slate-200 hover:border-slate-400'
+                            ? 'text-primary border-primary/50'
+                            : 'text-muted-fg border-border hover:border-border'
                     }`}
                 >
                     <SlidersHorizontal className="w-3 h-3" />
                     More
                     {activeFiltersCount > 0 && (
-                        <span className="text-[9px] text-blue-600">({activeFiltersCount})</span>
+                        <span className="text-[9px] text-primary">({activeFiltersCount})</span>
                     )}
                 </button>
             </div>
 
             {/* Active filters summary (if any advanced filters) */}
             {(filters.formTypes.length > 0 || filters.items8K.length > 0) && (
-                <div className="flex items-center gap-1 px-3 py-0.5 border-b border-slate-100 bg-slate-50/50 text-[9px] text-slate-500">
+                <div className="flex items-center gap-1 px-3 py-0.5 border-b border-border-subtle bg-surface-hover/50 text-[9px] text-muted-fg">
                     <span>Active:</span>
                     {filters.formTypes.slice(0, 5).map(ft => (
-                        <span key={ft} className="px-1 py-0.5 bg-slate-100 rounded">{ft}</span>
+                        <span key={ft} className="px-1 py-0.5 bg-surface-inset rounded">{ft}</span>
                     ))}
                     {filters.formTypes.length > 5 && <span>+{filters.formTypes.length - 5}</span>}
                     {filters.items8K.length > 0 && (
-                        <span className="px-1 py-0.5 bg-slate-100 rounded">8-K: {filters.items8K.join(', ')}</span>
+                        <span className="px-1 py-0.5 bg-surface-inset rounded">8-K: {filters.items8K.join(', ')}</span>
                     )}
                 </div>
             )}
 
             {/* Error */}
             {error && (
-                <div className="mx-3 mt-2 px-2 py-1.5 bg-red-50 border border-red-200 rounded flex items-center gap-2 text-red-700">
+                <div className="mx-3 mt-2 px-2 py-1.5 bg-red-500/10 border border-red-500/30 rounded flex items-center gap-2 text-red-700 dark:text-red-400">
                     <AlertTriangle className="w-3 h-3" />
                     <span className="text-[10px]">{error}</span>
                 </div>
@@ -730,18 +730,18 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                     <div className="flex items-center justify-center h-full">
                         <div className="text-center">
                             <RefreshCw className="w-5 h-5 mx-auto mb-2 text-blue-500 animate-spin" />
-                            <p className="text-[10px] text-slate-500">Loading filings...</p>
+                            <p className="text-[10px] text-muted-fg">Loading filings...</p>
                         </div>
                     </div>
                 ) : displayedFilings.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
                         <div className="text-center">
-                            <FileText className="w-6 h-6 mx-auto mb-2 text-slate-300" />
-                            <p className="text-[10px] text-slate-500">No filings found</p>
+                            <FileText className="w-6 h-6 mx-auto mb-2 text-muted-fg/50" />
+                            <p className="text-[10px] text-muted-fg">No filings found</p>
                             {hasActiveFilters && (
                                 <button 
                                     onClick={clearAllFilters}
-                                    className="mt-2 text-[10px] text-blue-600 hover:text-blue-700"
+                                    className="mt-2 text-[10px] text-primary hover:text-primary-hover"
                                 >
                                     Clear filters
                                 </button>
@@ -754,12 +754,12 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                         data={displayedFilings}
                         overscan={20}
                         fixedHeaderContent={() => (
-                            <tr className="bg-slate-100 border-b border-slate-200">
-                                <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-16">Ticker</th>
-                                <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-20">Form</th>
-                                <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Description</th>
-                                <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-24">Date</th>
-                                <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-20">Time</th>
+                            <tr className="bg-surface-inset border-b border-border">
+                                <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-16">Ticker</th>
+                                <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-20">Form</th>
+                                <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider">Description</th>
+                                <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-24">Date</th>
+                                <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-20">Time</th>
                             </tr>
                         )}
                         itemContent={(index, filing) => {
@@ -770,12 +770,12 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                             const formInfo = FORM_TYPE_INFO[filing.formType];
                             const itemImportance = filing.formType.startsWith('8-K') ? get8KItemImportance(filing.items ?? null) : null;
                             const itemsText = filing.formType.startsWith('8-K') ? format8KItems(filing.items ?? null) : '';
-                            const bgClass = isHighlighted ? 'bg-emerald-100' : isRealtime ? 'bg-emerald-50/30' : '';
+                            const bgClass = isHighlighted ? 'bg-emerald-500/15' : isRealtime ? 'bg-emerald-500/10' : '';
                             
                             return (
                                 <>
                                     <td className={`px-3 py-1 whitespace-nowrap text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
-                                        <span className={`font-medium ${filing.ticker ? 'text-slate-900' : 'text-slate-400'}`}>
+                                        <span className={`font-medium ${filing.ticker ? 'text-foreground' : 'text-muted-fg'}`}>
                                             {filing.ticker || '--'}
                                         </span>
                                     </td>
@@ -791,16 +791,16 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                                                     <Zap className="w-3 h-3" />
                                                 </span>
                                             )}
-                                            <span className="text-slate-600 truncate">
-                                                {itemsText && <span className="text-slate-400 mr-1">[{itemsText}]</span>}
+                                            <span className="text-foreground/80 truncate">
+                                                {itemsText && <span className="text-muted-fg mr-1">[{itemsText}]</span>}
                                                 {truncateDescription(filing.description, itemsText ? 50 : 80)}
                                             </span>
                                         </div>
                                     </td>
-                                    <td className={`px-3 py-1 whitespace-nowrap text-right text-slate-500 tabular-nums text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
+                                    <td className={`px-3 py-1 whitespace-nowrap text-right text-muted-fg tabular-nums text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
                                         {date}
                                     </td>
-                                    <td className={`px-3 py-1 whitespace-nowrap text-right text-slate-400 tabular-nums text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
+                                    <td className={`px-3 py-1 whitespace-nowrap text-right text-muted-fg tabular-nums text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
                                         {time}
                                     </td>
                                 </>
@@ -814,7 +814,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                                 <thead {...props} ref={ref} style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }} />
                             )),
                             TableRow: ({ style, ...props }) => (
-                                <tr {...props} style={{ ...style }} className="hover:bg-blue-50 border-b border-slate-100" />
+                                <tr {...props} style={{ ...style }} className="hover:bg-surface-hover border-b border-border-subtle" />
                             ),
                         }}
                     />
@@ -822,10 +822,10 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between px-3 py-1 border-t border-slate-200 bg-slate-50 text-[10px] text-slate-500">
+            <div className="flex items-center justify-between px-3 py-1 border-t border-border bg-surface-hover text-[10px] text-muted-fg">
                 <div className="flex items-center gap-2">
                     <span className="tabular-nums">{totalResults.toLocaleString()} total</span>
-                    <span className="text-slate-300">|</span>
+                    <span className="text-muted-fg/50">|</span>
                     <span>Page {currentPage} of {Math.max(1, Math.ceil(totalResults / PAGE_SIZE))}</span>
                 </div>
 
@@ -838,7 +838,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                             key={btn.label}
                             onClick={() => fetchFilings(btn.page)}
                             disabled={btn.disabled || loading}
-                            className="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="px-1.5 py-0.5 rounded text-foreground/80 hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             {btn.label}
                         </button>
@@ -855,8 +855,8 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                                 disabled={loading}
                                 className={`px-1.5 py-0.5 rounded tabular-nums ${
                                     pageNum === currentPage
-                                        ? 'bg-blue-600 text-white'
-                                        : 'text-slate-600 hover:bg-slate-100'
+                                        ? 'bg-primary text-white'
+                                        : 'text-foreground/80 hover:bg-surface-hover'
                                 } disabled:opacity-30`}
                             >
                                 {pageNum}
@@ -872,7 +872,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                             key={btn.label}
                             onClick={() => fetchFilings(btn.page)}
                             disabled={btn.disabled || loading}
-                            className="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                            className="px-1.5 py-0.5 rounded text-foreground/80 hover:bg-surface-hover disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                             {btn.label}
                         </button>
@@ -880,7 +880,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${ws.isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${ws.isConnected ? 'bg-emerald-500' : 'bg-muted'}`} />
                     <span>{ws.isConnected ? 'Live' : 'Offline'}</span>
                 </div>
             </div>

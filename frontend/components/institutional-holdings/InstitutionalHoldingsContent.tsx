@@ -308,13 +308,13 @@ function CollapsibleSection({ title, defaultOpen = true, children }: Collapsible
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="border-b border-slate-200">
+    <div className="border-b border-border">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-2 py-1.5 flex items-center gap-1 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+        className="w-full px-2 py-1.5 flex items-center gap-1 bg-surface-hover hover:bg-surface-hover transition-colors text-left"
       >
-        <span className="text-[10px] text-slate-500">{isOpen ? '[-]' : '[+]'}</span>
-        <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider">{title}</span>
+        <span className="text-[10px] text-muted-fg">{isOpen ? '[-]' : '[+]'}</span>
+        <span className="text-[10px] font-semibold text-foreground/80 uppercase tracking-wider">{title}</span>
       </button>
       {isOpen && <div className="px-2 py-2">{children}</div>}
     </div>
@@ -334,8 +334,8 @@ interface InfoRowProps {
 function InfoRow({ label, value, className = '' }: InfoRowProps) {
   return (
     <div className={`flex items-start gap-2 py-0.5 ${className}`}>
-      <span className="text-[10px] text-slate-500 min-w-[100px]">{label}:</span>
-      <span className="text-[10px] text-slate-800 flex-1">{value}</span>
+      <span className="text-[10px] text-muted-fg min-w-[100px]">{label}:</span>
+      <span className="text-[10px] text-foreground flex-1">{value}</span>
     </div>
   );
 }
@@ -353,31 +353,31 @@ function ExpandedHolderRow({ holder, totalValue }: ExpandedHolderRowProps) {
   const ownershipPct = totalValue > 0 ? (holder.value / totalValue * 100).toFixed(4) : '0';
 
   return (
-    <tr className="bg-slate-50">
+    <tr className="bg-surface-hover">
       <td colSpan={8} className="px-3 py-2">
         <div className="grid grid-cols-3 gap-4 text-[9px]">
           {/* Column 1: Filing Info */}
           <div className="space-y-1">
-            <div className="font-semibold text-slate-600 uppercase tracking-wider mb-1">Filing Info</div>
+            <div className="font-semibold text-foreground/80 uppercase tracking-wider mb-1">Filing Info</div>
             <div className="flex gap-2">
-              <span className="text-slate-500">CIK:</span>
-              <span className="font-mono text-slate-800">{holder.cik}</span>
+              <span className="text-muted-fg">CIK:</span>
+              <span className="font-mono text-foreground">{holder.cik}</span>
             </div>
             <div className="flex gap-2">
-              <span className="text-slate-500">Accession:</span>
-              <span className="font-mono text-slate-800">{holder.accessionNo}</span>
+              <span className="text-muted-fg">Accession:</span>
+              <span className="font-mono text-foreground">{holder.accessionNo}</span>
             </div>
             <div className="flex gap-2">
-              <span className="text-slate-500">Form:</span>
-              <span className="text-slate-800">{holder.formType}</span>
+              <span className="text-muted-fg">Form:</span>
+              <span className="text-foreground">{holder.formType}</span>
             </div>
             <div className="flex gap-2">
-              <span className="text-slate-500">Period:</span>
-              <span className="text-slate-800">{formatQuarter(holder.periodOfReport)}</span>
+              <span className="text-muted-fg">Period:</span>
+              <span className="text-foreground">{formatQuarter(holder.periodOfReport)}</span>
             </div>
             <div className="flex gap-2">
-              <span className="text-slate-500">Filed:</span>
-              <span className="text-slate-800">{formatDateFull(holder.filedAt)}</span>
+              <span className="text-muted-fg">Filed:</span>
+              <span className="text-foreground">{formatDateFull(holder.filedAt)}</span>
             </div>
             {holder.linkToHtml && (
               <a
@@ -393,57 +393,57 @@ function ExpandedHolderRow({ holder, totalValue }: ExpandedHolderRowProps) {
 
           {/* Column 2: Position Details */}
           <div className="space-y-1">
-            <div className="font-semibold text-slate-600 uppercase tracking-wider mb-1">Position Details</div>
+            <div className="font-semibold text-foreground/80 uppercase tracking-wider mb-1">Position Details</div>
             <div className="flex gap-2">
-              <span className="text-slate-500">CUSIP:</span>
-              <span className="font-mono text-slate-800">{holder.cusip}</span>
+              <span className="text-muted-fg">CUSIP:</span>
+              <span className="font-mono text-foreground">{holder.cusip}</span>
             </div>
             <div className="flex gap-2">
-              <span className="text-slate-500">Class:</span>
-              <span className="text-slate-800">{holder.titleOfClass}</span>
+              <span className="text-muted-fg">Class:</span>
+              <span className="text-foreground">{holder.titleOfClass}</span>
             </div>
             <div className="flex gap-2">
-              <span className="text-slate-500">Shares:</span>
-              <span className="text-slate-800">{formatNumberFull(holder.shares)} {holder.sharesType}</span>
+              <span className="text-muted-fg">Shares:</span>
+              <span className="text-foreground">{formatNumberFull(holder.shares)} {holder.sharesType}</span>
             </div>
             <div className="flex gap-2">
-              <span className="text-slate-500">Value:</span>
-              <span className="text-slate-800">{formatCurrencyFull(holder.value)}</span>
+              <span className="text-muted-fg">Value:</span>
+              <span className="text-foreground">{formatCurrencyFull(holder.value)}</span>
             </div>
             <div className="flex gap-2">
-              <span className="text-slate-500">% of Total:</span>
-              <span className="text-slate-800">{ownershipPct}%</span>
+              <span className="text-muted-fg">% of Total:</span>
+              <span className="text-foreground">{ownershipPct}%</span>
             </div>
-            {holder.hasPut && <span className="inline-block px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[8px] mr-1">PUT</span>}
-            {holder.hasCall && <span className="inline-block px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[8px]">CALL</span>}
+            {holder.hasPut && <span className="inline-block px-1.5 py-0.5 bg-red-500/15 text-red-700 dark:text-red-400 rounded text-[8px] mr-1">PUT</span>}
+            {holder.hasCall && <span className="inline-block px-1.5 py-0.5 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 rounded text-[8px]">CALL</span>}
           </div>
 
           {/* Column 3: Discretion & Voting */}
           <div className="space-y-1">
-            <div className="font-semibold text-slate-600 uppercase tracking-wider mb-1">Discretion & Voting</div>
+            <div className="font-semibold text-foreground/80 uppercase tracking-wider mb-1">Discretion & Voting</div>
             {/* Investment Discretion Breakdown */}
             {Object.entries(holder.investmentDiscretion).map(([type, data]) => (
-              <div key={type} className="pl-2 border-l-2 border-slate-200 mb-1">
-                <div className="font-medium text-slate-700">{DISCRETION_LABELS[type] || type}</div>
-                <div className="text-slate-500 pl-2">
+              <div key={type} className="pl-2 border-l-2 border-border mb-1">
+                <div className="font-medium text-foreground">{DISCRETION_LABELS[type] || type}</div>
+                <div className="text-muted-fg pl-2">
                   Shares: {formatNumber(data.shares)} | Value: {formatCurrency(data.value)}
                 </div>
               </div>
             ))}
             {/* Voting Authority */}
             <div className="mt-2">
-              <div className="font-medium text-slate-700 mb-1">Voting Authority:</div>
+              <div className="font-medium text-foreground mb-1">Voting Authority:</div>
               <div className="flex gap-3 pl-2">
-                <span className="text-slate-600">Sole: {formatNumber(holder.votingAuthority.sole)}</span>
-                <span className="text-slate-600">Shared: {formatNumber(holder.votingAuthority.shared)}</span>
-                <span className="text-slate-600">None: {formatNumber(holder.votingAuthority.none)}</span>
+                <span className="text-foreground/80">Sole: {formatNumber(holder.votingAuthority.sole)}</span>
+                <span className="text-foreground/80">Shared: {formatNumber(holder.votingAuthority.shared)}</span>
+                <span className="text-foreground/80">None: {formatNumber(holder.votingAuthority.none)}</span>
               </div>
             </div>
             {/* Change Details */}
             {holder.prevShares !== undefined && (
               <div className="mt-2">
-                <div className="font-medium text-slate-700 mb-1">QoQ Change:</div>
-                <div className="pl-2 text-slate-600">
+                <div className="font-medium text-foreground mb-1">QoQ Change:</div>
+                <div className="pl-2 text-foreground/80">
                   Prev: {formatNumber(holder.prevShares)} shares ({formatCurrency(holder.prevValue || 0)})
                 </div>
               </div>
@@ -620,28 +620,28 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
   };
 
   return (
-    <div className={`h-full flex flex-col bg-white text-slate-800 ${fontClass}`}>
+    <div className={`h-full flex flex-col bg-surface text-foreground ${fontClass}`}>
       {/* Header - View Toggle & Search */}
-      <div className={`flex items-center gap-2 px-2 py-1.5 border-b border-slate-200 bg-slate-50 ${fontClass}`}>
+      <div className={`flex items-center gap-2 px-2 py-1.5 border-b border-border bg-surface-hover ${fontClass}`}>
         {/* View Toggle */}
-        <div className="flex items-center bg-white rounded border border-slate-200 overflow-hidden">
+        <div className="flex items-center bg-surface rounded border border-border overflow-hidden">
           <button
             onClick={() => setViewMode('by_ticker')}
-            className={`px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'by_ticker' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+            className={`px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'by_ticker' ? 'bg-primary text-white' : 'text-foreground/80 hover:bg-surface-hover'
               }`}
           >
             By Ticker
           </button>
           <button
             onClick={() => setViewMode('by_fund')}
-            className={`px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'by_fund' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+            className={`px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'by_fund' ? 'bg-primary text-white' : 'text-foreground/80 hover:bg-surface-hover'
               }`}
           >
             By Fund
           </button>
           <button
             onClick={() => setViewMode('search_funds')}
-            className={`px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'search_funds' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+            className={`px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'search_funds' ? 'bg-primary text-white' : 'text-foreground/80 hover:bg-surface-hover'
               }`}
           >
             Search
@@ -661,7 +661,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
             <button
               type="submit"
               disabled={loading || !inputValue.trim()}
-              className={`px-2 py-1 text-[10px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors ${fontClass}`}
+              className={`px-2 py-1 text-[10px] font-medium bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-50 transition-colors ${fontClass}`}
             >
               {loading ? '...' : 'Go'}
             </button>
@@ -676,12 +676,12 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
               value={fundSearchValue}
               onChange={(e) => setFundSearchValue(e.target.value)}
               placeholder={viewMode === 'search_funds' ? 'Fund Name' : 'CIK'}
-              className={`w-40 px-2 py-1 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 ${fontClass}`}
+              className={`w-40 px-2 py-1 text-[10px] border border-border rounded focus:outline-none focus:border-primary ${fontClass}`}
             />
             <button
               type="submit"
               disabled={loading || !fundSearchValue.trim()}
-              className={`px-2 py-1 text-[10px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors ${fontClass}`}
+              className={`px-2 py-1 text-[10px] font-medium bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-50 transition-colors ${fontClass}`}
             >
               {loading ? '...' : 'Go'}
             </button>
@@ -692,12 +692,12 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
 
         {/* Context */}
         {viewMode === 'by_ticker' && ticker && (
-          <span className={`px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-300 rounded ${fontClass}`}>
+          <span className={`px-2 py-0.5 text-[10px] font-bold bg-surface-inset text-foreground border border-border rounded ${fontClass}`}>
             {ticker}
           </span>
         )}
         {viewMode === 'by_fund' && fundData?.profile && (
-          <span className={`px-2 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-800 border border-slate-300 rounded truncate max-w-[200px] ${fontClass}`}>
+          <span className={`px-2 py-0.5 text-[10px] font-medium bg-surface-inset text-foreground border border-border rounded truncate max-w-[200px] ${fontClass}`}>
             {fundData.profile.name}
           </span>
         )}
@@ -710,7 +710,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
             else if (viewMode === 'search_funds' && fundSearchValue) searchFunds(fundSearchValue);
           }}
           disabled={loading}
-          className={`px-1.5 py-0.5 text-[9px] text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors ${fontClass}`}
+          className={`px-1.5 py-0.5 text-[9px] text-muted-fg hover:text-foreground hover:bg-surface-hover rounded transition-colors ${fontClass}`}
         >
           {loading ? '[...]' : '[Refresh]'}
         </button>
@@ -718,42 +718,42 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
 
       {/* Summary Stats Panel - By Ticker */}
       {viewMode === 'by_ticker' && holdersData && holdersData.holders.length > 0 && (
-        <div className={`px-2 py-1.5 border-b border-slate-200 bg-white ${fontClass}`}>
+        <div className={`px-2 py-1.5 border-b border-border bg-surface ${fontClass}`}>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px]">
             <div className="flex items-center gap-1">
-              <span className="text-slate-500">Holders:</span>
-              <span className="font-semibold text-slate-800">{holdersData.totalHolders}</span>
+            <span className="text-muted-fg">Holders:</span>
+            <span className="font-semibold text-foreground">{holdersData.totalHolders}</span>
             </div>
-            <span className="text-slate-300">|</span>
+            <span className="text-muted-fg/50">|</span>
             <div className="flex items-center gap-1">
-              <span className="text-slate-500">Value:</span>
-              <span className="font-semibold text-slate-800">{formatCurrency(holdersData.totalValue)}</span>
+            <span className="text-muted-fg">Value:</span>
+            <span className="font-semibold text-foreground">{formatCurrency(holdersData.totalValue)}</span>
             </div>
-            <span className="text-slate-300">|</span>
+            <span className="text-muted-fg/50">|</span>
             <div className="flex items-center gap-1">
-              <span className="text-slate-500">Shares:</span>
-              <span className="font-semibold text-slate-800">{formatNumber(holdersData.totalShares)}</span>
+            <span className="text-muted-fg">Shares:</span>
+            <span className="font-semibold text-foreground">{formatNumber(holdersData.totalShares)}</span>
             </div>
-            <span className="text-slate-300">|</span>
+            <span className="text-muted-fg/50">|</span>
             <div className="flex items-center gap-1">
-              <span className="text-slate-500">Report Period:</span>
-              <span className="text-slate-800 font-medium">{formatQuarter(holdersData.currentPeriod)}</span>
+            <span className="text-muted-fg">Report Period:</span>
+            <span className="text-foreground font-medium">{formatQuarter(holdersData.currentPeriod)}</span>
               {holdersData.previousPeriod && (
-                <span className="text-slate-400">vs {formatQuarterShort(holdersData.previousPeriod)}</span>
+                <span className="text-muted-fg">vs {formatQuarterShort(holdersData.previousPeriod)}</span>
               )}
             </div>
-            <span className="text-slate-300">|</span>
+            <span className="text-muted-fg/50">|</span>
             <div className="flex items-center gap-1">
-              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px]">
+              <span className="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 rounded text-[9px]">
                 {holdersData.stats.increased} Increased
               </span>
-              <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[9px]">
+              <span className="px-1.5 py-0.5 bg-red-500/15 text-red-700 dark:text-red-400 rounded text-[9px]">
                 {holdersData.stats.decreased} Decreased
               </span>
-              <span className="px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded text-[9px]">
+              <span className="px-1.5 py-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded text-[9px]">
                 {holdersData.stats.unchanged} Unchanged
               </span>
-              <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[9px]">
+              <span className="px-1.5 py-0.5 bg-surface-inset text-foreground/80 rounded text-[9px]">
                 {holdersData.stats.newPositions} N/A
               </span>
             </div>
@@ -763,7 +763,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
 
       {/* Fund Profile Panel - By Fund */}
       {viewMode === 'by_fund' && fundData?.profile && (
-        <div className={`border-b border-slate-200 bg-white max-h-[200px] overflow-y-auto ${fontClass}`}>
+        <div className={`border-b border-border bg-surface max-h-[200px] overflow-y-auto ${fontClass}`}>
           <CollapsibleSection title="Fund Profile" defaultOpen={true}>
             <div className="grid grid-cols-2 gap-4">
               {/* Left Column */}
@@ -814,9 +814,9 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
 
             {/* Additional Information */}
             {fundData.profile.additionalInformation && (
-              <div className="mt-2 pt-2 border-t border-slate-100">
-                <p className="text-[10px] text-slate-600 whitespace-pre-wrap">
-                  <span className="font-medium text-slate-500">Notes: </span>
+              <div className="mt-2 pt-2 border-t border-border-subtle">
+                <p className="text-[10px] text-foreground/80 whitespace-pre-wrap">
+                  <span className="font-medium text-muted-fg">Notes: </span>
                   {fundData.profile.additionalInformation}
                 </p>
               </div>
@@ -824,13 +824,13 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
 
             {/* Investment Discretion Breakdown */}
             {Object.keys(fundData.summary.byDiscretion).length > 1 && (
-              <div className="mt-2 pt-2 border-t border-slate-100">
-                <div className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-1">By Investment Discretion</div>
+              <div className="mt-2 pt-2 border-t border-border-subtle">
+                <div className="text-[9px] font-semibold text-muted-fg uppercase tracking-wider mb-1">By Investment Discretion</div>
                 <div className="flex gap-3">
                   {Object.entries(fundData.summary.byDiscretion).map(([type, data]) => (
                     <div key={type} className="text-[10px]">
-                      <span className="text-slate-500">{DISCRETION_LABELS[type] || type}:</span>{' '}
-                      <span className="text-slate-800">{data.count} positions ({formatCurrency(data.value)})</span>
+                      <span className="text-muted-fg">{DISCRETION_LABELS[type] || type}:</span>{' '}
+                      <span className="text-foreground">{data.count} positions ({formatCurrency(data.value)})</span>
                     </div>
                   ))}
                 </div>
@@ -838,13 +838,13 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
             )}
 
             {/* SEC Links */}
-            <div className="mt-2 pt-2 border-t border-slate-100 flex gap-3">
+            <div className="mt-2 pt-2 border-t border-border-subtle flex gap-3">
               {fundData.profile.linkToHtml && (
                 <a
                   href={fundData.profile.linkToHtml}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] text-blue-600 hover:text-blue-700 hover:underline"
+                  className="text-[10px] text-primary hover:text-primary-hover hover:underline"
                 >
                   [View Filing on SEC]
                 </a>
@@ -854,7 +854,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
                   href={fundData.profile.linkToFilingDetails}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] text-blue-600 hover:text-blue-700 hover:underline"
+                  className="text-[10px] text-primary hover:text-primary-hover hover:underline"
                 >
                   [View XML]
                 </a>
@@ -866,7 +866,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
 
       {/* Error */}
       {error && (
-        <div className={`mx-2 mt-2 px-2 py-1.5 bg-red-50 border border-red-200 rounded text-red-700 text-[10px] ${fontClass}`}>
+        <div className={`mx-2 mt-2 px-2 py-1.5 bg-red-500/10 border border-red-500/30 rounded text-red-700 dark:text-red-400 text-[10px] ${fontClass}`}>
           Error: {error}
         </div>
       )}
@@ -876,7 +876,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
         {loading && !holdersData && !fundData && fundSearchResults.length === 0 ? (
           <div className={`flex items-center justify-center h-full ${fontClass}`}>
             <div className="text-center">
-              <p className="text-[10px] text-slate-500">Loading data...</p>
+              <p className="text-[10px] text-muted-fg">Loading data...</p>
             </div>
           </div>
         ) : viewMode === 'by_ticker' ? (
@@ -886,7 +886,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
           !holdersData || holdersData.holders.length === 0 ? (
             <div className={`flex items-center justify-center h-full ${fontClass}`}>
               <div className="text-center">
-                <p className="text-[10px] text-slate-500">
+                <p className="text-[10px] text-muted-fg">
                   {ticker ? 'No institutional holders found' : 'Enter a ticker to view institutional holders'}
                 </p>
               </div>
@@ -897,15 +897,15 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
               data={holdersData.holders}
               overscan={20}
               fixedHeaderContent={() => (
-                <tr className={`bg-slate-100 border-b border-slate-200 ${fontClass}`}>
-                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-8"></th>
-                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Fund Name</th>
-                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-24">Shares</th>
-                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-24">Value</th>
-                  <th className="px-2 py-1.5 text-center text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-16">Type</th>
-                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-20">Change</th>
-                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-16">Chg %</th>
-                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-16">Period</th>
+                <tr className={`bg-surface-inset border-b border-border ${fontClass}`}>
+                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-8"></th>
+                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider">Fund Name</th>
+                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-24">Shares</th>
+                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-24">Value</th>
+                  <th className="px-2 py-1.5 text-center text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-16">Type</th>
+                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-20">Change</th>
+                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-16">Chg %</th>
+                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-16">Period</th>
                 </tr>
               )}
               itemContent={(index, holder) => {
@@ -921,7 +921,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
                     <td className="px-2 py-1.5">
                       <button
                         onClick={() => toggleRowExpansion(holder.cik)}
-                        className="p-0.5 text-slate-400 hover:text-slate-600 transition-colors text-[10px]"
+                        className="p-0.5 text-muted-fg hover:text-foreground/80 transition-colors text-[10px]"
                       >
                         {isExpanded ? '[-]' : '[+]'}
                       </button>
@@ -929,7 +929,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
                     <td className="px-2 py-1.5 text-[10px]">
                       <div className="flex items-center gap-1">
                         <span
-                          className="font-medium text-slate-800 truncate max-w-[180px] cursor-pointer hover:text-blue-600"
+                          className="font-medium text-foreground truncate max-w-[180px] cursor-pointer hover:text-primary"
                           onClick={() => {
                             setFundCik(holder.cik);
                             setFundSearchValue(holder.cik);
@@ -940,30 +940,30 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
                         >
                           {holder.name}
                         </span>
-                        {isClosed && <span className="px-1 py-0 text-[8px] bg-red-100 text-red-700 rounded">CLOSED</span>}
-                        {holder.hasPut && <span className="px-1 py-0 text-[8px] bg-purple-100 text-purple-700 rounded">PUT</span>}
-                        {holder.hasCall && <span className="px-1 py-0 text-[8px] bg-cyan-100 text-cyan-700 rounded">CALL</span>}
+                        {isClosed && <span className="px-1 py-0 text-[8px] bg-red-500/15 text-red-700 dark:text-red-400 rounded">CLOSED</span>}
+                        {holder.hasPut && <span className="px-1 py-0 text-[8px] bg-purple-500/15 text-purple-700 dark:text-purple-400 rounded">PUT</span>}
+                        {holder.hasCall && <span className="px-1 py-0 text-[8px] bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 rounded">CALL</span>}
                       </div>
                     </td>
-                    <td className="px-2 py-1.5 text-right text-[10px] text-slate-700 tabular-nums">
+                    <td className="px-2 py-1.5 text-right text-[10px] text-foreground tabular-nums">
                       <span title={formatNumberFull(holder.shares)}>{formatNumber(holder.shares)}</span>
-                      <span className="text-slate-400 text-[8px] ml-0.5">{holder.sharesType}</span>
+                      <span className="text-muted-fg text-[8px] ml-0.5">{holder.sharesType}</span>
                     </td>
-                    <td className="px-2 py-1.5 text-right text-[10px] text-slate-800 font-medium tabular-nums">
+                    <td className="px-2 py-1.5 text-right text-[10px] text-foreground font-medium tabular-nums">
                       <span title={formatCurrencyFull(holder.value)}>{formatCurrency(holder.value)}</span>
                     </td>
                     <td className="px-2 py-1.5 text-center text-[9px]">
                       {Object.keys(holder.investmentDiscretion).map(type => (
                         <span
                           key={type}
-                          className="px-1 py-0.5 bg-slate-100 text-slate-600 rounded mr-0.5"
+                          className="px-1 py-0.5 bg-surface-inset text-foreground/80 rounded mr-0.5"
                           title={DISCRETION_LABELS[type] || type}
                         >
                           {type}
                         </span>
                       ))}
                     </td>
-                    <td className={`px-2 py-1.5 text-right text-[10px] tabular-nums ${isPositive ? 'text-emerald-600' : isNegative ? 'text-red-600' : 'text-slate-500'
+                    <td className={`px-2 py-1.5 text-right text-[10px] tabular-nums ${isPositive ? 'text-emerald-600' : isNegative ? 'text-red-600' : 'text-muted-fg'
                       }`}>
                       {holder.changeShares !== undefined ? (
                         <span title={formatNumberFull(Math.abs(holder.changeShares))}>
@@ -971,11 +971,11 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
                         </span>
                       ) : '--'}
                     </td>
-                    <td className={`px-2 py-1.5 text-right text-[10px] font-medium tabular-nums ${isPositive ? 'text-emerald-600' : isNegative ? 'text-red-600' : 'text-slate-500'
+                    <td className={`px-2 py-1.5 text-right text-[10px] font-medium tabular-nums ${isPositive ? 'text-emerald-600' : isNegative ? 'text-red-600' : 'text-muted-fg'
                       }`}>
                       {formatPercent(changePercent)}
                     </td>
-                    <td className="px-2 py-1.5 text-right text-[10px] text-slate-500 tabular-nums" title={formatQuarter(holder.periodOfReport)}>
+                    <td className="px-2 py-1.5 text-right text-[10px] text-muted-fg tabular-nums" title={formatQuarter(holder.periodOfReport)}>
                       {formatQuarterShort(holder.periodOfReport)}
                     </td>
                   </>
@@ -992,7 +992,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
                   const isExpanded = expandedRows.has(item.cik);
                   return (
                     <>
-                      <tr {...props} style={{ ...style }} className="hover:bg-blue-50 border-b border-slate-100" />
+                      <tr {...props} style={{ ...style }} className="hover:bg-primary/10 border-b border-border-subtle" />
                       {isExpanded && <ExpandedHolderRow holder={item} totalValue={holdersData?.totalValue || 0} />}
                     </>
                   );
@@ -1007,7 +1007,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
           !fundData || fundData.holdings.length === 0 ? (
             <div className={`flex items-center justify-center h-full ${fontClass}`}>
               <div className="text-center">
-                <p className="text-[10px] text-slate-500">
+                <p className="text-[10px] text-muted-fg">
                   {fundCik ? 'No holdings found' : 'Enter a fund CIK to view holdings'}
                 </p>
               </div>
@@ -1018,16 +1018,16 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
               data={fundData.holdings}
               overscan={20}
               fixedHeaderContent={() => (
-                <tr className={`bg-slate-100 border-b border-slate-200 ${fontClass}`}>
-                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-16">Ticker</th>
-                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-24">CUSIP</th>
-                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Issuer</th>
-                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-16">Class</th>
-                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-24">Shares</th>
-                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-24">Value</th>
-                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-14">% Port</th>
-                  <th className="px-2 py-1.5 text-center text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-14">Disc</th>
-                  <th className="px-2 py-1.5 text-center text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-20">Voting</th>
+                <tr className={`bg-surface-inset border-b border-border ${fontClass}`}>
+                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-16">Ticker</th>
+                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-24">CUSIP</th>
+                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider">Issuer</th>
+                  <th className="px-2 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-16">Class</th>
+                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-24">Shares</th>
+                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-24">Value</th>
+                  <th className="px-2 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-14">% Port</th>
+                  <th className="px-2 py-1.5 text-center text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-14">Disc</th>
+                  <th className="px-2 py-1.5 text-center text-[9px] font-semibold text-muted-fg uppercase tracking-wider w-20">Voting</th>
                 </tr>
               )}
               itemContent={(index, holding) => {
@@ -1047,7 +1047,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
                   <>
                     <td className="px-2 py-1.5 text-[10px]">
                       <span
-                        className={`font-semibold ${holding.ticker ? 'text-slate-900 cursor-pointer hover:text-blue-600' : 'text-slate-400'}`}
+                        className={`font-semibold ${holding.ticker ? 'text-foreground cursor-pointer hover:text-primary' : 'text-muted-fg'}`}
                         onClick={() => {
                           if (holding.ticker) {
                             setInputValue(holding.ticker);
@@ -1060,38 +1060,38 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
                         {holding.ticker || '--'}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-[9px] text-slate-600">
+                    <td className="px-2 py-1.5 text-[9px] text-foreground/80">
                       {holding.cusip}
                     </td>
-                    <td className="px-2 py-1.5 text-[10px] text-slate-700">
+                    <td className="px-2 py-1.5 text-[10px] text-foreground">
                       <div className="flex items-center gap-1 truncate" title={holding.nameOfIssuer}>
                         <span className="truncate">{holding.nameOfIssuer}</span>
-                        {isPut && <span className="px-1 py-0 text-[8px] bg-red-100 text-red-700 rounded flex-shrink-0">PUT</span>}
-                        {isCall && <span className="px-1 py-0 text-[8px] bg-emerald-100 text-emerald-700 rounded flex-shrink-0">CALL</span>}
+                        {isPut && <span className="px-1 py-0 text-[8px] bg-red-500/15 text-red-700 dark:text-red-400 rounded flex-shrink-0">PUT</span>}
+                        {isCall && <span className="px-1 py-0 text-[8px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 rounded flex-shrink-0">CALL</span>}
                       </div>
                     </td>
-                    <td className="px-2 py-1.5 text-[9px] text-slate-500">
+                    <td className="px-2 py-1.5 text-[9px] text-muted-fg">
                       {holding.titleOfClass}
                     </td>
-                    <td className="px-2 py-1.5 text-right text-[10px] text-slate-700 tabular-nums">
+                    <td className="px-2 py-1.5 text-right text-[10px] text-foreground tabular-nums">
                       <span title={formatNumberFull(holding.shares)}>{formatNumber(holding.shares)}</span>
-                      <span className="text-slate-400 text-[8px] ml-0.5">{holding.sharesType}</span>
+                      <span className="text-muted-fg text-[8px] ml-0.5">{holding.sharesType}</span>
                     </td>
-                    <td className="px-2 py-1.5 text-right text-[10px] text-slate-800 font-medium tabular-nums">
+                    <td className="px-2 py-1.5 text-right text-[10px] text-foreground font-medium tabular-nums">
                       <span title={formatCurrencyFull(holding.value)}>{formatCurrency(holding.value)}</span>
                     </td>
-                    <td className="px-2 py-1.5 text-right text-[10px] text-slate-600 tabular-nums">
+                    <td className="px-2 py-1.5 text-right text-[10px] text-foreground/80 tabular-nums">
                       {portfolioPct}%
                     </td>
                     <td className="px-2 py-1.5 text-center">
                       <span
-                        className="px-1 py-0.5 text-[8px] bg-slate-100 text-slate-600 rounded"
+                        className="px-1 py-0.5 text-[8px] bg-surface-inset text-foreground/80 rounded"
                         title={DISCRETION_LABELS[holding.investmentDiscretion] || holding.investmentDiscretion}
                       >
                         {holding.investmentDiscretion}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-center text-[9px] text-slate-500">
+                    <td className="px-2 py-1.5 text-center text-[9px] text-muted-fg">
                       <span title={`Sole: ${holding.votingAuthority?.Sole || 0} | Shared: ${holding.votingAuthority?.Shared || 0} | None: ${holding.votingAuthority?.None || 0}`}>
                         {votingSolePct}% Sole
                       </span>
@@ -1107,7 +1107,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
                   <thead {...props} ref={ref} style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }} />
                 )),
                 TableRow: ({ style, ...props }) => (
-                  <tr {...props} style={{ ...style }} className="hover:bg-blue-50 border-b border-slate-100" />
+                  <tr {...props} style={{ ...style }} className="hover:bg-primary/10 border-b border-border-subtle" />
                 ),
               }}
             />
@@ -1119,39 +1119,39 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
           fundSearchResults.length === 0 ? (
             <div className={`flex items-center justify-center h-full ${fontClass}`}>
               <div className="text-center">
-                <p className="text-[10px] text-slate-500">
+                <p className="text-[10px] text-muted-fg">
                   Search for funds by name
                 </p>
               </div>
             </div>
           ) : (
             <div className={`h-full overflow-y-auto ${fontClass}`}>
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-border-subtle">
                 {fundSearchResults.map((fund) => (
                   <div
                     key={fund.cik}
-                    className="px-3 py-2 hover:bg-blue-50 cursor-pointer transition-colors"
+                    className="px-3 py-2 hover:bg-primary/10 cursor-pointer transition-colors"
                     onClick={() => selectFund(fund)}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-[11px] text-slate-800 truncate">{fund.name}</div>
-                        <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-500">
+                        <div className="font-medium text-[11px] text-foreground truncate">{fund.name}</div>
+                        <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-fg">
                           <span>CIK: {fund.cik}</span>
                           {fund.crdNumber && <span>CRD: {fund.crdNumber}</span>}
                           <span>{formatQuarterShort(fund.periodOfReport)}</span>
                         </div>
                         {fund.address && (fund.address.city || fund.address.state) && (
-                          <div className="mt-0.5 text-[9px] text-slate-400">
+                          <div className="mt-0.5 text-[9px] text-muted-fg">
                             {[fund.address.city, fund.address.state].filter(Boolean).join(', ')}
                           </div>
                         )}
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <div className="font-semibold text-[11px] text-slate-800">
+                        <div className="font-semibold text-[11px] text-foreground">
                           {formatCurrency(fund.tableValueTotal)}
                         </div>
-                        <div className="text-[9px] text-slate-500">
+                        <div className="text-[9px] text-muted-fg">
                           {fund.tableEntryTotal} positions
                         </div>
                       </div>
@@ -1165,7 +1165,7 @@ export function InstitutionalHoldingsContent({ initialTicker }: InstitutionalHol
       </div>
 
       {/* Footer */}
-      <div className={`px-2 py-1 border-t border-slate-200 text-[9px] text-slate-400 flex justify-between bg-slate-50 ${fontClass}`}>
+      <div className={`px-2 py-1 border-t border-border text-[9px] text-muted-fg flex justify-between bg-surface-hover ${fontClass}`}>
         <span>SEC Form 13F Data</span>
         <span>
           {viewMode === 'by_ticker' && holdersData ? `${holdersData.holders.length} holders` : ''}

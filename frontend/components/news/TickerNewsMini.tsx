@@ -37,19 +37,19 @@ export function TickerNewsMini({ ticker }: TickerNewsMiniProps) {
 
   if (articles.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full bg-white p-4">
-        <p className="text-slate-500 text-sm">{t('news.noNewsForTicker', { ticker })}</p>
+      <div className="flex items-center justify-center h-full bg-surface p-4">
+        <p className="text-muted-fg text-sm">{t('news.noNewsForTicker', { ticker })}</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-surface">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+      <div className="flex items-center justify-between px-3 py-2 bg-surface-hover border-b border-border">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold text-blue-600">{ticker}</span>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-muted-fg">
             {articles.length} {t('news.articles', { count: articles.length })}
           </span>
         </div>
@@ -57,7 +57,7 @@ export function TickerNewsMini({ ticker }: TickerNewsMiniProps) {
 
       {/* Lista de noticias */}
       <div className="flex-1 overflow-auto">
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-border-subtle">
           {articles.map((article, index) => {
             const dt = formatDateTime(article.published);
 
@@ -67,18 +67,18 @@ export function TickerNewsMini({ ticker }: TickerNewsMiniProps) {
                 href={article.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block px-3 py-2 hover:bg-slate-50 transition-colors group"
+                className="block px-3 py-2 hover:bg-surface-hover transition-colors group"
               >
                 {/* Título */}
                 <div className="flex items-start gap-2">
-                  <span className="text-xs text-slate-800 leading-snug flex-1">
+                  <span className="text-xs text-foreground leading-snug flex-1">
                     {decodeHtmlEntities(article.title)}
                   </span>
-                  <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-500 flex-shrink-0 mt-0.5" />
+                  <ExternalLink className="w-3 h-3 text-muted-fg group-hover:text-primary flex-shrink-0 mt-0.5" />
                 </div>
 
                 {/* Metadata */}
-                <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
+                <div className="flex items-center gap-2 mt-1 text-xs text-muted-fg">
                   <span className="font-mono">{dt.time}</span>
                   <span>·</span>
                   <span className="font-mono">{dt.date}</span>
@@ -92,7 +92,7 @@ export function TickerNewsMini({ ticker }: TickerNewsMiniProps) {
 
                 {/* Teaser (si existe) */}
                 {article.teaser && (
-                  <p className="mt-1 text-xs text-slate-500 line-clamp-2">
+                  <p className="mt-1 text-xs text-muted-fg line-clamp-2">
                     {decodeHtmlEntities(article.teaser)}
                   </p>
                 )}

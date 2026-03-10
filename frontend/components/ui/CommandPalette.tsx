@@ -329,7 +329,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                 }}
             >
                 <Command
-                    className="border border-slate-300 bg-white shadow-lg overflow-hidden"
+                    className="border border-border bg-surface shadow-lg overflow-hidden"
                     shouldFilter={!hasEvnPrefix && !hasScPrefix}
                 >
                     <Command.Input
@@ -338,8 +338,8 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         className="hidden"
                     />
 
-                    <div className="flex items-center justify-between px-2 py-1 border-b border-slate-200 bg-slate-50">
-                        <span className="text-[10px] text-slate-500 uppercase tracking-wide font-mono">
+                    <div className="flex items-center justify-between px-2 py-1 border-b border-border bg-surface-hover">
+                        <span className="text-[10px] text-muted-fg uppercase tracking-wide font-mono">
                             {hasScPrefix ? t('commandPalette.scanner') : hasEvnPrefix ? t('commandPalette.events') : hasDtPrefix ? t('commandPalette.dilutionTracker') : t('commandPalette.commands')}
                         </span>
                         <button
@@ -347,14 +347,14 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                 onOpenChange(false);
                                 setSearch('');
                             }}
-                            className="text-slate-400 hover:text-slate-600"
+                            className="text-muted-fg hover:text-foreground"
                         >
                             <X className="w-2.5 h-2.5" />
                         </button>
                     </div>
 
                     <Command.List className="overflow-y-auto p-0.5" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-                        <Command.Empty className="py-4 text-center text-[10px] text-slate-400">
+                        <Command.Empty className="py-4 text-center text-[10px] text-muted-fg">
                             {t('commands.noCommandsFound')}
                         </Command.Empty>
 
@@ -367,17 +367,17 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                         value={cmd.id}
                                         keywords={[cmd.label, cmd.description, cmd.id]}
                                         onSelect={() => handleSelect(cmd.id)}
-                                        className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-slate-100 data-[selected=true]:bg-slate-100 transition-colors"
+                                        className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-surface-hover data-[selected=true]:bg-surface-hover transition-colors"
                                     >
-                                        <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-slate-300 text-slate-700">
+                                        <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-border text-foreground">
                                             {cmd.label}
                                         </span>
                                         {cmd.isNew && (
-                                            <span className="px-1 py-0.5 text-[8px] font-bold bg-blue-600 text-white rounded">
+                                            <span className="px-1 py-0.5 text-[8px] font-bold bg-primary text-white rounded">
                                                 NEW
                                             </span>
                                         )}
-                                        <span className="text-[10px] text-slate-500">{t(cmd.description)}</span>
+                                        <span className="text-[10px] text-muted-fg">{t(cmd.description)}</span>
                                     </Command.Item>
                                 ))}
                             </Command.Group>
@@ -387,7 +387,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         {showScannerCommands && (
                             <>
                                 {/* System Scans */}
-                                <Command.Group heading={<span className="text-[9px] text-slate-400 uppercase px-1">System</span>}>
+                                <Command.Group heading={<span className="text-[9px] text-muted-fg uppercase px-1">System</span>}>
                                     {SCANNER_COMMANDS.map((cmd) => {
                                         const cmdName = cmd.label.replace('SC ', '');
                                         return (
@@ -396,21 +396,21 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                                 value={cmd.id}
                                                 keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
                                                 onSelect={() => handleSelect(cmd.id)}
-                                                className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-slate-100 data-[selected=true]:bg-slate-100 transition-colors"
+                                                className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-surface-hover data-[selected=true]:bg-surface-hover transition-colors"
                                             >
-                                                <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-slate-300 text-slate-700">
+                                                <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-border text-foreground">
                                                     {cmdName}
                                                 </span>
-                                                <span className="text-[10px] text-slate-500">{t(cmd.description)}</span>
+                                                <span className="text-[10px] text-muted-fg">{t(cmd.description)}</span>
                                             </Command.Item>
                                         );
                                     })}
                                 </Command.Group>
 
                                 {/* User Scans */}
-                                <Command.Group heading={<span className="text-[9px] text-slate-400 uppercase px-1">My Scans {userScansLoading && '(loading...)'} {userScansError && `(error: ${userScansError})`}</span>}>
+                                <Command.Group heading={<span className="text-[9px] text-muted-fg uppercase px-1">My Scans {userScansLoading && '(loading...)'} {userScansError && `(error: ${userScansError})`}</span>}>
                                     {userScanCommands.length === 0 && !userScansLoading && (
-                                        <div className="px-2 py-1 text-[10px] text-slate-400">No custom scans yet. Create one with SB command.</div>
+                                        <div className="px-2 py-1 text-[10px] text-muted-fg">No custom scans yet. Create one with SB command.</div>
                                     )}
                                     {userScanCommands.map((cmd) => {
                                         const cmdName = cmd.label.replace('SC ', '');
@@ -422,13 +422,13 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                                 keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
                                                 onSelect={() => !isDisabled && handleSelect(cmd.id)}
                                                 disabled={isDisabled}
-                                                className={`flex items-center gap-1.5 px-1.5 py-1 cursor-pointer transition-colors ${isDisabled ? 'opacity-50' : 'hover:bg-slate-100 data-[selected=true]:bg-slate-100'}`}
+                                                className={`flex items-center gap-1.5 px-1.5 py-1 cursor-pointer transition-colors ${isDisabled ? 'opacity-50' : 'hover:bg-surface-hover data-[selected=true]:bg-surface-hover'}`}
                                             >
-                                                <Star className={`w-3 h-3 ${isDisabled ? 'text-slate-400' : 'text-amber-500'}`} />
-                                                <span className={`px-1 py-0.5 text-[10px] font-mono font-bold border ${isDisabled ? 'border-slate-300 text-slate-500 bg-slate-50' : 'border-amber-300 text-amber-700 bg-amber-50'}`}>
+                                                <Star className={`w-3 h-3 ${isDisabled ? 'text-muted-fg' : 'text-amber-500'}`} />
+                                                <span className={`px-1 py-0.5 text-[10px] font-mono font-bold border ${isDisabled ? 'border-border text-muted-fg bg-surface-hover' : 'border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10'}`}>
                                                     {cmdName}
                                                 </span>
-                                                <span className="text-[10px] text-slate-500">{cmd.description}</span>
+                                                <span className="text-[10px] text-muted-fg">{cmd.description}</span>
                                             </Command.Item>
                                         );
                                     })}
@@ -440,7 +440,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         {showEventCommands && (
                             <>
                                 {/* Pre-built Strategies */}
-                                <Command.Group heading={<span className="text-[9px] text-slate-400 uppercase px-1">Strategies</span>}>
+                                <Command.Group heading={<span className="text-[9px] text-muted-fg uppercase px-1">Strategies</span>}>
                                     {EVENT_COMMANDS.map((cmd) => {
                                         const cmdName = cmd.label.replace('EVN ', '');
                                         const IconComponent = cmd.icon;
@@ -450,22 +450,22 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                                 value={cmd.id}
                                                 keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
                                                 onSelect={() => handleSelect(cmd.id)}
-                                                className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-slate-100 data-[selected=true]:bg-slate-100 transition-colors"
+                                                className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-surface-hover data-[selected=true]:bg-surface-hover transition-colors"
                                             >
-                                                <IconComponent className="w-3 h-3 text-blue-500" />
-                                                <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-blue-300 text-blue-700 bg-blue-50">
+                                                <IconComponent className="w-3 h-3 text-primary" />
+                                                <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-primary text-primary bg-primary/10">
                                                     {cmdName}
                                                 </span>
-                                                <span className="text-[10px] text-slate-500">{cmd.description}</span>
+                                                <span className="text-[10px] text-muted-fg">{cmd.description}</span>
                                             </Command.Item>
                                         );
                                     })}
                                 </Command.Group>
 
                                 {/* User Strategies */}
-                                <Command.Group heading={<span className="text-[9px] text-slate-400 uppercase px-1">My Strategies {userStrategiesLoading && '(loading...)'}</span>}>
+                                <Command.Group heading={<span className="text-[9px] text-muted-fg uppercase px-1">My Strategies {userStrategiesLoading && '(loading...)'}</span>}>
                                     {userStrategyCommands.length === 0 && !userStrategiesLoading && (
-                                        <div className="px-2 py-1 text-[10px] text-slate-400">No strategies yet. Create one with BUILD command.</div>
+                                        <div className="px-2 py-1 text-[10px] text-muted-fg">No strategies yet. Create one with BUILD command.</div>
                                     )}
                                     {userStrategyCommands.map((cmd) => {
                                         const cmdName = cmd.label.replace('EVN ', '');
@@ -475,13 +475,13 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                                 value={cmd.id}
                                                 keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
                                                 onSelect={() => handleSelect(cmd.id)}
-                                                className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-slate-100 data-[selected=true]:bg-slate-100 transition-colors"
+                                                className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-surface-hover data-[selected=true]:bg-surface-hover transition-colors"
                                             >
                                                 <Star className="w-3 h-3 text-emerald-500" />
-                                                <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-emerald-300 text-emerald-700 bg-emerald-50">
+                                                <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
                                                     {cmdName}
                                                 </span>
-                                                <span className="text-[10px] text-slate-500">{cmd.description}</span>
+                                                <span className="text-[10px] text-muted-fg">{cmd.description}</span>
                                             </Command.Item>
                                         );
                                     })}
@@ -490,8 +490,8 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         )}
                     </Command.List>
 
-                    <div className="flex items-center justify-end px-2 py-0.5 border-t border-slate-200 bg-slate-50">
-                        <span className="text-[9px] text-slate-400 font-mono">↵</span>
+                    <div className="flex items-center justify-end px-2 py-0.5 border-t border-border bg-surface-hover">
+                        <span className="text-[9px] text-muted-fg font-mono">↵</span>
                     </div>
                 </Command>
             </div>

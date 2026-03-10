@@ -74,13 +74,13 @@ export function MarketTableLayout({
   };
 
   return (
-    <div className="table-drag-handle flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200 cursor-move">
+    <div className="table-drag-handle flex items-center justify-between px-2 py-1 bg-[var(--color-table-header)] border-b border-border cursor-move">
       <div className="flex items-center gap-2">
-        <h2 className="text-[11px] font-semibold text-slate-700">{title}</h2>
+        <h2 className="text-[11px] font-semibold text-foreground">{title}</h2>
 
         <div className="flex items-center gap-1">
-          <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-          <span className={`text-[10px] font-medium ${isLive ? 'text-emerald-600' : 'text-slate-400'}`}>
+          <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-muted-fg/50'}`} />
+          <span className={`text-[10px] font-medium ${isLive ? 'text-emerald-600' : 'text-muted-fg'}`}>
             {isLive ? t('common.live') : t('common.offline')}
           </span>
         </div>
@@ -100,10 +100,10 @@ export function MarketTableLayout({
         {listName && (
           <button
             onClick={handleOpenNewWindow}
-            className="p-0.5 rounded hover:bg-blue-100 transition-colors group"
+            className="p-0.5 rounded hover:bg-blue-500/15 transition-colors group"
             title="Open in new window"
           >
-            <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-blue-600" />
+            <ExternalLink className="w-3 h-3 text-muted-fg group-hover:text-primary" />
           </button>
         )}
 
@@ -113,10 +113,10 @@ export function MarketTableLayout({
         {onClose && (
           <button
             onClick={onClose}
-            className="p-0.5 rounded hover:bg-red-100 transition-colors group"
+            className="p-0.5 rounded hover:bg-red-500/15 transition-colors group"
             title="Close table"
           >
-            <X className="w-3 h-3 text-slate-500 group-hover:text-red-600" />
+            <X className="w-3 h-3 text-muted-fg group-hover:text-red-600" />
           </button>
         )}
       </div>

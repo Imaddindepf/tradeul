@@ -137,14 +137,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const StatRow = memo(({ label, value, valueClass = '' }: { label: string; value: string; valueClass?: string }) => (
   <div className="flex justify-between items-center py-0.5">
-    <span className="text-slate-500 text-xs">{label}</span>
-    <span className={`text-xs font-mono ${valueClass || 'text-slate-800'}`}>{value}</span>
+    <span className="text-muted-fg text-xs">{label}</span>
+    <span className={`text-xs font-mono ${valueClass || 'text-foreground'}`}>{value}</span>
   </div>
 ));
 StatRow.displayName = 'StatRow';
 
 const SectionHeader = memo(({ title }: { title: string }) => (
-  <div className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider mb-1 pb-1 border-b border-slate-200">
+  <div className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider mb-1 pb-1 border-b border-border">
     {title}
   </div>
 ));
@@ -166,7 +166,7 @@ function ExpandableText({ text, className = '' }: { text: string; className?: st
       {needsExpand && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-blue-500 hover:text-blue-600 text-[10px] font-medium mt-0.5 cursor-pointer"
+          className="text-primary hover:text-primary-hover text-[10px] font-medium mt-0.5 cursor-pointer"
         >
           {expanded ? '▲ Show less' : '▼ Read more'}
         </button>
@@ -255,15 +255,15 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full bg-white">
-        <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
+      <div className="flex items-center justify-center h-full bg-surface">
+        <RefreshCw className="w-6 h-6 text-primary animate-spin" />
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="flex items-center justify-center h-full bg-white text-red-500">
+      <div className="flex items-center justify-center h-full bg-surface text-red-500">
         {t('common.error')}: {error || t('description.noData')}
       </div>
     );
@@ -279,9 +279,9 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
     (analystRating?.analystRatingsStrongSell || 0);
 
   return (
-    <div className="h-full flex flex-col bg-white text-slate-800 overflow-hidden">
+    <div className="h-full flex flex-col bg-surface text-foreground overflow-hidden">
       {/* Header: Quote Strip */}
-      <div className="px-3 py-2 border-b border-slate-200 bg-slate-50">
+      <div className="px-3 py-2 border-b border-border bg-surface-hover">
         <TickerStrip symbol={ticker} exchange={exchange || 'US'} />
       </div>
 
@@ -289,9 +289,9 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="grid grid-cols-[1fr_220px] h-full overflow-auto">
           {/* Left Column - min-h-0 critical for flex children to shrink */}
-          <div className="flex flex-col min-h-0 border-r border-slate-200 overflow-auto">
+          <div className="flex flex-col min-h-0 border-r border-border overflow-auto">
             {/* Company Header */}
-            <div className="p-3 border-b border-slate-200">
+            <div className="p-3 border-b border-border">
               <div className="flex items-start gap-3">
                 {/* Logo - usa proxy solo para URLs de Polygon */}
                 {company.logoUrl && (
@@ -301,7 +301,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                       : company.logoUrl
                     }
                     alt={company.name}
-                    className="w-14 h-14 rounded-lg bg-slate-100 p-1.5 object-contain border border-slate-200"
+                    className="w-14 h-14 rounded-lg bg-surface-inset p-1.5 object-contain border border-border"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
                 )}
@@ -311,14 +311,14 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-600 text-white rounded">EQ</span>
                     {company.is_spac && (
-                      <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 rounded">SPAC</span>
+                      <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 rounded">SPAC</span>
                     )}
                     {company.is_de_spac && (
-                      <span className="px-1.5 py-0.5 text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200 rounded" title={`Former: ${company.former_spac_name}`}>
+                      <span className="px-1.5 py-0.5 text-[10px] font-medium bg-purple-500/15 text-purple-700 dark:text-purple-400 border border-purple-500/30 rounded" title={`Former: ${company.former_spac_name}`}>
                         de-SPAC
                       </span>
                     )}
-                    <span className="text-sm font-semibold text-slate-800 truncate">{company.name}</span>
+                    <span className="text-sm font-semibold text-foreground truncate">{company.name}</span>
                   </div>
 
                   {/* de-SPAC info */}
@@ -328,9 +328,9 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                     </div>
                   )}
 
-                  <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-fg">
                     {company.ceo && <span>CEO: {company.ceo}</span>}
-                    {company.sector && <span className="text-slate-400">• {company.sector}</span>}
+                    {company.sector && <span className="text-muted-fg">• {company.sector}</span>}
                   </div>
 
                   {company.website && (
@@ -338,7 +338,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                       href={company.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 mt-1 text-xs text-blue-600 hover:text-blue-700"
+                      className="inline-flex items-center gap-1 mt-1 text-xs text-primary hover:text-primary-hover"
                     >
                       <Globe className="w-3 h-3" />
                       {company.website.replace('https://', '').replace('http://', '').replace('www.', '')}
@@ -349,12 +349,12 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
 
               {/* Description */}
               {company.description && (
-                <ExpandableText text={company.description} className="mt-2 text-xs text-slate-500" />
+                <ExpandableText text={company.description} className="mt-2 text-xs text-muted-fg" />
               )}
             </div>
 
             {/* Chart - min-h-0 allows proper shrinking after fullscreen */}
-            <div className="flex-1 min-h-0 border-b border-slate-200 overflow-hidden" style={{ minHeight: '250px' }}>
+            <div className="flex-1 min-h-0 border-b border-border overflow-hidden" style={{ minHeight: '250px' }}>
               <TradingChart
                 ticker={ticker}
                 exchange={exchange}
@@ -365,7 +365,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
             </div>
 
             {/* Stats Row */}
-            <div className="grid grid-cols-3 gap-4 p-3 bg-slate-50">
+            <div className="grid grid-cols-3 gap-4 p-3 bg-surface-hover">
               {/* Stats */}
               <div>
                 <SectionHeader title={t('description.stats')} />
@@ -382,7 +382,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                 {analystRating && totalAnalysts > 0 ? (
                   <>
                     <div className="flex items-center gap-1 mb-1">
-                      <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden flex">
+                      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden flex">
                         <div
                           className="bg-green-500 h-full"
                           style={{ width: `${((analystRating.analystRatingsStrongBuy || 0) + (analystRating.analystRatingsbuy || 0)) / totalAnalysts * 100}%` }}
@@ -403,7 +403,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                     <StatRow label={t('description.sell')} value={String((analystRating.analystRatingsSell || 0) + (analystRating.analystRatingsStrongSell || 0))} valueClass="text-red-600" />
                   </>
                 ) : (
-                  <div className="text-xs text-slate-400">{t('description.noRatings')}</div>
+                  <div className="text-xs text-muted-fg">{t('description.noRatings')}</div>
                 )}
               </div>
 
@@ -412,7 +412,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                 <SectionHeader title={t('description.priceTargets')} />
                 {consensusTarget ? (
                   <>
-                    <StatRow label={t('description.consensus')} value={`$${formatNumber(consensusTarget)}`} valueClass="text-blue-600" />
+                    <StatRow label={t('description.consensus')} value={`$${formatNumber(consensusTarget)}`} valueClass="text-primary" />
                     <StatRow
                       label={t('description.upside')}
                       value={formatPercent(targetUpside)}
@@ -422,14 +422,14 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                     <StatRow label={t('description.52wHigh')} value={`$${formatNumber(stats.yearHigh)}`} />
                   </>
                 ) : (
-                  <div className="text-xs text-slate-400">{t('description.noTargets')}</div>
+                  <div className="text-xs text-muted-fg">{t('description.noTargets')}</div>
                 )}
               </div>
             </div>
           </div>
 
           {/* Right Column - Market Info */}
-          <div className="overflow-auto p-3 bg-slate-50">
+          <div className="overflow-auto p-3 bg-surface-hover">
             {/* Market Info */}
             <div className="mb-4">
               <SectionHeader title={t('description.marketInfo')} />
@@ -474,7 +474,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                   {priceTargets.slice(0, 5).map((target, i) => (
                     <div key={i} className="text-[10px]">
                       <div className="flex justify-between">
-                        <span className="text-slate-500 truncate max-w-[120px]">{target.analystCompany || t('description.unknown')}</span>
+                        <span className="text-muted-fg truncate max-w-[120px]">{target.analystCompany || t('description.unknown')}</span>
                         <span className="text-green-600 font-mono">${target.priceTarget}</span>
                       </div>
                     </div>

@@ -10,7 +10,7 @@ import { User } from 'lucide-react';
  */
 export function UserProfileContent() {
   return (
-    <div className="h-full w-full overflow-auto bg-slate-50">
+    <div className="h-full w-full overflow-auto bg-surface-hover">
       <UserProfile
         routing="hash"
         appearance={{
@@ -21,38 +21,38 @@ export function UserProfileContent() {
             card: 'w-full shadow-none border-0 bg-transparent',
 
             // Navigation
-            navbar: 'bg-white border-r border-slate-200',
-            navbarButton: 'text-slate-600 hover:bg-slate-100 data-[active=true]:bg-blue-50 data-[active=true]:text-blue-600',
-            navbarButtonIcon: 'text-slate-500',
+            navbar: 'bg-surface border-r border-border',
+            navbarButton: 'text-foreground/80 hover:bg-surface-hover data-[active=true]:bg-blue-500/10 data-[active=true]:text-blue-600',
+            navbarButtonIcon: 'text-muted-fg',
 
             // Page content
             pageScrollBox: 'p-6',
             page: 'gap-6',
 
             // Profile section
-            profileSection: 'bg-white rounded-xl border border-slate-200 p-6 shadow-sm',
-            profileSectionTitle: 'text-slate-800 font-semibold text-base',
-            profileSectionTitleText: 'text-slate-800 font-semibold',
+            profileSection: 'bg-surface rounded-xl border border-border p-6 shadow-sm',
+            profileSectionTitle: 'text-foreground font-semibold text-base',
+            profileSectionTitleText: 'text-foreground font-semibold',
             profileSectionContent: 'mt-4',
             profileSectionPrimaryButton: 'bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg px-4 py-2 transition-colors',
 
             // Form elements
-            formFieldLabel: 'text-slate-700 font-medium text-sm',
-            formFieldInput: 'border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
+            formFieldLabel: 'text-foreground font-medium text-sm',
+            formFieldInput: 'border-border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
             formButtonPrimary: 'bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors',
-            formButtonReset: 'text-slate-600 hover:text-slate-800',
+            formButtonReset: 'text-foreground/80 hover:text-foreground',
 
             // Avatars
-            avatarBox: 'rounded-full border-2 border-slate-200',
+            avatarBox: 'rounded-full border-2 border-border',
             avatarImage: 'rounded-full',
 
             // Headers
-            headerTitle: 'text-slate-900 font-bold text-xl',
-            headerSubtitle: 'text-slate-600',
+            headerTitle: 'text-foreground font-bold text-xl',
+            headerSubtitle: 'text-foreground/80',
 
             // Badges
-            badge: 'bg-slate-100 text-slate-700 text-xs font-medium px-2 py-1 rounded-full',
-            badgePrimary: 'bg-blue-100 text-blue-700',
+            badge: 'bg-surface-inset text-foreground text-xs font-medium px-2 py-1 rounded-full',
+            badgePrimary: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
 
             // Buttons
             button: 'transition-colors',
@@ -60,11 +60,11 @@ export function UserProfileContent() {
             buttonDanger: 'bg-red-600 hover:bg-red-700 text-white',
 
             // Accordion (Security section)
-            accordionTriggerButton: 'hover:bg-slate-50 rounded-lg transition-colors',
-            accordionContent: 'bg-slate-50 rounded-lg',
+            accordionTriggerButton: 'hover:bg-surface-hover rounded-lg transition-colors',
+            accordionContent: 'bg-surface-hover rounded-lg',
 
             // Tables (Sessions, etc)
-            tableHead: 'bg-slate-50 text-slate-600 text-xs uppercase font-semibold',
+            tableHead: 'bg-surface-hover text-foreground/80 text-xs uppercase font-semibold',
 
             // Footer
             footer: 'hidden', // Ocultar footer de Clerk

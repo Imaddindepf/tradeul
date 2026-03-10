@@ -115,12 +115,12 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
     const endPercent = periods.length > 1 ? (endIndex / (periods.length - 1)) * 100 : 100;
 
     return (
-        <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
+        <div className="px-3 py-2 bg-surface-hover border-b border-border-subtle">
             <div className="relative h-3 mb-1">
                 {periods.map((period, idx) => (
                     <span
                         key={idx}
-                        className="absolute text-[9px] text-slate-500 font-medium transform -translate-x-1/2"
+                        className="absolute text-[9px] text-muted-fg font-medium transform -translate-x-1/2"
                         style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
                     >
                         '{period.slice(-2)}
@@ -129,36 +129,36 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
             </div>
             <div
                 ref={trackRef}
-                className="relative h-1.5 bg-slate-200 rounded-full cursor-pointer"
+                className="relative h-1.5 bg-muted rounded-full cursor-pointer"
             >
                 {periods.map((_, idx) => (
                     <div
                         key={idx}
                         className={`absolute top-1/2 w-1.5 h-1.5 rounded-full transform -translate-x-1/2 -translate-y-1/2
-                            ${idx >= startIndex && idx <= endIndex ? 'bg-blue-500' : 'bg-slate-300'}`}
+                            ${idx >= startIndex && idx <= endIndex ? 'bg-blue-500' : 'bg-muted'}`}
                         style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
                     />
                 ))}
                 <div
-                    className="absolute h-full bg-blue-500 rounded-full cursor-grab"
+                    className="absolute h-full bg-primary rounded-full cursor-grab"
                     style={{ left: `${startPercent}%`, width: `${endPercent - startPercent}%` }}
                     onMouseDown={(e) => handleMouseDown(e, 'range')}
                 />
                 <div
-                    className="absolute top-1/2 w-3 h-3 bg-blue-600 border-2 border-white rounded-full shadow-md transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10"
+                    className="absolute top-1/2 w-3 h-3 bg-primary border-2 border-white rounded-full shadow-md transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10"
                     style={{ left: `${startPercent}%` }}
                     onMouseDown={(e) => handleMouseDown(e, 'start')}
                 />
                 <div
-                    className="absolute top-1/2 w-3 h-3 bg-blue-600 border-2 border-white rounded-full shadow-md transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10"
+                    className="absolute top-1/2 w-3 h-3 bg-primary border-2 border-white rounded-full shadow-md transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10"
                     style={{ left: `${endPercent}%` }}
                     onMouseDown={(e) => handleMouseDown(e, 'end')}
                 />
             </div>
-            <div className="flex items-center justify-between mt-1 text-[9px] text-slate-500">
-                <span className="font-medium text-blue-600">{periods[startIndex]?.startsWith('Q') ? periods[startIndex] : `FY${periods[startIndex]}`}</span>
+            <div className="flex items-center justify-between mt-1 text-[9px] text-muted-fg">
+                <span className="font-medium text-primary">{periods[startIndex]?.startsWith('Q') ? periods[startIndex] : `FY${periods[startIndex]}`}</span>
                 <span>{endIndex - startIndex + 1} of {periods.length} periods</span>
-                <span className="font-medium text-blue-600">{periods[endIndex]?.startsWith('Q') ? periods[endIndex] : `FY${periods[endIndex]}`}</span>
+                <span className="font-medium text-primary">{periods[endIndex]?.startsWith('Q') ? periods[endIndex] : `FY${periods[endIndex]}`}</span>
             </div>
         </div>
     );
@@ -330,7 +330,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
     if (loading && !data) {
         return (
             <div className="flex flex-col h-full">
-                <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
+                <div className="flex items-center gap-2 p-2 border-b border-border bg-surface-hover">
                     <TickerSearch
                         value={inputValue}
                         onChange={setInputValue}
@@ -343,7 +343,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                     />
                 </div>
                 <div className="flex items-center justify-center h-64">
-                    <RefreshCw className="h-6 w-6 animate-spin text-slate-400" />
+                    <RefreshCw className="h-6 w-6 animate-spin text-muted-fg" />
                 </div>
             </div>
         );
@@ -353,7 +353,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
     if (error && !data) {
         return (
             <div className="flex flex-col h-full">
-                <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
+                <div className="flex items-center gap-2 p-2 border-b border-border bg-surface-hover">
                     <TickerSearch
                         value={inputValue}
                         onChange={setInputValue}
@@ -376,7 +376,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
     return (
         <div className="flex flex-col h-full">
             {/* Header */}
-            <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
+            <div className="flex items-center gap-2 p-2 border-b border-border bg-surface-hover">
                 <TickerSearch
                     value={inputValue}
                     onChange={setInputValue}
@@ -391,7 +391,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                     <button
                         onClick={() => fetchData(selectedTicker)}
                         disabled={loading}
-                        className="p-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                        className="p-1.5 text-muted-fg hover:text-foreground/80 disabled:opacity-50"
                     >
                         <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                     </button>
@@ -399,22 +399,22 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
             </div>
 
             {!data ? (
-                <div className="flex items-center justify-center h-64 text-slate-400 text-xs">
+                <div className="flex items-center justify-center h-64 text-muted-fg text-xs">
                     Search for a ticker to view financials
                 </div>
             ) : (
                 <div className="flex-1 overflow-auto">
                     {/* Info & Controls */}
-                    <div className="flex items-center justify-between p-2 border-b border-slate-100">
+                    <div className="flex items-center justify-between p-2 border-b border-border-subtle">
                         <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-slate-800">{data.symbol}</span>
+                            <span className="text-sm font-semibold text-foreground">{data.symbol}</span>
                             {data.industry && (
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-700">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-surface-inset text-foreground">
                                     {data.industry}
                                 </span>
                             )}
                             {data.sector && (
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-primary/10 text-primary">
                                     {data.sector}
                                 </span>
                             )}
@@ -425,7 +425,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                                     key={p}
                                     onClick={() => handlePeriodChange(p)}
                                     className={`px-1.5 py-0.5 text-[9px] font-medium rounded
-                                        ${periodFilter === p ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`}
+                                        ${periodFilter === p ? 'bg-slate-700 text-white' : 'text-muted-fg hover:bg-surface-hover'}`}
                                 >
                                     {p === 'annual' ? 'Annual' : 'Quarterly'}
                                 </button>
@@ -433,7 +433,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                             <button
                                 onClick={handleCopyJson}
                                 className={`px-1.5 py-0.5 text-[9px] rounded flex items-center gap-0.5
-                                    ${copied ? 'bg-green-500 text-white' : 'text-slate-400 hover:bg-slate-100'}`}
+                                    ${copied ? 'bg-green-500 text-white' : 'text-muted-fg hover:bg-surface-hover'}`}
                             >
                                 {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                             </button>
@@ -441,7 +441,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex border-b border-slate-100">
+                    <div className="flex border-b border-border-subtle">
                         {[
                             { id: 'income' as const, label: 'Income Statement' },
                             { id: 'balance' as const, label: 'Balance Sheet' },
@@ -452,7 +452,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
                                 className={`flex-1 py-1.5 text-[10px] font-medium
-                                    ${activeTab === tab.id ? 'text-slate-800 border-b-2 border-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+                                    ${activeTab === tab.id ? 'text-foreground border-b-2 border-foreground' : 'text-muted-fg hover:text-foreground/80'}`}
                             >
                                 {tab.label}
                             </button>
@@ -472,8 +472,8 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                     {/* Tables */}
                     <div className="overflow-x-auto relative">
                         {loading && (
-                            <div className="absolute inset-0 bg-white/70 flex items-center justify-center z-10">
-                                <RefreshCw className="h-5 w-5 animate-spin text-slate-400" />
+                            <div className="absolute inset-0 bg-surface/70 flex items-center justify-center z-10">
+                                <RefreshCw className="h-5 w-5 animate-spin text-muted-fg" />
                             </div>
                         )}
                         {activeTab === 'income' && (

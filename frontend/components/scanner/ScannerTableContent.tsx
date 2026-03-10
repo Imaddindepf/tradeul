@@ -16,7 +16,7 @@ export function ScannerTableContent({ categoryId, categoryName }: ScannerTableCo
     const closeCurrentWindow = useCloseCurrentWindow();
 
     return (
-        <div className="h-full w-full overflow-hidden flex flex-col bg-white">
+        <div className="h-full w-full overflow-hidden flex flex-col bg-surface">
             <CategoryTableV2
                 title={categoryName}
                 listName={categoryId}

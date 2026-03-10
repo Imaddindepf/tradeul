@@ -77,7 +77,7 @@ function TickerText({ text, onTickerClick }: { text: string; onTickerClick: (tic
             <button
               key={i}
               onClick={(e) => { e.stopPropagation(); onTickerClick(symbol); }}
-              className="inline-flex items-center px-0.5 mx-px text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 hover:border-blue-400 transition-colors cursor-pointer"
+              className="inline-flex items-center px-0.5 mx-px text-[11px] font-bold text-primary bg-primary/10 border border-border rounded hover:bg-primary/15 hover:border-primary transition-colors cursor-pointer"
             >
               ${symbol}
             </button>
@@ -95,29 +95,29 @@ function ReactionItem({ item, tz, onTickerClick }: { item: OpenULNewsItem; tz: s
   const ticker = item.tickers?.[0] || '';
 
   return (
-    <div className={`border-b border-slate-100 ${isUp ? 'bg-emerald-50/60' : 'bg-red-50/60'}`}>
+    <div className={`border-b border-border-subtle ${isUp ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
       <div className="px-3 py-1.5">
         <div className="flex items-center gap-1.5">
           {isUp
             ? <TrendingUp className="w-3 h-3 text-emerald-600 flex-shrink-0" />
             : <TrendingDown className="w-3 h-3 text-red-600 flex-shrink-0" />
           }
-          <span className={`text-[10px] font-bold ${isUp ? 'text-emerald-700' : 'text-red-700'}`}>
+          <span className={`text-[10px] font-bold ${isUp ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
             REACTION
           </span>
           <button
             onClick={() => onTickerClick(ticker)}
-            className={`text-[11px] font-bold px-0.5 rounded border cursor-pointer transition-colors ${isUp ? 'text-emerald-800 bg-emerald-100 border-emerald-300 hover:bg-emerald-200' : 'text-red-800 bg-red-100 border-red-300 hover:bg-red-200'}`}
+            className={`text-[11px] font-bold px-0.5 rounded border cursor-pointer transition-colors ${isUp ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-500/15 border-emerald-500/40 hover:bg-emerald-500/20' : 'text-red-700 dark:text-red-400 bg-red-500/15 border-red-500/40 hover:bg-red-500/20'}`}
           >
             ${ticker}
           </button>
-          <span className={`text-[11px] font-bold font-mono ${isUp ? 'text-emerald-700' : 'text-red-700'}`}>
+          <span className={`text-[11px] font-bold font-mono ${isUp ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
             {isUp ? '▲' : '▼'} {isUp ? '+' : ''}{item.change_pct?.toFixed(1)}%
           </span>
-          <span className="text-[10px] font-mono text-slate-600">
+          <span className="text-[10px] font-mono text-foreground/80">
             ${item.price?.toFixed(2)}
           </span>
-          <span className="text-[9px] text-slate-400 ml-auto">
+          <span className="text-[9px] text-muted-fg ml-auto">
             {formatTime(item.received_at, tz)} {abbrev}
           </span>
         </div>
@@ -136,7 +136,7 @@ function MediaThumbnail({ media }: { media: OpenULMedia }) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
-      className={`block mt-1.5 ml-[18px] rounded overflow-hidden border border-slate-200 hover:border-blue-300 transition-all cursor-pointer ${expanded ? 'max-w-full' : 'max-w-[180px]'}`}
+      className={`block mt-1.5 ml-[18px] rounded overflow-hidden border border-border hover:border-primary transition-all cursor-pointer ${expanded ? 'max-w-full' : 'max-w-[180px]'}`}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -160,7 +160,7 @@ function NewsItem({ item, isNew, tz, onTickerClick }: { item: OpenULNewsItem; is
   const abbrev = tzAbbrev(tz);
 
   return (
-    <div className={`group border-b border-slate-100 transition-colors ${isNew ? 'bg-red-50/40' : 'hover:bg-slate-50/50'}`}>
+    <div className={`group border-b border-border-subtle transition-colors ${isNew ? 'bg-red-500/10' : 'hover:bg-surface-hover'}`}>
       <div className="px-3 py-2">
         <div className="flex items-center gap-1.5 mb-0.5">
           {isNew && (
@@ -168,14 +168,14 @@ function NewsItem({ item, isNew, tz, onTickerClick }: { item: OpenULNewsItem; is
               LIVE
             </span>
           )}
-          <Clock className="w-2.5 h-2.5 text-slate-400" />
-          <span className="text-[9px] font-mono text-slate-500">
+          <Clock className="w-2.5 h-2.5 text-muted-fg" />
+          <span className="text-[9px] font-mono text-muted-fg">
             {formatTime(item.received_at, tz)} {abbrev}
           </span>
-          <span className="text-[9px] text-slate-400 ml-auto">{timeAgo(item.received_at)}</span>
+          <span className="text-[9px] text-muted-fg ml-auto">{timeAgo(item.received_at)}</span>
         </div>
 
-        <div className="text-[11px] leading-[1.5] text-slate-800 whitespace-pre-wrap break-words">
+        <div className="text-[11px] leading-[1.5] text-foreground whitespace-pre-wrap break-words">
           {displayLines.map((line, i) => (
             <div key={i} className="flex items-start gap-1.5">
               {i === 0 && <BreakingDot />}
@@ -188,7 +188,7 @@ function NewsItem({ item, isNew, tz, onTickerClick }: { item: OpenULNewsItem; is
         {isMultiline && !expanded && (
           <button
             onClick={() => setExpanded(true)}
-            className="flex items-center gap-0.5 mt-0.5 text-[9px] text-blue-600 hover:text-blue-800 ml-[18px]"
+            className="flex items-center gap-0.5 mt-0.5 text-[9px] text-primary hover:text-primary ml-[18px]"
           >
             <ChevronDown className="w-2.5 h-2.5" />
             Show more
@@ -204,14 +204,14 @@ function NewsItem({ item, isNew, tz, onTickerClick }: { item: OpenULNewsItem; is
         )}
 
         <div className="flex items-center gap-2 mt-1 ml-[18px]">
-          <span className="text-[8px] font-mono text-slate-400">{formatDate(item.created_at, tz)}</span>
+          <span className="text-[8px] font-mono text-muted-fg">{formatDate(item.created_at, tz)}</span>
           {item.tickers && item.tickers.length > 0 && (
             <div className="flex gap-1">
               {item.tickers.map((t) => (
                 <button
                   key={t}
                   onClick={() => onTickerClick(t)}
-                  className="px-1 py-px text-[8px] font-mono font-bold text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 cursor-pointer transition-colors"
+                  className="px-1 py-px text-[8px] font-mono font-bold text-primary bg-primary/10 border border-border rounded hover:bg-primary/15 cursor-pointer transition-colors"
                 >
                   {t}
                 </button>
@@ -237,7 +237,7 @@ function HeaderPortal({ windowId, todayCount, status }: { windowId: string; toda
   return createPortal(
     <div className="flex items-center gap-1.5 mr-1">
       <StatusDot status={status} />
-      <span className="text-[9px] font-mono text-slate-400">{todayCount} today</span>
+      <span className="text-[9px] font-mono text-muted-fg">{todayCount} today</span>
     </div>,
     target,
   );
@@ -306,14 +306,14 @@ export function OpenULContent() {
   }, [tz, handleTickerClick, newItemIds]);
 
   return (
-    <div className={`flex flex-col h-full bg-white select-text ${fontClass}`}>
+    <div className={`flex flex-col h-full bg-surface select-text ${fontClass}`}>
       {windowId && <HeaderPortal windowId={windowId} todayCount={todayCount} status={status} />}
 
       {items.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2">
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-fg gap-2">
           <Radio className="w-6 h-6" />
           <span className="text-[11px] font-mono">Waiting for breaking news...</span>
-          <span className="text-[9px] text-slate-300">
+          <span className="text-[9px] text-muted-fg/50">
             {status === 'connected' ? 'Stream connected \u2014 listening' : 'Connecting to stream...'}
           </span>
         </div>
@@ -338,9 +338,9 @@ export function OpenULContent() {
         </button>
       )}
 
-      <div className="flex items-center justify-between px-3 py-0.5 border-t border-slate-200 bg-slate-50">
-        <span className="text-[8px] font-mono text-slate-400">{items.length} items · {abbrev}</span>
-        <span className="text-[8px] font-mono text-slate-300">openul v1.0</span>
+      <div className="flex items-center justify-between px-3 py-0.5 border-t border-border bg-surface-hover">
+        <span className="text-[8px] font-mono text-muted-fg">{items.length} items · {abbrev}</span>
+        <span className="text-[8px] font-mono text-muted-fg/50">openul v1.0</span>
       </div>
     </div>
   );

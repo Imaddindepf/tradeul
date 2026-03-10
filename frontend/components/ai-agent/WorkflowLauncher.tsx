@@ -123,17 +123,17 @@ export const WorkflowLauncher = memo(function WorkflowLauncher({
     }, [onExecuteWorkflow]);
 
     return (
-        <div className="flex flex-col h-full bg-white">
+        <div className="flex flex-col h-full bg-surface">
             {/* Header */}
-            <div className="flex-shrink-0 px-4 py-3 border-b border-gray-200">
+            <div className="flex-shrink-0 px-4 py-3 border-b border-border">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-blue-600" />
-                        <span className="text-[13px] font-medium text-gray-800">Workflows</span>
+                        <Layers className="w-4 h-4 text-primary" />
+                        <span className="text-[13px] font-medium text-foreground">Workflows</span>
                     </div>
                     <button
                         onClick={onStartChat}
-                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] text-primary hover:text-primary hover:bg-primary/10 rounded transition-colors"
                     >
                         <MessageSquare className="w-3 h-3" />
                         <span>Chat</span>
@@ -152,17 +152,17 @@ export const WorkflowLauncher = memo(function WorkflowLauncher({
                         className={`
               group relative p-3 rounded-lg border transition-all cursor-pointer
               ${selectedWorkflow?.id === workflow.id
-                                ? 'border-blue-500 bg-blue-50/50'
-                                : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                                ? 'border-primary bg-primary/10'
+                                : 'border-border hover:border-primary/50 hover:bg-surface-hover'
                             }
             `}
                     >
                         <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                                <h3 className="text-[12px] font-medium text-gray-800 truncate">
+                                <h3 className="text-[12px] font-medium text-foreground truncate">
                                     {workflow.name}
                                 </h3>
-                                <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-1">
+                                <p className="text-[11px] text-muted-fg mt-0.5 line-clamp-1">
                                     {workflow.description}
                                 </p>
                             </div>
@@ -176,8 +176,8 @@ export const WorkflowLauncher = memo(function WorkflowLauncher({
                                 className={`
                   flex-shrink-0 p-1.5 rounded transition-all
                   ${isConnected
-                                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                                        : 'bg-gray-200 text-gray-400'
+                                        ? 'bg-primary hover:bg-primary-hover text-white'
+                                        : 'bg-muted text-muted-fg'
                                     }
                   disabled:opacity-50
                 `}
@@ -194,8 +194,8 @@ export const WorkflowLauncher = memo(function WorkflowLauncher({
                                         className={`
                       flex items-center justify-center w-6 h-6 rounded
                       ${hoveredWorkflow === workflow.id || selectedWorkflow?.id === workflow.id
-                                                ? 'bg-blue-100 text-blue-600'
-                                                : 'bg-gray-100 text-gray-500'
+                                                ? 'bg-blue-500/15 text-blue-600'
+                                                : 'bg-surface-inset text-muted-fg'
                                             }
                       transition-colors
                     `}
@@ -207,8 +207,8 @@ export const WorkflowLauncher = memo(function WorkflowLauncher({
                                         <ArrowRight className={`
                       w-3 h-3 mx-0.5
                       ${hoveredWorkflow === workflow.id || selectedWorkflow?.id === workflow.id
-                                                ? 'text-blue-400'
-                                                : 'text-gray-300'
+                                                ? 'text-primary'
+                                                : 'text-muted-fg/50'
                                             }
                     `} />
                                     )}
@@ -220,9 +220,9 @@ export const WorkflowLauncher = memo(function WorkflowLauncher({
             </div>
 
             {/* Create New */}
-            <div className="flex-shrink-0 p-3 border-t border-gray-200">
+            <div className="flex-shrink-0 p-3 border-t border-border">
                 <button
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 text-[12px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-dashed border-gray-300 hover:border-gray-400 rounded-lg transition-colors"
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 text-[12px] text-muted-fg hover:text-foreground hover:bg-surface-hover border border-dashed border-border hover:border-border rounded-lg transition-colors"
                 >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Create Workflow</span>
@@ -230,15 +230,15 @@ export const WorkflowLauncher = memo(function WorkflowLauncher({
             </div>
 
             {/* Status */}
-            <div className="flex-shrink-0 px-3 py-2 bg-gray-50 border-t border-gray-200">
+            <div className="flex-shrink-0 px-3 py-2 bg-surface-hover border-t border-border">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                        <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
-                        <span className="text-[10px] text-gray-500">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-muted-fg'}`} />
+                        <span className="text-[10px] text-muted-fg">
                             {isConnected ? 'Connected' : 'Connecting...'}
                         </span>
                     </div>
-                    <span className="text-[10px] text-gray-400">
+                    <span className="text-[10px] text-muted-fg">
                         {TEMPLATES.length} workflows
                     </span>
                 </div>

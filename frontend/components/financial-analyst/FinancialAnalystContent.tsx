@@ -77,17 +77,17 @@ const money = (n: number | null | undefined) => n == null ? '—' : `$${fmt(n, 0
 
 // Color helpers
 const ratingColor = (r: string | null | undefined) => {
-    if (!r) return 'text-slate-400';
+    if (!r) return 'text-muted-fg';
     const l = r.toLowerCase();
     if (l.includes('strong buy') || l.includes('overweight') || l.includes('outperform')) return 'text-emerald-500';
     if (l.includes('buy') || l.includes('bullish') || l.includes('positive')) return 'text-green-500';
     if (l.includes('hold') || l.includes('neutral')) return 'text-amber-500';
     if (l.includes('sell') || l.includes('underweight') || l.includes('bearish') || l.includes('negative')) return 'text-red-500';
-    return 'text-slate-500';
+    return 'text-muted-fg';
 };
 
 const gradeColor = (g: string | undefined) => {
-    if (!g) return 'text-slate-400';
+    if (!g) return 'text-muted-fg';
     if (g.startsWith('A')) return 'text-emerald-500';
     if (g.startsWith('B')) return 'text-blue-500';
     if (g.startsWith('C')) return 'text-amber-500';
@@ -98,21 +98,21 @@ const gradeColor = (g: string | undefined) => {
 const SectionTitle = ({ children, loading }: { children: React.ReactNode; loading?: boolean }) => (
     <div className="mb-1.5">
         <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider">{children}</span>
-            {loading && <Loader2 className="w-2.5 h-2.5 animate-spin text-blue-500" />}
+            <span className="text-[10px] font-semibold text-foreground/80 uppercase tracking-wider">{children}</span>
+            {loading && <Loader2 className="w-2.5 h-2.5 animate-spin text-primary" />}
         </div>
-        <div className="h-px bg-slate-200 mt-1" />
+        <div className="h-px bg-muted mt-1" />
     </div>
 );
 
 // Data Row - Compact, aligned (darker text for readability)
 const Row = ({ label, value, valueClass = '', loading }: { label: string; value: React.ReactNode; valueClass?: string; loading?: boolean }) => (
     <div className="flex justify-between items-center leading-[18px]">
-        <span className="text-[10px] text-slate-600">{label}</span>
+        <span className="text-[10px] text-foreground/80">{label}</span>
         {loading ? (
-            <span className="text-[10px] text-slate-300">...</span>
+            <span className="text-[10px] text-muted-fg/50">...</span>
         ) : (
-            <span className={`text-[10px] font-medium ${valueClass || 'text-slate-800'}`}>{value}</span>
+            <span className={`text-[10px] font-medium ${valueClass || 'text-foreground'}`}>{value}</span>
         )}
     </div>
 );
@@ -127,8 +127,8 @@ const MAArrow = ({ status }: { status?: string }) => {
 
 // Loading placeholder for Gemini sections
 const GeminiLoading = ({ text }: { text: string }) => (
-    <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-        <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+    <div className="flex items-center gap-1.5 text-[10px] text-muted-fg">
+        <Loader2 className="w-3 h-3 animate-spin text-primary" />
         <span>{text}</span>
     </div>
 );
@@ -139,13 +139,13 @@ function ExpandableAbout({ text, isSpanish }: { text: string; isSpanish: boolean
     const needsExpand = text.length > 180;
 
     return (
-        <div className="px-3 py-2 border-b border-slate-200">
-            <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">{isSpanish ? 'Acerca de' : 'About'}</div>
-            <p className={`text-[10px] text-slate-700 leading-[14px] ${expanded ? '' : 'line-clamp-3'}`}>{text}</p>
+        <div className="px-3 py-2 border-b border-border">
+            <div className="text-[9px] font-semibold text-foreground/80 uppercase tracking-wider mb-1">{isSpanish ? 'Acerca de' : 'About'}</div>
+            <p className={`text-[10px] text-foreground leading-[14px] ${expanded ? '' : 'line-clamp-3'}`}>{text}</p>
             {needsExpand && (
                 <button
                     onClick={() => setExpanded(!expanded)}
-                    className="text-blue-500 hover:text-blue-600 text-[9px] font-medium mt-0.5 cursor-pointer"
+                    className="text-primary hover:text-primary-hover text-[9px] font-medium mt-0.5 cursor-pointer"
                 >
                     {expanded ? (isSpanish ? '▲ Ver menos' : '▲ Show less') : (isSpanish ? '▼ Leer más' : '▼ Read more')}
                 </button>
@@ -264,9 +264,9 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
     const loading = loadingInstant;
 
     return (
-        <div className="h-full flex flex-col bg-white text-slate-700" style={{ fontFamily }}>
+        <div className="h-full flex flex-col bg-surface text-foreground" style={{ fontFamily }}>
             {/* Search Bar */}
-            <div className="px-2 py-1.5 border-b border-slate-200">
+            <div className="px-2 py-1.5 border-b border-border">
                 <form onSubmit={handleSubmit} className="flex items-center gap-2">
                     <TickerSearch
                         ref={tickerSearchRef}
@@ -280,7 +280,7 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                     <button 
                         type="submit" 
                         disabled={loading || !inputValue.trim()} 
-                        className="px-3 py-1 text-[11px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                        className="px-3 py-1 text-[11px] font-medium bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-50 transition-colors flex items-center gap-1.5"
                     >
                         {loading ? (
                             <Loader2 className="w-3 h-3 animate-spin" />
@@ -294,19 +294,19 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
 
             <div className="flex-1 overflow-auto">
                 {!ticker ? (
-                    <div className="flex flex-col items-center justify-center h-full text-slate-300">
+                    <div className="flex flex-col items-center justify-center h-full text-muted-fg/50">
                         <div className="text-sm">{isSpanish ? 'Introduce un ticker para analizar' : 'Enter a ticker to analyze'}</div>
                     </div>
                 ) : loading ? (
                     <div className="flex flex-col items-center justify-center h-full gap-2">
-                        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                        <div className="text-xs text-slate-500">{isSpanish ? 'Buscando' : 'Searching'} {ticker}...</div>
+                        <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                        <div className="text-xs text-muted-fg">{isSpanish ? 'Buscando' : 'Searching'} {ticker}...</div>
                     </div>
                 ) : error ? (
                     <div className="flex flex-col items-center justify-center h-full gap-2 px-4">
                         <AlertTriangle className="w-5 h-5 text-amber-400" />
-                        <div className="text-xs text-slate-500 text-center">{error}</div>
-                        <button onClick={() => fetchReport(ticker)} className="px-3 py-1 text-[10px] border border-slate-200 rounded flex items-center gap-1.5 hover:bg-slate-50">
+                        <div className="text-xs text-muted-fg text-center">{error}</div>
+                        <button onClick={() => fetchReport(ticker)} className="px-3 py-1 text-[10px] border border-border rounded flex items-center gap-1.5 hover:bg-surface-hover">
                             {isSpanish ? 'Reintentar' : 'Retry'}
                         </button>
                     </div>
@@ -315,30 +315,30 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                         {/* Main Content */}
                         <div className="flex-1 overflow-auto">
                             {/* Header */}
-                            <div className="px-3 py-2 border-b border-slate-200">
+                            <div className="px-3 py-2 border-b border-border">
                                 <div className="flex items-center gap-2">
                                     {company?.logoUrl && (
-                                        <img src={company.logoUrl} alt="" className="w-8 h-8 rounded border border-slate-200 bg-white p-0.5 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                        <img src={company.logoUrl} alt="" className="w-8 h-8 rounded border border-border bg-surface p-0.5 object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                                     )}
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-1.5">
-                                            <span className="font-semibold text-sm text-slate-800">{r.ticker}</span>
-                                            <span className="text-slate-500 text-xs truncate">{r.company_name}</span>
-                                            {r.special_status && <span className="text-[8px] font-medium text-amber-600 bg-amber-50 px-1 py-0.5 rounded">{r.special_status}</span>}
+                                            <span className="font-semibold text-sm text-foreground">{r.ticker}</span>
+                                            <span className="text-muted-fg text-xs truncate">{r.company_name}</span>
+                                            {r.special_status && <span className="text-[8px] font-medium text-amber-600 bg-amber-500/10 px-1 py-0.5 rounded">{r.special_status}</span>}
                                             {loadingGemini && (
-                                                <span className="text-[8px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                <span className="text-[8px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded flex items-center gap-1">
                                                     <Loader2 className="w-2 h-2 animate-spin" />
                                                     {isSpanish ? 'Analizando...' : 'Analyzing...'}
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="flex items-center gap-1 text-[9px] text-slate-500">
+                                        <div className="flex items-center gap-1 text-[9px] text-muted-fg">
                                             <span>{company?.exchange || r.exchange}</span>
                                             <span>•</span>
                                             <span className="truncate">{r.sector}</span>
                                             {(company?.ceo || r.ceo) && <><span>•</span><span>CEO: {company?.ceo || r.ceo}</span></>}
                                             {(company?.website || r.website) && (
-                                                <a href={company?.website || r.website} target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-slate-700">
+                                                <a href={company?.website || r.website} target="_blank" rel="noopener noreferrer" className="text-muted-fg hover:text-foreground">
                                                     <ExternalLink className="w-2.5 h-2.5" />
                                                 </a>
                                             )}
@@ -348,13 +348,13 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                             </div>
 
                             {/* Quote */}
-                            <div className="px-3 py-1 border-b border-slate-200 bg-slate-50">
+                            <div className="px-3 py-1 border-b border-border bg-surface-hover">
                                 <TickerStrip symbol={ticker} exchange={company?.exchange || r.exchange || 'US'} />
                             </div>
 
                             {/* Critical Event */}
                             {r.critical_event && (
-                                <div className="mx-3 mt-2 p-2 bg-red-50 border border-red-200 rounded text-[10px] text-red-700 flex items-start gap-1.5">
+                                <div className="mx-3 mt-2 p-2 bg-red-500/10 border border-red-500/30 rounded text-[10px] text-red-700 dark:text-red-400 flex items-start gap-1.5">
                                     <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
                                     <span>{r.critical_event}</span>
                                 </div>
@@ -367,14 +367,14 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
 
                             {/* Chart - altura suficiente para mostrar eje X */}
                             <div className="px-3 py-2">
-                                <div className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-1">{isSpanish ? 'Gráfico' : 'Price Chart'}</div>
-                                <div className="rounded border border-slate-200 overflow-hidden" style={{ height: '250px' }}>
+                                <div className="text-[9px] font-semibold text-muted-fg uppercase tracking-wider mb-1">{isSpanish ? 'Gráfico' : 'Price Chart'}</div>
+                                <div className="rounded border border-border overflow-hidden" style={{ height: '250px' }}>
                                     <TradingChart ticker={ticker} minimal={true} onOpenChart={handleOpenChart} />
                                 </div>
                             </div>
 
                             {/* Stats Grid - 2 columns compact */}
-                            <div className="px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-slate-200">
+                            <div className="px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border">
                                 {/* Overview - datos internos (instantáneos) */}
                                 <div>
                                     <SectionTitle>Overview</SectionTitle>
@@ -382,7 +382,7 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                                     <Row label="Forward P/E" value={fmt(r.forward_pe)} loading={isInstant && loadingGemini} />
                                     <Row label="EV/EBITDA" value={fmt(r.ev_ebitda)} />
                                     <Row label="P/S" value={fmt(r.ps_ratio)} />
-                                    <Row label="Dividend" value={r.dividend_yield ? `${fmt(r.dividend_yield)}%` : '—'} valueClass={r.dividend_yield ? 'text-green-500' : 'text-slate-400'} loading={isInstant && loadingGemini} />
+                                    <Row label="Dividend" value={r.dividend_yield ? `${fmt(r.dividend_yield)}%` : '—'} valueClass={r.dividend_yield ? 'text-green-500' : 'text-muted-fg'} loading={isInstant && loadingGemini} />
                                 </div>
 
                                 {/* Financials */}
@@ -397,7 +397,7 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                             </div>
 
                             {/* Analyst Ratings - Requiere Gemini */}
-                            <div className="px-3 py-2 border-t border-slate-200">
+                            <div className="px-3 py-2 border-t border-border">
                                 <SectionTitle loading={isInstant && loadingGemini}>{isSpanish ? 'Ratings de Analistas' : 'Analyst Ratings'}</SectionTitle>
                                 {isInstant && loadingGemini ? (
                                     <GeminiLoading text={isSpanish ? 'Buscando ratings...' : 'Searching ratings...'} />
@@ -405,39 +405,39 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                                     <div className="space-y-0.5">
                                         {r.analyst_ratings.map((ar, i) => (
                                             <div key={i} className="flex items-center text-[10px] leading-[16px]">
-                                                <span className="text-slate-600 w-[100px] truncate">{ar.firm}</span>
+                                                <span className="text-foreground/80 w-[100px] truncate">{ar.firm}</span>
                                                 <span className={`w-[70px] font-medium ${ratingColor(ar.rating)}`}>{ar.rating}</span>
-                                                <span className="text-slate-800 w-[50px] text-right">{ar.price_target ? money(ar.price_target) : '—'}</span>
-                                                {ar.date && <span className="text-slate-500 ml-2 text-[9px]">{ar.date}</span>}
+                                                <span className="text-foreground w-[50px] text-right">{ar.price_target ? money(ar.price_target) : '—'}</span>
+                                                {ar.date && <span className="text-muted-fg ml-2 text-[9px]">{ar.date}</span>}
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="text-[10px] text-slate-500">{isSpanish ? 'Sin ratings disponibles' : 'No ratings available'}</div>
+                                    <div className="text-[10px] text-muted-fg">{isSpanish ? 'Sin ratings disponibles' : 'No ratings available'}</div>
                                 )}
                             </div>
 
                             {/* Risk Factors - Requiere Gemini */}
-                            <div className="px-3 py-2 border-t border-slate-200">
+                            <div className="px-3 py-2 border-t border-border">
                                 <SectionTitle loading={isInstant && loadingGemini}>{isSpanish ? 'Factores de Riesgo' : 'Risk Factors'}</SectionTitle>
                                 {isInstant && loadingGemini ? (
                                     <GeminiLoading text={isSpanish ? 'Analizando riesgos...' : 'Analyzing risks...'} />
                                 ) : r.risk_factors && r.risk_factors.length > 0 ? (
                                     <div className="space-y-0.5">
                                         {r.risk_factors.slice(0, 4).map((rf, i) => (
-                                            <div key={i} className="text-[10px] text-slate-700 leading-[14px] flex">
-                                                <span className="text-slate-400 mr-1.5">•</span>
+                                            <div key={i} className="text-[10px] text-foreground leading-[14px] flex">
+                                                <span className="text-muted-fg mr-1.5">•</span>
                                                 <span>{typeof rf === 'string' ? rf : rf.description}</span>
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="text-[10px] text-slate-500">{isSpanish ? 'Sin riesgos mayores' : 'No major risks'}</div>
+                                    <div className="text-[10px] text-muted-fg">{isSpanish ? 'Sin riesgos mayores' : 'No major risks'}</div>
                                 )}
                             </div>
 
                             {/* News - Requiere Gemini */}
-                            <div className="px-3 py-2 border-t border-slate-200">
+                            <div className="px-3 py-2 border-t border-border">
                                 <SectionTitle loading={isInstant && loadingGemini}>{isSpanish ? 'Noticias' : 'News'}</SectionTitle>
                                 {isInstant && loadingGemini ? (
                                     <GeminiLoading text={isSpanish ? 'Buscando noticias...' : 'Searching news...'} />
@@ -452,19 +452,19 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                                         {ns.recent_headlines && ns.recent_headlines.length > 0 && (
                                             <div className="space-y-0.5">
                                                 {ns.recent_headlines.slice(0, 2).map((h, i) => (
-                                                    <div key={i} className="text-[9px] text-slate-600 leading-[13px]">• {h}</div>
+                                                    <div key={i} className="text-[9px] text-foreground/80 leading-[13px]">• {h}</div>
                                                 ))}
                                             </div>
                                         )}
                                     </>
                                 ) : (
-                                    <div className="text-[10px] text-slate-500">{isSpanish ? 'Sin noticias recientes' : 'No recent news'}</div>
+                                    <div className="text-[10px] text-muted-fg">{isSpanish ? 'Sin noticias recientes' : 'No recent news'}</div>
                                 )}
                             </div>
                         </div>
 
                         {/* Sidebar */}
-                        <div className="w-[180px] shrink-0 border-l border-slate-200 bg-slate-50/50 overflow-auto">
+                        <div className="w-[180px] shrink-0 border-l border-border bg-surface-hover/50 overflow-auto">
                             <div className="p-2 space-y-3">
                                 {/* Summary - Requiere Gemini */}
                                 <div>
@@ -472,7 +472,7 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                                     <Row label="Consensus" value={r.consensus_rating || '—'} valueClass={ratingColor(r.consensus_rating)} loading={isInstant && loadingGemini} />
                                     <Row label="Price Target" value={r.average_price_target ? money(r.average_price_target) : '—'} loading={isInstant && loadingGemini} />
                                     {r.price_target_low && r.price_target_high && (
-                                        <Row label="Range" value={`${money(r.price_target_low)}-${money(r.price_target_high)}`} valueClass="text-slate-500 text-[9px]" />
+                                        <Row label="Range" value={`${money(r.price_target_low)}-${money(r.price_target_high)}`} valueClass="text-muted-fg text-[9px]" />
                                     )}
                                     {r.risk_score && (
                                         <Row label="Risk Score" value={`${r.risk_score}/10`} valueClass={r.risk_score <= 3 ? 'text-green-500' : r.risk_score <= 6 ? 'text-amber-500' : 'text-red-500'} />
@@ -505,8 +505,8 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                                     {r.insider_activity && r.insider_activity.slice(0, 3).map((ins, i) => (
                                         <div key={i} className="flex items-center text-[10px] leading-[16px]">
                                             <span className={`w-[30px] font-medium ${ins.type === 'Buy' ? 'text-green-500' : 'text-red-500'}`}>{ins.type}</span>
-                                            <span className="text-slate-500 flex-1 truncate text-[9px]">{ins.title || ins.insider_name}</span>
-                                            <span className="text-slate-700">{ins.value || '—'}</span>
+                                            <span className="text-muted-fg flex-1 truncate text-[9px]">{ins.title || ins.insider_name}</span>
+                                            <span className="text-foreground">{ins.value || '—'}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -519,19 +519,19 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                                     ) : (
                                         <>
                                             {r.earnings_date && (
-                                                <div className="text-[10px] text-blue-600 leading-[16px] flex items-center gap-1">
+                                                <div className="text-[10px] text-primary leading-[16px] flex items-center gap-1">
                                                     <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                                                     Earnings: {r.earnings_date}
                                                 </div>
                                             )}
                                             {r.upcoming_catalysts?.slice(0, 3).map((cat, i) => (
-                                                <div key={i} className="text-[10px] text-slate-700 leading-[16px] flex items-center gap-1">
-                                                    <span className={`w-1.5 h-1.5 rounded-full ${cat.importance === 'High' ? 'bg-red-400' : 'bg-slate-400'}`} />
+                                                <div key={i} className="text-[10px] text-foreground leading-[16px] flex items-center gap-1">
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${cat.importance === 'High' ? 'bg-red-400' : 'bg-muted-fg'}`} />
                                                     <span className="truncate">{cat.event}</span>
                                                 </div>
                                             ))}
                                             {!r.earnings_date && (!r.upcoming_catalysts || r.upcoming_catalysts.length === 0) && (
-                                                <div className="text-[10px] text-slate-500">{isSpanish ? 'Sin eventos programados' : 'None scheduled'}</div>
+                                                <div className="text-[10px] text-muted-fg">{isSpanish ? 'Sin eventos programados' : 'None scheduled'}</div>
                                             )}
                                         </>
                                     )}

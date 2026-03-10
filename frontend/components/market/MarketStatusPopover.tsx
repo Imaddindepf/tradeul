@@ -79,7 +79,7 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
   };
 
   const getMarketState = () => {
-    if (!status) return { label: '···', color: 'text-slate-400', dot: 'bg-slate-300' };
+    if (!status) return { label: '···', color: 'text-muted-fg', dot: 'bg-muted-fg/50' };
 
     if (status.market === 'open') {
       return { label: 'OPEN', color: 'text-emerald-600', dot: 'bg-emerald-500' };
@@ -91,7 +91,7 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
       }
       return { label: 'EXT', color: 'text-purple-500', dot: 'bg-purple-400' };
     } else {
-      return { label: 'CLOSED', color: 'text-slate-400', dot: 'bg-slate-300' };
+      return { label: 'CLOSED', color: 'text-muted-fg', dot: 'bg-muted-fg/50' };
     }
   };
 
@@ -99,7 +99,7 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
 
   const popoverContent = showPopover && status && mounted && (
     <div
-      className="fixed w-64 bg-white/95 backdrop-blur-sm rounded-md shadow-lg border border-slate-100 p-2.5"
+      className="fixed w-64 bg-surface/95 backdrop-blur-sm rounded-md shadow-lg border border-border-subtle p-2.5"
       style={{
         top: `${popoverPosition.top}px`,
         right: `${popoverPosition.right}px`,
@@ -109,9 +109,9 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
       onMouseLeave={() => setShowPopover(false)}
     >
       {/* Header */}
-      <div className="mb-2 pb-1.5 border-b border-slate-100">
+      <div className="mb-2 pb-1.5 border-b border-border-subtle">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Market Status</span>
+          <span className="text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Market Status</span>
           <span className={`text-[10px] font-bold ${marketState.color}`}>
             {marketState.label}
           </span>
@@ -121,7 +121,7 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
       {/* US Stock Exchanges */}
       {status.exchanges && (
         <div className="mb-2">
-          <h4 className="text-[9px] font-bold text-slate-400 mb-1 uppercase tracking-wider">
+          <h4 className="text-[9px] font-bold text-muted-fg mb-1 uppercase tracking-wider">
             US Exchanges
           </h4>
           <div className="space-y-0.5">
@@ -135,7 +135,7 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
       {/* Currencies */}
       {status.currencies && (
         <div>
-          <h4 className="text-[9px] font-bold text-slate-400 mb-1 uppercase tracking-wider">
+          <h4 className="text-[9px] font-bold text-muted-fg mb-1 uppercase tracking-wider">
             Currencies
           </h4>
           <div className="space-y-0.5">
@@ -152,7 +152,7 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
       {/* Trigger — flush with navbar, no border, no card look */}
       <div
         ref={triggerRef}
-        className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-slate-50 rounded-sm transition-colors"
+        className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-surface-hover rounded-sm transition-colors"
         onMouseEnter={() => setShowPopover(true)}
         onMouseLeave={() => setShowPopover(false)}
       >
@@ -160,7 +160,7 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
         <span className={`w-1.5 h-1.5 rounded-full ${marketState.dot}`} />
 
         {/* Time */}
-        <span className="text-xs font-mono font-medium text-slate-700 leading-none tabular-nums">
+        <span className="text-xs font-mono font-medium text-foreground leading-none tabular-nums">
           {currentTime ? formatTime(currentTime) : '--:--:--'}
         </span>
 
@@ -182,8 +182,8 @@ function StatusItemCompact({ label, status }: { label: string; status?: string }
     switch (s) {
       case 'open': return 'text-emerald-600';
       case 'extended-hours': return 'text-amber-600';
-      case 'closed': return 'text-slate-400';
-      default: return 'text-slate-300';
+      case 'closed': return 'text-muted-fg';
+      default: return 'text-muted-fg/50';
     }
   };
 
@@ -191,8 +191,8 @@ function StatusItemCompact({ label, status }: { label: string; status?: string }
     switch (s) {
       case 'open': return 'bg-emerald-500';
       case 'extended-hours': return 'bg-amber-400';
-      case 'closed': return 'bg-slate-300';
-      default: return 'bg-slate-200';
+      case 'closed': return 'bg-muted-fg/50';
+      default: return 'bg-muted-fg/30';
     }
   };
 
@@ -206,7 +206,7 @@ function StatusItemCompact({ label, status }: { label: string; status?: string }
 
   return (
     <div className="flex items-center justify-between text-[10px] py-0.5">
-      <span className="text-slate-600 font-medium">{label}</span>
+      <span className="text-foreground/80 font-medium">{label}</span>
       <div className="flex items-center gap-1.5">
         <span className={`w-1.5 h-1.5 rounded-full ${getDot(status)}`} />
         <span className={`font-semibold ${getColor(status)} min-w-[48px] text-right`}>
