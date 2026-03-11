@@ -14,11 +14,11 @@
  */
 
 import { useCallback, useMemo, useRef, useEffect } from 'react';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindow, type LinkGroup } from '@/contexts/FloatingWindowContext';
 import { useAuth } from '@clerk/nextjs';
-import { 
-  useUserPreferencesStore, 
-  Workspace, 
+import {
+  useUserPreferencesStore,
+  Workspace,
   WindowLayout,
   selectWorkspaces,
   selectActiveWorkspaceId,
@@ -54,7 +54,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const { windows, openWindow, closeWindow } = useFloatingWindow();
   const { getToken, isSignedIn } = useAuth();
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Store actions
   const storeCreateWorkspace = useUserPreferencesStore((s) => s.createWorkspace);
   const storeDeleteWorkspace = useUserPreferencesStore((s) => s.deleteWorkspace);
@@ -63,7 +63,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const storeSaveWorkspaceLayouts = useUserPreferencesStore((s) => s.saveWorkspaceLayouts);
   const syncWorkspacesToBackend = useUserPreferencesStore((s) => s.syncWorkspacesToBackend);
   const setWorkspaceSwitching = useUserPreferencesStore((s) => s.setWorkspaceSwitching);
-  
+
   // Store selectors
   const workspaces = useUserPreferencesStore(selectWorkspaces);
   const activeWorkspaceId = useUserPreferencesStore(selectActiveWorkspaceId);
@@ -75,7 +75,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
    */
   const scheduleSyncToBackend = useCallback((immediate = false) => {
     if (!isSignedIn) return;
-    
+
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
     }
@@ -102,24 +102,27 @@ export function useWorkspaces(): UseWorkspacesReturn {
    * Preserva componentState del workspace activo (metadata de restauración).
    */
   const exportCurrentLayout = useCallback((): WindowLayout[] => {
-    // Recuperar componentState existente del workspace activo
     const store = useUserPreferencesStore.getState();
     const activeWs = store.workspaces.find(w => w.id === store.activeWorkspaceId);
     const existingLayouts = activeWs?.windowLayouts || store.windowLayouts;
-    const componentStateMap = new Map(
-      existingLayouts.map(l => [l.id, l.componentState])
+    const metadataMap = new Map(
+      existingLayouts.map(l => [l.id, { componentState: l.componentState, linkGroup: l.linkGroup }])
     );
 
-    return windows.map((w) => ({
-      id: w.id,
-      type: getWindowType(w.title),
-      title: w.title,
-      position: { x: w.x, y: w.y },
-      size: { width: w.width, height: w.height },
-      isMinimized: w.isMinimized,
-      zIndex: w.zIndex,
-      componentState: componentStateMap.get(w.id),
-    }));
+    return windows.map((w) => {
+      const saved = metadataMap.get(w.id);
+      return {
+        id: w.id,
+        type: getWindowType(w.title),
+        title: w.title,
+        position: { x: w.x, y: w.y },
+        size: { width: w.width, height: w.height },
+        isMinimized: w.isMinimized,
+        zIndex: w.zIndex,
+        componentState: saved?.componentState,
+        linkGroup: saved?.linkGroup || w.linkGroup || undefined,
+      };
+    });
   }, [windows]);
 
   /**
@@ -163,7 +166,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
    * Flujo: guardar actual → cerrar ventanas → cambiar ID → restaurar destino.
    */
   const switchWorkspace = useCallback((
-    workspaceId: string, 
+    workspaceId: string,
     getWindowContent: (layout: { title: string; componentState?: Record<string, unknown> }) => React.ReactNode
   ) => {
     // Leer todo del store de forma síncrona (sin depender de closures de React)
@@ -176,18 +179,24 @@ export function useWorkspaces(): UseWorkspacesReturn {
     // ── 2. Guardar layout actual al workspace ACTUAL ──
     const currentWs = store.workspaces.find(w => w.id === store.activeWorkspaceId);
     const existingLayouts = currentWs?.windowLayouts || [];
-    const csMap = new Map(existingLayouts.map(l => [l.id, l.componentState]));
+    const metaMap = new Map(
+      existingLayouts.map(l => [l.id, { componentState: l.componentState, linkGroup: l.linkGroup }])
+    );
 
-    const layoutsToSave: WindowLayout[] = windows.map(w => ({
-      id: w.id,
-      type: getWindowType(w.title),
-      title: w.title,
-      position: { x: w.x, y: w.y },
-      size: { width: w.width, height: w.height },
-      isMinimized: w.isMinimized,
-      zIndex: w.zIndex,
-      componentState: csMap.get(w.id),
-    }));
+    const layoutsToSave: WindowLayout[] = windows.map(w => {
+      const saved = metaMap.get(w.id);
+      return {
+        id: w.id,
+        type: getWindowType(w.title),
+        title: w.title,
+        position: { x: w.x, y: w.y },
+        size: { width: w.width, height: w.height },
+        isMinimized: w.isMinimized,
+        zIndex: w.zIndex,
+        componentState: saved?.componentState,
+        linkGroup: saved?.linkGroup || w.linkGroup || undefined,
+      };
+    });
     storeSaveWorkspaceLayouts(store.activeWorkspaceId, layoutsToSave);
 
     // ── 3. Cerrar todas las ventanas ──
@@ -205,6 +214,9 @@ export function useWorkspaces(): UseWorkspacesReturn {
       layouts.forEach(layout => {
         const content = getWindowContent(layout);
         if (content) {
+          const hideHeader = layout.title.startsWith('Scanner:')
+            || layout.title.startsWith('Events:')
+            || layout.title === 'Market Pulse';
           openWindow({
             id: layout.id,
             title: layout.title,
@@ -213,10 +225,10 @@ export function useWorkspaces(): UseWorkspacesReturn {
             y: layout.position.y,
             width: layout.size.width,
             height: layout.size.height,
-            hideHeader: layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:'),
+            hideHeader,
             componentState: layout.componentState,
-            linkGroup: (layout as any).linkGroup || undefined,
-          } as any);
+            linkGroup: (layout.linkGroup as LinkGroup) || undefined,
+          });
         }
       });
 

@@ -222,6 +222,125 @@ function buildSessionOpts(sess) {
   return opts;
 }
 
+// Maps JSONB context keys → event payload keys for historical event hydration.
+// Uses the same naming as enrichEventFromCache output so the frontend receives
+// identical field names regardless of whether the event came from Redis or TimescaleDB.
+const CONTEXT_TO_EVENT_MAP = [
+  // [contextKey, eventPayloadKey]
+  // Volume windows (not in native columns)
+  ['vol_10min', 'vol_10min'],
+  ['vol_15min', 'vol_15min'],
+  ['vol_30min', 'vol_30min'],
+  ['vol_10min_pct', 'vol_10min_pct'],
+  ['vol_15min_pct', 'vol_15min_pct'],
+  ['vol_30min_pct', 'vol_30min_pct'],
+  // Change 60 min
+  ['chg_60min', 'chg_60min'],
+  // Range windows
+  ['range_2min', 'range_2min'],
+  ['range_5min', 'range_5min'],
+  ['range_15min', 'range_15min'],
+  ['range_30min', 'range_30min'],
+  ['range_60min', 'range_60min'],
+  ['range_120min', 'range_120min'],
+  ['range_2min_pct', 'range_2min_pct'],
+  ['range_5min_pct', 'range_5min_pct'],
+  ['range_15min_pct', 'range_15min_pct'],
+  ['range_30min_pct', 'range_30min_pct'],
+  ['range_60min_pct', 'range_60min_pct'],
+  ['range_120min_pct', 'range_120min_pct'],
+  // Quote
+  ['bid', 'bid'],
+  ['ask', 'ask'],
+  ['bid_size', 'bid_size'],
+  ['ask_size', 'ask_size'],
+  ['spread', 'spread'],
+  // Intraday SMA
+  ['sma_5', 'sma_5'],
+  ['sma_8', 'sma_8'],
+  ['sma_20', 'sma_20'],
+  ['sma_50', 'sma_50'],
+  ['sma_200', 'sma_200'],
+  // MACD / Stochastic / ADX / Bollinger
+  ['macd_line', 'macd_line'],
+  ['macd_hist', 'macd_hist'],
+  ['stoch_k', 'stoch_k'],
+  ['stoch_d', 'stoch_d'],
+  ['adx_14', 'adx_14'],
+  ['bb_upper', 'bb_upper'],
+  ['bb_lower', 'bb_lower'],
+  // Daily indicators
+  ['daily_sma_20', 'daily_sma_20'],
+  ['daily_sma_50', 'daily_sma_50'],
+  ['daily_sma_200', 'daily_sma_200'],
+  ['daily_rsi', 'daily_rsi'],
+  ['daily_adx_14', 'daily_adx_14'],
+  ['daily_atr_percent', 'daily_atr_percent'],
+  ['daily_bb_position', 'daily_bb_position'],
+  // 52-week
+  ['high_52w', 'high_52w'],
+  ['low_52w', 'low_52w'],
+  ['from_52w_high', 'from_52w_high'],
+  ['from_52w_low', 'from_52w_low'],
+  // Derived / Computed
+  ['dollar_volume', 'dollar_volume'],
+  ['todays_range', 'todays_range'],
+  ['todays_range_pct', 'todays_range_pct'],
+  ['bid_ask_ratio', 'bid_ask_ratio'],
+  ['float_turnover', 'float_turnover'],
+  ['pos_in_range', 'pos_in_range'],
+  ['below_high', 'below_high'],
+  ['above_low', 'above_low'],
+  ['pos_of_open', 'pos_of_open'],
+  ['prev_day_volume', 'prev_day_volume'],
+  ['dist_from_vwap', 'dist_from_vwap'],
+  ['dist_sma_5', 'dist_sma_5'],
+  ['dist_sma_8', 'dist_sma_8'],
+  ['dist_sma_20', 'dist_sma_20'],
+  ['dist_sma_50', 'dist_sma_50'],
+  ['dist_sma_200', 'dist_sma_200'],
+  ['dist_daily_sma_20', 'dist_daily_sma_20'],
+  ['dist_daily_sma_50', 'dist_daily_sma_50'],
+  // Multi-day changes
+  ['change_1d', 'change_1d'],
+  ['change_3d', 'change_3d'],
+  ['change_5d', 'change_5d'],
+  ['change_10d', 'change_10d'],
+  ['change_20d', 'change_20d'],
+  // Average daily volumes
+  ['avg_volume_5d', 'avg_volume_5d'],
+  ['avg_volume_10d', 'avg_volume_10d'],
+  ['avg_volume_20d', 'avg_volume_20d'],
+  ['avg_volume_3m', 'avg_volume_3m'],
+  // Trades anomaly
+  ['trades_today', 'trades_today'],
+  ['trades_z_score', 'trades_z_score'],
+  // Scanner-aligned
+  ['shares_outstanding', 'shares_outstanding'],
+  ['volume_today_pct', 'volume_today_pct'],
+  ['minute_volume', 'minute_volume'],
+  ['price_from_high', 'price_from_high'],
+  ['price_from_low', 'price_from_low'],
+  ['price_from_intraday_high', 'price_from_intraday_high'],
+  ['price_from_intraday_low', 'price_from_intraday_low'],
+  ['distance_from_nbbo', 'distance_from_nbbo'],
+  ['premarket_change_percent', 'premarket_change_percent'],
+  ['postmarket_change_percent', 'postmarket_change_percent'],
+  ['volume_yesterday_pct', 'volume_yesterday_pct'],
+  ['atr', 'atr'],
+  ['atr_percent', 'atr_percent'],
+  ['avg_trades_5d', 'avg_trades_5d'],
+  ['gap_percent', 'gap_percent'],
+  ['change_from_open', 'change_from_open'],
+  ['change_from_close', 'change_from_close'],
+  ['change_from_open_dollars', 'change_from_open_dollars'],
+  ['vol_60min', 'vol_60min'],
+  ['ema_9', 'ema_9'],
+  ['bb_mid', 'bb_mid'],
+  ['macd_signal', 'macd_signal'],
+];
+const CONTEXT_STRING_KEYS = ['industry', 'sector', 'security_type'];
+
 async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
   if (!pgAvailable) return [];
 
@@ -254,25 +373,32 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
   // Native columns get direct SQL WHERE; context-only fields use JSONB operators.
   const FILTER_MAP = [
     // [subMinKey, subMaxKey, nativeCol, contextKey]
-    ['priceMin',          'priceMax',          'price',           null],
-    ['changeMin',         'changeMax',         'change_pct',      null],
-    ['rvolMin',           'rvolMax',           'rvol',            null],
-    ['volumeMin',         'volumeMax',         'volume',          null],
-    ['marketCapMin',      'marketCapMax',      'market_cap',      null],
-    ['floatSharesMin',    'floatSharesMax',    'float_shares',    null],
-    ['gapPercentMin',     'gapPercentMax',     'gap_pct',         null],
+    // --- Native columns (direct SQL WHERE) ---
+    ['priceMin',          'priceMax',          'price',            null],
+    ['changeMin',         'changeMax',         'change_pct',       null],
+    ['rvolMin',           'rvolMax',           'rvol',             null],
+    ['volumeMin',         'volumeMax',         'volume',           null],
+    ['marketCapMin',      'marketCapMax',      'market_cap',       null],
+    ['floatSharesMin',    'floatSharesMax',    'float_shares',     null],
+    ['gapPercentMin',     'gapPercentMax',     'gap_pct',          null],
     ['changeFromOpenMin', 'changeFromOpenMax', 'change_from_open', null],
-    ['atrPercentMin',     'atrPercentMax',     'atr_pct',         null],
-    ['rsiMin',            'rsiMax',            'rsi',             null],
-    ['chg1minMin',        'chg1minMax',        'chg_1min',        null],
-    ['chg5minMin',        'chg5minMax',        'chg_5min',        null],
-    ['chg10minMin',       'chg10minMax',       'chg_10min',       null],
-    ['chg15minMin',       'chg15minMax',       'chg_15min',       null],
-    ['chg30minMin',       'chg30minMax',       'chg_30min',       null],
-    ['vol1minMin',        'vol1minMax',        'vol_1min',        null],
-    ['vol5minMin',        'vol5minMax',        'vol_5min',        null],
-    ['vol1minPctMin',     'vol1minPctMax',     null, 'vol_1min_pct'],
-    ['vol5minPctMin',     'vol5minPctMax',     null, 'vol_5min_pct'],
+    ['atrPercentMin',     'atrPercentMax',     'atr_pct',          null],
+    ['rsiMin',            'rsiMax',            'rsi',              null],
+    ['chg1minMin',        'chg1minMax',        'chg_1min',         null],
+    ['chg5minMin',        'chg5minMax',        'chg_5min',         null],
+    ['chg10minMin',       'chg10minMax',       'chg_10min',        null],
+    ['chg15minMin',       'chg15minMax',       'chg_15min',        null],
+    ['chg30minMin',       'chg30minMax',       'chg_30min',        null],
+    ['vol1minMin',        'vol1minMax',        'vol_1min',         null],
+    ['vol5minMin',        'vol5minMax',        'vol_5min',         null],
+    ['vol1minPctMin',     'vol1minPctMax',     'vol_1min_pct',     null],
+    ['vol5minPctMin',     'vol5minPctMax',     'vol_5min_pct',     null],
+    ['ema20Min',          'ema20Max',          'ema_20',           null],
+    ['ema50Min',          'ema50Max',          'ema_50',           null],
+    // --- JSONB context fields ---
+    ['vol10minMin',       'vol10minMax',       null, 'vol_10min'],
+    ['vol15minMin',       'vol15minMax',       null, 'vol_15min'],
+    ['vol30minMin',       'vol30minMax',       null, 'vol_30min'],
     ['vol10minPctMin',    'vol10minPctMax',    null, 'vol_10min_pct'],
     ['vol15minPctMin',    'vol15minPctMax',    null, 'vol_15min_pct'],
     ['vol30minPctMin',    'vol30minPctMax',    null, 'vol_30min_pct'],
@@ -288,12 +414,20 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['range30minPctMin',  'range30minPctMax',  null, 'range_30min_pct'],
     ['range60minPctMin',  'range60minPctMax',  null, 'range_60min_pct'],
     ['range120minPctMin', 'range120minPctMax', null, 'range_120min_pct'],
-    // JSONB context only (enriched fields not in native columns)
+    ['chg60minMin',       'chg60minMax',       null, 'chg_60min'],
+    // Quote
+    ['bidMin',            'bidMax',            null, 'bid'],
+    ['askMin',            'askMax',            null, 'ask'],
+    ['bidSizeMin',        'bidSizeMax',        null, 'bid_size'],
+    ['askSizeMin',        'askSizeMax',        null, 'ask_size'],
+    ['spreadMin',         'spreadMax',         null, 'spread'],
+    // Intraday SMA
     ['sma5Min',           'sma5Max',           null, 'sma_5'],
     ['sma8Min',           'sma8Max',           null, 'sma_8'],
     ['sma20Min',          'sma20Max',          null, 'sma_20'],
     ['sma50Min',          'sma50Max',          null, 'sma_50'],
     ['sma200Min',         'sma200Max',         null, 'sma_200'],
+    // MACD / Stochastic / ADX / Bollinger
     ['macdLineMin',       'macdLineMax',       null, 'macd_line'],
     ['macdHistMin',       'macdHistMax',       null, 'macd_hist'],
     ['stochKMin',         'stochKMax',         null, 'stoch_k'],
@@ -301,12 +435,67 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['adx14Min',          'adx14Max',          null, 'adx_14'],
     ['bbUpperMin',        'bbUpperMax',        null, 'bb_upper'],
     ['bbLowerMin',        'bbLowerMax',        null, 'bb_lower'],
+    // VWAP
     ['vwapMin',           'vwapMax',           null, 'vwap'],
+    // Daily indicators
     ['dailySma20Min',     'dailySma20Max',     null, 'daily_sma_20'],
     ['dailySma50Min',     'dailySma50Max',     null, 'daily_sma_50'],
     ['dailySma200Min',    'dailySma200Max',    null, 'daily_sma_200'],
+    ['dailyRsiMin',       'dailyRsiMax',       null, 'daily_rsi'],
+    ['high52wMin',        'high52wMax',        null, 'high_52w'],
+    ['low52wMin',         'low52wMax',         null, 'low_52w'],
+    // Trades anomaly
+    ['tradesTodayMin',    'tradesTodayMax',    null, 'trades_today'],
+    ['tradesZScoreMin',   'tradesZScoreMax',   null, 'trades_z_score'],
+    // Derived / Computed
     ['dollarVolumeMin',   'dollarVolumeMax',   null, 'dollar_volume'],
+    ['todaysRangeMin',    'todaysRangeMax',    null, 'todays_range'],
+    ['todaysRangePctMin', 'todaysRangePctMax', null, 'todays_range_pct'],
     ['bidAskRatioMin',    'bidAskRatioMax',    null, 'bid_ask_ratio'],
+    ['floatTurnoverMin',  'floatTurnoverMax',  null, 'float_turnover'],
+    ['distFromVwapMin',   'distFromVwapMax',   null, 'dist_from_vwap'],
+    // Distance from intraday SMAs
+    ['distSma5Min',       'distSma5Max',       null, 'dist_sma_5'],
+    ['distSma8Min',       'distSma8Max',       null, 'dist_sma_8'],
+    ['distSma20Min',      'distSma20Max',      null, 'dist_sma_20'],
+    ['distSma50Min',      'distSma50Max',      null, 'dist_sma_50'],
+    ['distSma200Min',     'distSma200Max',     null, 'dist_sma_200'],
+    // Position / range
+    ['posInRangeMin',     'posInRangeMax',     null, 'pos_in_range'],
+    ['belowHighMin',      'belowHighMax',      null, 'below_high'],
+    ['aboveLowMin',       'aboveLowMax',       null, 'above_low'],
+    ['posOfOpenMin',      'posOfOpenMax',      null, 'pos_of_open'],
+    ['prevDayVolumeMin',  'prevDayVolumeMax',  null, 'prev_day_volume'],
+    // Multi-day changes
+    ['change1dMin',       'change1dMax',       null, 'change_1d'],
+    ['change3dMin',       'change3dMax',       null, 'change_3d'],
+    ['change5dMin',       'change5dMax',       null, 'change_5d'],
+    ['change10dMin',      'change10dMax',      null, 'change_10d'],
+    ['change20dMin',      'change20dMax',      null, 'change_20d'],
+    // Average daily volumes
+    ['avgVolume5dMin',    'avgVolume5dMax',    null, 'avg_volume_5d'],
+    ['avgVolume10dMin',   'avgVolume10dMax',   null, 'avg_volume_10d'],
+    ['avgVolume20dMin',   'avgVolume20dMax',   null, 'avg_volume_20d'],
+    // Distance from daily SMAs
+    ['distDailySma20Min', 'distDailySma20Max', null, 'dist_daily_sma_20'],
+    ['distDailySma50Min', 'distDailySma50Max', null, 'dist_daily_sma_50'],
+    // 52-week distances
+    ['from52wHighMin',    'from52wHighMax',    null, 'from_52w_high'],
+    ['from52wLowMin',     'from52wLowMax',     null, 'from_52w_low'],
+    // Daily ADX / ATR / Bollinger position
+    ['dailyAdx14Min',     'dailyAdx14Max',     null, 'daily_adx_14'],
+    ['dailyAtrPercentMin','dailyAtrPercentMax',null, 'daily_atr_percent'],
+    ['dailyBbPositionMin','dailyBbPositionMax',null, 'daily_bb_position'],
+    // Scanner-aligned
+    ['sharesOutstandingMin','sharesOutstandingMax', null, 'shares_outstanding'],
+    ['volumeTodayPctMin', 'volumeTodayPctMax', null, 'volume_today_pct'],
+    ['minuteVolumeMin',   null,                null, 'minute_volume'],
+    ['priceFromHighMin',  'priceFromHighMax',  null, 'price_from_high'],
+    ['distanceFromNbboMin','distanceFromNbboMax',null,'distance_from_nbbo'],
+    ['premarketChangePctMin','premarketChangePctMax',null,'premarket_change_percent'],
+    ['postmarketChangePctMin','postmarketChangePctMax',null,'postmarket_change_percent'],
+    ['avgVolume3mMin',    'avgVolume3mMax',    null, 'avg_volume_3m'],
+    ['atrMin',            'atrMax',            null, 'atr'],
   ];
 
   for (const [minKey, maxKey, nativeCol, ctxKey] of FILTER_MAP) {
@@ -314,14 +503,34 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     const hi = sub[maxKey];
     if (lo == null && hi == null) continue;
 
-    const col = nativeCol || `(context->>'${ctxKey}')::double precision`;
-    const inverted = lo != null && hi != null && lo > hi;
-
-    if (inverted) {
-      conditions.push(`(${col} >= ${addParam(lo)} OR ${col} <= ${addParam(hi)})`);
+    if (nativeCol) {
+      const inverted = lo != null && hi != null && lo > hi;
+      if (inverted) {
+        conditions.push(`(${nativeCol} >= ${addParam(lo)} OR ${nativeCol} <= ${addParam(hi)})`);
+      } else {
+        if (lo != null) conditions.push(`${nativeCol} >= ${addParam(lo)}`);
+        if (hi != null) conditions.push(`${nativeCol} <= ${addParam(hi)}`);
+      }
     } else {
-      if (lo != null) conditions.push(`${col} >= ${addParam(lo)}`);
-      if (hi != null) conditions.push(`${col} <= ${addParam(hi)}`);
+      // JSONB context field: tolerate NULL (field absent in legacy events).
+      // If the field exists in context, apply the filter strictly.
+      // If absent, include the row — real-time enrichment + client filter will handle it.
+      const expr = `(context->>'${ctxKey}')::double precision`;
+      const inverted = lo != null && hi != null && lo > hi;
+      if (inverted) {
+        conditions.push(`(context->>'${ctxKey}' IS NULL OR ${expr} >= ${addParam(lo)} OR ${expr} <= ${addParam(hi)})`);
+      } else {
+        const parts = [];
+        parts.push(`context->>'${ctxKey}' IS NULL`);
+        if (lo != null && hi != null) {
+          parts.push(`(${expr} >= ${addParam(lo)} AND ${expr} <= ${addParam(hi)})`);
+        } else if (lo != null) {
+          parts.push(`${expr} >= ${addParam(lo)}`);
+        } else {
+          parts.push(`${expr} <= ${addParam(hi)}`);
+        }
+        conditions.push(`(${parts.join(" OR ")})`);
+      }
     }
   }
 
@@ -359,8 +568,9 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
            intraday_high, intraday_low,
            chg_1min, chg_5min, chg_10min, chg_15min, chg_30min,
            vol_1min, vol_5min,
+           vol_1min_pct, vol_5min_pct,
            rsi, ema_20, ema_50,
-           details
+           details, context
     FROM market_events
     ${whereClause}
     ORDER BY ts DESC
@@ -368,8 +578,10 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
   `;
 
   try {
+    logger.info({ conditionCount: conditions.length, paramCount: params.length, sql: query.replace(/\s+/g, ' ').trim().substring(0, 500), params: params.slice(0, 10) }, "🔍 queryHistoricalEvents SQL");
     const result = await pgPool.query(query, params);
 
+    logger.info({ rowCount: result.rows.length, limit }, "🔍 queryHistoricalEvents result");
     const has_more = result.rows.length > limit;
     const trimmedRows = has_more ? result.rows.slice(0, limit) : result.rows;
 
@@ -384,7 +596,7 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
         price: row.price != null ? parseFloat(row.price) : null,
       };
 
-      // Optional numeric fields
+      // Optional numeric fields from native columns
       const numericFields = {
         change_percent: row.change_pct,
         rvol: row.rvol,
@@ -406,6 +618,8 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
         chg_30min: row.chg_30min,
         vol_1min: row.vol_1min != null ? Number(row.vol_1min) : null,
         vol_5min: row.vol_5min != null ? Number(row.vol_5min) : null,
+        vol_1min_pct: row.vol_1min_pct,
+        vol_5min_pct: row.vol_5min_pct,
         rsi: row.rsi,
         ema_20: row.ema_20,
         ema_50: row.ema_50,
@@ -419,6 +633,22 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
 
       for (const [k, v] of Object.entries(numericFields)) {
         if (v != null) evt[k] = typeof v === "number" ? v : parseFloat(v);
+      }
+
+      // Hydrate from JSONB context (point-in-time snapshot stored at event creation)
+      const ctx = row.context;
+      if (ctx && typeof ctx === "object") {
+        for (const [ctxKey, evtKey] of CONTEXT_TO_EVENT_MAP) {
+          if (evt[evtKey] == null && ctx[ctxKey] != null) {
+            const n = typeof ctx[ctxKey] === "number" ? ctx[ctxKey] : parseFloat(ctx[ctxKey]);
+            if (!isNaN(n)) evt[evtKey] = n;
+          }
+        }
+        for (const key of CONTEXT_STRING_KEYS) {
+          if ((evt[key] == null || evt[key] === "") && ctx[key] != null && ctx[key] !== "") {
+            evt[key] = String(ctx[key]);
+          }
+        }
       }
 
       if (row.details) evt.details = row.details;
@@ -569,13 +799,17 @@ refreshEnrichedCache();
 const ENRICHED_FLOAT_FIELDS = [
   // Quote data
   "bid", "ask", "spread",
-  // Time-window changes (gaps in EventRecord)
+  // Time-window changes
   "chg_60min",
   // Intraday SMA
   "sma_5", "sma_8", "sma_20", "sma_50", "sma_200",
+  // EMA
+  "ema_9", "ema_20", "ema_50",
   // MACD / Stochastic / ADX / Bollinger
-  "macd_line", "macd_hist", "stoch_k", "stoch_d", "adx_14",
-  "bb_upper", "bb_lower",
+  "macd_line", "macd_signal", "macd_hist", "stoch_k", "stoch_d", "adx_14",
+  "bb_upper", "bb_mid", "bb_lower",
+  // RSI
+  "rsi_14",
   // Daily indicators
   "daily_sma_20", "daily_sma_50", "daily_sma_200",
   "daily_rsi", "daily_adx_14", "daily_atr_percent", "daily_bb_position",
@@ -585,38 +819,38 @@ const ENRICHED_FLOAT_FIELDS = [
   "dollar_volume", "todays_range", "todays_range_pct",
   "bid_ask_ratio", "float_turnover",
   "pos_in_range", "below_high", "above_low", "pos_of_open",
+  "gap_percent", "change_from_open", "change_from_close", "change_from_open_dollars",
   // Distances
   "dist_from_vwap",
   "dist_sma_5", "dist_sma_8", "dist_sma_20", "dist_sma_50", "dist_sma_200",
   "dist_daily_sma_20", "dist_daily_sma_50",
   // Multi-day changes
   "change_1d", "change_3d", "change_5d", "change_10d", "change_20d",
-  // ATR absolute
-  "atr",
-  // VWAP (fallback)
+  // ATR
+  "atr", "atr_percent",
+  // VWAP
   "vwap",
   // Fundamentals
-  "atr_percent", "market_cap", "float_shares",
-  // EMA (fallback)
-  "ema_20", "ema_50",
-  // RSI (fallback)
-  "rsi_14",
+  "market_cap", "float_shares",
   // Misc
   "trades_z_score",
-  "price_from_intraday_high",
+  "price_from_intraday_high", "price_from_intraday_low",
+  "price_from_high", "price_from_low",
   "distance_from_nbbo",
-  "volume_yesterday_pct",
+  "volume_today_pct", "volume_yesterday_pct",
   "vol_1min_pct", "vol_5min_pct", "vol_10min_pct", "vol_15min_pct", "vol_30min_pct",
   "range_2min", "range_5min", "range_15min", "range_30min", "range_60min", "range_120min",
   "range_2min_pct", "range_5min_pct", "range_15min_pct", "range_30min_pct", "range_60min_pct", "range_120min_pct",
+  "premarket_change_percent", "postmarket_change_percent",
 ];
 const ENRICHED_INT_FIELDS = [
   "bid_size", "ask_size",
   "shares_outstanding",
-  "vol_10min", "vol_15min", "vol_30min",
+  "vol_10min", "vol_15min", "vol_30min", "vol_60min",
   "prev_day_volume",
-  "trades_today",
-  "avg_volume_5d", "avg_volume_10d", "avg_volume_20d",
+  "trades_today", "avg_trades_5d",
+  "avg_volume_5d", "avg_volume_10d", "avg_volume_20d", "avg_volume_3m",
+  "minute_volume",
 ];
 const ENRICHED_STRING_FIELDS = [
   "security_type", "sector", "industry",
@@ -1252,6 +1486,15 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.daily_adx_14, 'dailyAdx14Min', 'dailyAdx14Max')) return false;
   if (!chkEvt(enriched.daily_atr_percent, 'dailyAtrPercentMin', 'dailyAtrPercentMax')) return false;
   if (!chkEvt(enriched.daily_bb_position, 'dailyBbPositionMin', 'dailyBbPositionMax')) return false;
+
+  // Scanner-aligned fields
+  if (!chkEvt(enriched.volume_today_pct, 'volumeTodayPctMin', 'volumeTodayPctMax')) return false;
+  if (!chkEvt(enriched.minute_volume, 'minuteVolumeMin', 'minuteVolumeMax')) return false;
+  if (!chkEvt(enriched.price_from_high, 'priceFromHighMin', 'priceFromHighMax')) return false;
+  if (!chkEvt(enriched.premarket_change_percent, 'premarketChangePctMin', 'premarketChangePctMax')) return false;
+  if (!chkEvt(enriched.postmarket_change_percent, 'postmarketChangePctMin', 'postmarketChangePctMax')) return false;
+  if (!chkEvt(enriched.avg_volume_3m, 'avgVolume3mMin', 'avgVolume3mMax')) return false;
+  if (!chkEvt(enriched.atr, 'atrMin', 'atrMax')) return false;
 
   // ── String filters ──
   if (sub.securityType !== null) {
@@ -3871,8 +4114,13 @@ wss.on("connection", async (ws, req) => {
           connectionId,
           subId,
           allTypes: sub.allTypes,
+          eventTypes: Array.from(sub.eventTypes).slice(0, 10),
           eventTypesCount: sub.eventTypes.size,
           activeSubs: connSubs.size,
+          rawFilters: Object.fromEntries(
+            Object.entries(data).filter(([k]) => !['action','sub_id','event_types'].includes(k) && data[k] != null)
+          ),
+          subKeys: Object.keys(sub).filter(k => sub[k] != null && sub[k] !== false && !(sub[k] instanceof Set && sub[k].size === 0)),
         }, "🎯 Event subscription created/replaced");
 
         sendMessage(connectionId, {
@@ -3969,7 +4217,11 @@ wss.on("connection", async (ws, req) => {
             has_more: snapshotHasMore,
             source,
           });
-          logger.info({ connectionId, subId, count: matched.length, has_more: snapshotHasMore, source }, "📸 Historical snapshot sent");
+          logger.info({
+            connectionId, subId, count: matched.length, has_more: snapshotHasMore, source,
+            sampleSymbols: matched.slice(0, 5).map(e => e.symbol),
+            sampleTypes: matched.slice(0, 5).map(e => e.event_type),
+          }, "📸 Historical snapshot sent");
 
         } catch (err) {
           logger.error({ connectionId, subId, error: err.message }, "❌ Error sending events snapshot");

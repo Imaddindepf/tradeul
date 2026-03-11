@@ -18,7 +18,6 @@ import {
   MarketEventType,
   EVENT_TYPE_LABELS,
   EVENT_TYPE_COLORS,
-  EVENT_TYPE_ICONS,
   MarketEventsFilter,
 } from '@/hooks/useMarketEvents';
 import { cn } from '@/lib/utils';
@@ -74,7 +73,6 @@ function EventRow({ event, compact, onClick }: EventRowProps) {
         : event.volume.toString()
     : '';
 
-  const icon = EVENT_TYPE_ICONS[event.event_type] || '📊';
   const colorClass = EVENT_TYPE_COLORS[event.event_type] || 'text-muted-fg';
   const label = EVENT_TYPE_LABELS[event.event_type] || event.event_type;
 
@@ -92,8 +90,6 @@ function EventRow({ event, compact, onClick }: EventRowProps) {
         compact ? 'py-1.5 px-2' : 'py-2 px-3',
       )}
     >
-      {/* Icon */}
-      <span className="text-lg flex-shrink-0">{icon}</span>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
@@ -194,8 +190,7 @@ function FilterBar({ selectedTypes, onTypesChange }: FilterBarProps) {
               : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700',
           )}
         >
-          <span>{EVENT_TYPE_ICONS[type]}</span>
-          <span className="hidden sm:inline">{EVENT_TYPE_LABELS[type]}</span>
+          <span>{EVENT_TYPE_LABELS[type]}</span>
         </button>
       ))}
     </div>

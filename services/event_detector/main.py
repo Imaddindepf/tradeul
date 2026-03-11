@@ -816,83 +816,130 @@ class EventEngine:
         except Exception:
             return None
 
+    # Fields to extract as float from the enriched snapshot
+    _ENRICHED_FLOAT_KEYS = [
+        "rvol", "vwap", "atr", "atr_percent",
+        "bid", "ask", "bid_ask_ratio", "spread", "distance_from_nbbo",
+        # Window changes
+        "chg_1min", "chg_5min", "chg_10min", "chg_15min", "chg_30min", "chg_60min",
+        # Volume window %
+        "vol_1min_pct", "vol_5min_pct", "vol_10min_pct", "vol_15min_pct", "vol_30min_pct",
+        # Range windows
+        "range_2min", "range_5min", "range_15min", "range_30min", "range_60min", "range_120min",
+        "range_2min_pct", "range_5min_pct", "range_15min_pct", "range_30min_pct",
+        "range_60min_pct", "range_120min_pct",
+        # Intraday indicators (BarEngine)
+        "rsi_14", "ema_9", "ema_20", "ema_50",
+        "sma_5", "sma_8", "sma_20", "sma_50", "sma_200",
+        "macd_line", "macd_signal", "macd_hist",
+        "bb_upper", "bb_mid", "bb_lower",
+        "adx_14", "stoch_k", "stoch_d",
+        # Daily indicators
+        "daily_sma_20", "daily_sma_50", "daily_sma_200",
+        "daily_rsi", "daily_adx_14", "daily_atr_percent", "daily_bb_position",
+        # 52-week
+        "high_52w", "low_52w", "from_52w_high", "from_52w_low",
+        # Derived / computed
+        "dollar_volume", "todays_range", "todays_range_pct",
+        "float_turnover", "dist_from_vwap",
+        "dist_sma_5", "dist_sma_8", "dist_sma_20", "dist_sma_50", "dist_sma_200",
+        "dist_daily_sma_20", "dist_daily_sma_50",
+        "pos_in_range", "below_high", "above_low", "pos_of_open",
+        "volume_today_pct", "volume_yesterday_pct",
+        "price_from_high", "price_from_low",
+        "price_from_intraday_high", "price_from_intraday_low",
+        # Multi-day changes
+        "change_1d", "change_3d", "change_5d", "change_10d", "change_20d",
+        # Session
+        "premarket_change_percent", "postmarket_change_percent",
+        # Fundamentals (float)
+        "market_cap", "float_shares",
+        # Misc
+        "trades_z_score", "gap_percent", "change_from_open", "change_from_close",
+        "change_from_open_dollars",
+    ]
+
+    _ENRICHED_INT_KEYS = [
+        "vol_1min", "vol_5min", "vol_10min", "vol_15min", "vol_30min", "vol_60min",
+        "bid_size", "ask_size",
+        "shares_outstanding", "prev_day_volume",
+        "trades_today", "avg_trades_5d",
+        "avg_volume_5d", "avg_volume_10d", "avg_volume_20d", "avg_volume_3m",
+        "minute_volume",
+    ]
+
+    _ENRICHED_STRING_KEYS = [
+        "security_type", "sector", "industry",
+    ]
+
     async def _refresh_enriched_cache(self):
-        """Refresh enriched data cache from Redis Hash (snapshot:enriched:latest)."""
+        """
+        Refresh enriched data cache from Redis Hash (snapshot:enriched:latest).
+
+        Extracts the FULL catalog of fields so that events persisted to
+        TimescaleDB carry a complete context JSONB snapshot, enabling
+        accurate historical filtering on any field.
+        """
         try:
-            # Read all tickers from Redis Hash (replaces reading full JSON blob)
             all_data = await self.raw_redis.hgetall("snapshot:enriched:latest")
             if not all_data:
                 return
 
-            # Remove metadata field
             all_data.pop(b"__meta__", None)
             all_data.pop("__meta__", None)
 
-            # Parse each ticker from hash fields
-            tickers = []
+            new_cache: Dict[str, Dict] = {}
             for sym_key, ticker_json in all_data.items():
                 try:
                     if isinstance(ticker_json, bytes):
                         ticker_json = ticker_json.decode('utf-8')
                     t = json.loads(ticker_json)
-                    tickers.append(t)
                 except Exception:
                     continue
 
-            new_cache = {}
-            for t in tickers:
                 sym = t.get("ticker") or t.get("symbol", "")
                 if not sym:
                     continue
 
-                # Extract nested fields safely
                 day = t.get("day") or {}
                 prev_day = t.get("prevDay") or {}
 
-                prev_close_val = prev_day.get("c") if isinstance(prev_day, dict) else None
-
-                new_cache[sym] = {
-                    # Changes
+                entry: Dict[str, Any] = {
                     "change_percent": t.get("todaysChangePerc"),
-
-                    # Reference prices
                     "open_price": day.get("o") if isinstance(day, dict) else None,
-                    "prev_close": prev_close_val,
+                    "prev_close": prev_day.get("c") if isinstance(prev_day, dict) else None,
                     "day_high": day.get("h") if isinstance(day, dict) else None,
                     "day_low": day.get("l") if isinstance(day, dict) else None,
-
-                    # Intraday extremes (from analytics intraday tracker)
                     "intraday_high": t.get("intraday_high"),
                     "intraday_low": t.get("intraday_low"),
-
-                    # VWAP
-                    "vwap": t.get("vwap"),
-
-                    # RVOL (fallback if redis hash unavailable)
-                    "rvol": t.get("rvol"),
-
-                    # Current price (for initialization)
                     "current_price": t.get("current_price"),
-
-                    # Window metrics
-                    "chg_1min": t.get("chg_1min"),
-                    "chg_5min": t.get("chg_5min"),
-                    "chg_10min": t.get("chg_10min"),
-                    "chg_15min": t.get("chg_15min"),
-                    "chg_30min": t.get("chg_30min"),
-                    "vol_1min": int(t["vol_1min"]) if t.get("vol_1min") else None,
-                    "vol_5min": int(t["vol_5min"]) if t.get("vol_5min") else None,
-                    "vol_1min_pct": float(t["vol_1min_pct"]) if t.get("vol_1min_pct") else None,
-                    "vol_5min_pct": float(t["vol_5min_pct"]) if t.get("vol_5min_pct") else None,
-
-                    # Technical
-                    "atr": t.get("atr"),
-                    "atr_percent": t.get("atr_percent"),
-                    "trades_z_score": t.get("trades_z_score"),
-
-                    # Fundamentals
-                    "market_cap": t.get("market_cap"),
+                    "rvol": t.get("rvol"),
                 }
+
+                for key in self._ENRICHED_FLOAT_KEYS:
+                    if key in entry:
+                        continue
+                    raw = t.get(key)
+                    if raw is not None:
+                        try:
+                            entry[key] = float(raw)
+                        except (ValueError, TypeError):
+                            pass
+
+                for key in self._ENRICHED_INT_KEYS:
+                    raw = t.get(key)
+                    if raw is not None:
+                        try:
+                            entry[key] = int(float(raw))
+                        except (ValueError, TypeError):
+                            pass
+
+                for key in self._ENRICHED_STRING_KEYS:
+                    raw = t.get(key)
+                    if raw is not None and raw != "":
+                        entry[key] = str(raw)
+
+                new_cache[sym] = entry
 
             self._enriched_cache = new_cache
             logger.debug(f"Enriched cache refreshed: {len(new_cache)} tickers")

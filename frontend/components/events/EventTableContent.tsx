@@ -582,16 +582,24 @@ function parseEvent(d: any): MarketEvent {
 /**
  * Client-side filter: returns true if event passes ALL active filters.
  * Centralised to avoid duplication between market_event and events_snapshot.
+ *
+ * When a field is undefined on the event, we trust the server-side filter
+ * (FILTER_MAP in queryHistoricalEvents) already applied that constraint.
+ * This handles legacy events whose context JSONB lacks newer fields.
+ * For real-time events the enrichment pipeline provides all fields, so
+ * the check is strict in practice.
  */
 function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore').ActiveEventFilters): boolean {
   const chk = (val: number | undefined, min: number | undefined, max: number | undefined): boolean => {
     if (min === undefined && max === undefined) return true;
-    if (val === undefined) return false;
+    if (val === undefined || val === null) return true;
     if (min !== undefined && max !== undefined && min > max) return val >= min || val <= max;
     if (min !== undefined && val < min) return false;
     if (max !== undefined && val > max) return false;
     return true;
   };
+
+  // Price & basics
   if (!chk(e.price, f.min_price, f.max_price)) return false;
   if (!chk(e.change_percent, f.min_change_percent, f.max_change_percent)) return false;
   if (!chk(e.rvol, f.min_rvol, f.max_rvol)) return false;
@@ -600,40 +608,147 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
   if (!chk(e.gap_percent, f.min_gap_percent, f.max_gap_percent)) return false;
   if (!chk(e.change_from_open, f.min_change_from_open, f.max_change_from_open)) return false;
   if (!chk(e.atr_percent, f.min_atr_percent, f.max_atr_percent)) return false;
+  if (!chk(e.atr, f.min_atr, f.max_atr)) return false;
   if (!chk(e.vwap, f.min_vwap, f.max_vwap)) return false;
+
   // Time-window changes
   if (!chk(e.chg_1min, f.min_chg_1min, f.max_chg_1min)) return false;
   if (!chk(e.chg_5min, f.min_chg_5min, f.max_chg_5min)) return false;
   if (!chk(e.chg_10min, f.min_chg_10min, f.max_chg_10min)) return false;
   if (!chk(e.chg_15min, f.min_chg_15min, f.max_chg_15min)) return false;
   if (!chk(e.chg_30min, f.min_chg_30min, f.max_chg_30min)) return false;
+  if (!chk(e.chg_60min, f.min_chg_60min, f.max_chg_60min)) return false;
+
   // Time-window volumes
   if (!chk(e.vol_1min, f.min_vol_1min, f.max_vol_1min)) return false;
   if (!chk(e.vol_5min, f.min_vol_5min, f.max_vol_5min)) return false;
+  if (!chk(e.vol_10min, f.min_vol_10min, f.max_vol_10min)) return false;
+  if (!chk(e.vol_15min, f.min_vol_15min, f.max_vol_15min)) return false;
+  if (!chk(e.vol_30min, f.min_vol_30min, f.max_vol_30min)) return false;
+
   // Volume window %
   if (!chk(e.vol_1min_pct, f.min_vol_1min_pct, f.max_vol_1min_pct)) return false;
   if (!chk(e.vol_5min_pct, f.min_vol_5min_pct, f.max_vol_5min_pct)) return false;
   if (!chk(e.vol_10min_pct, f.min_vol_10min_pct, f.max_vol_10min_pct)) return false;
   if (!chk(e.vol_15min_pct, f.min_vol_15min_pct, f.max_vol_15min_pct)) return false;
   if (!chk(e.vol_30min_pct, f.min_vol_30min_pct, f.max_vol_30min_pct)) return false;
-  // Range windows
+
+  // Range windows ($)
   if (!chk(e.range_2min, f.min_range_2min, f.max_range_2min)) return false;
   if (!chk(e.range_5min, f.min_range_5min, f.max_range_5min)) return false;
   if (!chk(e.range_15min, f.min_range_15min, f.max_range_15min)) return false;
   if (!chk(e.range_30min, f.min_range_30min, f.max_range_30min)) return false;
   if (!chk(e.range_60min, f.min_range_60min, f.max_range_60min)) return false;
   if (!chk(e.range_120min, f.min_range_120min, f.max_range_120min)) return false;
+
+  // Range windows (%)
   if (!chk(e.range_2min_pct, f.min_range_2min_pct, f.max_range_2min_pct)) return false;
   if (!chk(e.range_5min_pct, f.min_range_5min_pct, f.max_range_5min_pct)) return false;
   if (!chk(e.range_15min_pct, f.min_range_15min_pct, f.max_range_15min_pct)) return false;
   if (!chk(e.range_30min_pct, f.min_range_30min_pct, f.max_range_30min_pct)) return false;
   if (!chk(e.range_60min_pct, f.min_range_60min_pct, f.max_range_60min_pct)) return false;
   if (!chk(e.range_120min_pct, f.min_range_120min_pct, f.max_range_120min_pct)) return false;
-  // Fundamentals & indicators
+
+  // Fundamentals
   if (!chk(e.float_shares, f.min_float_shares, f.max_float_shares)) return false;
+  if (!chk(e.shares_outstanding, f.min_shares_outstanding, f.max_shares_outstanding)) return false;
   if (!chk(e.rsi, f.min_rsi, f.max_rsi)) return false;
+
+  // EMA (with legacy SMA fallback)
   if (!chk(e.ema_20, f.min_ema_20 ?? f.min_sma_20, f.max_ema_20 ?? f.max_sma_20)) return false;
   if (!chk(e.ema_50, f.min_ema_50 ?? f.min_sma_50, f.max_ema_50 ?? f.max_sma_50)) return false;
+
+  // Intraday SMA
+  if (!chk(e.sma_5, f.min_sma_5, f.max_sma_5)) return false;
+  if (!chk(e.sma_8, f.min_sma_8, f.max_sma_8)) return false;
+  if (!chk(e.sma_200, f.min_sma_200, f.max_sma_200)) return false;
+
+  // Quote
+  if (!chk(e.bid, f.min_bid, f.max_bid)) return false;
+  if (!chk(e.ask, f.min_ask, f.max_ask)) return false;
+  if (!chk(e.bid_size, f.min_bid_size, f.max_bid_size)) return false;
+  if (!chk(e.ask_size, f.min_ask_size, f.max_ask_size)) return false;
+  if (!chk(e.spread, f.min_spread, f.max_spread)) return false;
+
+  // MACD / Stochastic / ADX / Bollinger
+  if (!chk(e.macd_line, f.min_macd_line, f.max_macd_line)) return false;
+  if (!chk(e.macd_hist, f.min_macd_hist, f.max_macd_hist)) return false;
+  if (!chk(e.stoch_k, f.min_stoch_k, f.max_stoch_k)) return false;
+  if (!chk(e.stoch_d, f.min_stoch_d, f.max_stoch_d)) return false;
+  if (!chk(e.adx_14, f.min_adx_14, f.max_adx_14)) return false;
+  if (!chk(e.bb_upper, f.min_bb_upper, f.max_bb_upper)) return false;
+  if (!chk(e.bb_lower, f.min_bb_lower, f.max_bb_lower)) return false;
+
+  // Daily indicators
+  if (!chk(e.daily_sma_20, f.min_daily_sma_20, f.max_daily_sma_20)) return false;
+  if (!chk(e.daily_sma_50, f.min_daily_sma_50, f.max_daily_sma_50)) return false;
+  if (!chk(e.daily_sma_200, f.min_daily_sma_200, f.max_daily_sma_200)) return false;
+  if (!chk(e.daily_rsi, f.min_daily_rsi, f.max_daily_rsi)) return false;
+  if (!chk(e.daily_adx_14, f.min_daily_adx_14, f.max_daily_adx_14)) return false;
+  if (!chk(e.daily_atr_percent, f.min_daily_atr_percent, f.max_daily_atr_percent)) return false;
+  if (!chk(e.daily_bb_position, f.min_daily_bb_position, f.max_daily_bb_position)) return false;
+
+  // 52-week
+  if (!chk(e.high_52w, f.min_high_52w, f.max_high_52w)) return false;
+  if (!chk(e.low_52w, f.min_low_52w, f.max_low_52w)) return false;
+  if (!chk(e.from_52w_high, f.min_from_52w_high, f.max_from_52w_high)) return false;
+  if (!chk(e.from_52w_low, f.min_from_52w_low, f.max_from_52w_low)) return false;
+
+  // Trades anomaly
+  if (!chk(e.trades_today, f.min_trades_today, f.max_trades_today)) return false;
+  if (!chk(e.trades_z_score, f.min_trades_z_score, f.max_trades_z_score)) return false;
+
+  // Derived / Computed
+  if (!chk(e.dollar_volume, f.min_dollar_volume, f.max_dollar_volume)) return false;
+  if (!chk(e.todays_range, f.min_todays_range, f.max_todays_range)) return false;
+  if (!chk(e.todays_range_pct, f.min_todays_range_pct, f.max_todays_range_pct)) return false;
+  if (!chk(e.bid_ask_ratio, f.min_bid_ask_ratio, f.max_bid_ask_ratio)) return false;
+  if (!chk(e.float_turnover, f.min_float_turnover, f.max_float_turnover)) return false;
+  if (!chk(e.dist_from_vwap, f.min_dist_from_vwap, f.max_dist_from_vwap)) return false;
+
+  // Distance from intraday SMAs
+  if (!chk(e.dist_sma_5, f.min_dist_sma_5, f.max_dist_sma_5)) return false;
+  if (!chk(e.dist_sma_8, f.min_dist_sma_8, f.max_dist_sma_8)) return false;
+  if (!chk(e.dist_sma_20, f.min_dist_sma_20, f.max_dist_sma_20)) return false;
+  if (!chk(e.dist_sma_50, f.min_dist_sma_50, f.max_dist_sma_50)) return false;
+  if (!chk(e.dist_sma_200, f.min_dist_sma_200, f.max_dist_sma_200)) return false;
+
+  // Position / range
+  if (!chk(e.pos_in_range, f.min_pos_in_range, f.max_pos_in_range)) return false;
+  if (!chk(e.below_high, f.min_below_high, f.max_below_high)) return false;
+  if (!chk(e.above_low, f.min_above_low, f.max_above_low)) return false;
+  if (!chk(e.pos_of_open, f.min_pos_of_open, f.max_pos_of_open)) return false;
+  if (!chk(e.prev_day_volume, f.min_prev_day_volume, f.max_prev_day_volume)) return false;
+
+  // Multi-day changes
+  if (!chk(e.change_1d, f.min_change_1d, f.max_change_1d)) return false;
+  if (!chk(e.change_3d, f.min_change_3d, f.max_change_3d)) return false;
+  if (!chk(e.change_5d, f.min_change_5d, f.max_change_5d)) return false;
+  if (!chk(e.change_10d, f.min_change_10d, f.max_change_10d)) return false;
+  if (!chk(e.change_20d, f.min_change_20d, f.max_change_20d)) return false;
+
+  // Average daily volumes
+  if (!chk(e.avg_volume_5d, f.min_avg_volume_5d, f.max_avg_volume_5d)) return false;
+  if (!chk(e.avg_volume_10d, f.min_avg_volume_10d, f.max_avg_volume_10d)) return false;
+  if (!chk(e.avg_volume_20d, f.min_avg_volume_20d, f.max_avg_volume_20d)) return false;
+  if (!chk(e.avg_volume_3m, f.min_avg_volume_3m, f.max_avg_volume_3m)) return false;
+
+  // Distance from daily SMAs
+  if (!chk(e.dist_daily_sma_20, f.min_dist_daily_sma_20, f.max_dist_daily_sma_20)) return false;
+  if (!chk(e.dist_daily_sma_50, f.min_dist_daily_sma_50, f.max_dist_daily_sma_50)) return false;
+
+  // Scanner-aligned
+  if (!chk(e.volume_today_pct, f.min_volume_today_pct, f.max_volume_today_pct)) return false;
+  if (!chk(e.price_from_high, f.min_price_from_high, f.max_price_from_high)) return false;
+  if (!chk(e.distance_from_nbbo, f.min_distance_from_nbbo, f.max_distance_from_nbbo)) return false;
+  if (!chk(e.premarket_change_percent, f.min_premarket_change_percent, f.max_premarket_change_percent)) return false;
+  if (!chk(e.postmarket_change_percent, f.min_postmarket_change_percent, f.max_postmarket_change_percent)) return false;
+
+  // String filters
+  if (f.security_type && e.security_type?.toUpperCase() !== f.security_type.toUpperCase()) return false;
+  if (f.sector && (!e.sector || !e.sector.toUpperCase().includes(f.sector.toUpperCase()))) return false;
+  if (f.industry && (!e.industry || !e.industry.toUpperCase().includes(f.industry.toUpperCase()))) return false;
+
   // Symbol filters
   if (f.symbols_include?.length && !f.symbols_include.includes(e.symbol)) return false;
   if (f.symbols_exclude?.length && f.symbols_exclude.includes(e.symbol)) return false;
@@ -765,7 +880,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
 
   // Apply client-side filters (complement server-side filtering)
   const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
+    const result = events.filter((event) => {
       if (categoryId === 'evt_all' && eventFilters.event_types && eventFilters.event_types.length > 0) {
         if (!eventFilters.event_types.includes(event.event_type)) {
           return false;
@@ -773,6 +888,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
       }
       return passesFilters(event, eventFilters);
     });
+    return result;
   }, [events, eventFilters, categoryId]);
 
   // Cleanup animation timeouts on unmount
@@ -936,6 +1052,22 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('daily_adx_14_min', filters.min_daily_adx_14); setF('daily_adx_14_max', filters.max_daily_adx_14);
     setF('daily_atr_percent_min', filters.min_daily_atr_percent); setF('daily_atr_percent_max', filters.max_daily_atr_percent);
     setF('daily_bb_position_min', filters.min_daily_bb_position); setF('daily_bb_position_max', filters.max_daily_bb_position);
+    // Scanner-aligned filters
+    setF('volume_today_pct_min', filters.min_volume_today_pct); setF('volume_today_pct_max', filters.max_volume_today_pct);
+    setF('minute_volume_min', filters.min_minute_volume);
+    setF('price_from_high_min', filters.min_price_from_high); setF('price_from_high_max', filters.max_price_from_high);
+    setF('price_from_low_min', filters.min_price_from_low); setF('price_from_low_max', filters.max_price_from_low);
+    setF('price_from_intraday_high_min', filters.min_price_from_intraday_high); setF('price_from_intraday_high_max', filters.max_price_from_intraday_high);
+    setF('price_from_intraday_low_min', filters.min_price_from_intraday_low); setF('price_from_intraday_low_max', filters.max_price_from_intraday_low);
+    setF('distance_from_nbbo_min', filters.min_distance_from_nbbo); setF('distance_from_nbbo_max', filters.max_distance_from_nbbo);
+    setF('premarket_change_percent_min', filters.min_premarket_change_percent); setF('premarket_change_percent_max', filters.max_premarket_change_percent);
+    setF('postmarket_change_percent_min', filters.min_postmarket_change_percent); setF('postmarket_change_percent_max', filters.max_postmarket_change_percent);
+    setF('avg_volume_3m_min', filters.min_avg_volume_3m); setF('avg_volume_3m_max', filters.max_avg_volume_3m);
+    setF('atr_min', filters.min_atr); setF('atr_max', filters.max_atr);
+    setF('change_from_open_dollars_min', filters.min_change_from_open_dollars); setF('change_from_open_dollars_max', filters.max_change_from_open_dollars);
+    // EMA filters (map to ema_ prefix for server)
+    setF('ema_20_min', filters.min_ema_20); setF('ema_20_max', filters.max_ema_20);
+    setF('ema_50_min', filters.min_ema_50); setF('ema_50_max', filters.max_ema_50);
     // String filters
     setS('security_type', filters.security_type);
     setS('sector', filters.sector);
@@ -1193,6 +1325,20 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         ['daily_adx_14_min', f.min_daily_adx_14], ['daily_adx_14_max', f.max_daily_adx_14],
         ['daily_atr_percent_min', f.min_daily_atr_percent], ['daily_atr_percent_max', f.max_daily_atr_percent],
         ['daily_bb_position_min', f.min_daily_bb_position], ['daily_bb_position_max', f.max_daily_bb_position],
+        // Scanner-aligned filters
+        ['volume_today_pct_min', f.min_volume_today_pct], ['volume_today_pct_max', f.max_volume_today_pct],
+        ['minute_volume_min', f.min_minute_volume],
+        ['price_from_high_min', f.min_price_from_high], ['price_from_high_max', f.max_price_from_high],
+        ['price_from_low_min', f.min_price_from_low], ['price_from_low_max', f.max_price_from_low],
+        ['price_from_intraday_high_min', f.min_price_from_intraday_high], ['price_from_intraday_high_max', f.max_price_from_intraday_high],
+        ['price_from_intraday_low_min', f.min_price_from_intraday_low], ['price_from_intraday_low_max', f.max_price_from_intraday_low],
+        ['distance_from_nbbo_min', f.min_distance_from_nbbo], ['distance_from_nbbo_max', f.max_distance_from_nbbo],
+        ['premarket_change_percent_min', f.min_premarket_change_percent], ['premarket_change_percent_max', f.max_premarket_change_percent],
+        ['postmarket_change_percent_min', f.min_postmarket_change_percent], ['postmarket_change_percent_max', f.max_postmarket_change_percent],
+        ['avg_volume_3m_min', f.min_avg_volume_3m], ['avg_volume_3m_max', f.max_avg_volume_3m],
+        ['atr_min', f.min_atr], ['atr_max', f.max_atr],
+        ['ema_20_min', f.min_ema_20], ['ema_20_max', f.max_ema_20],
+        ['ema_50_min', f.min_ema_50], ['ema_50_max', f.max_ema_50],
       ];
       for (const [k, v] of uPairs) uF(k, v);
       uS('security_type', f.security_type);

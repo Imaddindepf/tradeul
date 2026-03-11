@@ -30,7 +30,6 @@ async function authFetch(
     });
 }
 
-// Tipos para la API
 interface WindowLayoutAPI {
     id: string;
     type: string;
@@ -39,6 +38,8 @@ interface WindowLayoutAPI {
     size: { width: number; height: number };
     isMinimized: boolean;
     zIndex: number;
+    componentState?: Record<string, unknown>;
+    linkGroup?: string;
 }
 
 interface UserPreferencesAPI {
@@ -125,7 +126,7 @@ export function useClerkSync() {
 
                 const currentLocalLayouts = useUserPreferencesStore.getState().windowLayouts;
                 if (data.windowLayouts && data.windowLayouts.length > 0 && currentLocalLayouts.length === 0) {
-                    const layouts = data.windowLayouts.map((w: WindowLayoutAPI) => ({
+                    const layouts = data.windowLayouts.map((w) => ({
                         id: w.id,
                         type: w.type,
                         title: w.title,
@@ -133,8 +134,8 @@ export function useClerkSync() {
                         size: w.size,
                         isMinimized: w.isMinimized,
                         zIndex: w.zIndex,
-                        componentState: (w as any).componentState,
-                        linkGroup: (w as any).linkGroup,
+                        componentState: w.componentState,
+                        linkGroup: w.linkGroup,
                     }));
                     saveWindowLayouts(layouts);
                 }
