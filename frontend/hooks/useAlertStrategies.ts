@@ -8,14 +8,7 @@ import { useAuth } from '@clerk/nextjs';
 // ============================================================================
 
 export interface AlertStrategyFilters {
-  min_price?: number;
-  max_price?: number;
-  min_change_percent?: number;
-  max_change_percent?: number;
-  min_rvol?: number;
-  max_rvol?: number;
-  min_volume?: number;
-  max_volume?: number;
+  [key: string]: number | string | undefined;
 }
 
 export interface AlertStrategy {

@@ -351,6 +351,47 @@ services:
         reservations:
           memory: 256M
 
+  # =============================================
+  # ALERT ENGINE - Professional alert detection
+  # =============================================
+  alert_engine:
+    build:
+      context: .
+      dockerfile: services/alert_engine/Dockerfile
+    container_name: tradeul_alert_engine
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-tradeul}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      analytics:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8041:8041"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 2G
+        reservations:
+          memory: 512M
+
   data_maintenance:
     build:
       context: .

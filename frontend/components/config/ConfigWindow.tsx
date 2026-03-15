@@ -16,7 +16,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAlertStrategies, type AlertStrategy, type CreateStrategyData } from '@/hooks/useAlertStrategies';
 import { useUserFilters } from '@/hooks/useUserFilters';
-import { BUILT_IN_PRESETS, type AlertPreset, BUILT_IN_TOP_LISTS, type TopListPreset, ALERT_CATEGORIES, ALERT_CATALOG, getAlertsByCategory, searchAlerts } from '@/lib/alert-catalog';
+import { BUILT_IN_PRESETS, type AlertPreset, BUILT_IN_TOP_LISTS, type TopListPreset, ALERT_CATEGORIES, ALERT_CATALOG, ALERT_BY_EVENT_TYPE, getAlertsByCategory, searchAlerts } from '@/lib/alert-catalog';
 import type { ActiveEventFilters } from '@/stores/useEventFiltersStore';
 import type { UserFilter } from '@/lib/types/scannerFilters';
 import { SECURITY_TYPES, SECTORS, INDUSTRIES } from '@/lib/constants/filters';
@@ -1017,15 +1017,36 @@ export function ConfigWindow({
                       </button>
                     </button>
                     {exp && (
-                      <div className="px-2 py-1 flex flex-wrap gap-[3px]">
-                        {alerts.map(a => (
-                          <button key={a.eventType} onClick={() => toggleAlert(a.eventType)}
-                            className={`px-1.5 py-[2px] text-[11px] rounded border transition-colors ${selectedAlerts.has(a.eventType)
-                              ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 font-medium'
-                              : 'border-border-subtle text-foreground/80 hover:bg-surface-hover hover:text-foreground'
-                              }`}
-                          >{a.name}</button>
-                        ))}
+                      <div className="px-2 py-1 space-y-[2px]">
+                        {alerts.map(a => {
+                          const sel = selectedAlerts.has(a.eventType);
+                          const cs = a.customSetting;
+                          const csKey = `aq:${a.eventType}`;
+                          return (
+                            <div key={a.eventType} className="flex items-center gap-1">
+                              <button onClick={() => toggleAlert(a.eventType)}
+                                className={`flex-1 px-1.5 py-[2px] text-[11px] rounded border transition-colors text-left truncate ${sel
+                                  ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 font-medium'
+                                  : 'border-border-subtle text-foreground/80 hover:bg-surface-hover hover:text-foreground'
+                                  }`}
+                              >{a.name}</button>
+                              {sel && cs.type !== 'none' && (
+                                <input
+                                  type="number"
+                                  step="any"
+                                  placeholder={cs.defaultValue != null ? String(cs.defaultValue) : cs.hint || ''}
+                                  title={`${cs.label}${cs.unit ? ` (${cs.unit})` : ''}`}
+                                  value={filters[csKey] ?? ''}
+                                  onChange={e => {
+                                    const v = e.target.value;
+                                    setFilter(csKey, v === '' ? undefined : Number(v));
+                                  }}
+                                  className="w-14 px-1 py-[1px] text-[10px] tabular-nums border border-border rounded bg-[var(--color-input-bg)] text-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary"
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

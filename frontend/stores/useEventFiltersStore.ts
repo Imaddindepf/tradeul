@@ -331,6 +331,9 @@ export interface EventFilterParameters {
   // ATR ($)
   min_atr?: number;
   max_atr?: number;
+
+  // Per-alert custom settings (keys like "aq:running_up", "aq:new_high", etc.)
+  [key: `aq:${string}`]: number | undefined;
 }
 
 export interface ActiveEventFilters extends EventFilterParameters { }
@@ -354,58 +357,12 @@ interface EventFiltersState {
 }
 
 // ============================================================================
-// Available Event Types
+// Available Event Types — derived from alert-catalog.ts (single source of truth)
 // ============================================================================
 
-export const ALL_EVENT_TYPES = [
-  'new_high', 'new_low',
-  'crossed_above_open', 'crossed_below_open',
-  'crossed_above_prev_close', 'crossed_below_prev_close',
-  'vwap_cross_up', 'vwap_cross_down',
-  'rvol_spike', 'volume_surge', 'volume_spike_1min', 'unusual_prints', 'block_trade',
-  'running_up', 'running_down',
-  'percent_up_5', 'percent_down_5', 'percent_up_10', 'percent_down_10',
-  'pullback_75_from_high', 'pullback_25_from_high',
-  'pullback_75_from_low', 'pullback_25_from_low',
-  'pullback_75_from_high_close', 'pullback_25_from_high_close',
-  'pullback_75_from_low_close', 'pullback_25_from_low_close',
-  'pullback_75_from_high_open', 'pullback_25_from_high_open',
-  'pullback_75_from_low_open', 'pullback_25_from_low_open',
-  'gap_up_reversal', 'gap_down_reversal',
-  'halt', 'resume',
-  'crossed_above_ema20', 'crossed_below_ema20',
-  'crossed_above_ema50', 'crossed_below_ema50',
-  'crossed_above_sma8', 'crossed_below_sma8',
-  'crossed_above_sma20', 'crossed_below_sma20',
-  'crossed_above_sma50', 'crossed_below_sma50',
-  'sma_8_cross_above_20', 'sma_8_cross_below_20',
-  'macd_cross_bullish', 'macd_cross_bearish',
-  'macd_zero_cross_up', 'macd_zero_cross_down',
-  'stoch_cross_bullish', 'stoch_cross_bearish',
-  'stoch_oversold', 'stoch_overbought',
-  'sma8_above_sma20_5min', 'sma8_below_sma20_5min',
-  'macd_above_signal_5min', 'macd_below_signal_5min',
-  'macd_above_zero_5min', 'macd_below_zero_5min',
-  'stoch_cross_bullish_5min', 'stoch_cross_bearish_5min',
-  'stoch_oversold_5min', 'stoch_overbought_5min',
-  'crossed_above_sma20_daily', 'crossed_below_sma20_daily',
-  'crossed_above_sma50_daily', 'crossed_below_sma50_daily',
-  'orb_breakout_up', 'orb_breakout_down',
-  'consolidation_breakout_up', 'consolidation_breakout_down',
-  'bb_upper_breakout', 'bb_lower_breakdown',
-  'crossed_daily_high_resistance', 'crossed_daily_low_support',
-  'false_gap_up_retracement', 'false_gap_down_retracement',
-  'running_up_sustained', 'running_down_sustained',
-  'running_up_confirmed', 'running_down_confirmed',
-  'crossed_above_sma200', 'crossed_below_sma200',
-  'pre_market_high', 'pre_market_low',
-  'post_market_high', 'post_market_low',
-  'crossed_above_open_confirmed', 'crossed_below_open_confirmed',
-  'crossed_above_close_confirmed', 'crossed_below_close_confirmed',
-  'vwap_divergence_up', 'vwap_divergence_down',
-] as const;
-
-export type EventType = typeof ALL_EVENT_TYPES[number];
+import { ALL_EVENT_TYPES } from '@/lib/alert-catalog';
+export { ALL_EVENT_TYPES };
+export type EventType = string;
 
 // ============================================================================
 // Helpers

@@ -1311,6 +1311,16 @@ function buildEventSubscription(data) {
   if (data.symbols_exclude && Array.isArray(data.symbols_exclude)) {
     sub.symbolsExclude = new Set(data.symbols_exclude.map(s => s.toUpperCase()));
   }
+
+  // Per-alert quality thresholds: keys prefixed with "aq:" → Map<eventType, minQuality>
+  sub.alertQuality = new Map();
+  for (const [key, val] of Object.entries(data)) {
+    if (key.startsWith("aq:") && val != null) {
+      const n = parseFloat(val);
+      if (!isNaN(n)) sub.alertQuality.set(key.slice(3), n);
+    }
+  }
+
   return sub;
 }
 
@@ -1510,6 +1520,15 @@ function eventPassesSubscription(evt, sub) {
     if (!ind || !ind.toUpperCase().includes(sub.industry.toUpperCase())) return false;
   }
 
+  // Per-alert quality threshold: if user set aq:<eventType> = N, require quality >= N
+  if (sub.alertQuality && sub.alertQuality.size > 0) {
+    const minQ = sub.alertQuality.get(evt.event_type);
+    if (minQ != null) {
+      const q = evt.quality;
+      if (q == null || q < minQ) return false;
+    }
+  }
+
   return true;
 }
 
@@ -1523,6 +1542,19 @@ function applyNumericFilterUpdates(sub, data) {
   for (const [subKey, dataKey] of STRING_FILTER_DEFS) {
     if (data[dataKey] !== undefined) {
       sub[subKey] = ps(data, dataKey);
+    }
+  }
+  // Per-alert quality thresholds
+  if (!sub.alertQuality) sub.alertQuality = new Map();
+  for (const [key, val] of Object.entries(data)) {
+    if (key.startsWith("aq:")) {
+      const eventType = key.slice(3);
+      if (val == null) {
+        sub.alertQuality.delete(eventType);
+      } else {
+        const n = parseFloat(val);
+        if (!isNaN(n)) sub.alertQuality.set(eventType, n);
+      }
     }
   }
 }
@@ -3554,6 +3586,70 @@ function broadcastMarketEvent(eventData) {
 }
 
 /**
+ * Consumer for stream:alerts:market (alert_engine output).
+ * Reuses broadcastMarketEvent — AlertRecord.to_dict() is wire-compatible
+ * with EventRecord.to_dict() (same field names, same types).
+ * Extra fields (quality, description) are passed through automatically
+ * since broadcastMarketEvent parses all fields dynamically.
+ */
+async function processAlertEngineStream() {
+  const STREAM_NAME = "stream:alerts:market";
+  const CONSUMER_GROUP = "websocket_server_alerts";
+  const CONSUMER_NAME = `ws_alerts_${process.pid}`;
+
+  logger.info({ streamName: STREAM_NAME, consumerGroup: CONSUMER_GROUP, consumer: CONSUMER_NAME },
+    "Starting Alert Engine stream consumer");
+
+  try {
+    await redisCommands.xgroup("CREATE", STREAM_NAME, CONSUMER_GROUP, "$", "MKSTREAM");
+    logger.info({ streamName: STREAM_NAME }, "Created consumer group for alerts");
+  } catch (err) {
+    logger.debug({ err: err.message }, "Alerts consumer group already exists");
+  }
+
+  while (true) {
+    try {
+      const results = await redisMarketEvents.xreadgroup(
+        "GROUP", CONSUMER_GROUP, CONSUMER_NAME,
+        "BLOCK", 500, "COUNT", 100,
+        "STREAMS", STREAM_NAME, ">"
+      );
+
+      if (!results) continue;
+
+      const messageIds = [];
+      for (const [_stream, messages] of results) {
+        for (const [id, fields] of messages) {
+          messageIds.push(id);
+          const eventData = parseRedisFields(fields);
+          broadcastMarketEvent(eventData);
+        }
+      }
+
+      if (messageIds.length > 0) {
+        try {
+          await redisCommands.xack(STREAM_NAME, CONSUMER_GROUP, ...messageIds);
+        } catch (err) {
+          logger.error({ err }, "Error acknowledging alert messages");
+        }
+      }
+    } catch (err) {
+      if (err.message && err.message.includes('NOGROUP')) {
+        logger.warn({ streamName: STREAM_NAME }, "Alerts consumer group missing - recreating");
+        try {
+          await redisCommands.xgroup("CREATE", STREAM_NAME, CONSUMER_GROUP, "0", "MKSTREAM");
+          continue;
+        } catch (recreateErr) {
+          logger.error({ err: recreateErr }, "Failed to recreate alerts consumer group");
+        }
+      }
+      logger.error({ err }, "Error reading alerts stream");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+/**
  * Procesador del stream de Quotes
  * Lee stream:realtime:quotes y broadcast a clientes suscritos por ticker
  */
@@ -4724,6 +4820,11 @@ processQuotesStream().catch((err) => {
 
 processMarketEventsStream().catch((err) => {
   logger.fatal({ err }, "Market Events stream processor crashed");
+  process.exit(1);
+});
+
+processAlertEngineStream().catch((err) => {
+  logger.fatal({ err }, "Alert Engine stream processor crashed");
   process.exit(1);
 });
 

@@ -193,6 +193,7 @@ class TimeframeState:
         'sma_5', 'sma_8', 'sma_20',
         'macd', 'stoch',
         'tf_high', 'tf_low',  # intraday extremes for this timeframe
+        'prev_bar_high', 'prev_bar_low',  # previous closed N-min candle OHLC extremes
     )
 
     def __init__(self, period: int):
@@ -204,6 +205,10 @@ class TimeframeState:
         # Intraday extremes for this timeframe's bars
         self.tf_high: float = 0.0
         self.tf_low: float = float('inf')
+
+        # Previous closed candle high/low (for IDH/IDL alerts)
+        self.prev_bar_high: float = 0.0
+        self.prev_bar_low: float = 0.0
 
         cfg = _TF_INDICATOR_CONFIG.get(period, {})
         sma_periods = cfg.get('sma_periods', ())
@@ -528,6 +533,10 @@ class BarEngine:
 
         tf_state.bar_count += 1
 
+        # Store this bar's high/low as "previous" for IDH/IDL comparison
+        tf_state.prev_bar_high = h
+        tf_state.prev_bar_low = l_val
+
         # Track intraday extremes for this timeframe
         if h > tf_state.tf_high:
             tf_state.tf_high = h
@@ -677,11 +686,22 @@ class BarEngine:
                     tf_ind['stoch_k'] = self._round_safe(last_stoch.k if hasattr(last_stoch, 'k') else None)
                     tf_ind['stoch_d'] = self._round_safe(last_stoch.d if hasattr(last_stoch, 'd') else None)
 
-            # Timeframe highs/lows
+            # Timeframe highs/lows (cumulative intraday)
             if tf_state.tf_high > 0:
                 tf_ind['tf_high'] = tf_state.tf_high
             if tf_state.tf_low < float('inf'):
                 tf_ind['tf_low'] = tf_state.tf_low
+
+            # Previous closed candle high/low (for IDH/IDL alerts)
+            if tf_state.prev_bar_high > 0:
+                tf_ind['prev_bar_high'] = tf_state.prev_bar_high
+            if tf_state.prev_bar_low > 0:
+                tf_ind['prev_bar_low'] = tf_state.prev_bar_low
+
+            # Current building candle high/low
+            if tf_state.builder:
+                tf_ind['cur_bar_high'] = max(b['h'] for b in tf_state.builder)
+                tf_ind['cur_bar_low'] = min(b['l'] for b in tf_state.builder)
 
             tf_data[tf_period] = tf_ind
 

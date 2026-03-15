@@ -812,22 +812,22 @@ class EnrichmentPipeline:
         - fmv:        Fair market value, almost always null.
         - lastQuote:  ENTIRE dict removed (data pre-flattened to bid/ask/bid_size/ask_size).
                       Eliminates ~30% of false "changed" detections from NBBO quote churn.
-        - lastTrade.i/x/c/s: Trade metadata not consumed by any downstream service.
+        - lastTrade.i/c: Trade ID (noisy) and conditions array (unused).
         - min.n/otc:  Transaction count and OTC flag, unused.
         - day.otc:    OTC flag, unused.
-        - prevDay.o/h/l/vw: Static fields unused (only prevDay.c and .v are consumed).
+        - prevDay.h/l/vw: Static fields unused.
         """
         # Top-level volatile/unused fields
         ticker_data.pop('updated', None)
         ticker_data.pop('fmv', None)
         
-        # lastTrade: keep only .p (price) and .t (timestamp, used by scanner)
+        # lastTrade: keep .p (price), .t (timestamp), .s (trade size), .x (exchange)
+        # .s needed by alert_engine for block trade detection
+        # .x needed by alert_engine for exchange-specific alerts (TRAS/TRBS)
         last_trade = ticker_data.get('lastTrade')
         if isinstance(last_trade, dict):
-            last_trade.pop('i', None)   # trade ID - unique per trade
-            last_trade.pop('x', None)   # exchange ID - rarely needed
+            last_trade.pop('i', None)   # trade ID - unique per trade, noisy
             last_trade.pop('c', None)   # conditions array - unused
-            last_trade.pop('s', None)   # trade size - unused downstream
         
         # lastQuote: FULLY REMOVED - data already flattened to bid/ask/bid_size/ask_size
         # This eliminates all quote-only false changes (high-frequency NBBO updates)
@@ -844,12 +844,10 @@ class EnrichmentPipeline:
         if isinstance(day_data, dict):
             day_data.pop('otc', None)   # OTC flag - static/unused
         
-        # prevDay: keep only .c (prev_close) and .v (prev_volume)
-        # Scanner and event detector only use these two fields.
-        # Removes .o, .h, .l, .vw (~60 bytes saved, 100% static data)
+        # prevDay: keep .c (prev_close), .v (prev_volume), .o (prev_open)
+        # .o needed by alert_engine for CAO/CBO in pre-market
         prev_day = ticker_data.get('prevDay')
         if isinstance(prev_day, dict):
-            prev_day.pop('o', None)     # prev open - unused
             prev_day.pop('h', None)     # prev high - unused
             prev_day.pop('l', None)     # prev low - unused
             prev_day.pop('vw', None)    # prev VWAP - unused

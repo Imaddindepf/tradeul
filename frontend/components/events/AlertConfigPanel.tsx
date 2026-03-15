@@ -87,8 +87,10 @@ function FilterInput({ label, minValue, maxValue, onMinChange, onMaxChange, suff
   );
 }
 
-function SelectAlertsTab({ selectedEventTypes, onEventTypesChange, locale }: {
-  selectedEventTypes: string[]; onEventTypesChange: (t: string[]) => void; locale: 'en' | 'es';
+function SelectAlertsTab({ selectedEventTypes, onEventTypesChange, currentFilters, onFiltersChange, locale }: {
+  selectedEventTypes: string[]; onEventTypesChange: (t: string[]) => void;
+  currentFilters: ActiveEventFilters; onFiltersChange: (f: ActiveEventFilters) => void;
+  locale: 'en' | 'es';
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set(ALERT_CATEGORIES.map(c => c.id)));
@@ -176,27 +178,45 @@ function SelectAlertsTab({ selectedEventTypes, onEventTypesChange, locale }: {
                 <div className="pb-1">
                   {alerts.map(alert => {
                     const sel = selectedSet.has(alert.eventType);
+                    const cs = alert.customSetting;
+                    const csKey = `aq:${alert.eventType}` as const;
                     return (
-                      <button key={alert.code} onClick={() => toggleAlert(alert.eventType)}
-                        className={'w-full flex items-center gap-2 px-3 py-1 ml-3 mr-2 rounded-md transition-colors text-left '
-                          + (sel ? 'bg-primary/10 hover:bg-primary/15' : 'hover:bg-[var(--color-table-row-hover)]')}>
-                        <div className={'w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center '
-                          + (sel ? 'bg-primary border-primary' : 'border-white/[0.1] bg-surface')}>
-                          {sel && <Check className="w-2.5 h-2.5 text-white" />}
-                        </div>
-                        <DirectionIcon direction={alert.direction} />
-                        <span className={'text-[10px] font-mono font-bold w-10 flex-shrink-0 '
-                          + (sel ? 'text-primary' : 'text-muted-fg')}>{alert.code}</span>
-                        <span className={'text-xs flex-1 truncate '
-                          + (sel ? 'text-foreground font-medium' : 'text-foreground/80')}>
-                          {locale === 'es' ? alert.nameEs : alert.name}
-                        </span>
-                        {alert.phase > 1 && (
-                          <span className="text-[9px] font-medium px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                            P{alert.phase}
+                      <div key={alert.code} className="flex items-center gap-1 pr-2">
+                        <button onClick={() => toggleAlert(alert.eventType)}
+                          className={'flex-1 flex items-center gap-2 px-3 py-1 ml-3 rounded-md transition-colors text-left min-w-0 '
+                            + (sel ? 'bg-primary/10 hover:bg-primary/15' : 'hover:bg-[var(--color-table-row-hover)]')}>
+                          <div className={'w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center '
+                            + (sel ? 'bg-primary border-primary' : 'border-white/[0.1] bg-surface')}>
+                            {sel && <Check className="w-2.5 h-2.5 text-white" />}
+                          </div>
+                          <DirectionIcon direction={alert.direction} />
+                          <span className={'text-[10px] font-mono font-bold w-10 flex-shrink-0 '
+                            + (sel ? 'text-primary' : 'text-muted-fg')}>{alert.code}</span>
+                          <span className={'text-xs flex-1 truncate '
+                            + (sel ? 'text-foreground font-medium' : 'text-foreground/80')}>
+                            {locale === 'es' ? alert.nameEs : alert.name}
                           </span>
-                        )}
-                      </button>
+                        </button>
+                        {sel && cs.type !== 'none' ? (
+                          <input
+                            type="number"
+                            step="any"
+                            placeholder={cs.defaultValue != null ? String(cs.defaultValue) : (locale === 'es' ? cs.labelEs : cs.label)}
+                            title={`${locale === 'es' ? cs.labelEs : cs.label}${cs.unit ? ` (${cs.unit})` : ''}`}
+                            value={currentFilters[csKey] ?? ''}
+                            onClick={e => e.stopPropagation()}
+                            onChange={e => {
+                              const v = e.target.value;
+                              const next = { ...currentFilters };
+                              if (v === '') { delete next[csKey]; } else { next[csKey] = Number(v); }
+                              onFiltersChange(next);
+                            }}
+                            className="w-14 px-1 py-[2px] text-[10px] tabular-nums border border-border rounded bg-surface text-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary flex-shrink-0"
+                          />
+                        ) : cs.type !== 'none' ? (
+                          <span className="w-14 flex-shrink-0" />
+                        ) : null}
+                      </div>
                     );
                   })}
                 </div>
@@ -644,7 +664,7 @@ function StrategiesTab({ selectedEventTypes, currentFilters, onApplyPreset, loca
           name: p.name,
           category: 'custom',
           event_types: p.eventTypes,
-          filters: p.filters,
+          filters: p.filters as Record<string, number | string | undefined>,
         });
       }
       clearLocalPresets(p.id);
@@ -867,6 +887,8 @@ export function AlertConfigPanel({
           <SelectAlertsTab
             selectedEventTypes={selectedEventTypes}
             onEventTypesChange={onEventTypesChange}
+            currentFilters={currentFilters}
+            onFiltersChange={onFiltersChange}
             locale={locale} />
         )}
         {activeTab === 'filters' && (

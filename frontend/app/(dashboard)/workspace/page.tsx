@@ -39,7 +39,7 @@ import { DescriptionContent } from '@/components/description/DescriptionContent'
 import { EarningsCalendarContent } from '@/components/floating-window/EarningsCalendarContent';
 import { PredictionMarketsContent } from '@/components/floating-window';
 import { EventTableContent } from '@/components/events';
-import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
+import { useEventFiltersStore, type ActiveEventFilters } from '@/stores/useEventFiltersStore';
 import { useMarketSessionStore } from '@/stores/useMarketSessionStore';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 // Phase 1: All window types for full restoration
@@ -265,7 +265,7 @@ export default function ScannerPage() {
 
           // Restaurar filtros en el store si los hay (strategies)
           if (componentState.filters && categoryId) {
-            useEventFiltersStore.getState().setAllFilters(categoryId, componentState.filters as Record<string, unknown>);
+            useEventFiltersStore.getState().setAllFilters(categoryId, componentState.filters as ActiveEventFilters);
           }
 
           return (

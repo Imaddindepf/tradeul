@@ -53,7 +53,7 @@ import {
   CircleStop,
   Activity,
 } from 'lucide-react';
-import { ALERT_BY_EVENT_TYPE } from '@/lib/alert-catalog';
+import { ALERT_BY_EVENT_TYPE, getEventLabel, getEventColor } from '@/lib/alert-catalog';
 import { ConfigWindow, type AlertWindowConfig } from '@/components/config/ConfigWindow';
 
 // ============================================================================
@@ -197,77 +197,33 @@ export interface MarketEvent {
   trades_today?: number;
   trades_z_score?: number;
   metadata?: Record<string, unknown>;
+  quality?: number;
+  description?: string;
+  details?: Record<string, unknown>;
 }
 
 // ============================================================================
-// EVENT TYPE CONFIG
+// EVENT TYPE CONFIG — derived from alert-catalog.ts (single source of truth)
 // ============================================================================
 
-const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string; icon: typeof Activity }> = {
-  // Price
-  'new_high': { label: 'New High', color: 'text-emerald-600', icon: TrendingUp },
-  'new_low': { label: 'New Low', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
-  'crossed_above_open': { label: '↑ Open', color: 'text-emerald-500', icon: TrendingUp },
-  'crossed_below_open': { label: '↓ Open', color: 'text-rose-500', icon: TrendingDown },
-  'crossed_above_prev_close': { label: '↑ Close', color: 'text-emerald-500', icon: TrendingUp },
-  'crossed_below_prev_close': { label: '↓ Close', color: 'text-rose-500', icon: TrendingDown },
-  // VWAP
-  'vwap_cross_up': { label: 'VWAP ↑', color: 'text-primary', icon: Zap },
-  'vwap_cross_down': { label: 'VWAP ↓', color: 'text-orange-600', icon: Zap },
-  // Volume
-  'rvol_spike': { label: 'RVOL 3x', color: 'text-purple-600 dark:text-purple-400', icon: BarChart3 },
-  'volume_surge': { label: 'RVOL 5x', color: 'text-indigo-700 dark:text-indigo-400 font-bold', icon: BarChart3 },
-  'volume_spike_1min': { label: 'Vol Spike', color: 'text-purple-500', icon: BarChart3 },
-  'unusual_prints': { label: 'Unusual', color: 'text-amber-600', icon: Activity },
-  'block_trade': { label: 'Block', color: 'text-indigo-600 dark:text-indigo-400', icon: BarChart3 },
-  // Momentum
-  'running_up': { label: 'Run ↑', color: 'text-emerald-700 font-bold', icon: TrendingUp },
-  'running_down': { label: 'Run ↓', color: 'text-rose-700 dark:text-rose-400 font-bold', icon: TrendingDown },
-  'percent_up_5': { label: '+5%', color: 'text-emerald-600', icon: TrendingUp },
-  'percent_down_5': { label: '-5%', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
-  'percent_up_10': { label: '+10%', color: 'text-emerald-700 font-bold', icon: TrendingUp },
-  'percent_down_10': { label: '-10%', color: 'text-rose-700 dark:text-rose-400 font-bold', icon: TrendingDown },
-  // Pullbacks
-  'pullback_75_from_high': { label: 'PB 75% H', color: 'text-rose-500', icon: TrendingDown },
-  'pullback_25_from_high': { label: 'PB 25% H', color: 'text-orange-500', icon: TrendingDown },
-  'pullback_75_from_low': { label: 'Bounce 75%', color: 'text-emerald-500', icon: TrendingUp },
-  'pullback_25_from_low': { label: 'Bounce 25%', color: 'text-cyan-500', icon: TrendingUp },
-  // Gap
-  'gap_up_reversal': { label: 'Gap↑ Rev', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
-  'gap_down_reversal': { label: 'Gap↓ Rev', color: 'text-emerald-600', icon: TrendingUp },
-  // Halts
-  'halt': { label: 'HALT', color: 'text-red-700 font-bold', icon: CircleStop },
-  'resume': { label: 'RESUME', color: 'text-green-600 dark:text-green-400', icon: Activity },
-  // Phase 1B: Intraday EMA Crosses
-  'crossed_above_ema20': { label: 'EMA20 ↑', color: 'text-emerald-500', icon: TrendingUp },
-  'crossed_below_ema20': { label: 'EMA20 ↓', color: 'text-rose-500', icon: TrendingDown },
-  'crossed_above_ema50': { label: 'EMA50 ↑', color: 'text-emerald-600', icon: TrendingUp },
-  'crossed_below_ema50': { label: 'EMA50 ↓', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
-  // Phase 2: Bollinger
-  'bb_upper_breakout': { label: 'BB Upper', color: 'text-emerald-600', icon: TrendingUp },
-  'bb_lower_breakdown': { label: 'BB Lower', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
-  // Phase 2: Daily Levels
-  'crossed_daily_high_resistance': { label: 'Day High', color: 'text-emerald-600', icon: TrendingUp },
-  'crossed_daily_low_support': { label: 'Day Low', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
-  'false_gap_up_retracement': { label: 'False Gap Up', color: 'text-rose-500', icon: TrendingDown },
-  'false_gap_down_retracement': { label: 'False Gap Dn', color: 'text-emerald-500', icon: TrendingUp },
-  // Phase 2: Confirmed
-  'running_up_sustained': { label: 'Run Up Sust', color: 'text-emerald-700 font-bold', icon: TrendingUp },
-  'running_down_sustained': { label: 'Run Dn Sust', color: 'text-rose-700 dark:text-rose-400 font-bold', icon: TrendingDown },
-  'running_up_confirmed': { label: 'Run Up Conf', color: 'text-emerald-700 font-bold', icon: TrendingUp },
-  'running_down_confirmed': { label: 'Run Dn Conf', color: 'text-rose-700 dark:text-rose-400 font-bold', icon: TrendingDown },
-  'vwap_divergence_up': { label: 'VWAP Div Up', color: 'text-emerald-600', icon: TrendingUp },
-  'vwap_divergence_down': { label: 'VWAP Div Dn', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
-  'crossed_above_open_confirmed': { label: 'Open Up Conf', color: 'text-emerald-600', icon: TrendingUp },
-  'crossed_below_open_confirmed': { label: 'Open Dn Conf', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
-  'crossed_above_close_confirmed': { label: 'Close Up Conf', color: 'text-emerald-600', icon: TrendingUp },
-  'crossed_below_close_confirmed': { label: 'Close Dn Conf', color: 'text-rose-600 dark:text-rose-400', icon: TrendingDown },
-  // Phase 2: Pre/Post Market
-  'pre_market_high': { label: 'Pre High', color: 'text-emerald-500', icon: TrendingUp },
-  'pre_market_low': { label: 'Pre Low', color: 'text-rose-500', icon: TrendingDown },
-  'post_market_high': { label: 'Post High', color: 'text-emerald-500', icon: TrendingUp },
-  'post_market_low': { label: 'Post Low', color: 'text-rose-500', icon: TrendingDown },
-};
+function getEventTypeIcon(eventType: string): typeof Activity {
+  const def = ALERT_BY_EVENT_TYPE[eventType];
+  if (!def) return Activity;
+  if (def.direction === 'bullish') return TrendingUp;
+  if (def.direction === 'bearish') return TrendingDown;
+  if (def.category === 'volume') return BarChart3;
+  if (def.category === 'vwap') return Zap;
+  if (def.category === 'halt') return CircleStop;
+  return Activity;
+}
+
+function getEventTypeConfig(eventType: string): { label: string; color: string; icon: typeof Activity } {
+  return {
+    label: getEventLabel(eventType),
+    color: getEventColor(eventType),
+    icon: getEventTypeIcon(eventType),
+  };
+}
 
 // Default column visibility for event tables
 const DEFAULT_EVENT_COLUMN_VISIBILITY: VisibilityState = {
@@ -752,6 +708,12 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
   // Symbol filters
   if (f.symbols_include?.length && !f.symbols_include.includes(e.symbol)) return false;
   if (f.symbols_exclude?.length && f.symbols_exclude.includes(e.symbol)) return false;
+
+  // Per-alert quality threshold (aq:event_type = minQuality)
+  const aqKey = `aq:${e.event_type}` as const;
+  const minQ = f[aqKey];
+  if (minQ != null && (e.quality == null || e.quality < minQ)) return false;
+
   return true;
 }
 
@@ -1075,6 +1037,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     // Symbols
     if (filters.symbols_include?.length) subscribeMsg.symbols_include = filters.symbols_include;
     if (filters.symbols_exclude?.length) subscribeMsg.symbols_exclude = filters.symbols_exclude;
+    // Per-alert quality thresholds (aq:event_type → min quality)
+    for (const [k, v] of Object.entries(filters)) {
+      if (k.startsWith('aq:') && v != null) subscribeMsg[k] = v;
+    }
 
     ws.send(subscribeMsg);
     setIsSubscribed(true);
@@ -1346,6 +1312,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
       uS('industry', f.industry);
       updateMsg.symbols_include = f.symbols_include || null;
       updateMsg.symbols_exclude = f.symbols_exclude || null;
+      // Per-alert quality thresholds (aq:event_type = minQuality)
+      for (const [k, v] of Object.entries(f)) {
+        if (k.startsWith('aq:')) updateMsg[k] = v ?? null;
+      }
       ws.send(updateMsg);
 
       lastSentFiltersRef.current = currentKey;
@@ -1471,11 +1441,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         enableSorting: true,
         cell: (info) => {
           const eventType = info.getValue();
-          const config = EVENT_TYPE_CONFIG[eventType] || {
-            label: eventType,
-            color: 'text-foreground/80',
-            icon: Activity,
-          };
+          const config = getEventTypeConfig(eventType);
           const IconComponent = config.icon;
           return (
             <div className={`flex items-center gap-1 ${config.color} font-medium`}>
