@@ -541,6 +541,8 @@ class CandlePatternAlertDetector(BaseAlertDetector):
                         description=f"{t} Minute Topping Tail (grade {grade:.0f})",
                         details={"tf": t, "grade": round(grade, 1)}))
 
+        preceding = bars[:-1]
+
         for t, at in _NRBB_CFGS:
             if t == tf_min:
                 grade = _check_narrow_range_buy(closed, preceding)
@@ -558,8 +560,6 @@ class CandlePatternAlertDetector(BaseAlertDetector):
                         at, current, quality=round(grade, 1),
                         description=f"{t} Minute Narrow Range Sell Bar (grade {grade:.0f})",
                         details={"tf": t, "grade": round(grade, 1)}))
-
-        preceding = bars[:-1]
         for t, at in _RBR_CFGS:
             if t == tf_min and _is_bearish(closed):
                 consec = _count_consec_bullish(preceding)

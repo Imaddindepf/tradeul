@@ -12,6 +12,7 @@ Se suscribe dinámicamente a:
 """
 
 import asyncio
+import os
 from datetime import datetime
 from typing import Optional, Set, List
 import structlog
@@ -21,6 +22,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from shared.config.settings import settings
+
+NUM_ALERT_PARTITIONS = int(os.environ.get("NUM_ALERT_PARTITIONS", "4"))
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import configure_logging, get_logger
 from shared.utils.redis_stream_manager import (
@@ -44,10 +47,12 @@ ws_client: Optional[PolygonWebSocketClient] = None
 subscription_task: Optional[asyncio.Task] = None
 quote_subscription_task: Optional[asyncio.Task] = None  # Nueva tarea para quotes
 catalyst_subscription_task: Optional[asyncio.Task] = None  # Tarea para catalyst alerts
-luld_subscription_task: Optional[asyncio.Task] = None  # Tarea para LULD subscription
-luld_subscribed: bool = False  # Flag para LULD subscription
-minute_agg_subscription_task: Optional[asyncio.Task] = None  # Tarea para AM.* subscription
-minute_agg_subscribed: bool = False  # Flag para AM.* subscription
+luld_subscription_task: Optional[asyncio.Task] = None
+luld_subscribed: bool = False
+minute_agg_subscription_task: Optional[asyncio.Task] = None
+minute_agg_subscribed: bool = False
+agg_all_subscription_task: Optional[asyncio.Task] = None
+agg_all_subscribed: bool = False
 nasdaq_rss_task: Optional[asyncio.Task] = None  # Tarea para NASDAQ RSS polling
 reconciler: Optional[SubscriptionReconciler] = None
 reconciler_task: Optional[asyncio.Task] = None
@@ -67,7 +72,7 @@ catalyst_subscribed_tickers: Set[str] = set()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, ws_client, subscription_task, quote_subscription_task, catalyst_subscription_task, luld_subscription_task, minute_agg_subscription_task, reconciler, reconciler_task
+    global redis_client, ws_client, subscription_task, quote_subscription_task, catalyst_subscription_task, luld_subscription_task, minute_agg_subscription_task, agg_all_subscription_task, reconciler, reconciler_task
     
     logger.info("polygon_ws_service_starting")
     
@@ -107,8 +112,9 @@ async def lifespan(app: FastAPI):
     quote_subscription_task = asyncio.create_task(manage_quote_subscriptions())
     catalyst_subscription_task = asyncio.create_task(manage_catalyst_subscriptions())
     luld_subscription_task = asyncio.create_task(manage_luld_subscription())  # LULD para todo el mercado
-    minute_agg_subscription_task = asyncio.create_task(manage_minute_agg_subscription())  # AM.* para todo el mercado
-    nasdaq_rss_task = asyncio.create_task(poll_nasdaq_rss_halts())  # RSS feed de alta frecuencia
+    minute_agg_subscription_task = asyncio.create_task(manage_minute_agg_subscription())
+    agg_all_subscription_task = asyncio.create_task(manage_agg_all_subscription())
+    nasdaq_rss_task = asyncio.create_task(poll_nasdaq_rss_halts())
     trade_subscription_task = asyncio.create_task(manage_trade_subscriptions())
     reconciler_task = asyncio.create_task(reconciler.start())
     
@@ -119,7 +125,8 @@ async def lifespan(app: FastAPI):
         catalyst_enabled=True,
         luld_enabled=True,
         minute_aggs_enabled=True,
-        nasdaq_rss_enabled=True
+        agg_all_enabled=True,
+        nasdaq_rss_enabled=True,
     )
     
     yield
@@ -169,6 +176,13 @@ async def lifespan(app: FastAPI):
         minute_agg_subscription_task.cancel()
         try:
             await minute_agg_subscription_task
+        except asyncio.CancelledError:
+            pass
+    
+    if agg_all_subscription_task:
+        agg_all_subscription_task.cancel()
+        try:
+            await agg_all_subscription_task
         except asyncio.CancelledError:
             pass
     
@@ -293,50 +307,40 @@ async def handle_quote(quote: PolygonQuote):
 
 async def handle_aggregate(agg: PolygonAgg):
     """
-    Procesa un mensaje de Aggregate del WebSocket
-    
-    IMPORTANTE: agg.av contiene el volumen ACUMULADO del día.
-    Este es el mismo campo que snapshot.min.av.
-    
-    Args:
-        agg: Aggregate de Polygon
+    Procesa un mensaje de Aggregate del WebSocket.
+
+    Publica a:
+    1. stream:agg:pN (particionado por hash del símbolo) -- para alert workers
+    2. stream:realtime:aggregates (backward compat) -- para snapshot loop y otros
     """
     try:
-        # Publicar a Redis Stream
-        # NOTA: Usamos volume_accumulated (de agg.av) para consistencia
-        # con el Analytics Service
-        await redis_client.publish_to_stream(
-            "stream:realtime:aggregates",
-            {
-                'symbol': agg.sym,
-                'open': str(agg.o),
-                'high': str(agg.h),
-                'low': str(agg.l),
-                'close': str(agg.c),
-                'volume': str(agg.v),  # Volumen del segundo
-                'volume_accumulated': str(agg.av),  # ← Volumen acumulado del día
-                'vwap': str(agg.a),  # Today's VWAP
-                'avg_trade_size': str(agg.z),  # Average trade size
-                # Trades: usar 'n' si existe (minute aggs), sino calcular desde volume/avg_trade_size
-                'trades': str(getattr(agg, 'n', 0) or (int(agg.v / agg.z) if agg.z > 0 else 0)),
-                'timestamp_start': str(agg.s),
-                'timestamp_end': str(agg.e),
-                'otc': 'true' if agg.otc else 'false'
-            }
-        )
-        
-        logger.info(
-            "aggregate_published",
-            symbol=agg.sym,
-            close=agg.c,
-            volume_accumulated=agg.av
-        )
-        
+        payload = {
+            'symbol': agg.sym,
+            'open': str(agg.o),
+            'high': str(agg.h),
+            'low': str(agg.l),
+            'close': str(agg.c),
+            'volume': str(agg.v),
+            'volume_accumulated': str(agg.av),
+            'vwap': str(agg.a),
+            'avg_trade_size': str(agg.z),
+            'trades': str(getattr(agg, 'n', 0) or (int(agg.v / agg.z) if agg.z > 0 else 0)),
+            'timestamp_start': str(agg.s),
+            'timestamp_end': str(agg.e),
+            'otc': 'true' if agg.otc else 'false'
+        }
+
+        partition = hash(agg.sym) % NUM_ALERT_PARTITIONS
+        partitioned_stream = f"stream:agg:p{partition}"
+
+        await redis_client.publish_to_stream(partitioned_stream, payload, maxlen=50000)
+        await redis_client.publish_to_stream("stream:realtime:aggregates", payload)
+
     except Exception as e:
         logger.error(
             "aggregate_handler_error",
             symbol=agg.sym,
-            error=str(e)
+            error=str(e),
         )
 
 
@@ -1238,6 +1242,60 @@ async def manage_minute_agg_subscription():
                 error_type=type(e).__name__
             )
             minute_agg_subscribed = False
+            last_seen_epoch = 0
+            await asyncio.sleep(5)
+
+
+async def manage_agg_all_subscription():
+    """
+    Gestiona la suscripción a A.* (per-second aggregates) para TODO el mercado.
+
+    Reemplaza la suscripción ticker-por-ticker del scanner con un wildcard
+    que cubre ~11K tickers. Esto permite que el alert_engine procese
+    alertas para todo el mercado, no solo los ~650 tickers del scanner.
+    """
+    global agg_all_subscribed
+
+    logger.info("agg_all_subscription_manager_started")
+    last_seen_epoch = 0
+
+    while True:
+        try:
+            if ws_client and ws_client.is_authenticated:
+                current_epoch = ws_client.reconnection_epoch
+                if current_epoch != last_seen_epoch:
+                    agg_all_subscribed = False
+                    logger.info("subscribing_to_agg_all_market", reason="new_connection", epoch=current_epoch)
+                    success = await ws_client.subscribe_aggregates_all()
+
+                    if success:
+                        agg_all_subscribed = True
+                        last_seen_epoch = current_epoch
+                        logger.info(
+                            "agg_all_subscription_active",
+                            stream="A.*",
+                            epoch=current_epoch,
+                        )
+                    else:
+                        logger.warning("agg_all_subscription_failed_will_retry")
+            else:
+                if agg_all_subscribed:
+                    logger.info("agg_all_subscription_lost_due_to_disconnect")
+                    agg_all_subscribed = False
+
+            await asyncio.sleep(2)
+
+        except asyncio.CancelledError:
+            logger.info("agg_all_subscription_manager_cancelled")
+            raise
+
+        except Exception as e:
+            logger.error(
+                "agg_all_subscription_manager_error",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            agg_all_subscribed = False
             last_seen_epoch = 0
             await asyncio.sleep(5)
 

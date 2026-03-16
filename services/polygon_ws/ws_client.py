@@ -10,6 +10,7 @@ High-throughput WebSocket client with:
 
 import asyncio
 import json
+import os
 from datetime import datetime, timezone
 from typing import Set, Optional, Callable, Dict, Any
 import structlog
@@ -21,11 +22,9 @@ from shared.models.polygon import PolygonTrade, PolygonQuote, PolygonAgg, Polygo
 
 logger = structlog.get_logger(__name__)
 
-# Number of worker tasks draining the queue
-NUM_WORKERS = 4
-# Max queue depth before logging backpressure warning
-QUEUE_HIGH_WATERMARK = 10_000
-# Watchdog check interval
+NUM_WORKERS = int(os.environ.get("POLYGON_WS_NUM_WORKERS", "6"))
+QUEUE_MAX_SIZE = int(os.environ.get("POLYGON_WS_QUEUE_SIZE", "80000"))
+QUEUE_HIGH_WATERMARK = int(os.environ.get("POLYGON_WS_QUEUE_WATERMARK", "25000"))
 WATCHDOG_INTERVAL = 60
 
 
@@ -76,7 +75,7 @@ class PolygonWebSocketClient:
         self.subscribed_tickers: Set[str] = set()
 
         # Queue & workers
-        self._queue: asyncio.Queue = asyncio.Queue(maxsize=50_000)
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
         self._worker_tasks: list[asyncio.Task] = []
         self._watchdog_task: Optional[asyncio.Task] = None
 
@@ -471,6 +470,31 @@ class PolygonWebSocketClient:
             subscribed=len(to_subscribe),
             total_active=len(self.subscribed_tickers),
         )
+
+    async def subscribe_aggregates_all(self) -> bool:
+        """Subscribe to A.* (per-second aggregates) for the entire market."""
+        if not self.is_authenticated:
+            logger.warning("not_authenticated_cannot_subscribe_agg_all")
+            return False
+        try:
+            await self.ws.send(json.dumps({"action": "subscribe", "params": "A.*"}))
+            logger.info("subscribed_to_agg_all_market", channel="A.*")
+            return True
+        except Exception as e:
+            logger.error("agg_all_subscription_failed", error=str(e))
+            return False
+
+    async def unsubscribe_aggregates_all(self) -> bool:
+        """Unsubscribe from A.* wildcard."""
+        if not self.is_authenticated:
+            return False
+        try:
+            await self.ws.send(json.dumps({"action": "unsubscribe", "params": "A.*"}))
+            logger.info("unsubscribed_from_agg_all_market")
+            return True
+        except Exception as e:
+            logger.error("agg_all_unsubscription_failed", error=str(e))
+            return False
 
     async def subscribe_luld_all(self) -> bool:
         if not self.is_authenticated:

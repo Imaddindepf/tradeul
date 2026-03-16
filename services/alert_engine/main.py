@@ -6,6 +6,7 @@ Professional alert detection: Generate once, filter N times.
 import asyncio
 import json
 import logging
+import os
 import signal
 import time
 from datetime import datetime, date
@@ -13,6 +14,9 @@ from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import redis.asyncio as aioredis
+
+PARTITION_ID = int(os.environ.get("PARTITION_ID", "0"))
+NUM_PARTITIONS = int(os.environ.get("NUM_PARTITIONS", "4"))
 
 from shared.config.settings import settings
 from shared.utils.redis_client import RedisClient
@@ -108,11 +112,11 @@ class AlertEngine:
             if isinstance(d, PriceAlertDetector):
                 self.price_detector = d
                 break
-        self._stats = {"alerts": 0, "ticks": 0}
-        logger.info(f"Loaded {len(self.detectors)} detectors: {[d.__class__.__name__ for d in self.detectors]}")
+        self._stats = {"alerts": 0, "ticks": 0, "last_alerts": 0, "last_ticks": 0, "tick_times": []}
+        logger.info(f"[P{PARTITION_ID}] Loaded {len(self.detectors)} detectors: {[d.__class__.__name__ for d in self.detectors]}")
 
     async def start(self):
-        logger.info("Starting Alert Engine...")
+        logger.info(f"Starting Alert Engine worker (partition={PARTITION_ID}/{NUM_PARTITIONS})...")
         self.raw_redis = self.redis.client
         self.running = True
         await self._refresh_enriched_cache()
@@ -123,7 +127,6 @@ class AlertEngine:
             asyncio.create_task(self._consume_aggregates()),
             asyncio.create_task(self._consume_halts()),
             asyncio.create_task(self._enriched_loop()),
-            asyncio.create_task(self._snapshot_loop()),
             asyncio.create_task(self._cleanup_loop()),
             asyncio.create_task(self._stats_loop()),
         ]
@@ -153,8 +156,10 @@ class AlertEngine:
         logger.info("Daily reset complete")
 
     async def _consume_aggregates(self):
-        stream = "stream:realtime:aggregates"
-        group, consumer = "alert_engine_agg", "ae_1"
+        stream = f"stream:agg:p{PARTITION_ID}"
+        group = f"alert_engine_p{PARTITION_ID}"
+        consumer = f"worker_{PARTITION_ID}"
+        logger.info(f"Consuming partition {PARTITION_ID} from {stream}")
         try:
             await self.raw_redis.xgroup_create(stream, group, id="$", mkstream=True)
         except Exception as e:
@@ -217,6 +222,7 @@ class AlertEngine:
 
     async def _process_aggregate(self, data: Dict):
         try:
+            t0 = time.monotonic()
             symbol = data.get("sym") or data.get("symbol")
             if not symbol:
                 return
@@ -235,8 +241,17 @@ class AlertEngine:
                     logger.error(f"{det.__class__.__name__} error {symbol}: {e}")
             self.state_cache.set(symbol, current)
             self._stats["ticks"] += 1
-            for a in all_alerts:
-                await self._publish(a)
+            if all_alerts:
+                pipe = self.raw_redis.pipeline(transaction=False)
+                for a in all_alerts:
+                    pipe.xadd(STREAM_ALERTS, a.to_dict(), maxlen=100000)
+                await pipe.execute()
+                self._stats["alerts"] += len(all_alerts)
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            tick_times = self._stats["tick_times"]
+            tick_times.append(elapsed_ms)
+            if len(tick_times) > 1000:
+                del tick_times[:500]
         except Exception as e:
             logger.error(f"Aggregate error: {e}")
 
@@ -346,9 +361,8 @@ class AlertEngine:
     async def _publish(self, alert: AlertRecord):
         d = alert.to_dict()
         try:
-            await self.raw_redis.xadd(STREAM_ALERTS, d, maxlen=10000)
+            await self.raw_redis.xadd(STREAM_ALERTS, d, maxlen=100000)
             self._stats["alerts"] += 1
-            logger.info(f"Alert: {alert.alert_type.value} | {alert.symbol} @ ${alert.price:.2f} | q={alert.quality} | {alert.description}")
         except Exception as e:
             logger.error(f"Publish error: {e}")
 
@@ -567,8 +581,28 @@ class AlertEngine:
 
     async def _stats_loop(self):
         while self.running:
-            await asyncio.sleep(60)
-            logger.info(f"Stats: {self._stats['alerts']} alerts, {self._stats['ticks']} ticks")
+            await asyncio.sleep(30)
+            ticks = self._stats["ticks"]
+            alerts = self._stats["alerts"]
+            delta_ticks = ticks - self._stats["last_ticks"]
+            delta_alerts = alerts - self._stats["last_alerts"]
+            self._stats["last_ticks"] = ticks
+            self._stats["last_alerts"] = alerts
+            tps = delta_ticks / 30.0
+            aps = delta_alerts / 30.0
+            tt = self._stats["tick_times"]
+            if tt:
+                tt_sorted = sorted(tt)
+                p50 = tt_sorted[len(tt_sorted) // 2]
+                p99 = tt_sorted[int(len(tt_sorted) * 0.99)]
+                logger.info(
+                    f"[P{PARTITION_ID}] ticks/s={tps:.0f} alerts/s={aps:.0f} "
+                    f"p50={p50:.1f}ms p99={p99:.1f}ms "
+                    f"total_ticks={ticks} total_alerts={alerts} "
+                    f"symbols={len(self.state_cache._states)}"
+                )
+            else:
+                logger.info(f"[P{PARTITION_ID}] ticks/s={tps:.0f} alerts/s={aps:.0f} total={ticks}/{alerts}")
 
 
 async def main():
