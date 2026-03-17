@@ -1015,6 +1015,14 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     enableHiding: true,
     format: 'percent',
   },
+  postmarket_volume: {
+    header: 'PM Vol',
+    size: 80,
+    minSize: 60,
+    maxSize: 100,
+    enableHiding: true,
+    format: 'volume',
+  },
   atr: {
     header: 'ATR $',
     size: 65,

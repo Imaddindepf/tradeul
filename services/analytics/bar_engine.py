@@ -86,6 +86,7 @@ class IndicatorValues(NamedTuple):
     chg_15m: Optional[float]
     chg_30m: Optional[float]
     chg_60m: Optional[float]
+    chg_120m: Optional[float]
     # Volume windows (from ring buffers)
     vol_1m: Optional[int]
     vol_5m: Optional[int]
@@ -127,10 +128,9 @@ class IndicatorValues(NamedTuple):
 # Per-symbol state
 # ============================================================================
 
-# Ring buffer size: 210 bars ≈ 3.5 hours of 1-minute bars.
-# Must be >= 201 to support SMA(200) warmup in _calc_change and ring-based lookbacks.
-# chg_60min needs 61 bars, SMA(200) needs 200 bars for first valid output.
-DEFAULT_RING_SIZE = 210
+# Ring buffer size: 250 bars ≈ 4.2 hours of 1-minute bars.
+# Must be >= 201 to support SMA(200) warmup and >= 121 for chg_120min.
+DEFAULT_RING_SIZE = 250
 
 # Maximum number of output values to retain in each talipp indicator.
 # talipp stores every computed value in a list that grows without limit.
@@ -142,7 +142,7 @@ DEFAULT_RING_SIZE = 210
 # (RSI, EMA, MACD, BB, ATR, ADX, Stoch) over 800-bar simulations.
 #
 # Matches DEFAULT_RING_SIZE for architectural consistency.
-TALIPP_MAX_OUTPUT_LENGTH = 210
+TALIPP_MAX_OUTPUT_LENGTH = 250
 
 # How often (in bar closes) to run the purge. Purging every single bar
 # adds unnecessary overhead; batching amortizes the cost.
@@ -165,16 +165,16 @@ MULTI_TIMEFRAMES = (2, 5, 10, 15, 30, 60)
 # Per-timeframe indicator config — only allocate what the alert catalog needs.
 # This keeps memory bounded: ~1.5 GB for 15K symbols across all 6 timeframes.
 _TF_INDICATOR_CONFIG = {
-    2:  {'sma_periods': (5, 8, 20), 'macd': False, 'stoch': False},
-    5:  {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': True},
-    10: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': False},
-    15: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': True},
-    30: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': False},
-    60: {'sma_periods': (),          'macd': True,  'stoch': True},
+    2:  {'sma_periods': (5, 8, 20), 'macd': False, 'stoch': False, 'rsi': True,  'bb': False},
+    5:  {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
+    10: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': False, 'rsi': False, 'bb': False},
+    15: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
+    30: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': False, 'rsi': False, 'bb': False},
+    60: {'sma_periods': (),          'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
 }
 
 # talipp attribute names on TimeframeState (for purging)
-_TF_TALIPP_ATTRS = ('sma_5', 'sma_8', 'sma_20', 'macd', 'stoch')
+_TF_TALIPP_ATTRS = ('sma_5', 'sma_8', 'sma_20', 'macd', 'stoch', 'rsi', 'bb')
 
 
 class TimeframeState:
@@ -189,11 +189,11 @@ class TimeframeState:
     """
     __slots__ = (
         'period', 'builder', 'bar_count',
-        'current_group',       # clock-aligned group ID (for detecting bar boundaries)
+        'current_group',
         'sma_5', 'sma_8', 'sma_20',
-        'macd', 'stoch',
-        'tf_high', 'tf_low',  # intraday extremes for this timeframe
-        'prev_bar_high', 'prev_bar_low',  # previous closed N-min candle OHLC extremes
+        'macd', 'stoch', 'rsi', 'bb',
+        'tf_high', 'tf_low',
+        'prev_bar_high', 'prev_bar_low',
     )
 
     def __init__(self, period: int):
@@ -219,12 +219,16 @@ class TimeframeState:
             self.sma_20 = SMA(period=20) if 20 in sma_periods else None
             self.macd = MACD(fast_period=12, slow_period=26, signal_period=9) if cfg.get('macd') else None
             self.stoch = Stoch(period=14, smoothing_period=3) if cfg.get('stoch') else None
+            self.rsi = RSI(period=14) if cfg.get('rsi') else None
+            self.bb = BB(period=20, std_dev_mult=2.0) if cfg.get('bb') else None
         else:
             self.sma_5 = None
             self.sma_8 = None
             self.sma_20 = None
             self.macd = None
             self.stoch = None
+            self.rsi = None
+            self.bb = None
 
 
 class TickerBarState:
@@ -560,6 +564,14 @@ class BarEngine:
                 ohlcv = OHLCV(o, h, l_val, c, v)
                 tf_state.stoch.add(ohlcv)
 
+            # RSI (close-based)
+            if tf_state.rsi is not None:
+                tf_state.rsi.add(c)
+
+            # Bollinger Bands (close-based)
+            if tf_state.bb is not None:
+                tf_state.bb.add(c)
+
             # Purge periodically (same cadence as 1m indicators)
             if tf_state.bar_count % TALIPP_PURGE_INTERVAL == 0:
                 for attr in _TF_TALIPP_ATTRS:
@@ -600,6 +612,7 @@ class BarEngine:
         chg_15m = self._calc_change(state.closes, 15)
         chg_30m = self._calc_change(state.closes, 30)
         chg_60m = self._calc_change(state.closes, 60)
+        chg_120m = self._calc_change(state.closes, 120)
 
         # ---- Volume windows (from volumes ring buffer) ----
         vol_1m = self._calc_volume(state.volumes, 1)
@@ -686,6 +699,23 @@ class BarEngine:
                     tf_ind['stoch_k'] = self._round_safe(last_stoch.k if hasattr(last_stoch, 'k') else None)
                     tf_ind['stoch_d'] = self._round_safe(last_stoch.d if hasattr(last_stoch, 'd') else None)
 
+            # RSI
+            if tf_state.rsi is not None:
+                tf_ind['rsi_14'] = self._read_talipp(tf_state.rsi)
+
+            # Bollinger Bands
+            if tf_state.bb is not None and len(tf_state.bb) > 0:
+                last_bb = tf_state.bb[-1]
+                if last_bb is not None:
+                    bb_u = self._round_safe(last_bb.ub)
+                    bb_l = self._round_safe(last_bb.lb)
+                    tf_ind['bb_upper'] = bb_u
+                    tf_ind['bb_lower'] = bb_l
+                    if bb_u and bb_l and bb_u != bb_l:
+                        price_now = state.last_close if state.last_close > 0 else None
+                        if price_now:
+                            tf_ind['bb_position'] = self._round_safe((price_now - bb_l) / (bb_u - bb_l) * 100)
+
             # Timeframe highs/lows (cumulative intraday)
             if tf_state.tf_high > 0:
                 tf_ind['tf_high'] = tf_state.tf_high
@@ -708,7 +738,7 @@ class BarEngine:
         return IndicatorValues(
             chg_1m=chg_1m, chg_2m=chg_2m, chg_5m=chg_5m,
             chg_10m=chg_10m, chg_15m=chg_15m, chg_30m=chg_30m,
-            chg_60m=chg_60m,
+            chg_60m=chg_60m, chg_120m=chg_120m,
             vol_1m=vol_1m, vol_5m=vol_5m, vol_10m=vol_10m,
             vol_15m=vol_15m, vol_30m=vol_30m, vol_60m=vol_60m,
             rsi_14=rsi_14, ema_9=ema_9, ema_20=ema_20, ema_50=ema_50,
@@ -736,6 +766,78 @@ class BarEngine:
         if state is None:
             return None
         return self._calc_change(state.closes, minutes)
+
+
+    def get_consecutive_candles(self, symbol: str) -> int:
+        """Consecutive up (>0) or down (<0) 1-min candles from latest."""
+        st = self._states.get(symbol)
+        if st is None or len(st.closes) < 2:
+            return 0
+        cl = st.closes
+        cnt = 0
+        for i in range(len(cl) - 1, 0, -1):
+            if cl[i] > cl[i - 1]:
+                if cnt < 0: break
+                cnt += 1
+            elif cl[i] < cl[i - 1]:
+                if cnt > 0: break
+                cnt -= 1
+            else:
+                break
+        return cnt
+
+    def get_consecutive_candles(self, symbol: str) -> int:
+        """Consecutive up (>0) or down (<0) 1-min candles from latest."""
+        st = self._states.get(symbol)
+        if st is None or len(st.closes) < 2:
+            return 0
+        cl = st.closes
+        cnt = 0
+        for i in range(len(cl) - 1, 0, -1):
+            if cl[i] > cl[i - 1]:
+                if cnt < 0: break
+                cnt += 1
+            elif cl[i] < cl[i - 1]:
+                if cnt > 0: break
+                cnt -= 1
+            else:
+                break
+        return cnt
+
+    def get_consecutive_candles(self, symbol: str) -> int:
+        """Consecutive up (>0) or down (<0) 1-min candles from latest."""
+        st = self._states.get(symbol)
+        if st is None or len(st.closes) < 2:
+            return 0
+        cl = st.closes
+        cnt = 0
+        for i in range(len(cl) - 1, 0, -1):
+            if cl[i] > cl[i - 1]:
+                if cnt < 0: break
+                cnt += 1
+            elif cl[i] < cl[i - 1]:
+                if cnt > 0: break
+                cnt -= 1
+            else:
+                break
+        return cnt
+
+    def get_consecutive_candles(self, symbol):
+        st = self._states.get(symbol)
+        if st is None or len(st.closes) < 2:
+            return 0
+        cl = st.closes
+        cnt = 0
+        for i in range(len(cl) - 1, 0, -1):
+            if cl[i] > cl[i - 1]:
+                if cnt < 0: break
+                cnt += 1
+            elif cl[i] < cl[i - 1]:
+                if cnt > 0: break
+                cnt -= 1
+            else:
+                break
+        return cnt
 
     # ========================================================================
     # Warmup: load historical bars (from TimescaleDB on startup)

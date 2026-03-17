@@ -307,6 +307,10 @@ export interface EventFilterParameters {
   max_volume_today_pct?: number;
   // Minute volume
   min_minute_volume?: number;
+  max_minute_volume?: number;
+  // Volume Yesterday %
+  min_volume_yesterday_pct?: number;
+  max_volume_yesterday_pct?: number;
   // Price from day high (%)
   min_price_from_high?: number;
   max_price_from_high?: number;
@@ -325,12 +329,61 @@ export interface EventFilterParameters {
   // Post-Market %
   min_postmarket_change_percent?: number;
   max_postmarket_change_percent?: number;
+  // Post-Market Volume
+  min_postmarket_volume?: number;
+  max_postmarket_volume?: number;
   // Avg Volume 3M
   min_avg_volume_3m?: number;
   max_avg_volume_3m?: number;
   // ATR ($)
   min_atr?: number;
   max_atr?: number;
+  // Pivot Points (distance %)
+  min_dist_pivot?: number;
+  max_dist_pivot?: number;
+  min_dist_pivot_r1?: number;
+  max_dist_pivot_r1?: number;
+  min_dist_pivot_s1?: number;
+  max_dist_pivot_s1?: number;
+  min_dist_pivot_r2?: number;
+  max_dist_pivot_r2?: number;
+  min_dist_pivot_s2?: number;
+  max_dist_pivot_s2?: number;
+  // Consecutive Candles
+  min_consecutive_candles?: number;
+  max_consecutive_candles?: number;
+  // Position in TF Range (0-100%)
+  min_pos_in_range_5m?: number;
+  max_pos_in_range_5m?: number;
+  min_pos_in_range_15m?: number;
+  max_pos_in_range_15m?: number;
+  min_pos_in_range_30m?: number;
+  max_pos_in_range_30m?: number;
+  min_pos_in_range_60m?: number;
+  max_pos_in_range_60m?: number;
+  // Multi-TF RSI
+  min_rsi_2m?: number;
+  max_rsi_2m?: number;
+  min_rsi_5m?: number;
+  max_rsi_5m?: number;
+  min_rsi_15m?: number;
+  max_rsi_15m?: number;
+  min_rsi_60m?: number;
+  max_rsi_60m?: number;
+  // Multi-TF Bollinger Position (0-100%)
+  min_bb_position_1m?: number;
+  max_bb_position_1m?: number;
+  min_bb_position_5m?: number;
+  max_bb_position_5m?: number;
+  min_bb_position_15m?: number;
+  max_bb_position_15m?: number;
+  min_bb_position_60m?: number;
+  max_bb_position_60m?: number;
+  // Change 2min / 120min (%)
+  min_chg_2min?: number;
+  max_chg_2min?: number;
+  min_chg_120min?: number;
+  max_chg_120min?: number;
 
   // Per-alert custom settings (keys like "aq:running_up", "aq:new_high", etc.)
   [key: `aq:${string}`]: number | undefined;

@@ -565,6 +565,51 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             onMinChange={v => update('min_daily_bb_position', v)} onMaxChange={v => update('max_daily_bb_position', v)} phMin="0" phMax="100" />
         </div>
         <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Pivot Points (%)</div>
+          <FilterInput label="Dist Pivot" minValue={currentFilters.min_dist_pivot} maxValue={currentFilters.max_dist_pivot} onMinChange={v => update('min_dist_pivot', v)} onMaxChange={v => update('max_dist_pivot', v)} phMin="-5" phMax="5" />
+          <FilterInput label="Dist R1" minValue={currentFilters.min_dist_pivot_r1} maxValue={currentFilters.max_dist_pivot_r1} onMinChange={v => update('min_dist_pivot_r1', v)} onMaxChange={v => update('max_dist_pivot_r1', v)} phMin="-5" phMax="5" />
+          <FilterInput label="Dist S1" minValue={currentFilters.min_dist_pivot_s1} maxValue={currentFilters.max_dist_pivot_s1} onMinChange={v => update('min_dist_pivot_s1', v)} onMaxChange={v => update('max_dist_pivot_s1', v)} phMin="-5" phMax="5" />
+          <FilterInput label="Dist R2" minValue={currentFilters.min_dist_pivot_r2} maxValue={currentFilters.max_dist_pivot_r2} onMinChange={v => update('min_dist_pivot_r2', v)} onMaxChange={v => update('max_dist_pivot_r2', v)} phMin="-5" phMax="5" />
+          <FilterInput label="Dist S2" minValue={currentFilters.min_dist_pivot_s2} maxValue={currentFilters.max_dist_pivot_s2} onMinChange={v => update('min_dist_pivot_s2', v)} onMaxChange={v => update('max_dist_pivot_s2', v)} phMin="-5" phMax="5" />
+        </div>
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Candles / Range TF</div>
+          <FilterInput label="Consec Candles" minValue={currentFilters.min_consecutive_candles} maxValue={currentFilters.max_consecutive_candles} onMinChange={v => update('min_consecutive_candles', v)} onMaxChange={v => update('max_consecutive_candles', v)} phMin="-10" phMax="10" />
+          <FilterInput label="Pos Range 5m" minValue={currentFilters.min_pos_in_range_5m} maxValue={currentFilters.max_pos_in_range_5m} onMinChange={v => update('min_pos_in_range_5m', v)} onMaxChange={v => update('max_pos_in_range_5m', v)} phMin="0" phMax="100" />
+          <FilterInput label="Pos Range 15m" minValue={currentFilters.min_pos_in_range_15m} maxValue={currentFilters.max_pos_in_range_15m} onMinChange={v => update('min_pos_in_range_15m', v)} onMaxChange={v => update('max_pos_in_range_15m', v)} phMin="0" phMax="100" />
+          <FilterInput label="Pos Range 30m" minValue={currentFilters.min_pos_in_range_30m} maxValue={currentFilters.max_pos_in_range_30m} onMinChange={v => update('min_pos_in_range_30m', v)} onMaxChange={v => update('max_pos_in_range_30m', v)} phMin="0" phMax="100" />
+          <FilterInput label="Pos Range 60m" minValue={currentFilters.min_pos_in_range_60m} maxValue={currentFilters.max_pos_in_range_60m} onMinChange={v => update('min_pos_in_range_60m', v)} onMaxChange={v => update('max_pos_in_range_60m', v)} phMin="0" phMax="100" />
+        </div>
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">RSI / BB Multi-TF</div>
+          <FilterInput label="RSI 2m" minValue={currentFilters.min_rsi_2m} maxValue={currentFilters.max_rsi_2m} onMinChange={v => update('min_rsi_2m', v)} onMaxChange={v => update('max_rsi_2m', v)} phMin="20" phMax="80" />
+          <FilterInput label="RSI 5m" minValue={currentFilters.min_rsi_5m} maxValue={currentFilters.max_rsi_5m} onMinChange={v => update('min_rsi_5m', v)} onMaxChange={v => update('max_rsi_5m', v)} phMin="20" phMax="80" />
+          <FilterInput label="RSI 15m" minValue={currentFilters.min_rsi_15m} maxValue={currentFilters.max_rsi_15m} onMinChange={v => update('min_rsi_15m', v)} onMaxChange={v => update('max_rsi_15m', v)} phMin="20" phMax="80" />
+          <FilterInput label="RSI 60m" minValue={currentFilters.min_rsi_60m} maxValue={currentFilters.max_rsi_60m} onMinChange={v => update('min_rsi_60m', v)} onMaxChange={v => update('max_rsi_60m', v)} phMin="20" phMax="80" />
+          <FilterInput label="BB Pos 1m" minValue={currentFilters.min_bb_position_1m} maxValue={currentFilters.max_bb_position_1m} onMinChange={v => update('min_bb_position_1m', v)} onMaxChange={v => update('max_bb_position_1m', v)} phMin="0" phMax="100" />
+          <FilterInput label="BB Pos 5m" minValue={currentFilters.min_bb_position_5m} maxValue={currentFilters.max_bb_position_5m} onMinChange={v => update('min_bb_position_5m', v)} onMaxChange={v => update('max_bb_position_5m', v)} phMin="0" phMax="100" />
+          <FilterInput label="BB Pos 15m" minValue={currentFilters.min_bb_position_15m} maxValue={currentFilters.max_bb_position_15m} onMinChange={v => update('min_bb_position_15m', v)} onMaxChange={v => update('max_bb_position_15m', v)} phMin="0" phMax="100" />
+          <FilterInput label="BB Pos 60m" minValue={currentFilters.min_bb_position_60m} maxValue={currentFilters.max_bb_position_60m} onMinChange={v => update('min_bb_position_60m', v)} onMaxChange={v => update('max_bb_position_60m', v)} phMin="0" phMax="100" />
+          <FilterInput label="Chg 2 Min %" minValue={currentFilters.min_chg_2min} maxValue={currentFilters.max_chg_2min} onMinChange={v => update('min_chg_2min', v)} onMaxChange={v => update('max_chg_2min', v)} phMin="-5" phMax="5" />
+          <FilterInput label="Chg 120 Min %" minValue={currentFilters.min_chg_120min} maxValue={currentFilters.max_chg_120min} onMinChange={v => update('min_chg_120min', v)} onMaxChange={v => update('max_chg_120min', v)} phMin="-10" phMax="10" />
+        </div>
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Extra Filters</div>
+          <FilterInput label="Vol Today %" minValue={currentFilters.min_volume_today_pct} maxValue={currentFilters.max_volume_today_pct} onMinChange={v => update('min_volume_today_pct', v)} onMaxChange={v => update('max_volume_today_pct', v)} phMin="50" phMax="200" />
+          <FilterInput label="Vol Yesterday %" minValue={currentFilters.min_volume_yesterday_pct} maxValue={currentFilters.max_volume_yesterday_pct} onMinChange={v => update('min_volume_yesterday_pct', v)} onMaxChange={v => update('max_volume_yesterday_pct', v)} phMin="50" phMax="200" />
+          <FilterInput label="Minute Vol" minValue={currentFilters.min_minute_volume} maxValue={currentFilters.max_minute_volume} onMinChange={v => update('min_minute_volume', v)} onMaxChange={v => update('max_minute_volume', v)} phMin="1000" phMax="1000000" />
+          <FilterInput label="From High %" minValue={currentFilters.min_price_from_high} maxValue={currentFilters.max_price_from_high} onMinChange={v => update('min_price_from_high', v)} onMaxChange={v => update('max_price_from_high', v)} phMin="-20" phMax="0" />
+          <FilterInput label="From Low %" minValue={currentFilters.min_price_from_low} maxValue={currentFilters.max_price_from_low} onMinChange={v => update('min_price_from_low', v)} onMaxChange={v => update('max_price_from_low', v)} phMin="0" phMax="20" />
+          <FilterInput label="From Intra High" minValue={currentFilters.min_price_from_intraday_high} maxValue={currentFilters.max_price_from_intraday_high} onMinChange={v => update('min_price_from_intraday_high', v)} onMaxChange={v => update('max_price_from_intraday_high', v)} phMin="-10" phMax="0" />
+          <FilterInput label="From Intra Low" minValue={currentFilters.min_price_from_intraday_low} maxValue={currentFilters.max_price_from_intraday_low} onMinChange={v => update('min_price_from_intraday_low', v)} onMaxChange={v => update('max_price_from_intraday_low', v)} phMin="0" phMax="10" />
+          <FilterInput label="PreMkt Chg %" minValue={currentFilters.min_premarket_change_percent} maxValue={currentFilters.max_premarket_change_percent} onMinChange={v => update('min_premarket_change_percent', v)} onMaxChange={v => update('max_premarket_change_percent', v)} phMin="-10" phMax="10" />
+          <FilterInput label="PostMkt Chg %" minValue={currentFilters.min_postmarket_change_percent} maxValue={currentFilters.max_postmarket_change_percent} onMinChange={v => update('min_postmarket_change_percent', v)} onMaxChange={v => update('max_postmarket_change_percent', v)} phMin="-10" phMax="10" />
+          <FilterInput label="PostMkt Vol" minValue={currentFilters.min_postmarket_volume} maxValue={currentFilters.max_postmarket_volume} onMinChange={v => update('min_postmarket_volume', v)} onMaxChange={v => update('max_postmarket_volume', v)} phMin="10000" phMax="1000000" />
+          <FilterInput label="Avg Vol 3M" minValue={currentFilters.min_avg_volume_3m} maxValue={currentFilters.max_avg_volume_3m} onMinChange={v => update('min_avg_volume_3m', v)} onMaxChange={v => update('max_avg_volume_3m', v)} phMin="100000" phMax="10000000" />
+          <FilterInput label="Chg Open $" minValue={currentFilters.min_change_from_open_dollars} maxValue={currentFilters.max_change_from_open_dollars} onMinChange={v => update('min_change_from_open_dollars', v)} onMaxChange={v => update('max_change_from_open_dollars', v)} phMin="-5" phMax="5" />
+          <FilterInput label="Dist NBBO %" minValue={currentFilters.min_distance_from_nbbo} maxValue={currentFilters.max_distance_from_nbbo} onMinChange={v => update('min_distance_from_nbbo', v)} onMaxChange={v => update('max_distance_from_nbbo', v)} phMin="0" phMax="5" />
+        </div>
+        <div>
           <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Symbols</div>
           <div className="px-3 py-1.5">
             <span className="text-xs text-foreground/80 font-medium block mb-1">Include</span>

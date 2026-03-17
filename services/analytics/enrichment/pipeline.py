@@ -33,6 +33,7 @@ from shared.events import EventBus, EventType, Event
 
 from .change_detector import ChangeDetector
 from bar_engine import BarEngine
+from shared.enums.market_session import MarketSession
 
 logger = get_logger(__name__)
 
@@ -107,6 +108,12 @@ class EnrichmentPipeline:
         self._last_slot = -1
         self._is_holiday_mode = False
         self._cycle_count = 0
+        
+        # Post-market: freeze regular close at 16:00 ET and cache regular volumes
+        self._regular_close_cache: Dict[str, float] = {}
+        self._regular_close_frozen = False
+        self._regular_volumes_cache: Dict[str, int] = {}
+        self._regular_volumes_loaded = False
     
     @property
     def is_holiday_mode(self) -> bool:
@@ -184,6 +191,30 @@ class EnrichmentPipeline:
         
         # Refresh slow-changing caches (metadata + screener daily) if stale
         await self._maybe_refresh_slow_caches()
+        
+        # Determine current market session (stored as instance attr for per-ticker use)
+        session = MarketSession.from_time_et(now.hour, now.minute)
+        self._current_session = session
+        
+        # Freeze regular close prices at market close for accurate post-market calculations
+        if session == MarketSession.POST_MARKET and not self._regular_close_frozen:
+            for td in tickers_data:
+                sym = td.get('ticker')
+                day_d = td.get('day', {})
+                if sym and isinstance(day_d, dict) and day_d.get('c') and day_d['c'] > 0:
+                    self._regular_close_cache[sym] = float(day_d['c'])
+            self._regular_close_frozen = True
+            logger.info("regular_close_frozen", tickers=len(self._regular_close_cache))
+        elif session != MarketSession.POST_MARKET:
+            if self._regular_close_frozen:
+                self._regular_close_cache.clear()
+                self._regular_close_frozen = False
+                self._regular_volumes_cache.clear()
+                self._regular_volumes_loaded = False
+        
+        # Load regular session volumes from scanner's PostMarketVolumeCapture (once per post-market)
+        if session == MarketSession.POST_MARKET and not self._regular_volumes_loaded:
+            await self._load_regular_volumes(now)
         
         # Get ATR batch from cache
         symbols = [t.get('ticker') for t in tickers_data if t.get('ticker')]
@@ -365,6 +396,7 @@ class EnrichmentPipeline:
                 # A.* per-second data available (higher precision)
                 has_per_second_chg = True
                 ticker_data['chg_1min'] = price_windows.chg_1min
+                ticker_data['chg_2min'] = price_windows.chg_2min if hasattr(price_windows, 'chg_2min') else None
                 ticker_data['chg_5min'] = price_windows.chg_5min
                 ticker_data['chg_10min'] = price_windows.chg_10min
                 ticker_data['chg_15min'] = price_windows.chg_15min
@@ -374,13 +406,14 @@ class EnrichmentPipeline:
             if self.bar_engine and self.bar_engine.has_data(symbol):
                 # Fallback: AM.* per-minute data (covers 100% of market)
                 ticker_data['chg_1min'] = self.bar_engine.get_price_change(symbol, 1)
+                ticker_data['chg_2min'] = self.bar_engine.get_price_change(symbol, 2)
                 ticker_data['chg_5min'] = self.bar_engine.get_price_change(symbol, 5)
                 ticker_data['chg_10min'] = self.bar_engine.get_price_change(symbol, 10)
                 ticker_data['chg_15min'] = self.bar_engine.get_price_change(symbol, 15)
                 ticker_data['chg_30min'] = self.bar_engine.get_price_change(symbol, 30)
             else:
-                # No data from either source - keep keys as None for backward compat
                 ticker_data.setdefault('chg_1min', None)
+                ticker_data.setdefault('chg_2min', None)
                 ticker_data.setdefault('chg_5min', None)
                 ticker_data.setdefault('chg_10min', None)
                 ticker_data.setdefault('chg_15min', None)
@@ -443,7 +476,9 @@ class EnrichmentPipeline:
                 ticker_data['stoch_k'] = indicators.stoch_k
                 ticker_data['stoch_d'] = indicators.stoch_d
                 ticker_data['chg_60min'] = indicators.chg_60m
+                ticker_data['chg_120min'] = indicators.chg_120m if hasattr(indicators, 'chg_120m') else self.bar_engine.get_price_change(symbol, 120)
                 ticker_data['vol_60min'] = indicators.vol_60m
+                ticker_data['consecutive_candles'] = self.bar_engine.get_consecutive_candles(symbol)
 
                 # Multi-timeframe indicators (flatten into enriched fields)
                 # Format: {indicator}_{period}m  e.g. sma_5_5m, macd_line_15m
@@ -563,6 +598,7 @@ class EnrichmentPipeline:
         ticker_data['avg_volume_5d'] = daily.get('avg_volume_5d')
         ticker_data['avg_volume_10d'] = daily.get('avg_volume_10d')
         ticker_data['avg_volume_20d'] = daily.get('avg_volume_20d')
+        ticker_data['avg_volume_3m'] = daily.get('avg_volume_3m')
         # New: daily gap
         ticker_data['daily_gap_percent'] = daily.get('daily_gap_percent')
         # New: distance from daily SMAs (%)
@@ -649,6 +685,47 @@ class EnrichmentPipeline:
         else:
             ticker_data.setdefault('minute_volume', None)
         
+        # ================================================================
+        # Session-aware fields: premarket/postmarket change %, postmarket volume
+        # ================================================================
+        _prev_close = ticker_data.get('prevDay', {}).get('c') if isinstance(ticker_data.get('prevDay'), dict) else None
+        _day_open = _day_data.get('o')
+        _day_vol_total = _day_data.get('v')
+        _session = getattr(self, '_current_session', None)
+
+        # premarket_change_percent
+        if _session == MarketSession.PRE_MARKET:
+            if price and _prev_close and _prev_close > 0:
+                ticker_data['premarket_change_percent'] = round((price - _prev_close) / _prev_close * 100, 2)
+            else:
+                ticker_data['premarket_change_percent'] = None
+        elif _day_open and _prev_close and _prev_close > 0:
+            ticker_data['premarket_change_percent'] = round((_day_open - _prev_close) / _prev_close * 100, 2)
+        else:
+            ticker_data.setdefault('premarket_change_percent', None)
+
+        # postmarket_change_percent (uses frozen regular close to avoid Polygon drift)
+        if _session == MarketSession.POST_MARKET:
+            _sym = ticker_data.get('ticker', '')
+            _reg_close = self._regular_close_cache.get(_sym)
+            if _reg_close and price and _reg_close > 0:
+                ticker_data['postmarket_change_percent'] = round((price - _reg_close) / _reg_close * 100, 2)
+            else:
+                ticker_data['postmarket_change_percent'] = None
+        else:
+            ticker_data['postmarket_change_percent'] = None
+
+        # postmarket_volume = total volume today - regular session volume
+        if _session == MarketSession.POST_MARKET:
+            _sym = ticker_data.get('ticker', '')
+            _reg_vol = self._regular_volumes_cache.get(_sym)
+            if _reg_vol is not None and _day_vol_total is not None:
+                ticker_data['postmarket_volume'] = max(0, int(_day_vol_total) - _reg_vol)
+            else:
+                ticker_data['postmarket_volume'] = None
+        else:
+            ticker_data['postmarket_volume'] = None
+
         # Strip noisy/unused fields to reduce serialization and false changes
         self._strip_noisy_fields(ticker_data)
         
@@ -798,7 +875,53 @@ class EnrichmentPipeline:
             ticker_data['prev_day_volume'] = prev_volume
         else:
             ticker_data.setdefault('prev_day_volume', None)
-    
+
+        self._compute_pivot_and_extra(ticker_data, price, prev_day, prev_close)
+
+    def _compute_pivot_and_extra(self, ticker_data, price, prev_day, prev_close):
+        """Pivot points, position-in-range (multi-TF), Bollinger position."""
+        prev_high = prev_day.get('h') if isinstance(prev_day, dict) else None
+        prev_low = prev_day.get('l') if isinstance(prev_day, dict) else None
+        if prev_high and prev_low and prev_close and prev_high > 0:
+            pv = (prev_high + prev_low + prev_close) / 3
+            r1 = 2 * pv - prev_low
+            s1 = 2 * pv - prev_high
+            r2 = pv + (prev_high - prev_low)
+            s2 = pv - (prev_high - prev_low)
+            ticker_data['pivot'] = round(pv, 4)
+            ticker_data['pivot_r1'] = round(r1, 4)
+            ticker_data['pivot_s1'] = round(s1, 4)
+            ticker_data['pivot_r2'] = round(r2, 4)
+            ticker_data['pivot_s2'] = round(s2, 4)
+            if price:
+                ticker_data['dist_pivot'] = round((price - pv) / pv * 100, 2)
+                ticker_data['dist_pivot_r1'] = round((price - r1) / r1 * 100, 2) if r1 else None
+                ticker_data['dist_pivot_s1'] = round((price - s1) / s1 * 100, 2) if s1 else None
+                ticker_data['dist_pivot_r2'] = round((price - r2) / r2 * 100, 2) if r2 else None
+                ticker_data['dist_pivot_s2'] = round((price - s2) / s2 * 100, 2) if s2 else None
+            else:
+                for k in ('dist_pivot', 'dist_pivot_r1', 'dist_pivot_s1', 'dist_pivot_r2', 'dist_pivot_s2'):
+                    ticker_data[k] = None
+        else:
+            for k in ('pivot', 'pivot_r1', 'pivot_s1', 'pivot_r2', 'pivot_s2',
+                       'dist_pivot', 'dist_pivot_r1', 'dist_pivot_s1', 'dist_pivot_r2', 'dist_pivot_s2'):
+                ticker_data[k] = None
+
+        for suffix in ('5m', '15m', '30m', '60m'):
+            tf_h = ticker_data.get(f'tf_high_{suffix}')
+            tf_l = ticker_data.get(f'tf_low_{suffix}')
+            if tf_h and tf_l and tf_h != tf_l and price:
+                ticker_data[f'pos_in_range_{suffix}'] = round((price - tf_l) / (tf_h - tf_l) * 100, 2)
+            else:
+                ticker_data[f'pos_in_range_{suffix}'] = None
+
+        bb_u = ticker_data.get('bb_upper')
+        bb_l = ticker_data.get('bb_lower')
+        if bb_u and bb_l and bb_u != bb_l and price:
+            ticker_data['bb_position_1m'] = round((price - bb_l) / (bb_u - bb_l) * 100, 2)
+        else:
+            ticker_data['bb_position_1m'] = None
+
     @staticmethod
     def _strip_noisy_fields(ticker_data: dict) -> None:
         """
@@ -844,12 +967,10 @@ class EnrichmentPipeline:
         if isinstance(day_data, dict):
             day_data.pop('otc', None)   # OTC flag - static/unused
         
-        # prevDay: keep .c (prev_close), .v (prev_volume), .o (prev_open)
-        # .o needed by alert_engine for CAO/CBO in pre-market
+        # prevDay: keep .c (prev_close), .v (prev_volume), .o (prev_open), .h, .l
+        # .h/.l needed for pivot point calculations
         prev_day = ticker_data.get('prevDay')
         if isinstance(prev_day, dict):
-            prev_day.pop('h', None)     # prev high - unused
-            prev_day.pop('l', None)     # prev low - unused
             prev_day.pop('vw', None)    # prev VWAP - unused
     
     async def _write_to_hash(
@@ -940,6 +1061,38 @@ class EnrichmentPipeline:
             )
         except Exception as e:
             logger.error("error_writing_last_close", error=str(e))
+    
+    async def _load_regular_volumes(self, now: datetime) -> None:
+        """
+        Load regular-session volumes captured by scanner's PostMarketVolumeCapture.
+        Keys: scanner:postmarket:regular_vol:{YYYYMMDD}:{SYMBOL}
+        Called once when entering post-market session.
+        """
+        try:
+            date_str = now.strftime("%Y%m%d")
+            pattern = f"scanner:postmarket:regular_vol:{date_str}:*"
+            cursor = b"0"
+            count = 0
+            while True:
+                cursor, keys = await self.redis.client.scan(cursor=cursor, match=pattern, count=500)
+                if keys:
+                    values = await self.redis.client.mget(*keys)
+                    for key, val in zip(keys, values):
+                        if val is None:
+                            continue
+                        key_str = key.decode() if isinstance(key, bytes) else key
+                        symbol = key_str.rsplit(":", 1)[-1]
+                        try:
+                            self._regular_volumes_cache[symbol] = int(float(val))
+                            count += 1
+                        except (ValueError, TypeError):
+                            pass
+                if cursor == b"0" or cursor == 0:
+                    break
+            self._regular_volumes_loaded = True
+            logger.info("regular_volumes_loaded", count=count, date=date_str)
+        except Exception as e:
+            logger.error("regular_volumes_load_error", error=str(e))
     
     # ================================================================
     # Slow-changing caches: metadata (fundamentals) + screener (daily indicators)
@@ -1069,6 +1222,7 @@ class EnrichmentPipeline:
                     "avg_volume_5d": sf(ind.get("avg_volume_5")),
                     "avg_volume_10d": sf(ind.get("avg_volume_10")),
                     "avg_volume_20d": sf(ind.get("avg_volume_20")),
+                    "avg_volume_3m": sf(ind.get("avg_volume_63")),
                     # Distance from daily SMAs (%)
                     "dist_daily_sma_20": sf(ind.get("dist_sma_20")),
                     "dist_daily_sma_50": sf(ind.get("dist_sma_50")),

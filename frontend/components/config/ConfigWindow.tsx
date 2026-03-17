@@ -17,7 +17,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAlertStrategies, type AlertStrategy, type CreateStrategyData } from '@/hooks/useAlertStrategies';
 import { useUserFilters } from '@/hooks/useUserFilters';
 import { BUILT_IN_PRESETS, type AlertPreset, BUILT_IN_TOP_LISTS, type TopListPreset, ALERT_CATEGORIES, ALERT_CATALOG, ALERT_BY_EVENT_TYPE, getAlertsByCategory, searchAlerts } from '@/lib/alert-catalog';
-import type { ActiveEventFilters } from '@/stores/useEventFiltersStore';
+import { useEventFiltersStore, type ActiveEventFilters } from '@/stores/useEventFiltersStore';
 import type { UserFilter } from '@/lib/types/scannerFilters';
 import { SECURITY_TYPES, SECTORS, INDUSTRIES } from '@/lib/constants/filters';
 
@@ -56,6 +56,8 @@ interface ConfigWindowProps {
   initialTab?: ConfigTab;
   /** Start in a specific mode */
   initialMode?: BuilderMode;
+  /** If provided, read live filters from the store instead of static initialFilters */
+  sourceCategoryId?: string;
 }
 
 // ============================================================================
@@ -238,6 +240,7 @@ export function ConfigWindow({
   onBacktestStrategy,
   initialAlerts, initialFilters, initialSymbolsInclude, initialSymbolsExclude,
   initialName, initialTab, initialMode,
+  sourceCategoryId,
 }: ConfigWindowProps) {
   const [builderMode, setBuilderMode] = useState<BuilderMode>(initialMode || 'strategy');
   const [activeTab, setActiveTab] = useState<ConfigTab>(initialTab || 'saved');
@@ -255,11 +258,27 @@ export function ConfigWindow({
     deleteFilter: deleteScanFilter, refreshFilters: refreshScanFilters,
   } = useUserFilters();
 
+  // Resolve initial state: prefer live store data over static props
+  const liveFilters = useEventFiltersStore(
+    useCallback((s: { filtersMap: Record<string, ActiveEventFilters> }) =>
+      sourceCategoryId ? s.filtersMap[sourceCategoryId] : undefined,
+    [sourceCategoryId])
+  );
+  const resolvedInitialFilters = liveFilters || initialFilters;
+
+  // Extract numeric/string filters for the local editing state
+  const extractEditableFilters = useCallback((src: Record<string, any> | undefined) => {
+    if (!src) return {};
+    return Object.fromEntries(
+      Object.entries(src).filter(([, v]) => typeof v === 'number' || typeof v === 'string')
+    );
+  }, []);
+
   // Current config being built
   const [strategyName, setStrategyName] = useState(initialName || '');
   const [selectedAlerts, setSelectedAlerts] = useState<Set<string>>(new Set(initialAlerts || []));
   const [filters, setFilters] = useState<Record<string, number | string | undefined>>(
-    initialFilters ? Object.fromEntries(Object.entries(initialFilters).filter(([, v]) => typeof v === 'number' || typeof v === 'string')) : {}
+    extractEditableFilters(resolvedInitialFilters)
   );
   const [filterUnits, setFilterUnits] = useState<Record<string, string>>({});
   const [symbolsInclude, setSymbolsInclude] = useState(initialSymbolsInclude || '');
@@ -379,6 +398,24 @@ export function ConfigWindow({
     return false;
   }, [selectedAlerts, filters, strategyName, loadedSnapshot]);
 
+  const buildAlertWindowConfig = useCallback((): AlertWindowConfig => {
+    const inc = symbolsInclude.trim() ? symbolsInclude.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean) : [];
+    const exc = symbolsExclude.trim() ? symbolsExclude.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean) : [];
+    const ef: ActiveEventFilters = {
+      event_types: Array.from(selectedAlerts),
+      symbols_include: inc.length ? inc : undefined,
+      symbols_exclude: exc.length ? exc : undefined,
+      ...filters,
+    };
+    return {
+      name: strategyName.trim() || `Custom ${new Date().toLocaleTimeString()}`,
+      eventTypes: Array.from(selectedAlerts),
+      filters: ef,
+      symbolsInclude: inc,
+      symbolsExclude: exc,
+    };
+  }, [selectedAlerts, filters, symbolsInclude, symbolsExclude, strategyName]);
+
   // Create / Open
   const handleCreate = useCallback(async () => {
     if (!canCreate || saving) return;
@@ -405,27 +442,11 @@ export function ConfigWindow({
         name: strategyName.trim(),
       });
 
-      // Build ActiveEventFilters for the window
-      const inc = symbolsInclude.trim() ? symbolsInclude.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean) : [];
-      const exc = symbolsExclude.trim() ? symbolsExclude.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean) : [];
-      const ef: ActiveEventFilters = {
-        event_types: Array.from(selectedAlerts),
-        symbols_include: inc.length ? inc : undefined,
-        symbols_exclude: exc.length ? exc : undefined,
-        ...filters,
-      };
-
       if (onCreateAlertWindow) {
-        onCreateAlertWindow({
-          name: strategyName.trim(),
-          eventTypes: Array.from(selectedAlerts),
-          filters: ef,
-          symbolsInclude: inc,
-          symbolsExclude: exc,
-        });
+        onCreateAlertWindow(buildAlertWindowConfig());
       }
     } finally { setSaving(false); }
-  }, [canCreate, saving, strategyName, saveCategory, selectedAlerts, filters, symbolsInclude, symbolsExclude, createStrategy, onCreateAlertWindow]);
+  }, [canCreate, saving, strategyName, saveCategory, selectedAlerts, filters, createStrategy, onCreateAlertWindow, buildAlertWindowConfig]);
 
   // Update existing strategy & open
   const handleUpdate = useCallback(async () => {
@@ -437,50 +458,20 @@ export function ConfigWindow({
         event_types: Array.from(selectedAlerts),
         filters,
       });
-      // Update snapshot to reflect saved state
       setLoadedSnapshot({ alerts: Array.from(selectedAlerts), filters: { ...filters }, name: strategyName.trim() });
 
-      const inc = symbolsInclude.trim() ? symbolsInclude.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean) : [];
-      const exc = symbolsExclude.trim() ? symbolsExclude.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean) : [];
-      const ef: ActiveEventFilters = {
-        event_types: Array.from(selectedAlerts),
-        symbols_include: inc.length ? inc : undefined,
-        symbols_exclude: exc.length ? exc : undefined,
-        ...filters,
-      };
       if (onCreateAlertWindow) {
-        onCreateAlertWindow({
-          name: strategyName.trim(),
-          eventTypes: Array.from(selectedAlerts),
-          filters: ef,
-          symbolsInclude: inc,
-          symbolsExclude: exc,
-        });
+        onCreateAlertWindow(buildAlertWindowConfig());
       }
     } finally { setSaving(false); }
-  }, [loadedStrategyId, saving, strategyName, selectedAlerts, filters, symbolsInclude, symbolsExclude, updateStrategy, onCreateAlertWindow]);
+  }, [loadedStrategyId, saving, strategyName, selectedAlerts, filters, updateStrategy, onCreateAlertWindow, buildAlertWindowConfig]);
 
-  // Open without saving (just launch the window)
   const handleOpenDirect = useCallback(() => {
     if (selectedAlerts.size === 0) return;
-    const inc = symbolsInclude.trim() ? symbolsInclude.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean) : [];
-    const exc = symbolsExclude.trim() ? symbolsExclude.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean) : [];
-    const ef: ActiveEventFilters = {
-      event_types: Array.from(selectedAlerts),
-      symbols_include: inc.length ? inc : undefined,
-      symbols_exclude: exc.length ? exc : undefined,
-      ...filters,
-    };
     if (onCreateAlertWindow) {
-      onCreateAlertWindow({
-        name: strategyName.trim() || `Custom ${new Date().toLocaleTimeString()}`,
-        eventTypes: Array.from(selectedAlerts),
-        filters: ef,
-        symbolsInclude: inc,
-        symbolsExclude: exc,
-      });
+      onCreateAlertWindow(buildAlertWindowConfig());
     }
-  }, [selectedAlerts, filters, symbolsInclude, symbolsExclude, strategyName, onCreateAlertWindow]);
+  }, [selectedAlerts, onCreateAlertWindow, buildAlertWindowConfig]);
 
   // Detect if top list was modified from loaded snapshot
   const isScanDirty = useMemo(() => {

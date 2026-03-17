@@ -326,6 +326,7 @@ const CONTEXT_TO_EVENT_MAP = [
   ['distance_from_nbbo', 'distance_from_nbbo'],
   ['premarket_change_percent', 'premarket_change_percent'],
   ['postmarket_change_percent', 'postmarket_change_percent'],
+  ['postmarket_volume', 'postmarket_volume'],
   ['volume_yesterday_pct', 'volume_yesterday_pct'],
   ['atr', 'atr'],
   ['atr_percent', 'atr_percent'],
@@ -489,13 +490,39 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     // Scanner-aligned
     ['sharesOutstandingMin','sharesOutstandingMax', null, 'shares_outstanding'],
     ['volumeTodayPctMin', 'volumeTodayPctMax', null, 'volume_today_pct'],
-    ['minuteVolumeMin',   null,                null, 'minute_volume'],
+    ['minuteVolumeMin',   'minuteVolumeMax',   null, 'minute_volume'],
     ['priceFromHighMin',  'priceFromHighMax',  null, 'price_from_high'],
+    ['priceFromLowMin',   'priceFromLowMax',   null, 'price_from_low'],
+    ['priceFromIntradayHighMin','priceFromIntradayHighMax',null,'price_from_intraday_high'],
+    ['priceFromIntradayLowMin','priceFromIntradayLowMax',null,'price_from_intraday_low'],
+    ['volumeYesterdayPctMin','volumeYesterdayPctMax',null,'volume_yesterday_pct'],
+    ['changeFromOpenDollarsMin','changeFromOpenDollarsMax',null,'change_from_open_dollars'],
     ['distanceFromNbboMin','distanceFromNbboMax',null,'distance_from_nbbo'],
     ['premarketChangePctMin','premarketChangePctMax',null,'premarket_change_percent'],
     ['postmarketChangePctMin','postmarketChangePctMax',null,'postmarket_change_percent'],
+    ['postmarketVolumeMin','postmarketVolumeMax',null,'postmarket_volume'],
     ['avgVolume3mMin',    'avgVolume3mMax',    null, 'avg_volume_3m'],
     ['atrMin',            'atrMax',            null, 'atr'],
+    ['distPivotMin',      'distPivotMax',      null, 'dist_pivot'],
+    ['distPivotR1Min',    'distPivotR1Max',    null, 'dist_pivot_r1'],
+    ['distPivotS1Min',    'distPivotS1Max',    null, 'dist_pivot_s1'],
+    ['distPivotR2Min',    'distPivotR2Max',    null, 'dist_pivot_r2'],
+    ['distPivotS2Min',    'distPivotS2Max',    null, 'dist_pivot_s2'],
+    ['consecutiveCandlesMin','consecutiveCandlesMax',null,'consecutive_candles'],
+    ['posInRange5mMin',   'posInRange5mMax',   null, 'pos_in_range_5m'],
+    ['posInRange15mMin',  'posInRange15mMax',  null, 'pos_in_range_15m'],
+    ['posInRange30mMin',  'posInRange30mMax',  null, 'pos_in_range_30m'],
+    ['posInRange60mMin',  'posInRange60mMax',  null, 'pos_in_range_60m'],
+    ['rsi2mMin',          'rsi2mMax',          null, 'rsi_14_2m'],
+    ['rsi5mMin',          'rsi5mMax',          null, 'rsi_14_5m'],
+    ['rsi15mMin',         'rsi15mMax',         null, 'rsi_14_15m'],
+    ['rsi60mMin',         'rsi60mMax',         null, 'rsi_14_60m'],
+    ['bbPosition1mMin',   'bbPosition1mMax',   null, 'bb_position_1m'],
+    ['bbPosition5mMin',   'bbPosition5mMax',   null, 'bb_position_5m'],
+    ['bbPosition15mMin',  'bbPosition15mMax',  null, 'bb_position_15m'],
+    ['bbPosition60mMin',  'bbPosition60mMax',  null, 'bb_position_60m'],
+    ['chg2minMin',        'chg2minMax',        null, 'chg_2min'],
+    ['chg120minMin',      'chg120minMax',      null, 'chg_120min'],
   ];
 
   for (const [minKey, maxKey, nativeCol, ctxKey] of FILTER_MAP) {
@@ -842,6 +869,17 @@ const ENRICHED_FLOAT_FIELDS = [
   "range_2min", "range_5min", "range_15min", "range_30min", "range_60min", "range_120min",
   "range_2min_pct", "range_5min_pct", "range_15min_pct", "range_30min_pct", "range_60min_pct", "range_120min_pct",
   "premarket_change_percent", "postmarket_change_percent",
+  // Pivot points
+  "pivot", "pivot_r1", "pivot_s1", "pivot_r2", "pivot_s2",
+  "dist_pivot", "dist_pivot_r1", "dist_pivot_s1", "dist_pivot_r2", "dist_pivot_s2",
+  // Position in TF ranges
+  "pos_in_range_5m", "pos_in_range_15m", "pos_in_range_30m", "pos_in_range_60m",
+  // Multi-TF RSI
+  "rsi_14_2m", "rsi_14_5m", "rsi_14_15m", "rsi_14_60m",
+  // Multi-TF Bollinger position
+  "bb_position_1m", "bb_position_5m", "bb_position_15m", "bb_position_60m",
+  // Change 2min / 120min
+  "chg_2min", "chg_120min",
 ];
 const ENRICHED_INT_FIELDS = [
   "bid_size", "ask_size",
@@ -850,7 +888,8 @@ const ENRICHED_INT_FIELDS = [
   "prev_day_volume",
   "trades_today", "avg_trades_5d",
   "avg_volume_5d", "avg_volume_10d", "avg_volume_20d", "avg_volume_3m",
-  "minute_volume",
+  "minute_volume", "postmarket_volume",
+  "consecutive_candles",
 ];
 const ENRICHED_STRING_FIELDS = [
   "security_type", "sector", "industry",
@@ -1152,18 +1191,71 @@ const NUMERIC_FILTER_DEFS = [
   ['volumeTodayPctMin', 'volume_today_pct_min', pf],
   ['volumeTodayPctMax', 'volume_today_pct_max', pf],
   ['minuteVolumeMin', 'minute_volume_min', pi],
+  ['minuteVolumeMax', 'minute_volume_max', pi],
   ['priceFromHighMin', 'price_from_high_min', pf],
   ['priceFromHighMax', 'price_from_high_max', pf],
+  ['priceFromLowMin', 'price_from_low_min', pf],
+  ['priceFromLowMax', 'price_from_low_max', pf],
+  ['priceFromIntradayHighMin', 'price_from_intraday_high_min', pf],
+  ['priceFromIntradayHighMax', 'price_from_intraday_high_max', pf],
+  ['priceFromIntradayLowMin', 'price_from_intraday_low_min', pf],
+  ['priceFromIntradayLowMax', 'price_from_intraday_low_max', pf],
+  ['volumeYesterdayPctMin', 'volume_yesterday_pct_min', pf],
+  ['volumeYesterdayPctMax', 'volume_yesterday_pct_max', pf],
+  ['changeFromOpenDollarsMin', 'change_from_open_dollars_min', pf],
+  ['changeFromOpenDollarsMax', 'change_from_open_dollars_max', pf],
   ['distanceFromNbboMin', 'distance_from_nbbo_min', pf],
   ['distanceFromNbboMax', 'distance_from_nbbo_max', pf],
   ['premarketChangePctMin', 'premarket_change_percent_min', pf],
   ['premarketChangePctMax', 'premarket_change_percent_max', pf],
   ['postmarketChangePctMin', 'postmarket_change_percent_min', pf],
   ['postmarketChangePctMax', 'postmarket_change_percent_max', pf],
+  ['postmarketVolumeMin', 'postmarket_volume_min', pi],
+  ['postmarketVolumeMax', 'postmarket_volume_max', pi],
   ['avgVolume3mMin', 'avg_volume_3m_min', pi],
   ['avgVolume3mMax', 'avg_volume_3m_max', pi],
   ['atrMin', 'atr_min', pf],
   ['atrMax', 'atr_max', pf],
+  ['distPivotMin', 'dist_pivot_min', pf],
+  ['distPivotMax', 'dist_pivot_max', pf],
+  ['distPivotR1Min', 'dist_pivot_r1_min', pf],
+  ['distPivotR1Max', 'dist_pivot_r1_max', pf],
+  ['distPivotS1Min', 'dist_pivot_s1_min', pf],
+  ['distPivotS1Max', 'dist_pivot_s1_max', pf],
+  ['distPivotR2Min', 'dist_pivot_r2_min', pf],
+  ['distPivotR2Max', 'dist_pivot_r2_max', pf],
+  ['distPivotS2Min', 'dist_pivot_s2_min', pf],
+  ['distPivotS2Max', 'dist_pivot_s2_max', pf],
+  ['consecutiveCandlesMin', 'consecutive_candles_min', pi],
+  ['consecutiveCandlesMax', 'consecutive_candles_max', pi],
+  ['posInRange5mMin', 'pos_in_range_5m_min', pf],
+  ['posInRange5mMax', 'pos_in_range_5m_max', pf],
+  ['posInRange15mMin', 'pos_in_range_15m_min', pf],
+  ['posInRange15mMax', 'pos_in_range_15m_max', pf],
+  ['posInRange30mMin', 'pos_in_range_30m_min', pf],
+  ['posInRange30mMax', 'pos_in_range_30m_max', pf],
+  ['posInRange60mMin', 'pos_in_range_60m_min', pf],
+  ['posInRange60mMax', 'pos_in_range_60m_max', pf],
+  ['rsi2mMin', 'rsi_2m_min', pf],
+  ['rsi2mMax', 'rsi_2m_max', pf],
+  ['rsi5mMin', 'rsi_5m_min', pf],
+  ['rsi5mMax', 'rsi_5m_max', pf],
+  ['rsi15mMin', 'rsi_15m_min', pf],
+  ['rsi15mMax', 'rsi_15m_max', pf],
+  ['rsi60mMin', 'rsi_60m_min', pf],
+  ['rsi60mMax', 'rsi_60m_max', pf],
+  ['bbPosition1mMin', 'bb_position_1m_min', pf],
+  ['bbPosition1mMax', 'bb_position_1m_max', pf],
+  ['bbPosition5mMin', 'bb_position_5m_min', pf],
+  ['bbPosition5mMax', 'bb_position_5m_max', pf],
+  ['bbPosition15mMin', 'bb_position_15m_min', pf],
+  ['bbPosition15mMax', 'bb_position_15m_max', pf],
+  ['bbPosition60mMin', 'bb_position_60m_min', pf],
+  ['bbPosition60mMax', 'bb_position_60m_max', pf],
+  ['chg2minMin', 'chg_2min_min', pf],
+  ['chg2minMax', 'chg_2min_max', pf],
+  ['chg120minMin', 'chg_120min_min', pf],
+  ['chg120minMax', 'chg_120min_max', pf],
 ];
 
 // String filter definitions: [subKey, dataKey]
@@ -1272,13 +1364,39 @@ const ENRICHED_FIELD_MAP = {
   dailyBbPositionMin: 'daily_bb_position', dailyBbPositionMax: 'daily_bb_position',
   // Scanner-aligned filters (from enriched cache)
   volumeTodayPctMin: 'volume_today_pct', volumeTodayPctMax: 'volume_today_pct',
-  minuteVolumeMin: 'minute_volume',
+  minuteVolumeMin: 'minute_volume', minuteVolumeMax: 'minute_volume',
   priceFromHighMin: 'price_from_high', priceFromHighMax: 'price_from_high',
+  priceFromLowMin: 'price_from_low', priceFromLowMax: 'price_from_low',
+  priceFromIntradayHighMin: 'price_from_intraday_high', priceFromIntradayHighMax: 'price_from_intraday_high',
+  priceFromIntradayLowMin: 'price_from_intraday_low', priceFromIntradayLowMax: 'price_from_intraday_low',
+  volumeYesterdayPctMin: 'volume_yesterday_pct', volumeYesterdayPctMax: 'volume_yesterday_pct',
+  changeFromOpenDollarsMin: 'change_from_open_dollars', changeFromOpenDollarsMax: 'change_from_open_dollars',
   distanceFromNbboMin: 'distance_from_nbbo', distanceFromNbboMax: 'distance_from_nbbo',
   premarketChangePctMin: 'premarket_change_percent', premarketChangePctMax: 'premarket_change_percent',
   postmarketChangePctMin: 'postmarket_change_percent', postmarketChangePctMax: 'postmarket_change_percent',
+  postmarketVolumeMin: 'postmarket_volume', postmarketVolumeMax: 'postmarket_volume',
   avgVolume3mMin: 'avg_volume_3m', avgVolume3mMax: 'avg_volume_3m',
   atrMin: 'atr', atrMax: 'atr',
+  distPivotMin: 'dist_pivot', distPivotMax: 'dist_pivot',
+  distPivotR1Min: 'dist_pivot_r1', distPivotR1Max: 'dist_pivot_r1',
+  distPivotS1Min: 'dist_pivot_s1', distPivotS1Max: 'dist_pivot_s1',
+  distPivotR2Min: 'dist_pivot_r2', distPivotR2Max: 'dist_pivot_r2',
+  distPivotS2Min: 'dist_pivot_s2', distPivotS2Max: 'dist_pivot_s2',
+  consecutiveCandlesMin: 'consecutive_candles', consecutiveCandlesMax: 'consecutive_candles',
+  posInRange5mMin: 'pos_in_range_5m', posInRange5mMax: 'pos_in_range_5m',
+  posInRange15mMin: 'pos_in_range_15m', posInRange15mMax: 'pos_in_range_15m',
+  posInRange30mMin: 'pos_in_range_30m', posInRange30mMax: 'pos_in_range_30m',
+  posInRange60mMin: 'pos_in_range_60m', posInRange60mMax: 'pos_in_range_60m',
+  rsi2mMin: 'rsi_14_2m', rsi2mMax: 'rsi_14_2m',
+  rsi5mMin: 'rsi_14_5m', rsi5mMax: 'rsi_14_5m',
+  rsi15mMin: 'rsi_14_15m', rsi15mMax: 'rsi_14_15m',
+  rsi60mMin: 'rsi_14_60m', rsi60mMax: 'rsi_14_60m',
+  bbPosition1mMin: 'bb_position_1m', bbPosition1mMax: 'bb_position_1m',
+  bbPosition5mMin: 'bb_position_5m', bbPosition5mMax: 'bb_position_5m',
+  bbPosition15mMin: 'bb_position_15m', bbPosition15mMax: 'bb_position_15m',
+  bbPosition60mMin: 'bb_position_60m', bbPosition60mMax: 'bb_position_60m',
+  chg2minMin: 'chg_2min', chg2minMax: 'chg_2min',
+  chg120minMin: 'chg_120min', chg120minMax: 'chg_120min',
   // String filters
   securityType: 'security_type',
   sector: 'sector',
@@ -1501,10 +1619,43 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.volume_today_pct, 'volumeTodayPctMin', 'volumeTodayPctMax')) return false;
   if (!chkEvt(enriched.minute_volume, 'minuteVolumeMin', 'minuteVolumeMax')) return false;
   if (!chkEvt(enriched.price_from_high, 'priceFromHighMin', 'priceFromHighMax')) return false;
+  if (!chkEvt(enriched.price_from_low, 'priceFromLowMin', 'priceFromLowMax')) return false;
+  if (!chkEvt(enriched.price_from_intraday_high, 'priceFromIntradayHighMin', 'priceFromIntradayHighMax')) return false;
+  if (!chkEvt(enriched.price_from_intraday_low, 'priceFromIntradayLowMin', 'priceFromIntradayLowMax')) return false;
+  if (!chkEvt(enriched.volume_yesterday_pct, 'volumeYesterdayPctMin', 'volumeYesterdayPctMax')) return false;
+  if (!chkEvt(enriched.change_from_open_dollars, 'changeFromOpenDollarsMin', 'changeFromOpenDollarsMax')) return false;
+  if (!chkEvt(enriched.distance_from_nbbo, 'distanceFromNbboMin', 'distanceFromNbboMax')) return false;
   if (!chkEvt(enriched.premarket_change_percent, 'premarketChangePctMin', 'premarketChangePctMax')) return false;
   if (!chkEvt(enriched.postmarket_change_percent, 'postmarketChangePctMin', 'postmarketChangePctMax')) return false;
+  if (!chkEvt(enriched.postmarket_volume, 'postmarketVolumeMin', 'postmarketVolumeMax')) return false;
   if (!chkEvt(enriched.avg_volume_3m, 'avgVolume3mMin', 'avgVolume3mMax')) return false;
   if (!chkEvt(enriched.atr, 'atrMin', 'atrMax')) return false;
+
+  // Pivot points (distance %)
+  if (!chkEvt(enriched.dist_pivot, 'distPivotMin', 'distPivotMax')) return false;
+  if (!chkEvt(enriched.dist_pivot_r1, 'distPivotR1Min', 'distPivotR1Max')) return false;
+  if (!chkEvt(enriched.dist_pivot_s1, 'distPivotS1Min', 'distPivotS1Max')) return false;
+  if (!chkEvt(enriched.dist_pivot_r2, 'distPivotR2Min', 'distPivotR2Max')) return false;
+  if (!chkEvt(enriched.dist_pivot_s2, 'distPivotS2Min', 'distPivotS2Max')) return false;
+  if (!chkEvt(enriched.consecutive_candles, 'consecutiveCandlesMin', 'consecutiveCandlesMax')) return false;
+  // Position in intraday TF ranges
+  if (!chkEvt(enriched.pos_in_range_5m, 'posInRange5mMin', 'posInRange5mMax')) return false;
+  if (!chkEvt(enriched.pos_in_range_15m, 'posInRange15mMin', 'posInRange15mMax')) return false;
+  if (!chkEvt(enriched.pos_in_range_30m, 'posInRange30mMin', 'posInRange30mMax')) return false;
+  if (!chkEvt(enriched.pos_in_range_60m, 'posInRange60mMin', 'posInRange60mMax')) return false;
+  // Multi-TF RSI
+  if (!chkEvt(enriched.rsi_14_2m, 'rsi2mMin', 'rsi2mMax')) return false;
+  if (!chkEvt(enriched.rsi_14_5m, 'rsi5mMin', 'rsi5mMax')) return false;
+  if (!chkEvt(enriched.rsi_14_15m, 'rsi15mMin', 'rsi15mMax')) return false;
+  if (!chkEvt(enriched.rsi_14_60m, 'rsi60mMin', 'rsi60mMax')) return false;
+  // Multi-TF Bollinger position
+  if (!chkEvt(enriched.bb_position_1m, 'bbPosition1mMin', 'bbPosition1mMax')) return false;
+  if (!chkEvt(enriched.bb_position_5m, 'bbPosition5mMin', 'bbPosition5mMax')) return false;
+  if (!chkEvt(enriched.bb_position_15m, 'bbPosition15mMin', 'bbPosition15mMax')) return false;
+  if (!chkEvt(enriched.bb_position_60m, 'bbPosition60mMin', 'bbPosition60mMax')) return false;
+  // Change 2min / 120min
+  if (!chkEvt(enriched.chg_2min, 'chg2minMin', 'chg2minMax')) return false;
+  if (!chkEvt(enriched.chg_120min, 'chg120minMin', 'chg120minMax')) return false;
 
   // ── String filters ──
   if (sub.securityType !== null) {

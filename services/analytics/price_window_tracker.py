@@ -42,6 +42,7 @@ Timestamp = int  # Unix timestamp in seconds
 class PriceChangeResult(NamedTuple):
     """Result of price change window query"""
     chg_1min: Optional[float]
+    chg_2min: Optional[float]
     chg_5min: Optional[float]
     chg_10min: Optional[float]
     chg_15min: Optional[float]
@@ -351,33 +352,34 @@ class PriceWindowTracker:
             PriceChangeResult with chg_1min, chg_5min, chg_10min, chg_15min, chg_30min
         """
         if symbol not in self.symbol_index:
-            return PriceChangeResult(None, None, None, None, None, None)
+            return PriceChangeResult(None, None, None, None, None, None, None)
         
         idx = self.symbol_index[symbol]
         count = self.counts[idx]
         
         if count < self.config.min_data_points:
-            return PriceChangeResult(None, None, None, None, None, None)
+            return PriceChangeResult(None, None, None, None, None, None, None)
         
         head = self.heads[idx]
         price_now = self.prices[idx, head]
         ts_now = self.timestamps[idx, head]  # This is our reference point
         
         if price_now <= 0:
-            return PriceChangeResult(None, None, None, None, None, None)
+            return PriceChangeResult(None, None, None, None, None, None, None)
         
         # Target timestamps for each window (in seconds from ts_now)
         targets = {
-            1: ts_now - 60,    # 1 min = 60 seconds before latest
-            5: ts_now - 300,   # 5 min = 300 seconds before latest
-            10: ts_now - 600,  # 10 min = 600 seconds before latest
-            15: ts_now - 900,  # 15 min = 900 seconds before latest
-            30: ts_now - 1800, # 30 min = 1800 seconds before latest
+            1: ts_now - 60,
+            2: ts_now - 120,
+            5: ts_now - 300,
+            10: ts_now - 600,
+            15: ts_now - 900,
+            30: ts_now - 1800,
         }
         
         # Single pass through history to find all targets
-        results = {1: None, 5: None, 10: None, 15: None, 30: None}
-        prices_past = {1: None, 5: None, 10: None, 15: None, 30: None}
+        results = {1: None, 2: None, 5: None, 10: None, 15: None, 30: None}
+        prices_past = {1: None, 2: None, 5: None, 10: None, 15: None, 30: None}
         found_targets = set()
         
         for i in range(1, count):
@@ -395,11 +397,12 @@ class PriceWindowTracker:
                     found_targets.add(mins)
             
             # Early exit if all found
-            if len(found_targets) == 5:
+            if len(found_targets) == 6:
                 break
         
         return PriceChangeResult(
             chg_1min=results[1],
+            chg_2min=results[2],
             chg_5min=results[5],
             chg_10min=results[10],
             chg_15min=results[15],

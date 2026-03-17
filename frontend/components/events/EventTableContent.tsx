@@ -37,7 +37,7 @@ import { MarketTableLayout } from '@/components/table/MarketTableLayout';
 import { TableSettings } from '@/components/table/TableSettings';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLinkGroupPublisher } from '@/hooks/useLinkGroup';
-import { useCloseCurrentWindow, useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useCloseCurrentWindow, useFloatingWindow, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
@@ -190,12 +190,44 @@ export interface MarketEvent {
   industry?: string;
   // Other
   volume_today_pct?: number;
+  volume_yesterday_pct?: number;
+  minute_volume?: number;
   price_from_high?: number;
+  price_from_low?: number;
+  price_from_intraday_high?: number;
+  price_from_intraday_low?: number;
+  change_from_open_dollars?: number;
   distance_from_nbbo?: number;
   premarket_change_percent?: number;
   postmarket_change_percent?: number;
+  postmarket_volume?: number;
   trades_today?: number;
   trades_z_score?: number;
+  // Pivot points
+  dist_pivot?: number;
+  dist_pivot_r1?: number;
+  dist_pivot_s1?: number;
+  dist_pivot_r2?: number;
+  dist_pivot_s2?: number;
+  consecutive_candles?: number;
+  // Position in TF ranges
+  pos_in_range_5m?: number;
+  pos_in_range_15m?: number;
+  pos_in_range_30m?: number;
+  pos_in_range_60m?: number;
+  // Multi-TF RSI
+  rsi_14_2m?: number;
+  rsi_14_5m?: number;
+  rsi_14_15m?: number;
+  rsi_14_60m?: number;
+  // Multi-TF Bollinger position
+  bb_position_1m?: number;
+  bb_position_5m?: number;
+  bb_position_15m?: number;
+  bb_position_60m?: number;
+  // Change 2min / 120min
+  chg_2min?: number;
+  chg_120min?: number;
   metadata?: Record<string, unknown>;
   quality?: number;
   description?: string;
@@ -362,6 +394,7 @@ const DEFAULT_EVENT_COLUMN_VISIBILITY: VisibilityState = {
   distance_from_nbbo: false,
   premarket_change_percent: false,
   postmarket_change_percent: false,
+  postmarket_volume: false,
   trades_today: false,
   trades_z_score: false,
 };
@@ -529,6 +562,7 @@ function parseEvent(d: any): MarketEvent {
     distance_from_nbbo: p('distance_from_nbbo'),
     premarket_change_percent: p('premarket_change_percent'),
     postmarket_change_percent: p('postmarket_change_percent'),
+    postmarket_volume: p('postmarket_volume'),
     trades_today: p('trades_today'),
     trades_z_score: p('trades_z_score'),
     metadata: d.details || d.metadata,
@@ -695,10 +729,43 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
 
   // Scanner-aligned
   if (!chk(e.volume_today_pct, f.min_volume_today_pct, f.max_volume_today_pct)) return false;
+  if (!chk(e.volume_yesterday_pct, f.min_volume_yesterday_pct, f.max_volume_yesterday_pct)) return false;
+  if (!chk(e.minute_volume, f.min_minute_volume, f.max_minute_volume)) return false;
   if (!chk(e.price_from_high, f.min_price_from_high, f.max_price_from_high)) return false;
+  if (!chk(e.price_from_low, f.min_price_from_low, f.max_price_from_low)) return false;
+  if (!chk(e.price_from_intraday_high, f.min_price_from_intraday_high, f.max_price_from_intraday_high)) return false;
+  if (!chk(e.price_from_intraday_low, f.min_price_from_intraday_low, f.max_price_from_intraday_low)) return false;
+  if (!chk(e.change_from_open_dollars, f.min_change_from_open_dollars, f.max_change_from_open_dollars)) return false;
   if (!chk(e.distance_from_nbbo, f.min_distance_from_nbbo, f.max_distance_from_nbbo)) return false;
   if (!chk(e.premarket_change_percent, f.min_premarket_change_percent, f.max_premarket_change_percent)) return false;
   if (!chk(e.postmarket_change_percent, f.min_postmarket_change_percent, f.max_postmarket_change_percent)) return false;
+  if (!chk(e.postmarket_volume, f.min_postmarket_volume, f.max_postmarket_volume)) return false;
+
+  // Pivot points
+  if (!chk(e.dist_pivot, f.min_dist_pivot, f.max_dist_pivot)) return false;
+  if (!chk(e.dist_pivot_r1, f.min_dist_pivot_r1, f.max_dist_pivot_r1)) return false;
+  if (!chk(e.dist_pivot_s1, f.min_dist_pivot_s1, f.max_dist_pivot_s1)) return false;
+  if (!chk(e.dist_pivot_r2, f.min_dist_pivot_r2, f.max_dist_pivot_r2)) return false;
+  if (!chk(e.dist_pivot_s2, f.min_dist_pivot_s2, f.max_dist_pivot_s2)) return false;
+  if (!chk(e.consecutive_candles, f.min_consecutive_candles, f.max_consecutive_candles)) return false;
+  // Position in TF ranges
+  if (!chk(e.pos_in_range_5m, f.min_pos_in_range_5m, f.max_pos_in_range_5m)) return false;
+  if (!chk(e.pos_in_range_15m, f.min_pos_in_range_15m, f.max_pos_in_range_15m)) return false;
+  if (!chk(e.pos_in_range_30m, f.min_pos_in_range_30m, f.max_pos_in_range_30m)) return false;
+  if (!chk(e.pos_in_range_60m, f.min_pos_in_range_60m, f.max_pos_in_range_60m)) return false;
+  // Multi-TF RSI
+  if (!chk(e.rsi_14_2m, f.min_rsi_2m, f.max_rsi_2m)) return false;
+  if (!chk(e.rsi_14_5m, f.min_rsi_5m, f.max_rsi_5m)) return false;
+  if (!chk(e.rsi_14_15m, f.min_rsi_15m, f.max_rsi_15m)) return false;
+  if (!chk(e.rsi_14_60m, f.min_rsi_60m, f.max_rsi_60m)) return false;
+  // Multi-TF Bollinger position
+  if (!chk(e.bb_position_1m, f.min_bb_position_1m, f.max_bb_position_1m)) return false;
+  if (!chk(e.bb_position_5m, f.min_bb_position_5m, f.max_bb_position_5m)) return false;
+  if (!chk(e.bb_position_15m, f.min_bb_position_15m, f.max_bb_position_15m)) return false;
+  if (!chk(e.bb_position_60m, f.min_bb_position_60m, f.max_bb_position_60m)) return false;
+  // Change 2min / 120min
+  if (!chk(e.chg_2min, f.min_chg_2min, f.max_chg_2min)) return false;
+  if (!chk(e.chg_120min, f.min_chg_120min, f.max_chg_120min)) return false;
 
   // String filters
   if (f.security_type && e.security_type?.toUpperCase() !== f.security_type.toUpperCase()) return false;
@@ -734,6 +801,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; symbol?: string } | null>(null);
   const { openWindow } = useFloatingWindow();
+  const currentWindowId = useCurrentWindowId();
+  const updateWindowComponentState = useUserPreferencesStore((s) => s.updateWindowComponentState);
   const [customEventTypes, setCustomEventTypes] = useState<string[]>(initialEventTypes);
 
   // Refs to avoid stale closures in memoized column definitions
@@ -1016,7 +1085,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('daily_bb_position_min', filters.min_daily_bb_position); setF('daily_bb_position_max', filters.max_daily_bb_position);
     // Scanner-aligned filters
     setF('volume_today_pct_min', filters.min_volume_today_pct); setF('volume_today_pct_max', filters.max_volume_today_pct);
-    setF('minute_volume_min', filters.min_minute_volume);
+    setF('minute_volume_min', filters.min_minute_volume); setF('minute_volume_max', filters.max_minute_volume);
+    setF('volume_yesterday_pct_min', filters.min_volume_yesterday_pct); setF('volume_yesterday_pct_max', filters.max_volume_yesterday_pct);
     setF('price_from_high_min', filters.min_price_from_high); setF('price_from_high_max', filters.max_price_from_high);
     setF('price_from_low_min', filters.min_price_from_low); setF('price_from_low_max', filters.max_price_from_low);
     setF('price_from_intraday_high_min', filters.min_price_from_intraday_high); setF('price_from_intraday_high_max', filters.max_price_from_intraday_high);
@@ -1024,12 +1094,39 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('distance_from_nbbo_min', filters.min_distance_from_nbbo); setF('distance_from_nbbo_max', filters.max_distance_from_nbbo);
     setF('premarket_change_percent_min', filters.min_premarket_change_percent); setF('premarket_change_percent_max', filters.max_premarket_change_percent);
     setF('postmarket_change_percent_min', filters.min_postmarket_change_percent); setF('postmarket_change_percent_max', filters.max_postmarket_change_percent);
+    setF('postmarket_volume_min', filters.min_postmarket_volume); setF('postmarket_volume_max', filters.max_postmarket_volume);
     setF('avg_volume_3m_min', filters.min_avg_volume_3m); setF('avg_volume_3m_max', filters.max_avg_volume_3m);
     setF('atr_min', filters.min_atr); setF('atr_max', filters.max_atr);
     setF('change_from_open_dollars_min', filters.min_change_from_open_dollars); setF('change_from_open_dollars_max', filters.max_change_from_open_dollars);
     // EMA filters (map to ema_ prefix for server)
     setF('ema_20_min', filters.min_ema_20); setF('ema_20_max', filters.max_ema_20);
     setF('ema_50_min', filters.min_ema_50); setF('ema_50_max', filters.max_ema_50);
+    // Pivot points
+    setF('distPivotMin', filters.min_dist_pivot); setF('distPivotMax', filters.max_dist_pivot);
+    setF('distPivotR1Min', filters.min_dist_pivot_r1); setF('distPivotR1Max', filters.max_dist_pivot_r1);
+    setF('distPivotS1Min', filters.min_dist_pivot_s1); setF('distPivotS1Max', filters.max_dist_pivot_s1);
+    setF('distPivotR2Min', filters.min_dist_pivot_r2); setF('distPivotR2Max', filters.max_dist_pivot_r2);
+    setF('distPivotS2Min', filters.min_dist_pivot_s2); setF('distPivotS2Max', filters.max_dist_pivot_s2);
+    // Consecutive candles
+    setF('consecutiveCandlesMin', filters.min_consecutive_candles); setF('consecutiveCandlesMax', filters.max_consecutive_candles);
+    // Position in TF range
+    setF('posInRange5mMin', filters.min_pos_in_range_5m); setF('posInRange5mMax', filters.max_pos_in_range_5m);
+    setF('posInRange15mMin', filters.min_pos_in_range_15m); setF('posInRange15mMax', filters.max_pos_in_range_15m);
+    setF('posInRange30mMin', filters.min_pos_in_range_30m); setF('posInRange30mMax', filters.max_pos_in_range_30m);
+    setF('posInRange60mMin', filters.min_pos_in_range_60m); setF('posInRange60mMax', filters.max_pos_in_range_60m);
+    // Multi-TF RSI
+    setF('rsi2mMin', filters.min_rsi_2m); setF('rsi2mMax', filters.max_rsi_2m);
+    setF('rsi5mMin', filters.min_rsi_5m); setF('rsi5mMax', filters.max_rsi_5m);
+    setF('rsi15mMin', filters.min_rsi_15m); setF('rsi15mMax', filters.max_rsi_15m);
+    setF('rsi60mMin', filters.min_rsi_60m); setF('rsi60mMax', filters.max_rsi_60m);
+    // Multi-TF Bollinger position
+    setF('bbPosition1mMin', filters.min_bb_position_1m); setF('bbPosition1mMax', filters.max_bb_position_1m);
+    setF('bbPosition5mMin', filters.min_bb_position_5m); setF('bbPosition5mMax', filters.max_bb_position_5m);
+    setF('bbPosition15mMin', filters.min_bb_position_15m); setF('bbPosition15mMax', filters.max_bb_position_15m);
+    setF('bbPosition60mMin', filters.min_bb_position_60m); setF('bbPosition60mMax', filters.max_bb_position_60m);
+    // Change 2min / 120min
+    setF('chg2minMin', filters.min_chg_2min); setF('chg2minMax', filters.max_chg_2min);
+    setF('chg120minMin', filters.min_chg_120min); setF('chg120minMax', filters.max_chg_120min);
     // String filters
     setS('security_type', filters.security_type);
     setS('sector', filters.sector);
@@ -1301,6 +1398,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         ['distance_from_nbbo_min', f.min_distance_from_nbbo], ['distance_from_nbbo_max', f.max_distance_from_nbbo],
         ['premarket_change_percent_min', f.min_premarket_change_percent], ['premarket_change_percent_max', f.max_premarket_change_percent],
         ['postmarket_change_percent_min', f.min_postmarket_change_percent], ['postmarket_change_percent_max', f.max_postmarket_change_percent],
+        ['postmarket_volume_min', f.min_postmarket_volume], ['postmarket_volume_max', f.max_postmarket_volume],
         ['avg_volume_3m_min', f.min_avg_volume_3m], ['avg_volume_3m_max', f.max_avg_volume_3m],
         ['atr_min', f.min_atr], ['atr_max', f.max_atr],
         ['ema_20_min', f.min_ema_20], ['ema_20_max', f.max_ema_20],
@@ -2871,6 +2969,18 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         },
       }),
 
+      columnHelper.accessor('postmarket_volume', {
+        ...getColumnConfig('postmarket_volume'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-muted-fg">-</div>;
+          const config = getColumnConfig('postmarket_volume');
+          const formatted = formatValue(value, config.format, config.suffix);
+          return <div className="font-mono text-foreground/80">{formatted}</div>;
+        },
+      }),
+
       columnHelper.accessor('trades_today', {
         ...getColumnConfig('trades_today'),
         enableSorting: true,
@@ -3018,22 +3128,34 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     ? categoryName + ' (' + customEventTypes.length + ' alerts)'
     : categoryName;
 
-  // Open Strategy Builder (ConfigWindow) pre-loaded with current config
+  // Apply config from Strategy Builder: update filters, alerts, and persist to layout
+  const applyConfigFromBuilder = useCallback((config: AlertWindowConfig) => {
+    setCustomEventTypes(config.eventTypes);
+    useEventFiltersStore.getState().setAllFilters(categoryId, config.filters);
+
+    // Persist to componentState so workspace restore picks up the latest config
+    if (currentWindowId) {
+      updateWindowComponentState(currentWindowId, {
+        restoreType: 'event_table',
+        categoryId,
+        categoryName: config.name || categoryName,
+        eventTypes: config.eventTypes,
+        filters: config.filters,
+      });
+    }
+  }, [categoryId, categoryName, currentWindowId, updateWindowComponentState]);
+
+  // Open Strategy Builder reading live filters from the store (no stale closure)
   const openConfigWindow = useCallback(() => {
     openWindow({
       title: 'Strategy Builder',
       content: (
         <ConfigWindow
           initialAlerts={customEventTypes}
-          initialFilters={eventFilters}
+          sourceCategoryId={categoryId}
           initialName={categoryName}
           initialTab="alerts"
-          onCreateAlertWindow={(config: AlertWindowConfig) => {
-            // Update THIS window's config instead of creating a new one
-            setCustomEventTypes(config.eventTypes);
-            const setAllFilters = useEventFiltersStore.getState().setAllFilters;
-            setAllFilters(categoryId, config.filters);
-          }}
+          onCreateAlertWindow={applyConfigFromBuilder}
         />
       ),
       width: 700,
@@ -3043,7 +3165,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
       minWidth: 500,
       minHeight: 400,
     });
-  }, [openWindow, customEventTypes, eventFilters, categoryName, categoryId, setCustomEventTypes]);
+  }, [openWindow, customEventTypes, categoryId, categoryName, applyConfigFromBuilder]);
 
   // Empty state — only show if subscribed AND no cached data to display
   if (events.length === 0 && isSubscribed && !hasCachedEvents) {
