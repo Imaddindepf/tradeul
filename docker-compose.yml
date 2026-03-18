@@ -311,47 +311,6 @@ services:
           memory: 6500M
 
   # =============================================
-  # EVENT DETECTOR - Real-time market events
-  # =============================================
-  event_detector:
-    build:
-      context: .
-      dockerfile: services/event_detector/Dockerfile
-    container_name: tradeul_event_detector
-    env_file:
-      - .env
-    environment:
-      - POSTGRES_HOST=timescaledb
-      - POSTGRES_PORT=5432
-      - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB:-tradeul}
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    depends_on:
-      redis:
-        condition: service_healthy
-      timescaledb:
-        condition: service_healthy
-      analytics:
-        condition: service_started
-    restart: unless-stopped
-    networks:
-      - tradeul_network
-    ports:
-      - "127.0.0.1:8040:8040"
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1536M
-        reservations:
-          memory: 256M
-
-  # =============================================
   # ALERT ENGINE - Professional alert detection
   # =============================================
   alert_worker_0:

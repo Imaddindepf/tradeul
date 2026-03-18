@@ -1,7 +1,7 @@
 """
 Alert Catalog API Routes
 
-Exposes the event detector's alert catalog to the frontend.
+Exposes the alert_engine's alert catalog to the frontend.
 Provides:
   - GET /api/alerts/catalog       — Full alert catalog with metadata
   - GET /api/alerts/categories    — Alert categories
@@ -17,9 +17,9 @@ router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
 
 # ============================================================================
-# Alert Registry Data (embedded — no dependency on event_detector service)
+# Alert Registry Data (embedded — no dependency on alert_engine service)
 # ============================================================================
-# We embed the catalog data here rather than importing from event_detector
+# We embed the catalog data here rather than importing from alert_engine
 # because the API gateway runs independently. The data is static (only changes
 # when we deploy new alert types).
 

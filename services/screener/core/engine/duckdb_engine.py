@@ -648,7 +648,7 @@ class ScreenerEngine:
         """
         Export daily indicator values for all tickers.
         
-        Used by the event_detector to detect SMA crosses, Bollinger breakouts, etc.
+        Used by the alert_engine to detect SMA crosses, Bollinger breakouts, etc.
         Only exports the latest values (most recent trading day per symbol).
         
         Returns:

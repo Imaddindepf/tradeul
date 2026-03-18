@@ -26,6 +26,7 @@ from models import AlertType, AlertState, AlertStateCache, AlertRecord
 from baseline import BaselineLoader
 from detectors import ALL_DETECTOR_CLASSES
 from detectors.price_alerts import PriceAlertDetector
+from persistence import AlertWriter
 
 ET = ZoneInfo("America/New_York")
 
@@ -70,7 +71,7 @@ async def handle_day_changed(event: Event):
 
 async def handle_session_changed(event: Event):
     global current_market_session
-    current_market_session = event.data.get("to_session", "?")
+    current_market_session = event.data.get("new_session") or event.data.get("to_session") or "?"
     logger.info(f"Session -> {current_market_session}")
 
 
@@ -96,11 +97,12 @@ class AlertEngine:
     ]
     _ENRICHED_INT_KEYS = ["vol_1min", "vol_5min", "bid_size", "ask_size", "shares_outstanding", "minute_volume"]
 
-    def __init__(self, redis_cl, baseline_loader=None):
+    def __init__(self, redis_cl, baseline_loader=None, alert_writer=None):
         self.redis = redis_cl
         self.raw_redis: Optional[aioredis.Redis] = None
         self.running = False
         self.baseline = baseline_loader
+        self.alert_writer: Optional[AlertWriter] = alert_writer
         self.state_cache = AlertStateCache(max_age_seconds=3600)
         self._enriched_cache: Dict[str, Dict] = {}
         self.detectors = [cls() for cls in ALL_DETECTOR_CLASSES]
@@ -130,6 +132,8 @@ class AlertEngine:
             asyncio.create_task(self._cleanup_loop()),
             asyncio.create_task(self._stats_loop()),
         ]
+        if self.alert_writer:
+            tasks.append(asyncio.create_task(self.alert_writer.run()))
         await asyncio.gather(*tasks)
 
     async def stop(self):
@@ -243,8 +247,12 @@ class AlertEngine:
             self._stats["ticks"] += 1
             if all_alerts:
                 pipe = self.raw_redis.pipeline(transaction=False)
+                enriched = self._enriched_cache.get(symbol)
                 for a in all_alerts:
-                    pipe.xadd(STREAM_ALERTS, a.to_dict(), maxlen=100000)
+                    d = a.to_dict()
+                    pipe.xadd(STREAM_ALERTS, d, maxlen=100000)
+                    if self.alert_writer:
+                        self.alert_writer.buffer_alert(d, enriched)
                 await pipe.execute()
                 self._stats["alerts"] += len(all_alerts)
             elapsed_ms = (time.monotonic() - t0) * 1000
@@ -290,8 +298,8 @@ class AlertEngine:
             price = float(data.get("c", 0) or data.get("close", 0))
             if price <= 0:
                 return None
-            volume = int(data.get("av", 0) or data.get("volume", 0) or 0)
-            minute_vol = int(data.get("v", 0) or data.get("vol", 0) or 0) or None
+            volume = int(data.get("volume_accumulated", 0) or data.get("av", 0) or 0)
+            minute_vol = int(data.get("volume", 0) or data.get("v", 0) or 0) or None
             e = self._enriched_cache.get(symbol, {})
             rvol = await self._get_rvol(symbol)
             vwap = e.get("vwap")
@@ -618,6 +626,7 @@ async def main():
     await event_bus.start_listening()
     logger.info("EventBus initialized")
     baseline_loader = None
+    alert_writer = None
     try:
         from shared.utils.timescale_client import TimescaleClient
         ts_client = TimescaleClient()
@@ -629,9 +638,12 @@ async def main():
         if symbols:
             await baseline_loader.load_all(symbols, current_trading_date)
             logger.info(f"Baselines loaded for {len(symbols)} symbols")
+        if PARTITION_ID == 0:
+            alert_writer = AlertWriter(ts_client)
+            logger.info("AlertWriter enabled on partition 0 (COPY protocol)")
     except Exception as e:
         logger.warning(f"TimescaleDB unavailable, no baselines: {e}")
-    engine = AlertEngine(redis_client, baseline_loader=baseline_loader)
+    engine = AlertEngine(redis_client, baseline_loader=baseline_loader, alert_writer=alert_writer)
     loop = asyncio.get_event_loop()
     for sig_name in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig_name, lambda: asyncio.create_task(engine.stop()))

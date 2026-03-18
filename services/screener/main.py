@@ -96,7 +96,7 @@ async def auto_refresh_loop():
 
 
 async def export_daily_indicators_to_redis():
-    """Export daily indicators (SMA, BB, RSI, etc.) to Redis for event_detector consumption."""
+    """Export daily indicators (SMA, BB, RSI, etc.) to Redis for alert_engine consumption."""
     global engine, redis_client
     
     if not engine or not redis_client:

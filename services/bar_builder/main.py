@@ -7,7 +7,7 @@ multi-timeframe OHLC bars in real-time.
 Timeframes: 1min, 2min, 5min, 10min, 15min, 30min, 60min
 
 When a bar closes, it's published to:
-  - Redis stream: stream:bars:{timeframe}  (for event_detector consumption)
+  - Redis stream: stream:bars:{timeframe}  (for alert_engine consumption)
   - Redis hash: bars:{timeframe}:latest     (latest bar per symbol for lookups)
 
 This service is the foundation for:

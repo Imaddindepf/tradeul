@@ -1,9 +1,9 @@
 """
 MCP Server: Market Events
-85+ event types from the event_detector service.
+85+ event types from the alert_engine service.
 
 Data sources:
-  - Real-time: Redis stream `stream:events:market` (last ~500 events)
+  - Real-time: Redis stream `stream:alerts:market` (last ~500 events)
   - Historical: TimescaleDB `market_events` hypertable (60-day retention, ~900K events/day)
 """
 from fastmcp import FastMCP
@@ -87,7 +87,7 @@ async def get_recent_events(
     Each event contains: event_type, symbol, price, change_pct, volume, rvol,
     vwap, details, and timestamp.
     """
-    events = await redis_xrevrange("stream:events:market", count=min(count * 3, 500))
+    events = await redis_xrevrange("stream:alerts:market", count=min(count * 3, 500))
 
     filtered = []
     for e in events:

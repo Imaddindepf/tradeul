@@ -3511,106 +3511,8 @@ async function processBenzingaEarningsStream() {
   }
 }
 
-/**
- * Procesador del stream de Market Events con Consumer Groups
- * 
- * ARQUITECTURA:
- * - Usa XREADGROUP (consumer group) en vez de XREAD para escalabilidad horizontal
- * - Múltiples instancias del WS server pueden consumir sin duplicar eventos
- * - XACK garantiza que mensajes procesados no se re-entregan
- * - Auto-healing: recrea el consumer group si fue borrado (NOGROUP)
- * 
- * Consumer Group: websocket_server_events
- * Consumer Name: ws_server_1 (cambiar para instancias adicionales)
- */
-async function processMarketEventsStream() {
-  const STREAM_NAME = "stream:events:market";
-  const CONSUMER_GROUP = "websocket_server_events";
-  const CONSUMER_NAME = `ws_server_${process.pid}`; // Unique per process for horizontal scaling
-
-  logger.info({ streamName: STREAM_NAME, consumerGroup: CONSUMER_GROUP, consumer: CONSUMER_NAME },
-    "🎯 Starting Market Events stream consumer (consumer group mode)");
-
-  // Create consumer group (idempotent - catches BUSYGROUP if already exists)
-  try {
-    await redisCommands.xgroup(
-      "CREATE",
-      STREAM_NAME,
-      CONSUMER_GROUP,
-      "$",
-      "MKSTREAM"
-    );
-    logger.info({ streamName: STREAM_NAME, consumerGroup: CONSUMER_GROUP },
-      "Created consumer group for market events");
-  } catch (err) {
-    logger.debug({ err: err.message }, "Market events consumer group already exists");
-  }
-
-  while (true) {
-    try {
-      // XREADGROUP: Only this consumer receives each message (no duplicates across instances)
-      // BLOCK 500ms for low-latency event delivery (~0.5s worst case)
-      const results = await redisMarketEvents.xreadgroup(
-        "GROUP",
-        CONSUMER_GROUP,
-        CONSUMER_NAME,
-        "BLOCK",
-        500,
-        "COUNT",
-        100,
-        "STREAMS",
-        STREAM_NAME,
-        ">"
-      );
-
-      if (!results) continue;
-
-      const messageIds = [];
-
-      for (const [_stream, messages] of results) {
-        for (const [id, fields] of messages) {
-          messageIds.push(id);
-          const eventData = parseRedisFields(fields);
-
-          // Distribute event with server-side filtering
-          broadcastMarketEvent(eventData);
-        }
-      }
-
-      // ACK all processed messages - prevents re-delivery on restart
-      if (messageIds.length > 0) {
-        try {
-          await redisCommands.xack(STREAM_NAME, CONSUMER_GROUP, ...messageIds);
-        } catch (err) {
-          logger.error({ err }, "Error acknowledging market event messages");
-        }
-      }
-    } catch (err) {
-      // Auto-healing: If consumer group was deleted (e.g., by stream trim), recreate it
-      if (err.message && err.message.includes('NOGROUP')) {
-        logger.warn({ streamName: STREAM_NAME, consumerGroup: CONSUMER_GROUP },
-          "🔧 Market events consumer group missing - auto-recreating");
-        try {
-          await redisCommands.xgroup(
-            "CREATE",
-            STREAM_NAME,
-            CONSUMER_GROUP,
-            "0", // Start from beginning of stream to not miss events
-            "MKSTREAM"
-          );
-          logger.info({ streamName: STREAM_NAME, consumerGroup: CONSUMER_GROUP },
-            "✅ Market events consumer group recreated");
-          continue; // Retry immediately
-        } catch (recreateErr) {
-          logger.error({ err: recreateErr }, "Failed to recreate market events consumer group");
-        }
-      }
-
-      logger.error({ err }, "Error reading market events stream");
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-  }
-}
+// processMarketEventsStream REMOVED — event_detector retired.
+// All market events now flow through processAlertEngineStream (stream:alerts:market).
 
 /**
  * Distribute Market Event to subscribed clients with server-side filtering
@@ -4420,7 +4322,7 @@ wss.on("connection", async (ws, req) => {
 
             while (matched.length < SNAPSHOT_TARGET && totalScanned < MAX_SCANNED) {
               const batch = await redisCommands.xrevrange(
-                "stream:events:market", cursor, "-", "COUNT", String(BATCH_SIZE)
+                "stream:alerts:market", cursor, "-", "COUNT", String(BATCH_SIZE)
               );
               if (!batch || batch.length === 0) break;
 
@@ -4969,10 +4871,7 @@ processQuotesStream().catch((err) => {
   process.exit(1);
 });
 
-processMarketEventsStream().catch((err) => {
-  logger.fatal({ err }, "Market Events stream processor crashed");
-  process.exit(1);
-});
+// processMarketEventsStream removed — event_detector retired
 
 processAlertEngineStream().catch((err) => {
   logger.fatal({ err }, "Alert Engine stream processor crashed");

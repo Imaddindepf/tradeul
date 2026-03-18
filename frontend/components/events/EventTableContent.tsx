@@ -4,7 +4,7 @@
  * Stack:
  * - RxJS for WebSocket streams
  * - TanStack Table + TanStack Virtual for virtualization
- * - Real-time event streaming from Event Detector service
+ * - Real-time event streaming from Alert Engine service
  * 
  * Key differences from Scanner tables:
  * - Events are append-only (newest at top)
