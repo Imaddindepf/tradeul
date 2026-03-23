@@ -98,9 +98,9 @@ class AlertRecord:
             "rule_id": self.rule_id,
             "symbol": self.symbol,
             "timestamp": self.timestamp.isoformat() if isinstance(self.timestamp, datetime) else str(self.timestamp),
-            "price": self.price,
-            "quality": self.quality,
-            "description": self.description,
+            "price": float(self.price) if self.price is not None else 0.0,
+            "quality": float(self.quality) if self.quality is not None else 0.0,
+            "description": self.description or "",
         }
 
         optional_floats = {

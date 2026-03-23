@@ -188,7 +188,7 @@ async def handle_session_changed(event: Event) -> None:
                 scanner_engine.trigger_postmarket_capture(trading_date)
             )
     
-    # Freeze user scans only after POST_MARKET ends (transition to CLOSED).
+    # Freeze ALL scanner categories (built-in + user) when transitioning to CLOSED.
     # During POST_MARKET the scanner still produces fresh data with normal TTL.
     # Once CLOSED, the enriched snapshot expires and no new results are produced.
     # Extend TTL so data persists until maintenance clears scanner:category:*
@@ -197,7 +197,7 @@ async def handle_session_changed(event: Event) -> None:
         frozen = await scanner_engine.freeze_user_scans_for_close()
         if frozen > 0:
             logger.info(
-                "user_scans_frozen_on_session_change",
+                "scans_frozen_on_session_change",
                 frozen=frozen,
                 transition=f"{previous_session} -> {new_session}"
             )
@@ -401,6 +401,9 @@ async def start_scanner():
     
     if is_running:
         return {"status": "already_running"}
+    
+    # Re-check market status before starting
+    await check_initial_market_status()
     
     is_running = True
     

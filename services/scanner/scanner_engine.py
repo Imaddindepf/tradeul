@@ -858,7 +858,11 @@ class ScannerEngine:
                 stoch_d=atr_data.get('stoch_d') if atr_data else None,
                 chg_60min=atr_data.get('chg_60min') if atr_data else None,
                 vol_60min=int(atr_data.get('vol_60min')) if atr_data and atr_data.get('vol_60min') is not None else None,
+                bb_position_1m=atr_data.get('bb_position_1m') if atr_data else None,
                 # Daily indicators (from screener via enriched cache)
+                daily_sma_5=atr_data.get('daily_sma_5') if atr_data else None,
+                daily_sma_8=atr_data.get('daily_sma_8') if atr_data else None,
+                daily_sma_10=atr_data.get('daily_sma_10') if atr_data else None,
                 daily_sma_20=atr_data.get('daily_sma_20') if atr_data else None,
                 daily_sma_50=atr_data.get('daily_sma_50') if atr_data else None,
                 daily_sma_200=atr_data.get('daily_sma_200') if atr_data else None,
@@ -1113,7 +1117,11 @@ class ScannerEngine:
                 stoch_d=atr_data.get('stoch_d') if atr_data else None,
                 chg_60min=atr_data.get('chg_60min') if atr_data else None,
                 vol_60min=int(atr_data.get('vol_60min')) if atr_data and atr_data.get('vol_60min') is not None else None,
+                bb_position_1m=atr_data.get('bb_position_1m') if atr_data else None,
                 # Daily indicators (from screener via enriched cache)
+                daily_sma_5=atr_data.get('daily_sma_5') if atr_data else None,
+                daily_sma_8=atr_data.get('daily_sma_8') if atr_data else None,
+                daily_sma_10=atr_data.get('daily_sma_10') if atr_data else None,
                 daily_sma_20=atr_data.get('daily_sma_20') if atr_data else None,
                 daily_sma_50=atr_data.get('daily_sma_50') if atr_data else None,
                 daily_sma_200=atr_data.get('daily_sma_200') if atr_data else None,
@@ -1152,6 +1160,137 @@ class ScannerEngine:
                 below_high=atr_data.get('below_high') if atr_data else None,
                 above_low=atr_data.get('above_low') if atr_data else None,
                 pos_of_open=atr_data.get('pos_of_open') if atr_data else None,
+                # Position in multi-period ranges
+                pos_in_5d_range=atr_data.get('pos_in_5d_range') if atr_data else None,
+                pos_in_10d_range=atr_data.get('pos_in_10d_range') if atr_data else None,
+                pos_in_20d_range=atr_data.get('pos_in_20d_range') if atr_data else None,
+                pos_in_3m_range=atr_data.get('pos_in_3m_range') if atr_data else None,
+                pos_in_6m_range=atr_data.get('pos_in_6m_range') if atr_data else None,
+                pos_in_9m_range=atr_data.get('pos_in_9m_range') if atr_data else None,
+                pos_in_52w_range=atr_data.get('pos_in_52w_range') if atr_data else None,
+                pos_in_2y_range=atr_data.get('pos_in_2y_range') if atr_data else None,
+                pos_in_lifetime_range=atr_data.get('pos_in_lifetime_range') if atr_data else None,
+                pos_in_prev_day_range=atr_data.get('pos_in_prev_day_range') if atr_data else None,
+                pos_in_consolidation=atr_data.get('pos_in_consolidation') if atr_data else None,
+                consolidation_days=atr_data.get('consolidation_days') if atr_data else None,
+                range_contraction=atr_data.get('range_contraction') if atr_data else None,
+                lr_divergence_130=atr_data.get('lr_divergence_130') if atr_data else None,
+                change_prev_day_pct=atr_data.get('change_prev_day_pct') if atr_data else None,
+                # Pre-market range metrics
+                premarket_high=atr_data.get('premarket_high') if atr_data else None,
+                premarket_low=atr_data.get('premarket_low') if atr_data else None,
+                below_premarket_high=atr_data.get('below_premarket_high') if atr_data else None,
+                above_premarket_low=atr_data.get('above_premarket_low') if atr_data else None,
+                pos_in_premarket_range=atr_data.get('pos_in_premarket_range') if atr_data else None,
+                # Multi-TF SMA distances
+                dist_sma_5_2m=atr_data.get('dist_sma_5_2m') if atr_data else None,
+                dist_sma_5_5m=atr_data.get('dist_sma_5_5m') if atr_data else None,
+                dist_sma_5_15m=atr_data.get('dist_sma_5_15m') if atr_data else None,
+                dist_sma_5_30m=atr_data.get('dist_sma_5_30m') if atr_data else None,
+                dist_sma_5_60m=atr_data.get('dist_sma_5_60m') if atr_data else None,
+                dist_sma_8_2m=atr_data.get('dist_sma_8_2m') if atr_data else None,
+                dist_sma_8_5m=atr_data.get('dist_sma_8_5m') if atr_data else None,
+                dist_sma_8_15m=atr_data.get('dist_sma_8_15m') if atr_data else None,
+                dist_sma_8_30m=atr_data.get('dist_sma_8_30m') if atr_data else None,
+                dist_sma_8_60m=atr_data.get('dist_sma_8_60m') if atr_data else None,
+                dist_sma_10_2m=atr_data.get('dist_sma_10_2m') if atr_data else None,
+                dist_sma_10_5m=atr_data.get('dist_sma_10_5m') if atr_data else None,
+                dist_sma_10_15m=atr_data.get('dist_sma_10_15m') if atr_data else None,
+                dist_sma_10_30m=atr_data.get('dist_sma_10_30m') if atr_data else None,
+                dist_sma_10_60m=atr_data.get('dist_sma_10_60m') if atr_data else None,
+                dist_sma_20_2m=atr_data.get('dist_sma_20_2m') if atr_data else None,
+                dist_sma_20_5m=atr_data.get('dist_sma_20_5m') if atr_data else None,
+                dist_sma_20_15m=atr_data.get('dist_sma_20_15m') if atr_data else None,
+                dist_sma_20_30m=atr_data.get('dist_sma_20_30m') if atr_data else None,
+                dist_sma_20_60m=atr_data.get('dist_sma_20_60m') if atr_data else None,
+                dist_sma_130_2m=atr_data.get('dist_sma_130_2m') if atr_data else None,
+                dist_sma_130_5m=atr_data.get('dist_sma_130_5m') if atr_data else None,
+                dist_sma_130_10m=atr_data.get('dist_sma_130_10m') if atr_data else None,
+                dist_sma_130_15m=atr_data.get('dist_sma_130_15m') if atr_data else None,
+                dist_sma_130_30m=atr_data.get('dist_sma_130_30m') if atr_data else None,
+                dist_sma_130_60m=atr_data.get('dist_sma_130_60m') if atr_data else None,
+                dist_sma_200_2m=atr_data.get('dist_sma_200_2m') if atr_data else None,
+                dist_sma_200_5m=atr_data.get('dist_sma_200_5m') if atr_data else None,
+                dist_sma_200_10m=atr_data.get('dist_sma_200_10m') if atr_data else None,
+                dist_sma_200_15m=atr_data.get('dist_sma_200_15m') if atr_data else None,
+                dist_sma_200_30m=atr_data.get('dist_sma_200_30m') if atr_data else None,
+                dist_sma_200_60m=atr_data.get('dist_sma_200_60m') if atr_data else None,
+                # SMA cross metrics
+                sma_8_vs_20_2m=atr_data.get('sma_8_vs_20_2m') if atr_data else None,
+                sma_8_vs_20_5m=atr_data.get('sma_8_vs_20_5m') if atr_data else None,
+                sma_8_vs_20_15m=atr_data.get('sma_8_vs_20_15m') if atr_data else None,
+                sma_8_vs_20_60m=atr_data.get('sma_8_vs_20_60m') if atr_data else None,
+                sma_20_vs_200_2m=atr_data.get('sma_20_vs_200_2m') if atr_data else None,
+                sma_20_vs_200_5m=atr_data.get('sma_20_vs_200_5m') if atr_data else None,
+                sma_20_vs_200_15m=atr_data.get('sma_20_vs_200_15m') if atr_data else None,
+                sma_20_vs_200_60m=atr_data.get('sma_20_vs_200_60m') if atr_data else None,
+                # Extended daily SMA distances
+                dist_daily_sma_5=atr_data.get('dist_daily_sma_5') if atr_data else None,
+                dist_daily_sma_8=atr_data.get('dist_daily_sma_8') if atr_data else None,
+                dist_daily_sma_10=atr_data.get('dist_daily_sma_10') if atr_data else None,
+                dist_daily_sma_200=atr_data.get('dist_daily_sma_200') if atr_data else None,
+                dist_daily_sma_5_dollars=atr_data.get('dist_daily_sma_5_dollars') if atr_data else None,
+                dist_daily_sma_8_dollars=atr_data.get('dist_daily_sma_8_dollars') if atr_data else None,
+                dist_daily_sma_10_dollars=atr_data.get('dist_daily_sma_10_dollars') if atr_data else None,
+                dist_daily_sma_20_dollars=atr_data.get('dist_daily_sma_20_dollars') if atr_data else None,
+                dist_daily_sma_50_dollars=atr_data.get('dist_daily_sma_50_dollars') if atr_data else None,
+                dist_daily_sma_200_dollars=atr_data.get('dist_daily_sma_200_dollars') if atr_data else None,
+                # Extended changes and ranges
+                change_1y=atr_data.get('change_1y') if atr_data else None,
+                change_1y_dollars=atr_data.get('change_1y_dollars') if atr_data else None,
+                change_ytd=atr_data.get('change_ytd') if atr_data else None,
+                change_ytd_dollars=atr_data.get('change_ytd_dollars') if atr_data else None,
+                change_5d_dollars=atr_data.get('change_5d_dollars') if atr_data else None,
+                change_10d_dollars=atr_data.get('change_10d_dollars') if atr_data else None,
+                change_20d_dollars=atr_data.get('change_20d_dollars') if atr_data else None,
+                range_5d_pct=atr_data.get('range_5d_pct') if atr_data else None,
+                range_10d_pct=atr_data.get('range_10d_pct') if atr_data else None,
+                range_20d_pct=atr_data.get('range_20d_pct') if atr_data else None,
+                range_5d=atr_data.get('range_5d') if atr_data else None,
+                range_10d=atr_data.get('range_10d') if atr_data else None,
+                range_20d=atr_data.get('range_20d') if atr_data else None,
+                # Misc derived
+                yearly_std_dev=atr_data.get('yearly_std_dev') if atr_data else None,
+                consecutive_days_up=atr_data.get('consecutive_days_up') if atr_data else None,
+                plus_di_minus_di=atr_data.get('plus_di_minus_di') if atr_data else None,
+                gap_dollars=atr_data.get('gap_dollars') if atr_data else None,
+                gap_ratio=atr_data.get('gap_ratio') if atr_data else None,
+                change_from_close=atr_data.get('change_from_close') if atr_data else None,
+                change_from_close_ratio=atr_data.get('change_from_close_ratio') if atr_data else None,
+                change_from_open_ratio=atr_data.get('change_from_open_ratio') if atr_data else None,
+                change_from_open_weighted=atr_data.get('change_from_open_weighted') if atr_data else None,
+                postmarket_change_dollars=atr_data.get('postmarket_change_dollars') if atr_data else None,
+                decimal=atr_data.get('decimal') if atr_data else None,
+                bb_std_dev=atr_data.get('bb_std_dev') if atr_data else None,
+                # Multi-TF position in range & BB
+                pos_in_range_5m=atr_data.get('pos_in_range_5m') if atr_data else None,
+                pos_in_range_15m=atr_data.get('pos_in_range_15m') if atr_data else None,
+                pos_in_range_30m=atr_data.get('pos_in_range_30m') if atr_data else None,
+                pos_in_range_60m=atr_data.get('pos_in_range_60m') if atr_data else None,
+                bb_position_5m=atr_data.get('bb_position_5m') if atr_data else None,
+                bb_position_15m=atr_data.get('bb_position_15m') if atr_data else None,
+                bb_position_60m=atr_data.get('bb_position_60m') if atr_data else None,
+                # Multi-TF RSI
+                rsi_14_2m=atr_data.get('rsi_14_2m') if atr_data else None,
+                rsi_14_5m=atr_data.get('rsi_14_5m') if atr_data else None,
+                rsi_14_15m=atr_data.get('rsi_14_15m') if atr_data else None,
+                rsi_14_60m=atr_data.get('rsi_14_60m') if atr_data else None,
+                # Extended time window changes
+                chg_2min=atr_data.get('chg_2min') if atr_data else None,
+                chg_120min=atr_data.get('chg_120min') if atr_data else None,
+                consecutive_candles=int(atr_data.get('consecutive_candles')) if atr_data and atr_data.get('consecutive_candles') is not None else None,
+                consecutive_candles_2m=int(atr_data.get('consecutive_candles_2m')) if atr_data and atr_data.get('consecutive_candles_2m') is not None else None,
+                consecutive_candles_5m=int(atr_data.get('consecutive_candles_5m')) if atr_data and atr_data.get('consecutive_candles_5m') is not None else None,
+                consecutive_candles_10m=int(atr_data.get('consecutive_candles_10m')) if atr_data and atr_data.get('consecutive_candles_10m') is not None else None,
+                consecutive_candles_15m=int(atr_data.get('consecutive_candles_15m')) if atr_data and atr_data.get('consecutive_candles_15m') is not None else None,
+                consecutive_candles_30m=int(atr_data.get('consecutive_candles_30m')) if atr_data and atr_data.get('consecutive_candles_30m') is not None else None,
+                consecutive_candles_60m=int(atr_data.get('consecutive_candles_60m')) if atr_data and atr_data.get('consecutive_candles_60m') is not None else None,
+                # Pivot distances
+                dist_pivot=atr_data.get('dist_pivot') if atr_data else None,
+                dist_pivot_r1=atr_data.get('dist_pivot_r1') if atr_data else None,
+                dist_pivot_s1=atr_data.get('dist_pivot_s1') if atr_data else None,
+                dist_pivot_r2=atr_data.get('dist_pivot_r2') if atr_data else None,
+                dist_pivot_s2=atr_data.get('dist_pivot_s2') if atr_data else None,
                 # Session
                 session=self.current_session,
                 score=0.0,
@@ -1839,7 +1978,7 @@ class ScannerEngine:
             
             await self.redis.set(
                 f"scanner:category:{category_name}",
-                json.dumps(ranking_data),
+                json.dumps(ranking_data, allow_nan=False),
                 ttl=ttl
             )
             
@@ -1889,7 +2028,7 @@ class ScannerEngine:
                 'type': 'delta',
                 'list': category_name,
                 'sequence': sequence,
-                'deltas': json.dumps(deltas),
+                'deltas': json.dumps(deltas, allow_nan=False),
                 'timestamp': datetime.now().isoformat(),
                 'change_count': len(deltas)
             }
@@ -1951,32 +2090,41 @@ class ScannerEngine:
     
     async def freeze_user_scans_for_close(self) -> int:
         """
-        Re-save all user scan snapshots with an extended TTL for market close.
+        Re-save ALL scanner snapshots (built-in + user) with extended TTL at market close.
         
-        Called via EVENT BUS when session transitions to POST_MARKET or CLOSED.
-        The maintenance service clears scanner:category:* at 3:45 AM ET on the
-        next trading day, so data persists through weekends and holidays naturally.
+        Called when session transitions to CLOSED. The maintenance service clears
+        scanner:category:* at 3:45 AM ET on the next trading day. This method
+        ensures data persists through weekends and holidays so users always see
+        the last known state instead of empty tables.
         
         Returns:
-            Number of user scans frozen
+            Total number of categories frozen
         """
         self._user_scans_frozen = True
         frozen = 0
         ttl = self._ttl_until_next_cache_cleanup()
         
-        for category_name, tickers in self.last_user_scan_rankings.items():
+        all_categories = {
+            **{name: tickers for name, tickers in self.last_rankings.items()},
+            **{name: tickers for name, tickers in self.last_user_scan_rankings.items()},
+        }
+        
+        for category_name, tickers in all_categories.items():
             try:
                 ranking_data = [t.model_dump(mode='json') for t in tickers]
                 
                 await self.redis.set(
                     f"scanner:category:{category_name}",
-                    json.dumps(ranking_data),
+                    json.dumps(ranking_data, allow_nan=False),
                     ttl=ttl
                 )
                 
-                filter_id = category_name.replace("uscan_", "")
-                seq_key = f"uscan_seq_{filter_id}"
-                current_seq = self.sequence_numbers.get(seq_key, 0)
+                current_seq = self.sequence_numbers.get(category_name, 0)
+                if category_name.startswith("uscan_"):
+                    filter_id = category_name.replace("uscan_", "")
+                    seq_key = f"uscan_seq_{filter_id}"
+                    current_seq = self.sequence_numbers.get(seq_key, current_seq)
+                
                 await self.redis.set(
                     f"scanner:sequence:{category_name}",
                     current_seq,
@@ -1985,12 +2133,14 @@ class ScannerEngine:
                 
                 frozen += 1
             except Exception as e:
-                logger.error("error_freezing_user_scan", category=category_name, error=str(e))
+                logger.error("error_freezing_scan", category=category_name, error=str(e))
         
         if frozen > 0:
             logger.info(
-                "user_scans_frozen_for_close",
-                count=frozen,
+                "scans_frozen_for_close",
+                builtin=len(self.last_rankings),
+                user=len(self.last_user_scan_rankings),
+                total=frozen,
                 ttl_seconds=ttl,
                 ttl_hours=round(ttl / 3600, 1)
             )
@@ -2391,7 +2541,7 @@ class ScannerEngine:
             'type': 'delta',
             'list': list_name,
             'sequence': sequence,
-            'deltas': json.dumps(deltas),
+            'deltas': json.dumps(deltas, allow_nan=False),
             'timestamp': datetime.now().isoformat(),
             'change_count': len(deltas)
         }
@@ -2448,12 +2598,10 @@ class ScannerEngine:
             # Obtener sequence number actual
             current_sequence = self.sequence_numbers.get(list_name, 0)
             
-            # Guardar en key (snapshot)
-            # TTL 48 horas para que persista en fin de semana
             await self.redis.set(
                 f"scanner:category:{list_name}",
-                json.dumps(ranking_data),
-                ttl=172800  # 48 horas (igual que cache completo)
+                json.dumps(ranking_data, allow_nan=False),
+                ttl=172800
             )
             
             # Guardar sequence number (para sincronización)
@@ -2496,7 +2644,7 @@ class ScannerEngine:
             'type': 'snapshot',
             'list': list_name,
             'sequence': sequence,
-            'rows': json.dumps(snapshot_data),
+            'rows': json.dumps(snapshot_data, allow_nan=False),
             'timestamp': datetime.now().isoformat(),
             'count': len(tickers)
         }

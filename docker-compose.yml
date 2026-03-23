@@ -13,7 +13,7 @@ services:
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
     command: >
-      redis-server  --appendonly yes  --maxmemory 4gb  --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD} --rename-command FLUSHDB "" --rename-command FLUSHALL "" --rename-command CONFIG "CONFIG_ADMIN_ONLY" --rename-command SHUTDOWN "SHUTDOWN_ADMIN_ONLY"
+      redis-server  --appendonly yes  --maxmemory 5gb  --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD} --rename-command FLUSHDB "" --rename-command FLUSHALL "" --rename-command CONFIG "CONFIG_ADMIN_ONLY" --rename-command SHUTDOWN "SHUTDOWN_ADMIN_ONLY"
     logging:
       driver: "json-file"
       options:
@@ -30,9 +30,9 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 4G
+          memory: 6G
         reservations:
-          memory: 1G
+          memory: 2G
 
   timescaledb:
     image: timescale/timescaledb:latest-pg15

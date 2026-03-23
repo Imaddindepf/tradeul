@@ -86,32 +86,20 @@ export interface ThemePreferences {
 }
 
 export interface UserPreferences {
-  // Colores
   colors: ColorPreferences;
-  
-  // Tema
   theme: ThemePreferences;
-  
-  // Layout de ventanas (snapshot) - DEPRECATED: usar workspaces
+  /** DEPRECATED: usar workspaces[].windowLayouts */
   windowLayouts: WindowLayout[];
-  
-  // Flag para saber si el usuario ya ha interactuado con layouts
-  // true = ya usó el sistema (aunque tenga 0 ventanas)
-  // false/undefined = primera vez, abrir tablas por defecto
   layoutInitialized: boolean;
-  
-  // ============================================================================
-  // WORKSPACES (Multi-dashboard support)
-  // ============================================================================
   workspaces: Workspace[];
   activeWorkspaceId: string;
-  /** Timestamp (ms) of last local workspace mutation — used for conflict resolution */
+  /**
+   * Timestamp (ms) of last STRUCTURAL workspace change (create/delete/rename).
+   * Layout saves (window drag/resize) do NOT update this — only operations that
+   * change the workspace list itself. Used for conflict resolution with backend.
+   */
   workspacesModifiedAt: number;
-  
-  // Columnas visibles por lista
   columnVisibility: Record<string, Record<string, boolean>>;
-  
-  // Orden de columnas por lista
   columnOrder: Record<string, string[]>;
 }
 
@@ -375,7 +363,6 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
             w.id === workspaceId ? { ...w, windowLayouts: layouts } : w
           ),
           layoutInitialized: true,
-          workspacesModifiedAt: Date.now(),
         }));
       },
 
@@ -410,40 +397,35 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       // Backend Sync Actions
       // ========================================
       syncWorkspacesToBackend: async (getToken?: () => Promise<string | null>) => {
-        const state = get();
-        if (state.isSyncing) return; // Evitar sincronizaciones paralelas
-        
+        if (get().isSyncing) return;
         set({ isSyncing: true });
         
         try {
           const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-          
-          // Obtener token de autenticación
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-          };
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
           
           if (getToken) {
             const token = await getToken();
-            if (token) {
-              headers['Authorization'] = `Bearer ${token}`;
-            }
+            if (token) headers['Authorization'] = `Bearer ${token}`;
           }
           
+          const fresh = get();
           const response = await fetch(`${apiUrl}/api/v1/user/preferences/workspaces`, {
             method: 'PATCH',
             headers,
             credentials: 'include',
             body: JSON.stringify({
-              workspaces: state.workspaces,
-              activeWorkspaceId: state.activeWorkspaceId,
+              workspaces: fresh.workspaces,
+              activeWorkspaceId: fresh.activeWorkspaceId,
+              colors: fresh.colors,
+              theme: fresh.theme,
+              columnVisibility: fresh.columnVisibility,
+              columnOrder: fresh.columnOrder,
             }),
           });
           
           if (response.ok) {
-            const data = await response.json();
             set({ lastSyncedAt: Date.now() });
-          } else {
           }
         } catch (error) {
           console.error('[WorkspaceSync] Error syncing to backend:', error);
@@ -455,16 +437,11 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       loadFromBackend: async (getToken?: () => Promise<string | null>) => {
         try {
           const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-          
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-          };
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
           
           if (getToken) {
             const token = await getToken();
-            if (token) {
-              headers['Authorization'] = `Bearer ${token}`;
-            }
+            if (token) headers['Authorization'] = `Bearer ${token}`;
           }
           
           const response = await fetch(`${apiUrl}/api/v1/user/preferences`, {
@@ -473,44 +450,25 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
             credentials: 'include',
           });
           
-          if (!response.ok) {
-            return false;
-          }
+          if (!response.ok) return false;
           
           const data = await response.json();
           
           if (data.workspaces && data.workspaces.length > 0) {
             const local = get();
-            const localModifiedAt = local.workspacesModifiedAt || 0;
-            const remoteModifiedAt = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+            const remoteActiveId = data.activeWorkspaceId || 'main';
+            const validActiveId = data.workspaces.some((w: Workspace) => w.id === local.activeWorkspaceId)
+              ? local.activeWorkspaceId
+              : remoteActiveId;
 
-            if (localModifiedAt > remoteModifiedAt) {
-              // Local is newer — push to backend to converge
-              set({ lastSyncedAt: Date.now() });
-              const state = get();
-              const pushHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-              if (getToken) {
-                const t = await getToken();
-                if (t) pushHeaders['Authorization'] = `Bearer ${t}`;
-              }
-              fetch(`${apiUrl}/api/v1/user/preferences/workspaces`, {
-                method: 'PATCH',
-                headers: pushHeaders,
-                credentials: 'include',
-                body: JSON.stringify({ workspaces: state.workspaces, activeWorkspaceId: state.activeWorkspaceId }),
-              }).catch(() => {});
-              return true;
-            }
-
-            // Backend is newer or equal — use it
             set({
               workspaces: data.workspaces,
-              activeWorkspaceId: data.activeWorkspaceId || 'main',
+              activeWorkspaceId: validActiveId,
               colors: data.colors || DEFAULT_COLORS,
               theme: data.theme || DEFAULT_THEME,
               columnVisibility: data.columnVisibility || {},
               columnOrder: data.columnOrder || {},
-              workspacesModifiedAt: remoteModifiedAt,
+              workspacesModifiedAt: data.updatedAt ? new Date(data.updatedAt).getTime() : Date.now(),
               lastSyncedAt: Date.now(),
             });
             
@@ -546,6 +504,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       resetAll: () => set({
         ...DEFAULT_PREFERENCES,
         workspaces: [{ ...DEFAULT_MAIN_WORKSPACE, createdAt: Date.now() }],
+        workspacesModifiedAt: Date.now(),
       }),
 
       exportPreferences: () => {
@@ -574,6 +533,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
             activeWorkspaceId: data.activeWorkspaceId || 'main',
             columnVisibility: data.columnVisibility || {},
             columnOrder: data.columnOrder || {},
+            workspacesModifiedAt: Date.now(),
           });
           return true;
         } catch {
@@ -591,6 +551,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         layoutInitialized: state.layoutInitialized,
         workspaces: state.workspaces,
         activeWorkspaceId: state.activeWorkspaceId,
+        workspacesModifiedAt: state.workspacesModifiedAt,
         columnVisibility: state.columnVisibility,
         columnOrder: state.columnOrder,
       }),

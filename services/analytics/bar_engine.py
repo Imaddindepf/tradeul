@@ -165,16 +165,16 @@ MULTI_TIMEFRAMES = (2, 5, 10, 15, 30, 60)
 # Per-timeframe indicator config — only allocate what the alert catalog needs.
 # This keeps memory bounded: ~1.5 GB for 15K symbols across all 6 timeframes.
 _TF_INDICATOR_CONFIG = {
-    2:  {'sma_periods': (5, 8, 20), 'macd': False, 'stoch': False, 'rsi': True,  'bb': False},
-    5:  {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
-    10: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': False, 'rsi': False, 'bb': False},
-    15: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
-    30: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': False, 'rsi': False, 'bb': False},
-    60: {'sma_periods': (),          'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
+    2:  {'sma_periods': (5, 8, 10, 20, 200), 'macd': False, 'stoch': False, 'rsi': True,  'bb': False},
+    5:  {'sma_periods': (5, 8, 10, 20, 200), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
+    10: {'sma_periods': (5, 8, 10, 20),      'macd': True,  'stoch': False, 'rsi': False, 'bb': False},
+    15: {'sma_periods': (5, 8, 10, 20, 130, 200), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
+    30: {'sma_periods': (5, 8, 10, 20),      'macd': True,  'stoch': False, 'rsi': False, 'bb': False},
+    60: {'sma_periods': (5, 8, 10, 20, 200), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
 }
 
 # talipp attribute names on TimeframeState (for purging)
-_TF_TALIPP_ATTRS = ('sma_5', 'sma_8', 'sma_20', 'macd', 'stoch', 'rsi', 'bb')
+_TF_TALIPP_ATTRS = ('sma_5', 'sma_8', 'sma_10', 'sma_20', 'sma_130', 'sma_200', 'macd', 'stoch', 'rsi', 'bb')
 
 
 class TimeframeState:
@@ -189,8 +189,8 @@ class TimeframeState:
     """
     __slots__ = (
         'period', 'builder', 'bar_count',
-        'current_group',
-        'sma_5', 'sma_8', 'sma_20',
+        'current_group', 'closes',
+        'sma_5', 'sma_8', 'sma_10', 'sma_20', 'sma_130', 'sma_200',
         'macd', 'stoch', 'rsi', 'bb',
         'tf_high', 'tf_low',
         'prev_bar_high', 'prev_bar_low',
@@ -201,6 +201,7 @@ class TimeframeState:
         self.builder: list = []
         self.bar_count: int = 0
         self.current_group: int = 0
+        self.closes: deque = deque(maxlen=DEFAULT_RING_SIZE)
 
         # Intraday extremes for this timeframe's bars
         self.tf_high: float = 0.0
@@ -216,7 +217,10 @@ class TimeframeState:
         if _talipp_available:
             self.sma_5 = SMA(period=5) if 5 in sma_periods else None
             self.sma_8 = SMA(period=8) if 8 in sma_periods else None
+            self.sma_10 = SMA(period=10) if 10 in sma_periods else None
             self.sma_20 = SMA(period=20) if 20 in sma_periods else None
+            self.sma_130 = SMA(period=130) if 130 in sma_periods else None
+            self.sma_200 = SMA(period=200) if 200 in sma_periods else None
             self.macd = MACD(fast_period=12, slow_period=26, signal_period=9) if cfg.get('macd') else None
             self.stoch = Stoch(period=14, smoothing_period=3) if cfg.get('stoch') else None
             self.rsi = RSI(period=14) if cfg.get('rsi') else None
@@ -224,7 +228,10 @@ class TimeframeState:
         else:
             self.sma_5 = None
             self.sma_8 = None
+            self.sma_10 = None
             self.sma_20 = None
+            self.sma_130 = None
+            self.sma_200 = None
             self.macd = None
             self.stoch = None
             self.rsi = None
@@ -536,6 +543,7 @@ class BarEngine:
         v = sum(b['v'] for b in bars)
 
         tf_state.bar_count += 1
+        tf_state.closes.append(c)
 
         # Store this bar's high/low as "previous" for IDH/IDL comparison
         tf_state.prev_bar_high = h
@@ -550,7 +558,7 @@ class BarEngine:
         # Update indicators
         if _talipp_available:
             # SMA indicators (close-based)
-            for sma_attr in ('sma_5', 'sma_8', 'sma_20'):
+            for sma_attr in ('sma_5', 'sma_8', 'sma_10', 'sma_20', 'sma_130', 'sma_200'):
                 ind = getattr(tf_state, sma_attr, None)
                 if ind is not None:
                     ind.add(c)
@@ -679,7 +687,7 @@ class BarEngine:
             tf_ind = {'bar_count': tf_state.bar_count}
 
             # SMA values
-            for sma_attr in ('sma_5', 'sma_8', 'sma_20'):
+            for sma_attr in ('sma_5', 'sma_8', 'sma_10', 'sma_20', 'sma_130', 'sma_200'):
                 ind = getattr(tf_state, sma_attr, None)
                 if ind is not None:
                     tf_ind[sma_attr] = self._read_talipp(ind)
@@ -733,6 +741,10 @@ class BarEngine:
                 tf_ind['cur_bar_high'] = max(b['h'] for b in tf_state.builder)
                 tf_ind['cur_bar_low'] = min(b['l'] for b in tf_state.builder)
 
+            # Consecutive candles for this timeframe
+            if len(tf_state.closes) >= 2:
+                tf_ind['consecutive_candles'] = self._count_consecutive(tf_state.closes)
+
             tf_data[tf_period] = tf_ind
 
         return IndicatorValues(
@@ -768,76 +780,43 @@ class BarEngine:
         return self._calc_change(state.closes, minutes)
 
 
-    def get_consecutive_candles(self, symbol: str) -> int:
-        """Consecutive up (>0) or down (<0) 1-min candles from latest."""
-        st = self._states.get(symbol)
-        if st is None or len(st.closes) < 2:
+    @staticmethod
+    def _count_consecutive(closes) -> int:
+        """Count consecutive up (>0) or down (<0) candles from the end of a closes sequence."""
+        n = len(closes)
+        if n < 2:
             return 0
-        cl = st.closes
         cnt = 0
-        for i in range(len(cl) - 1, 0, -1):
-            if cl[i] > cl[i - 1]:
-                if cnt < 0: break
+        for i in range(n - 1, 0, -1):
+            if closes[i] > closes[i - 1]:
+                if cnt < 0:
+                    break
                 cnt += 1
-            elif cl[i] < cl[i - 1]:
-                if cnt > 0: break
+            elif closes[i] < closes[i - 1]:
+                if cnt > 0:
+                    break
                 cnt -= 1
             else:
                 break
         return cnt
 
-    def get_consecutive_candles(self, symbol: str) -> int:
-        """Consecutive up (>0) or down (<0) 1-min candles from latest."""
-        st = self._states.get(symbol)
-        if st is None or len(st.closes) < 2:
-            return 0
-        cl = st.closes
-        cnt = 0
-        for i in range(len(cl) - 1, 0, -1):
-            if cl[i] > cl[i - 1]:
-                if cnt < 0: break
-                cnt += 1
-            elif cl[i] < cl[i - 1]:
-                if cnt > 0: break
-                cnt -= 1
-            else:
-                break
-        return cnt
+    def get_consecutive_candles(self, symbol: str, timeframe_minutes: Optional[int] = None) -> int:
+        """
+        Consecutive up (>0) or down (<0) candles from latest.
 
-    def get_consecutive_candles(self, symbol: str) -> int:
-        """Consecutive up (>0) or down (<0) 1-min candles from latest."""
-        st = self._states.get(symbol)
-        if st is None or len(st.closes) < 2:
+        Args:
+            symbol: Ticker symbol.
+            timeframe_minutes: None for 1-min bars, or 2/5/10/15/30/60 for multi-TF.
+        """
+        state = self._states.get(symbol)
+        if state is None:
             return 0
-        cl = st.closes
-        cnt = 0
-        for i in range(len(cl) - 1, 0, -1):
-            if cl[i] > cl[i - 1]:
-                if cnt < 0: break
-                cnt += 1
-            elif cl[i] < cl[i - 1]:
-                if cnt > 0: break
-                cnt -= 1
-            else:
-                break
-        return cnt
-
-    def get_consecutive_candles(self, symbol):
-        st = self._states.get(symbol)
-        if st is None or len(st.closes) < 2:
+        if timeframe_minutes is None:
+            return self._count_consecutive(state.closes)
+        tf_state = state.tf_states.get(timeframe_minutes)
+        if tf_state is None:
             return 0
-        cl = st.closes
-        cnt = 0
-        for i in range(len(cl) - 1, 0, -1):
-            if cl[i] > cl[i - 1]:
-                if cnt < 0: break
-                cnt += 1
-            elif cl[i] < cl[i - 1]:
-                if cnt > 0: break
-                cnt -= 1
-            else:
-                break
-        return cnt
+        return self._count_consecutive(tf_state.closes)
 
     # ========================================================================
     # Warmup: load historical bars (from TimescaleDB on startup)
@@ -1085,4 +1064,6 @@ def parse_bar_from_stream(raw_data: dict) -> Optional[BarData]:
         )
     except (ValueError, TypeError) as e:
         logger.error("bar_parse_error", data=str(raw_data)[:200], error=str(e))
+        return None
+
         return None

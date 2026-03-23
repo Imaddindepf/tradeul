@@ -94,7 +94,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   change_from_open_dollars: {
-    header: 'From Open $',
+    header: 'Change from Open $',
     size: 85,
     minSize: 60,
     maxSize: 105,
@@ -132,7 +132,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'rvol',
   },
   vol_1min: {
-    header: 'Volume 1m',
+    header: 'Volume 1 Minute',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -140,7 +140,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'volume',
   },
   vol_5min: {
-    header: 'Volume 5m',
+    header: 'Volume 5 Minute',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -148,7 +148,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'volume',
   },
   vol_10min: {
-    header: 'Volume 10m',
+    header: 'Volume 10 Minute',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -156,7 +156,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'volume',
   },
   vol_15min: {
-    header: 'Volume 15m',
+    header: 'Volume 15 Minute',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -164,7 +164,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'volume',
   },
   vol_30min: {
-    header: 'Volume 30m',
+    header: 'Volume 30 Minute',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -176,7 +176,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
   // VOLUMEN VENTANA % (Trade Ideas style)
   // ═══════════════════════════════════════════════════════════════
   vol_1min_pct: {
-    header: 'Vol 1m %',
+    header: 'Volume 1m %',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -185,7 +185,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     suffix: '%',
   },
   vol_5min_pct: {
-    header: 'Vol 5m %',
+    header: 'Volume 5m %',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -194,7 +194,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     suffix: '%',
   },
   vol_10min_pct: {
-    header: 'Vol 10m %',
+    header: 'Volume 10m %',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -203,7 +203,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     suffix: '%',
   },
   vol_15min_pct: {
-    header: 'Vol 15m %',
+    header: 'Volume 15m %',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -212,7 +212,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     suffix: '%',
   },
   vol_30min_pct: {
-    header: 'Vol 30m %',
+    header: 'Volume 30m %',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -241,7 +241,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
   // CAMBIOS POR VENTANA DE TIEMPO
   // ═══════════════════════════════════════════════════════════════
   chg_1min: {
-    header: 'Change 1m',
+    header: 'Change 1 Min',
     size: 85,
     minSize: 65,
     maxSize: 100,
@@ -250,7 +250,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   chg_5min: {
-    header: 'Change 5m',
+    header: 'Change 5 Min',
     size: 85,
     minSize: 65,
     maxSize: 100,
@@ -259,7 +259,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   chg_10min: {
-    header: 'Change 10m',
+    header: 'Change 10 Min',
     size: 85,
     minSize: 65,
     maxSize: 100,
@@ -268,7 +268,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   chg_15min: {
-    header: 'Change 15m',
+    header: 'Change 15 Min',
     size: 85,
     minSize: 65,
     maxSize: 100,
@@ -277,7 +277,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   chg_30min: {
-    header: 'Change 30m',
+    header: 'Change 30 Min',
     size: 85,
     minSize: 65,
     maxSize: 100,
@@ -286,7 +286,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   chg_60min: {
-    header: 'Change 60m',
+    header: 'Change 60 Min',
     size: 85,
     minSize: 65,
     maxSize: 100,
@@ -357,7 +357,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   ema_20: {
-    header: 'EMA(20)',
+    header: 'EMA 20',
     size: 70,
     minSize: 55,
     maxSize: 90,
@@ -365,7 +365,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   ema_50: {
-    header: 'EMA(50)',
+    header: 'EMA 50',
     size: 70,
     minSize: 55,
     maxSize: 90,
@@ -373,7 +373,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   sma_5: {
-    header: 'SMA(5)',
+    header: 'SMA 5',
     size: 70,
     minSize: 55,
     maxSize: 90,
@@ -381,7 +381,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   sma_8: {
-    header: 'SMA(8)',
+    header: 'SMA 8',
     size: 70,
     minSize: 55,
     maxSize: 90,
@@ -389,7 +389,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   sma_20: {
-    header: 'SMA(20)',
+    header: 'SMA 20',
     size: 70,
     minSize: 55,
     maxSize: 90,
@@ -397,7 +397,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   sma_50: {
-    header: 'SMA(50)',
+    header: 'SMA 50',
     size: 70,
     minSize: 55,
     maxSize: 90,
@@ -405,7 +405,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   sma_200: {
-    header: 'SMA(200)',
+    header: 'SMA 200',
     size: 75,
     minSize: 60,
     maxSize: 95,
@@ -475,7 +475,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
   // INDICADORES DIARIOS
   // ═══════════════════════════════════════════════════════════════
   daily_sma_20: {
-    header: 'Daily SMA(20)',
+    header: 'Daily SMA 20',
     size: 95,
     minSize: 75,
     maxSize: 115,
@@ -483,7 +483,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   daily_sma_50: {
-    header: 'Daily SMA(50)',
+    header: 'Daily SMA 50',
     size: 95,
     minSize: 75,
     maxSize: 115,
@@ -491,7 +491,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   daily_sma_200: {
-    header: 'Daily SMA(200)',
+    header: 'Daily SMA 200',
     size: 100,
     minSize: 80,
     maxSize: 120,
@@ -714,7 +714,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
   // CAMPOS DERIVADOS / COMPUTADOS
   // ═══════════════════════════════════════════════════════════════
   dollar_volume: {
-    header: '$ Volume',
+    header: 'Dollar Volume',
     size: 80,
     minSize: 65,
     maxSize: 100,
@@ -722,7 +722,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'marketcap',
   },
   todays_range: {
-    header: 'Range $',
+    header: 'Today\'s Range $',
     size: 70,
     minSize: 55,
     maxSize: 85,
@@ -730,7 +730,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'currency',
   },
   todays_range_pct: {
-    header: 'Range %',
+    header: 'Today\'s Range %',
     size: 70,
     minSize: 55,
     maxSize: 85,
@@ -787,7 +787,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'percent',
   },
   prev_day_volume: {
-    header: 'Previous Volume',
+    header: 'Volume Yesterday',
     size: 105,
     minSize: 80,
     maxSize: 125,
@@ -867,7 +867,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
   // CAMBIOS MULTI-DÍA
   // ═══════════════════════════════════════════════════════════════
   change_1d: {
-    header: '1 Day',
+    header: 'Change Previous Day',
     size: 65,
     minSize: 50,
     maxSize: 80,
@@ -876,7 +876,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   change_3d: {
-    header: '3 Days',
+    header: 'Change in 3 Days',
     size: 65,
     minSize: 50,
     maxSize: 80,
@@ -885,7 +885,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   change_5d: {
-    header: '5 Days',
+    header: 'Change in 5 Days',
     size: 65,
     minSize: 50,
     maxSize: 80,
@@ -894,7 +894,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   change_10d: {
-    header: '10 Days',
+    header: 'Change in 10 Days',
     size: 70,
     minSize: 55,
     maxSize: 85,
@@ -903,7 +903,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     cellClass: (value) => value > 0 ? 'text-emerald-600' : 'text-rose-600',
   },
   change_20d: {
-    header: '20 Days',
+    header: 'Change in 20 Days',
     size: 70,
     minSize: 55,
     maxSize: 85,
@@ -916,7 +916,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
   // VOLÚMENES PROMEDIO
   // ═══════════════════════════════════════════════════════════════
   avg_volume_5d: {
-    header: 'Avg 5D',
+    header: 'Avg Daily Volume 5D',
     size: 75,
     minSize: 60,
     maxSize: 95,
@@ -924,7 +924,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'volume',
   },
   avg_volume_10d: {
-    header: 'Avg 10D',
+    header: 'Avg Daily Volume 10D',
     size: 75,
     minSize: 60,
     maxSize: 95,
@@ -932,7 +932,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'volume',
   },
   avg_volume_20d: {
-    header: 'Avg 20D',
+    header: 'Avg Daily Volume 20D',
     size: 75,
     minSize: 60,
     maxSize: 95,
@@ -940,7 +940,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'volume',
   },
   avg_volume_3m: {
-    header: 'Average 3M',
+    header: 'Avg Daily Volume 3M',
     size: 85,
     minSize: 65,
     maxSize: 105,
@@ -960,7 +960,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'percent',
   },
   price_from_high: {
-    header: 'From High',
+    header: 'Below High',
     size: 75,
     minSize: 60,
     maxSize: 95,
@@ -968,7 +968,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'percent',
   },
   price_from_low: {
-    header: 'From Low',
+    header: 'Above Low',
     size: 75,
     minSize: 60,
     maxSize: 95,
@@ -976,7 +976,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'percent',
   },
   price_from_intraday_high: {
-    header: 'From Hi',
+    header: 'From Intraday High',
     size: 70,
     minSize: 55,
     maxSize: 90,
@@ -984,7 +984,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'percent',
   },
   price_from_intraday_low: {
-    header: 'From Lo',
+    header: 'From Intraday Low',
     size: 70,
     minSize: 55,
     maxSize: 90,
@@ -992,7 +992,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'percent',
   },
   distance_from_nbbo: {
-    header: 'NBBO Dist',
+    header: 'Distance NBBO',
     size: 75,
     minSize: 60,
     maxSize: 95,
@@ -1000,7 +1000,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'percent',
   },
   premarket_change_percent: {
-    header: 'Pre-Mkt%',
+    header: 'Pre-Market %',
     size: 75,
     minSize: 60,
     maxSize: 95,
@@ -1008,7 +1008,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'percent',
   },
   postmarket_change_percent: {
-    header: 'Post-Mkt%',
+    header: 'Post-Market %',
     size: 75,
     minSize: 60,
     maxSize: 95,
@@ -1016,7 +1016,7 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     format: 'percent',
   },
   postmarket_volume: {
-    header: 'PM Vol',
+    header: 'Post-Market Volume',
     size: 80,
     minSize: 60,
     maxSize: 100,

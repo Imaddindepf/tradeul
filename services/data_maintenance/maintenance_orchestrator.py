@@ -130,11 +130,12 @@ class MaintenanceOrchestrator:
                 
                 if result.get("success"):
                     state["tasks"][task_name] = TaskStatus.SUCCESS
+                    extra = {k: v for k, v in result.items() if k not in ("success", "duration_seconds", "elapsed_seconds")}
                     logger.info(
                         f"✅ task_completed",
                         task=task_name,
                         duration_seconds=round(task_duration, 2),
-                        **{k: v for k, v in result.items() if k != "success"}
+                        **extra,
                     )
                 else:
                     state["tasks"][task_name] = TaskStatus.FAILED

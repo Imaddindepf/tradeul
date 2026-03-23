@@ -9,14 +9,14 @@ También re-ajusta archivos existentes si hay splits recientes (últimos 30 día
 que afecten a datos históricos ya generados.
 
 FLUJO:
-1. Leer adjustment_factors.parquet (generado por build_adjusted_data.py)
+1. Refresh adjustment_factors.parquet desde Polygon API (auto-rebuild)
 2. Buscar archivos raw en /data/polygon/minute_aggs/ que no existan en adjusted/
 3. Para cada archivo nuevo, aplicar split adjustment con DuckDB y escribir Parquet
 4. Detectar splits recientes y re-ajustar archivos históricos afectados
 
 DEPENDENCIAS:
 - Se ejecuta DESPUÉS de reconcile_parquet_splits (que ya actualizó day_aggs)
-- Requiere /data/backtester/splits/adjustment_factors.parquet
+- Genera /data/backtester/splits/adjustment_factors.parquet automáticamente
 - Requiere volumen backtester_data montado en /data/backtester
 
 CAMPOS AJUSTADOS:
@@ -36,6 +36,8 @@ sys.path.append('/app')
 
 import duckdb
 import httpx
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
@@ -46,10 +48,13 @@ logger = get_logger(__name__)
 
 RAW_DIR = Path("/data/polygon/minute_aggs")
 ADJ_DIR = Path("/data/backtester/minute_aggs_adjusted")
-FACTORS_FILE = Path("/data/backtester/splits/adjustment_factors.parquet")
+SPLITS_DIR = Path("/data/backtester/splits")
+FACTORS_FILE = SPLITS_DIR / "adjustment_factors.parquet"
+ALL_SPLITS_FILE = SPLITS_DIR / "all_splits.parquet"
 
 PARQUET_COMPRESSION = "zstd"
 SPLIT_LOOKBACK_DAYS = 30
+FACTORS_REBUILD_INTERVAL_HOURS = 20
 
 FLATS_CSV_COLUMNS = {
     "ticker": "VARCHAR",
@@ -85,11 +90,12 @@ class AdjustMinuteAggsTask:
 
         if not RAW_DIR.exists():
             return {"success": False, "error": f"Raw dir not found: {RAW_DIR}"}
-        if not FACTORS_FILE.exists():
-            return {"success": False, "error": f"Factors file not found: {FACTORS_FILE}"}
 
         ADJ_DIR.mkdir(parents=True, exist_ok=True)
+        SPLITS_DIR.mkdir(parents=True, exist_ok=True)
         t0 = time.time()
+
+        factors_rebuilt = await self._ensure_factors_fresh()
 
         new_processed, new_errors = self._process_new_days()
 
@@ -102,6 +108,7 @@ class AdjustMinuteAggsTask:
             new_days=new_processed,
             new_errors=new_errors,
             split_reprocessed=split_reprocessed,
+            factors_rebuilt=factors_rebuilt,
             elapsed_s=elapsed,
         )
 
@@ -110,10 +117,133 @@ class AdjustMinuteAggsTask:
             "new_days_adjusted": new_processed,
             "new_errors": new_errors,
             "split_reprocessed": split_reprocessed,
+            "factors_rebuilt": factors_rebuilt,
             "elapsed_seconds": elapsed,
         }
 
-    MAX_NEW_DAYS = 10
+    MAX_NEW_DAYS = 30
+
+    async def _ensure_factors_fresh(self) -> bool:
+        """
+        Rebuild adjustment_factors.parquet if stale (>FACTORS_REBUILD_INTERVAL_HOURS old).
+
+        Fetches ALL splits from Polygon since 2019-01-01, computes cumulative
+        adjustment factors, and writes both all_splits.parquet and
+        adjustment_factors.parquet. This replaces the manual build_adjusted_data.py
+        dependency.
+        """
+        if FACTORS_FILE.exists():
+            age_hours = (time.time() - FACTORS_FILE.stat().st_mtime) / 3600
+            if age_hours < FACTORS_REBUILD_INTERVAL_HOURS:
+                logger.info(
+                    "adjust_minute_factors_fresh",
+                    age_hours=round(age_hours, 1),
+                )
+                return False
+
+        logger.info("adjust_minute_factors_rebuilding")
+        t0 = time.time()
+
+        raw_splits = await self._fetch_all_splits()
+        if not raw_splits:
+            logger.warning("adjust_minute_factors_no_splits_from_api")
+            return False
+
+        splits = [
+            s for s in raw_splits
+            if s["split_from"] != s["split_to"]
+        ]
+        splits.sort(key=lambda s: (s["ticker"], s["execution_date"]))
+
+        from collections import defaultdict
+        by_ticker: dict[str, list] = defaultdict(list)
+        for s in splits:
+            by_ticker[s["ticker"]].append(s)
+
+        factors_rows: list[dict] = []
+        for ticker in sorted(by_ticker):
+            ticker_splits = sorted(by_ticker[ticker], key=lambda s: s["execution_date"], reverse=True)
+            cumulative = 1.0
+            for s in ticker_splits:
+                pf = s["split_from"] / s["split_to"]
+                cumulative *= pf
+                factors_rows.append({
+                    "ticker": ticker,
+                    "effective_before_date": date.fromisoformat(s["execution_date"]),
+                    "price_factor": cumulative,
+                    "volume_factor": 1.0 / cumulative,
+                })
+
+        factors_rows.sort(key=lambda r: (r["ticker"], r["effective_before_date"]))
+
+        splits_table = pa.table({
+            "ticker": [s["ticker"] for s in splits],
+            "execution_date": [date.fromisoformat(s["execution_date"]) for s in splits],
+            "split_from": [s["split_from"] for s in splits],
+            "split_to": [s["split_to"] for s in splits],
+        })
+        factors_table = pa.table({
+            "ticker": [r["ticker"] for r in factors_rows],
+            "effective_before_date": [r["effective_before_date"] for r in factors_rows],
+            "price_factor": [r["price_factor"] for r in factors_rows],
+            "volume_factor": [r["volume_factor"] for r in factors_rows],
+        })
+
+        pq.write_table(splits_table, ALL_SPLITS_FILE)
+        pq.write_table(factors_table, FACTORS_FILE)
+
+        elapsed = round(time.time() - t0, 1)
+        logger.info(
+            "adjust_minute_factors_rebuilt",
+            splits=len(splits),
+            factors=len(factors_rows),
+            elapsed_s=elapsed,
+        )
+        return True
+
+    async def _fetch_all_splits(self) -> List[Dict]:
+        """Fetch all splits from Polygon since 2019-01-01 with pagination."""
+        all_splits: List[Dict] = []
+        url: Optional[str] = (
+            f"https://api.polygon.io/v3/reference/splits"
+            f"?execution_date.gte=2019-01-01"
+            f"&limit=1000"
+            f"&order=asc"
+            f"&sort=execution_date"
+            f"&apiKey={settings.POLYGON_API_KEY}"
+        )
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            page = 0
+            while url:
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code != 200:
+                        logger.warning("factors_splits_api_error", status=resp.status_code, page=page)
+                        break
+                    data = resp.json()
+                    results = data.get("results", [])
+                    all_splits.extend(results)
+                    page += 1
+
+                    next_url = data.get("next_url")
+                    url = f"{next_url}&apiKey={settings.POLYGON_API_KEY}" if next_url else None
+                except Exception as e:
+                    logger.error("factors_splits_api_exception", error=str(e), page=page)
+                    break
+
+        logger.info("factors_splits_fetched", total=len(all_splits), pages=page)
+
+        return [
+            {
+                "ticker": s.get("ticker"),
+                "execution_date": s.get("execution_date"),
+                "split_from": float(s["split_from"]),
+                "split_to": float(s["split_to"]),
+            }
+            for s in all_splits
+            if s.get("split_from") is not None and s.get("split_to") is not None
+        ]
 
     def _process_new_days(self) -> tuple[int, int]:
         """Genera archivos ajustados para días raw que aún no existen en adjusted/."""
@@ -149,15 +279,18 @@ class AdjustMinuteAggsTask:
         con.execute("SET threads = 4")
         con.execute("SET memory_limit = '1GB'")
 
-        row_count = con.execute(
-            f"SELECT COUNT(*) FROM read_parquet('{FACTORS_FILE}')"
-        ).fetchone()[0]
-        has_factors = row_count > 0
-        if has_factors:
-            con.execute(f"""
-                CREATE TABLE adj_factors AS
-                SELECT * FROM read_parquet('{FACTORS_FILE}')
-            """)
+        has_factors = False
+        if FACTORS_FILE.exists():
+            row_count = con.execute(
+                f"SELECT COUNT(*) FROM read_parquet('{FACTORS_FILE}')"
+            ).fetchone()[0]
+            has_factors = row_count > 0
+            if has_factors:
+                con.execute(f"""
+                    CREATE TABLE adj_factors AS
+                    SELECT * FROM read_parquet('{FACTORS_FILE}')
+                """)
+
         processed = 0
         errors = 0
 

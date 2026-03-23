@@ -58,7 +58,7 @@ class BidAskAlertDetector(BaseAlertDetector):
         self._detect_trading_above(current, alerts)
         self._detect_trading_below(current, alerts)
 
-        is_listed = (current.exchange or "").upper() in self.LISTED_EXCHANGES
+        is_listed = str(current.exchange or "").upper() in self.LISTED_EXCHANGES
         is_regular = current.market_session in ("REGULAR", "MARKET_HOURS", None)
         if is_listed and is_regular:
             self._detect_trading_above_specialist(current, alerts)

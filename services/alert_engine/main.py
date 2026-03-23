@@ -267,11 +267,11 @@ class AlertEngine:
         try:
             et_raw = data.get("event_type", "").upper()
             symbol = data.get("symbol", "")
+            logger.info(f"[P{PARTITION_ID}] Halt event: {et_raw} {symbol}")
             if not symbol or et_raw not in ("HALT", "RESUME"):
                 return
             enriched = self._enriched_cache.get(symbol, {})
             rvol = await self._get_rvol(symbol)
-            price = enriched.get("current_price", 0)
             halt_data = {}
             raw_d = data.get("data")
             if raw_d:
@@ -279,19 +279,41 @@ class AlertEngine:
                     halt_data = json.loads(raw_d) if isinstance(raw_d, str) else raw_d
                 except Exception:
                     pass
-            if not price:
-                price = halt_data.get("pause_threshold_price", 0)
+            price = enriched.get("current_price") or halt_data.get("pause_threshold_price") or 0
+            if price is None:
+                price = 0
+            price = float(price)
+            volume = enriched.get("current_volume")
+            if volume is not None:
+                volume = int(volume)
+            change_pct = enriched.get("change_percent")
+            if change_pct is not None:
+                change_pct = float(change_pct)
+            mcap = enriched.get("market_cap")
+            if mcap is not None:
+                mcap = float(mcap)
             at = AlertType.HALT if et_raw == "HALT" else AlertType.RESUME
+            details = {}
+            hr = halt_data.get("halt_reason")
+            if hr is not None:
+                details["halt_reason"] = str(hr)
+            hrd = halt_data.get("halt_reason_desc")
+            if hrd is not None:
+                details["halt_reason_desc"] = str(hrd)
             alert = AlertRecord(
                 alert_type=at, symbol=symbol, timestamp=datetime.utcnow(), price=price,
                 quality=0.0, description=f"Trading {'halted' if at == AlertType.HALT else 'resumed'}",
-                change_percent=enriched.get("change_percent"), rvol=rvol,
-                volume=enriched.get("current_volume"), market_cap=enriched.get("market_cap"),
-                details={"halt_reason": halt_data.get("halt_reason"), "halt_reason_desc": halt_data.get("halt_reason_desc")},
+                change_percent=change_pct, rvol=rvol,
+                volume=volume, market_cap=mcap,
+                details=details if details else None,
             )
             await self._publish(alert)
+            logger.info(f"[P{PARTITION_ID}] Halt published: {symbol} {at.value} price={price}")
+            if self.alert_writer:
+                enriched_data = self._enriched_cache.get(symbol, {})
+                self.alert_writer.buffer_alert(alert.to_dict(), enriched_data)
         except Exception as e:
-            logger.error(f"Halt error: {e}")
+            logger.error(f"Halt error [{symbol if 'symbol' in dir() else '?'}]: {e}", exc_info=True)
 
     async def _build_state(self, symbol, data) -> Optional[AlertState]:
         try:
@@ -638,9 +660,8 @@ async def main():
         if symbols:
             await baseline_loader.load_all(symbols, current_trading_date)
             logger.info(f"Baselines loaded for {len(symbols)} symbols")
-        if PARTITION_ID == 0:
-            alert_writer = AlertWriter(ts_client)
-            logger.info("AlertWriter enabled on partition 0 (COPY protocol)")
+        alert_writer = AlertWriter(ts_client)
+        logger.info(f"AlertWriter enabled on partition {PARTITION_ID} (COPY protocol)")
     except Exception as e:
         logger.warning(f"TimescaleDB unavailable, no baselines: {e}")
     engine = AlertEngine(redis_client, baseline_loader=baseline_loader, alert_writer=alert_writer)

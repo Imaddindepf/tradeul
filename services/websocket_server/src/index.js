@@ -339,6 +339,12 @@ const CONTEXT_TO_EVENT_MAP = [
   ['ema_9', 'ema_9'],
   ['bb_mid', 'bb_mid'],
   ['macd_signal', 'macd_signal'],
+  ['consecutive_candles_2m', 'consecutive_candles_2m'],
+  ['consecutive_candles_5m', 'consecutive_candles_5m'],
+  ['consecutive_candles_10m', 'consecutive_candles_10m'],
+  ['consecutive_candles_15m', 'consecutive_candles_15m'],
+  ['consecutive_candles_30m', 'consecutive_candles_30m'],
+  ['consecutive_candles_60m', 'consecutive_candles_60m'],
 ];
 const CONTEXT_STRING_KEYS = ['industry', 'sector', 'security_type'];
 
@@ -439,6 +445,9 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     // VWAP
     ['vwapMin',           'vwapMax',           null, 'vwap'],
     // Daily indicators
+    ['dailySma5Min',      'dailySma5Max',      null, 'daily_sma_5'],
+    ['dailySma8Min',      'dailySma8Max',      null, 'daily_sma_8'],
+    ['dailySma10Min',     'dailySma10Max',     null, 'daily_sma_10'],
     ['dailySma20Min',     'dailySma20Max',     null, 'daily_sma_20'],
     ['dailySma50Min',     'dailySma50Max',     null, 'daily_sma_50'],
     ['dailySma200Min',    'dailySma200Max',    null, 'daily_sma_200'],
@@ -523,6 +532,104 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['bbPosition60mMin',  'bbPosition60mMax',  null, 'bb_position_60m'],
     ['chg2minMin',        'chg2minMax',        null, 'chg_2min'],
     ['chg120minMin',      'chg120minMax',      null, 'chg_120min'],
+    // Extended Trade Ideas parity
+    ['gapDollarsMin',     'gapDollarsMax',     null, 'gap_dollars'],
+    ['gapRatioMin',       'gapRatioMax',       null, 'gap_ratio'],
+    ['changeFromCloseDollarsMin','changeFromCloseDollarsMax', null, 'change_from_close'],
+    ['changeFromCloseRatioMin','changeFromCloseRatioMax', null, 'change_from_close_ratio'],
+    ['changeFromOpenRatioMin','changeFromOpenRatioMax', null, 'change_from_open_ratio'],
+    ['postmarketChangeDollarsMin','postmarketChangeDollarsMax', null, 'postmarket_change_dollars'],
+    ['decimalMin',        'decimalMax',        null, 'decimal'],
+    ['posInPrevDayRangeMin','posInPrevDayRangeMax', null, 'pos_in_prev_day_range'],
+    ['plusDiMinusDiMin',  'plusDiMinusDiMax',  null, 'plus_di_minus_di'],
+    ['bbStdDevMin',       'bbStdDevMax',       null, 'bb_std_dev'],
+    // Multi-TF SMA distances
+    ['distSma5_2mMin',   'distSma5_2mMax',    null, 'dist_sma_5_2m'],
+    ['distSma5_5mMin',   'distSma5_5mMax',    null, 'dist_sma_5_5m'],
+    ['distSma5_15mMin',  'distSma5_15mMax',   null, 'dist_sma_5_15m'],
+    ['distSma8_2mMin',   'distSma8_2mMax',    null, 'dist_sma_8_2m'],
+    ['distSma8_5mMin',   'distSma8_5mMax',    null, 'dist_sma_8_5m'],
+    ['distSma8_15mMin',  'distSma8_15mMax',   null, 'dist_sma_8_15m'],
+    ['distSma8_60mMin',  'distSma8_60mMax',   null, 'dist_sma_8_60m'],
+    ['distSma20_2mMin',  'distSma20_2mMax',   null, 'dist_sma_20_2m'],
+    ['distSma20_5mMin',  'distSma20_5mMax',   null, 'dist_sma_20_5m'],
+    ['distSma20_15mMin', 'distSma20_15mMax',  null, 'dist_sma_20_15m'],
+    ['distSma20_60mMin', 'distSma20_60mMax',  null, 'dist_sma_20_60m'],
+    // SMA cross: 8 vs 20
+    ['sma8vs20_2mMin',   'sma8vs20_2mMax',    null, 'sma_8_vs_20_2m'],
+    ['sma8vs20_5mMin',   'sma8vs20_5mMax',    null, 'sma_8_vs_20_5m'],
+    ['sma8vs20_15mMin',  'sma8vs20_15mMax',   null, 'sma_8_vs_20_15m'],
+    ['sma8vs20_60mMin',  'sma8vs20_60mMax',   null, 'sma_8_vs_20_60m'],
+    // Daily SMA 200 distance
+    ['distDailySma200Min','distDailySma200Max',null, 'dist_daily_sma_200'],
+    // Multi-day ranges ($) [Range5D, Range10D, Range20D]
+    ['range5dMin',        'range5dMax',        null, 'range_5d'],
+    ['range10dMin',       'range10dMax',       null, 'range_10d'],
+    ['range20dMin',       'range20dMax',       null, 'range_20d'],
+    // Position in multi-day ranges (%) [R5D, R10D, R20D, R52W]
+    ['posIn5dRangeMin',   'posIn5dRangeMax',   null, 'pos_in_5d_range'],
+    ['posIn10dRangeMin',  'posIn10dRangeMax',  null, 'pos_in_10d_range'],
+    ['posIn20dRangeMin',  'posIn20dRangeMax',  null, 'pos_in_20d_range'],
+    ['posIn52wRangeMin',  'posIn52wRangeMax',  null, 'pos_in_52w_range'],
+    ['sma20vs200_2mMin', 'sma20vs200_2mMax', null, 'sma_20_vs_200_2m'],
+    ['sma20vs200_5mMin', 'sma20vs200_5mMax', null, 'sma_20_vs_200_5m'],
+    ['sma20vs200_15mMin','sma20vs200_15mMax',null, 'sma_20_vs_200_15m'],
+    ['sma20vs200_60mMin','sma20vs200_60mMax',null, 'sma_20_vs_200_60m'],
+    ['distSma5_30mMin',  'distSma5_30mMax',  null, 'dist_sma_5_30m'],
+    ['distSma5_60mMin',  'distSma5_60mMax',  null, 'dist_sma_5_60m'],
+    ['distSma8_30mMin',  'distSma8_30mMax',  null, 'dist_sma_8_30m'],
+    ['distSma10_2mMin',  'distSma10_2mMax',  null, 'dist_sma_10_2m'],
+    ['distSma10_5mMin',  'distSma10_5mMax',  null, 'dist_sma_10_5m'],
+    ['distSma10_15mMin', 'distSma10_15mMax', null, 'dist_sma_10_15m'],
+    ['distSma10_30mMin', 'distSma10_30mMax', null, 'dist_sma_10_30m'],
+    ['distSma10_60mMin', 'distSma10_60mMax', null, 'dist_sma_10_60m'],
+    ['distSma20_30mMin', 'distSma20_30mMax', null, 'dist_sma_20_30m'],
+    ['distSma130_15mMin','distSma130_15mMax',null, 'dist_sma_130_15m'],
+    ['distSma200_2mMin', 'distSma200_2mMax', null, 'dist_sma_200_2m'],
+    ['distSma200_5mMin', 'distSma200_5mMax', null, 'dist_sma_200_5m'],
+    ['distSma200_15mMin','distSma200_15mMax',null, 'dist_sma_200_15m'],
+    ['distSma200_60mMin','distSma200_60mMax',null, 'dist_sma_200_60m'],
+    ['distDailySma5Min', 'distDailySma5Max', null, 'dist_daily_sma_5'],
+    ['distDailySma8Min', 'distDailySma8Max', null, 'dist_daily_sma_8'],
+    ['distDailySma10Min','distDailySma10Max',null, 'dist_daily_sma_10'],
+    ['distDailySma5DollarsMin','distDailySma5DollarsMax',null,'dist_daily_sma_5_dollars'],
+    ['distDailySma8DollarsMin','distDailySma8DollarsMax',null,'dist_daily_sma_8_dollars'],
+    ['distDailySma10DollarsMin','distDailySma10DollarsMax',null,'dist_daily_sma_10_dollars'],
+    ['distDailySma20DollarsMin','distDailySma20DollarsMax',null,'dist_daily_sma_20_dollars'],
+    ['distDailySma50DollarsMin','distDailySma50DollarsMax',null,'dist_daily_sma_50_dollars'],
+    ['distDailySma200DollarsMin','distDailySma200DollarsMax',null,'dist_daily_sma_200_dollars'],
+    ['change5dDollarsMin','change5dDollarsMax',null,'change_5d_dollars'],
+    ['change10dDollarsMin','change10dDollarsMax',null,'change_10d_dollars'],
+    ['change20dDollarsMin','change20dDollarsMax',null,'change_20d_dollars'],
+    ['changeFromOpenWeightedMin','changeFromOpenWeightedMax',null,'change_from_open_weighted'],
+    ['range5dPctMin','range5dPctMax',null,'range_5d_pct'],
+    ['range10dPctMin','range10dPctMax',null,'range_10d_pct'],
+    ['range20dPctMin','range20dPctMax',null,'range_20d_pct'],
+    ['change1yMin','change1yMax',null,'change_1y'],
+    ['change1yDollarsMin','change1yDollarsMax',null,'change_1y_dollars'],
+    ['changeYtdMin','changeYtdMax',null,'change_ytd'],
+    ['changeYtdDollarsMin','changeYtdDollarsMax',null,'change_ytd_dollars'],
+    ['yearlyStdDevMin','yearlyStdDevMax',null,'yearly_std_dev'],
+    ['consecutiveDaysUpMin','consecutiveDaysUpMax',null,'consecutive_days_up'],
+    ['consecutiveCandles2mMin','consecutiveCandles2mMax',null,'consecutive_candles_2m'],
+    ['consecutiveCandles5mMin','consecutiveCandles5mMax',null,'consecutive_candles_5m'],
+    ['consecutiveCandles10mMin','consecutiveCandles10mMax',null,'consecutive_candles_10m'],
+    ['consecutiveCandles15mMin','consecutiveCandles15mMax',null,'consecutive_candles_15m'],
+    ['consecutiveCandles30mMin','consecutiveCandles30mMax',null,'consecutive_candles_30m'],
+    ['consecutiveCandles60mMin','consecutiveCandles60mMax',null,'consecutive_candles_60m'],
+    ['posIn3mRangeMin','posIn3mRangeMax',null,'pos_in_3m_range'],
+    ['posIn6mRangeMin','posIn6mRangeMax',null,'pos_in_6m_range'],
+    ['posIn9mRangeMin','posIn9mRangeMax',null,'pos_in_9m_range'],
+    ['posIn2yRangeMin','posIn2yRangeMax',null,'pos_in_2y_range'],
+    ['posInLifetimeRangeMin','posInLifetimeRangeMax',null,'pos_in_lifetime_range'],
+    ['posInPremarketRangeMin','posInPremarketRangeMax',null,'pos_in_premarket_range'],
+    ['belowPremarketHighMin','belowPremarketHighMax',null,'below_premarket_high'],
+    ['abovePremarketLowMin','abovePremarketLowMax',null,'above_premarket_low'],
+    ['consolidationDaysMin','consolidationDaysMax',null,'consolidation_days'],
+    ['posInConsolidationMin','posInConsolidationMax',null,'pos_in_consolidation'],
+    ['rangeContractionMin','rangeContractionMax',null,'range_contraction'],
+    ['lrDivergence130Min','lrDivergence130Max',null,'lr_divergence_130'],
+    ['changePrevDayPctMin','changePrevDayPctMax',null,'change_prev_day_pct'],
   ];
 
   for (const [minKey, maxKey, nativeCol, ctxKey] of FILTER_MAP) {
@@ -880,6 +987,46 @@ const ENRICHED_FLOAT_FIELDS = [
   "bb_position_1m", "bb_position_5m", "bb_position_15m", "bb_position_60m",
   // Change 2min / 120min
   "chg_2min", "chg_120min",
+  // Multi-day ranges and positions
+  "range_5d", "range_10d", "range_20d",
+  "high_5d", "low_5d", "high_10d", "low_10d", "high_20d", "low_20d",
+  "pos_in_5d_range", "pos_in_10d_range", "pos_in_20d_range", "pos_in_52w_range",
+  // Multi-day ranges (%) — ATR-normalized
+  "range_5d_pct", "range_10d_pct", "range_20d_pct",
+  // Change 5/10/20 Days ($)
+  "change_5d_dollars", "change_10d_dollars", "change_20d_dollars",
+  // Change from Open Weighted
+  "change_from_open_weighted",
+  // Daily SMA 5/8/10
+  "daily_sma_5", "daily_sma_8", "daily_sma_10",
+  // Distance from Daily SMAs ($)
+  "dist_daily_sma_5_dollars", "dist_daily_sma_8_dollars", "dist_daily_sma_10_dollars",
+  "dist_daily_sma_20_dollars", "dist_daily_sma_50_dollars", "dist_daily_sma_200_dollars",
+  // Distance from Daily SMAs (%)
+  "dist_daily_sma_5", "dist_daily_sma_8", "dist_daily_sma_10",
+  // 20 vs 200 SMA cross per TF
+  "sma_20_vs_200_2m", "sma_20_vs_200_5m", "sma_20_vs_200_15m", "sma_20_vs_200_60m",
+  // Change in 1 Year
+  "change_1y", "change_1y_dollars",
+  // Change Since Jan 1
+  "change_ytd", "change_ytd_dollars",
+  // Yearly Standard Deviation
+  "yearly_std_dev",
+  // Consecutive Days Up
+  "consecutive_days_up",
+  // Multi-TF SMA distance (10/130/200)
+  "dist_sma_10_2m", "dist_sma_10_5m", "dist_sma_10_15m", "dist_sma_10_60m",
+  "dist_sma_130_15m",
+  "dist_sma_200_2m", "dist_sma_200_5m", "dist_sma_200_15m", "dist_sma_200_60m",
+  "dist_sma_5_60m",
+  // Position in Range (3M/6M/9M/2Y/Lifetime)
+  "pos_in_3m_range", "pos_in_6m_range", "pos_in_9m_range",
+  "pos_in_2y_range", "pos_in_lifetime_range",
+  // Pre-Market
+  "below_premarket_high", "above_premarket_low", "pos_in_premarket_range",
+  // Consolidation / RC / LR
+  "pos_in_consolidation", "range_contraction", "lr_divergence_130",
+  "change_prev_day_pct",
 ];
 const ENRICHED_INT_FIELDS = [
   "bid_size", "ask_size",
@@ -890,6 +1037,9 @@ const ENRICHED_INT_FIELDS = [
   "avg_volume_5d", "avg_volume_10d", "avg_volume_20d", "avg_volume_3m",
   "minute_volume", "postmarket_volume",
   "consecutive_candles",
+  "consecutive_candles_2m", "consecutive_candles_5m", "consecutive_candles_10m",
+  "consecutive_candles_15m", "consecutive_candles_30m", "consecutive_candles_60m",
+  "consolidation_days",
 ];
 const ENRICHED_STRING_FIELDS = [
   "security_type", "sector", "industry",
@@ -1082,6 +1232,12 @@ const NUMERIC_FILTER_DEFS = [
   ['bbLowerMin', 'bb_lower_min', pf],
   ['bbLowerMax', 'bb_lower_max', pf],
   // Daily indicators
+  ['dailySma5Min', 'daily_sma_5_min', pf],
+  ['dailySma5Max', 'daily_sma_5_max', pf],
+  ['dailySma8Min', 'daily_sma_8_min', pf],
+  ['dailySma8Max', 'daily_sma_8_max', pf],
+  ['dailySma10Min', 'daily_sma_10_min', pf],
+  ['dailySma10Max', 'daily_sma_10_max', pf],
   ['dailySma20Min', 'daily_sma_20_min', pf],
   ['dailySma20Max', 'daily_sma_20_max', pf],
   ['dailySma50Min', 'daily_sma_50_min', pf],
@@ -1228,6 +1384,18 @@ const NUMERIC_FILTER_DEFS = [
   ['distPivotS2Max', 'dist_pivot_s2_max', pf],
   ['consecutiveCandlesMin', 'consecutive_candles_min', pi],
   ['consecutiveCandlesMax', 'consecutive_candles_max', pi],
+  ['consecutiveCandles2mMin', 'consecutive_candles_2m_min', pi],
+  ['consecutiveCandles2mMax', 'consecutive_candles_2m_max', pi],
+  ['consecutiveCandles5mMin', 'consecutive_candles_5m_min', pi],
+  ['consecutiveCandles5mMax', 'consecutive_candles_5m_max', pi],
+  ['consecutiveCandles10mMin', 'consecutive_candles_10m_min', pi],
+  ['consecutiveCandles10mMax', 'consecutive_candles_10m_max', pi],
+  ['consecutiveCandles15mMin', 'consecutive_candles_15m_min', pi],
+  ['consecutiveCandles15mMax', 'consecutive_candles_15m_max', pi],
+  ['consecutiveCandles30mMin', 'consecutive_candles_30m_min', pi],
+  ['consecutiveCandles30mMax', 'consecutive_candles_30m_max', pi],
+  ['consecutiveCandles60mMin', 'consecutive_candles_60m_min', pi],
+  ['consecutiveCandles60mMax', 'consecutive_candles_60m_max', pi],
   ['posInRange5mMin', 'pos_in_range_5m_min', pf],
   ['posInRange5mMax', 'pos_in_range_5m_max', pf],
   ['posInRange15mMin', 'pos_in_range_15m_min', pf],
@@ -1256,6 +1424,214 @@ const NUMERIC_FILTER_DEFS = [
   ['chg2minMax', 'chg_2min_max', pf],
   ['chg120minMin', 'chg_120min_min', pf],
   ['chg120minMax', 'chg_120min_max', pf],
+  // === Extended Trade Ideas parity filters ===
+  // Gap $ [GUD]
+  ['gapDollarsMin', 'gap_dollars_min', pf],
+  ['gapDollarsMax', 'gap_dollars_max', pf],
+  // Gap Ratio [GUR]
+  ['gapRatioMin', 'gap_ratio_min', pf],
+  ['gapRatioMax', 'gap_ratio_max', pf],
+  // Change from Close $ [FCD]
+  ['changeFromCloseDollarsMin', 'change_from_close_dollars_min', pf],
+  ['changeFromCloseDollarsMax', 'change_from_close_dollars_max', pf],
+  // Change from Close Ratio [FCR]
+  ['changeFromCloseRatioMin', 'change_from_close_ratio_min', pf],
+  ['changeFromCloseRatioMax', 'change_from_close_ratio_max', pf],
+  // Change from Open Ratio [FOR]
+  ['changeFromOpenRatioMin', 'change_from_open_ratio_min', pf],
+  ['changeFromOpenRatioMax', 'change_from_open_ratio_max', pf],
+  // Post-Market Change $ [PostD]
+  ['postmarketChangeDollarsMin', 'postmarket_change_dollars_min', pf],
+  ['postmarketChangeDollarsMax', 'postmarket_change_dollars_max', pf],
+  // Decimal [Dec]
+  ['decimalMin', 'decimal_min', pf],
+  ['decimalMax', 'decimal_max', pf],
+  // Position in Previous Day Range [RPD]
+  ['posInPrevDayRangeMin', 'pos_in_prev_day_range_min', pf],
+  ['posInPrevDayRangeMax', 'pos_in_prev_day_range_max', pf],
+  // Directional Indicator [PDIMDI] = +DI - -DI
+  ['plusDiMinusDiMin', 'plus_di_minus_di_min', pf],
+  ['plusDiMinusDiMax', 'plus_di_minus_di_max', pf],
+  // Standard Deviation [BB] from Bollinger width
+  ['bbStdDevMin', 'bb_std_dev_min', pf],
+  ['bbStdDevMax', 'bb_std_dev_max', pf],
+  // Multi-TF SMA distances (%)
+  ['distSma5_2mMin', 'dist_sma_5_2m_min', pf],
+  ['distSma5_2mMax', 'dist_sma_5_2m_max', pf],
+  ['distSma5_5mMin', 'dist_sma_5_5m_min', pf],
+  ['distSma5_5mMax', 'dist_sma_5_5m_max', pf],
+  ['distSma5_15mMin', 'dist_sma_5_15m_min', pf],
+  ['distSma5_15mMax', 'dist_sma_5_15m_max', pf],
+  ['distSma8_2mMin', 'dist_sma_8_2m_min', pf],
+  ['distSma8_2mMax', 'dist_sma_8_2m_max', pf],
+  ['distSma8_5mMin', 'dist_sma_8_5m_min', pf],
+  ['distSma8_5mMax', 'dist_sma_8_5m_max', pf],
+  ['distSma8_15mMin', 'dist_sma_8_15m_min', pf],
+  ['distSma8_15mMax', 'dist_sma_8_15m_max', pf],
+  ['distSma8_60mMin', 'dist_sma_8_60m_min', pf],
+  ['distSma8_60mMax', 'dist_sma_8_60m_max', pf],
+  ['distSma20_2mMin', 'dist_sma_20_2m_min', pf],
+  ['distSma20_2mMax', 'dist_sma_20_2m_max', pf],
+  ['distSma20_5mMin', 'dist_sma_20_5m_min', pf],
+  ['distSma20_5mMax', 'dist_sma_20_5m_max', pf],
+  ['distSma20_15mMin', 'dist_sma_20_15m_min', pf],
+  ['distSma20_15mMax', 'dist_sma_20_15m_max', pf],
+  ['distSma20_60mMin', 'dist_sma_20_60m_min', pf],
+  ['distSma20_60mMax', 'dist_sma_20_60m_max', pf],
+  // SMA cross: 8 vs 20 per TF
+  ['sma8vs20_2mMin', 'sma_8_vs_20_2m_min', pf],
+  ['sma8vs20_2mMax', 'sma_8_vs_20_2m_max', pf],
+  ['sma8vs20_5mMin', 'sma_8_vs_20_5m_min', pf],
+  ['sma8vs20_5mMax', 'sma_8_vs_20_5m_max', pf],
+  ['sma8vs20_15mMin', 'sma_8_vs_20_15m_min', pf],
+  ['sma8vs20_15mMax', 'sma_8_vs_20_15m_max', pf],
+  ['sma8vs20_60mMin', 'sma_8_vs_20_60m_min', pf],
+  ['sma8vs20_60mMax', 'sma_8_vs_20_60m_max', pf],
+  // Distance from Daily SMA 200 (%)
+  ['distDailySma200Min', 'dist_daily_sma_200_min', pf],
+  ['distDailySma200Max', 'dist_daily_sma_200_max', pf],
+  // Multi-day ranges ($) [Range5D, Range10D, Range20D]
+  ['range5dMin', 'range_5d_min', pf],
+  ['range5dMax', 'range_5d_max', pf],
+  ['range10dMin', 'range_10d_min', pf],
+  ['range10dMax', 'range_10d_max', pf],
+  ['range20dMin', 'range_20d_min', pf],
+  ['range20dMax', 'range_20d_max', pf],
+  // Position in multi-day ranges (%) [R5D, R10D, R20D, R52W]
+  ['posIn5dRangeMin', 'pos_in_5d_range_min', pf],
+  ['posIn5dRangeMax', 'pos_in_5d_range_max', pf],
+  ['posIn10dRangeMin', 'pos_in_10d_range_min', pf],
+  ['posIn10dRangeMax', 'pos_in_10d_range_max', pf],
+  ['posIn20dRangeMin', 'pos_in_20d_range_min', pf],
+  ['posIn20dRangeMax', 'pos_in_20d_range_max', pf],
+  ['posIn52wRangeMin', 'pos_in_52w_range_min', pf],
+  ['posIn52wRangeMax', 'pos_in_52w_range_max', pf],
+  // Multi-day ranges (%) [Range5DP, Range10DP, Range20DP] — ATR-normalized
+  ['range5dPctMin', 'range_5d_pct_min', pf],
+  ['range5dPctMax', 'range_5d_pct_max', pf],
+  ['range10dPctMin', 'range_10d_pct_min', pf],
+  ['range10dPctMax', 'range_10d_pct_max', pf],
+  ['range20dPctMin', 'range_20d_pct_min', pf],
+  ['range20dPctMax', 'range_20d_pct_max', pf],
+  // Change 5/10/20 Days in $ [U5DD, U10DD, U20DD]
+  ['change5dDollarsMin', 'change_5d_dollars_min', pf],
+  ['change5dDollarsMax', 'change_5d_dollars_max', pf],
+  ['change10dDollarsMin', 'change_10d_dollars_min', pf],
+  ['change10dDollarsMax', 'change_10d_dollars_max', pf],
+  ['change20dDollarsMin', 'change_20d_dollars_min', pf],
+  ['change20dDollarsMax', 'change_20d_dollars_max', pf],
+  // Change from Open Weighted [FOW] = change_from_open_dollars / ATR
+  ['changeFromOpenWeightedMin', 'change_from_open_weighted_min', pf],
+  ['changeFromOpenWeightedMax', 'change_from_open_weighted_max', pf],
+  // Distance from Daily SMA 5/8/10 ($) [MA5P, MA8P, MA10P]
+  ['distDailySma5DollarsMin', 'dist_daily_sma_5_dollars_min', pf],
+  ['distDailySma5DollarsMax', 'dist_daily_sma_5_dollars_max', pf],
+  ['distDailySma8DollarsMin', 'dist_daily_sma_8_dollars_min', pf],
+  ['distDailySma8DollarsMax', 'dist_daily_sma_8_dollars_max', pf],
+  ['distDailySma10DollarsMin', 'dist_daily_sma_10_dollars_min', pf],
+  ['distDailySma10DollarsMax', 'dist_daily_sma_10_dollars_max', pf],
+  // Distance from Daily SMA 20/50/200 ($) [MA20P, MA50P, MA200P]
+  ['distDailySma20DollarsMin', 'dist_daily_sma_20_dollars_min', pf],
+  ['distDailySma20DollarsMax', 'dist_daily_sma_20_dollars_max', pf],
+  ['distDailySma50DollarsMin', 'dist_daily_sma_50_dollars_min', pf],
+  ['distDailySma50DollarsMax', 'dist_daily_sma_50_dollars_max', pf],
+  ['distDailySma200DollarsMin', 'dist_daily_sma_200_dollars_min', pf],
+  ['distDailySma200DollarsMax', 'dist_daily_sma_200_dollars_max', pf],
+  // Distance from Daily SMA 5/8/10 (%) [MA5R, MA8R, MA10R]
+  ['distDailySma5Min', 'dist_daily_sma_5_min', pf],
+  ['distDailySma5Max', 'dist_daily_sma_5_max', pf],
+  ['distDailySma8Min', 'dist_daily_sma_8_min', pf],
+  ['distDailySma8Max', 'dist_daily_sma_8_max', pf],
+  ['distDailySma10Min', 'dist_daily_sma_10_min', pf],
+  ['distDailySma10Max', 'dist_daily_sma_10_max', pf],
+  // 20 vs 200 SMA cross per TF [2Sma20a200, 5Sma20a200, 15Sma20a200, 60Sma20a200]
+  ['sma20vs200_2mMin', 'sma_20_vs_200_2m_min', pf],
+  ['sma20vs200_2mMax', 'sma_20_vs_200_2m_max', pf],
+  ['sma20vs200_5mMin', 'sma_20_vs_200_5m_min', pf],
+  ['sma20vs200_5mMax', 'sma_20_vs_200_5m_max', pf],
+  ['sma20vs200_15mMin', 'sma_20_vs_200_15m_min', pf],
+  ['sma20vs200_15mMax', 'sma_20_vs_200_15m_max', pf],
+  ['sma20vs200_60mMin', 'sma_20_vs_200_60m_min', pf],
+  ['sma20vs200_60mMax', 'sma_20_vs_200_60m_max', pf],
+  // Change in 1 Year [UYP/UYD]
+  ['change1yMin', 'change_1y_min', pf],
+  ['change1yMax', 'change_1y_max', pf],
+  ['change1yDollarsMin', 'change_1y_dollars_min', pf],
+  ['change1yDollarsMax', 'change_1y_dollars_max', pf],
+  // Change Since Jan 1 [UpJan1P/UpJan1D]
+  ['changeYtdMin', 'change_ytd_min', pf],
+  ['changeYtdMax', 'change_ytd_max', pf],
+  ['changeYtdDollarsMin', 'change_ytd_dollars_min', pf],
+  ['changeYtdDollarsMax', 'change_ytd_dollars_max', pf],
+  // Yearly Standard Deviation [YSD]
+  ['yearlyStdDevMin', 'yearly_std_dev_min', pf],
+  ['yearlyStdDevMax', 'yearly_std_dev_max', pf],
+  // Consecutive Days Up [Up]
+  ['consecutiveDaysUpMin', 'consecutive_days_up_min', pi],
+  ['consecutiveDaysUpMax', 'consecutive_days_up_max', pi],
+  // Change from 10 Period SMA (multi-TF) [2SmaLa10, 5SmaLa10, 15SmaLa10, 60SmaLa10]
+  ['distSma10_2mMin', 'dist_sma_10_2m_min', pf],
+  ['distSma10_2mMax', 'dist_sma_10_2m_max', pf],
+  ['distSma10_5mMin', 'dist_sma_10_5m_min', pf],
+  ['distSma10_5mMax', 'dist_sma_10_5m_max', pf],
+  ['distSma10_15mMin', 'dist_sma_10_15m_min', pf],
+  ['distSma10_15mMax', 'dist_sma_10_15m_max', pf],
+  ['distSma10_60mMin', 'dist_sma_10_60m_min', pf],
+  ['distSma10_60mMax', 'dist_sma_10_60m_max', pf],
+  // Change from 130 Period SMA (15m) [15SmaLa130]
+  ['distSma130_15mMin', 'dist_sma_130_15m_min', pf],
+  ['distSma130_15mMax', 'dist_sma_130_15m_max', pf],
+  // Change from 200 Period SMA (multi-TF) [2SmaLa200, 5SmaLa200, 15SmaLa200, 60SmaLa200]
+  ['distSma200_2mMin', 'dist_sma_200_2m_min', pf],
+  ['distSma200_2mMax', 'dist_sma_200_2m_max', pf],
+  ['distSma200_5mMin', 'dist_sma_200_5m_min', pf],
+  ['distSma200_5mMax', 'dist_sma_200_5m_max', pf],
+  ['distSma200_15mMin', 'dist_sma_200_15m_min', pf],
+  ['distSma200_15mMax', 'dist_sma_200_15m_max', pf],
+  ['distSma200_60mMin', 'dist_sma_200_60m_min', pf],
+  ['distSma200_60mMax', 'dist_sma_200_60m_max', pf],
+  // Change from 5 Period SMA (60m) [60SmaLa5]
+  ['distSma5_60mMin', 'dist_sma_5_60m_min', pf],
+  ['distSma5_60mMax', 'dist_sma_5_60m_max', pf],
+  // Position in 3 Month Range [R3MO]
+  ['posIn3mRangeMin', 'pos_in_3m_range_min', pf],
+  ['posIn3mRangeMax', 'pos_in_3m_range_max', pf],
+  // Position in 6 Month Range [R6MO]
+  ['posIn6mRangeMin', 'pos_in_6m_range_min', pf],
+  ['posIn6mRangeMax', 'pos_in_6m_range_max', pf],
+  // Position in 9 Month Range [R9MO]
+  ['posIn9mRangeMin', 'pos_in_9m_range_min', pf],
+  ['posIn9mRangeMax', 'pos_in_9m_range_max', pf],
+  // Position in 2 Year Range [R2Y]
+  ['posIn2yRangeMin', 'pos_in_2y_range_min', pf],
+  ['posIn2yRangeMax', 'pos_in_2y_range_max', pf],
+  // Position in Lifetime Range [RL]
+  ['posInLifetimeRangeMin', 'pos_in_lifetime_range_min', pf],
+  ['posInLifetimeRangeMax', 'pos_in_lifetime_range_max', pf],
+  // Below Pre-Market High [BelowHighPre]
+  ['belowPremarketHighMin', 'below_premarket_high_min', pf],
+  ['belowPremarketHighMax', 'below_premarket_high_max', pf],
+  // Above Pre-Market Low [AboveLowPre]
+  ['abovePremarketLowMin', 'above_premarket_low_min', pf],
+  ['abovePremarketLowMax', 'above_premarket_low_max', pf],
+  // Position in Pre-Market Range [RPM]
+  ['posInPremarketRangeMin', 'pos_in_premarket_range_min', pf],
+  ['posInPremarketRangeMax', 'pos_in_premarket_range_max', pf],
+  // Consolidation [ConDays]
+  ['consolidationDaysMin', 'consolidation_days_min', pi],
+  ['consolidationDaysMax', 'consolidation_days_max', pi],
+  // Position in Consolidation [RCon]
+  ['posInConsolidationMin', 'pos_in_consolidation_min', pf],
+  ['posInConsolidationMax', 'pos_in_consolidation_max', pf],
+  // Range Contraction [RC]
+  ['rangeContractionMin', 'range_contraction_min', pf],
+  ['rangeContractionMax', 'range_contraction_max', pf],
+  // Linear Regression Divergence [LR130]
+  ['lrDivergence130Min', 'lr_divergence_130_min', pf],
+  ['lrDivergence130Max', 'lr_divergence_130_max', pf],
+  // Change Previous Day [FCDP]
+  ['changePrevDayPctMin', 'change_prev_day_pct_min', pf],
+  ['changePrevDayPctMax', 'change_prev_day_pct_max', pf],
 ];
 
 // String filter definitions: [subKey, dataKey]
@@ -1314,6 +1690,9 @@ const ENRICHED_FIELD_MAP = {
   bbUpperMin: 'bb_upper', bbUpperMax: 'bb_upper',
   bbLowerMin: 'bb_lower', bbLowerMax: 'bb_lower',
   // Daily indicators
+  dailySma5Min: 'daily_sma_5', dailySma5Max: 'daily_sma_5',
+  dailySma8Min: 'daily_sma_8', dailySma8Max: 'daily_sma_8',
+  dailySma10Min: 'daily_sma_10', dailySma10Max: 'daily_sma_10',
   dailySma20Min: 'daily_sma_20', dailySma20Max: 'daily_sma_20',
   dailySma50Min: 'daily_sma_50', dailySma50Max: 'daily_sma_50',
   dailySma200Min: 'daily_sma_200', dailySma200Max: 'daily_sma_200',
@@ -1383,6 +1762,12 @@ const ENRICHED_FIELD_MAP = {
   distPivotR2Min: 'dist_pivot_r2', distPivotR2Max: 'dist_pivot_r2',
   distPivotS2Min: 'dist_pivot_s2', distPivotS2Max: 'dist_pivot_s2',
   consecutiveCandlesMin: 'consecutive_candles', consecutiveCandlesMax: 'consecutive_candles',
+  consecutiveCandles2mMin: 'consecutive_candles_2m', consecutiveCandles2mMax: 'consecutive_candles_2m',
+  consecutiveCandles5mMin: 'consecutive_candles_5m', consecutiveCandles5mMax: 'consecutive_candles_5m',
+  consecutiveCandles10mMin: 'consecutive_candles_10m', consecutiveCandles10mMax: 'consecutive_candles_10m',
+  consecutiveCandles15mMin: 'consecutive_candles_15m', consecutiveCandles15mMax: 'consecutive_candles_15m',
+  consecutiveCandles30mMin: 'consecutive_candles_30m', consecutiveCandles30mMax: 'consecutive_candles_30m',
+  consecutiveCandles60mMin: 'consecutive_candles_60m', consecutiveCandles60mMax: 'consecutive_candles_60m',
   posInRange5mMin: 'pos_in_range_5m', posInRange5mMax: 'pos_in_range_5m',
   posInRange15mMin: 'pos_in_range_15m', posInRange15mMax: 'pos_in_range_15m',
   posInRange30mMin: 'pos_in_range_30m', posInRange30mMax: 'pos_in_range_30m',
@@ -1397,6 +1782,109 @@ const ENRICHED_FIELD_MAP = {
   bbPosition60mMin: 'bb_position_60m', bbPosition60mMax: 'bb_position_60m',
   chg2minMin: 'chg_2min', chg2minMax: 'chg_2min',
   chg120minMin: 'chg_120min', chg120minMax: 'chg_120min',
+  // Extended Trade Ideas parity filters
+  gapDollarsMin: 'gap_dollars', gapDollarsMax: 'gap_dollars',
+  gapRatioMin: 'gap_ratio', gapRatioMax: 'gap_ratio',
+  changeFromCloseDollarsMin: 'change_from_close', changeFromCloseDollarsMax: 'change_from_close',
+  changeFromCloseRatioMin: 'change_from_close_ratio', changeFromCloseRatioMax: 'change_from_close_ratio',
+  changeFromOpenRatioMin: 'change_from_open_ratio', changeFromOpenRatioMax: 'change_from_open_ratio',
+  postmarketChangeDollarsMin: 'postmarket_change_dollars', postmarketChangeDollarsMax: 'postmarket_change_dollars',
+  decimalMin: 'decimal', decimalMax: 'decimal',
+  posInPrevDayRangeMin: 'pos_in_prev_day_range', posInPrevDayRangeMax: 'pos_in_prev_day_range',
+  plusDiMinusDiMin: 'plus_di_minus_di', plusDiMinusDiMax: 'plus_di_minus_di',
+  bbStdDevMin: 'bb_std_dev', bbStdDevMax: 'bb_std_dev',
+  // Multi-TF SMA distances
+  distSma5_2mMin: 'dist_sma_5_2m', distSma5_2mMax: 'dist_sma_5_2m',
+  distSma5_5mMin: 'dist_sma_5_5m', distSma5_5mMax: 'dist_sma_5_5m',
+  distSma5_15mMin: 'dist_sma_5_15m', distSma5_15mMax: 'dist_sma_5_15m',
+  distSma8_2mMin: 'dist_sma_8_2m', distSma8_2mMax: 'dist_sma_8_2m',
+  distSma8_5mMin: 'dist_sma_8_5m', distSma8_5mMax: 'dist_sma_8_5m',
+  distSma8_15mMin: 'dist_sma_8_15m', distSma8_15mMax: 'dist_sma_8_15m',
+  distSma8_60mMin: 'dist_sma_8_60m', distSma8_60mMax: 'dist_sma_8_60m',
+  distSma20_2mMin: 'dist_sma_20_2m', distSma20_2mMax: 'dist_sma_20_2m',
+  distSma20_5mMin: 'dist_sma_20_5m', distSma20_5mMax: 'dist_sma_20_5m',
+  distSma20_15mMin: 'dist_sma_20_15m', distSma20_15mMax: 'dist_sma_20_15m',
+  distSma20_60mMin: 'dist_sma_20_60m', distSma20_60mMax: 'dist_sma_20_60m',
+  // SMA cross: 8 vs 20
+  sma8vs20_2mMin: 'sma_8_vs_20_2m', sma8vs20_2mMax: 'sma_8_vs_20_2m',
+  sma8vs20_5mMin: 'sma_8_vs_20_5m', sma8vs20_5mMax: 'sma_8_vs_20_5m',
+  sma8vs20_15mMin: 'sma_8_vs_20_15m', sma8vs20_15mMax: 'sma_8_vs_20_15m',
+  sma8vs20_60mMin: 'sma_8_vs_20_60m', sma8vs20_60mMax: 'sma_8_vs_20_60m',
+  // Distance from Daily SMA 200
+  distDailySma200Min: 'dist_daily_sma_200', distDailySma200Max: 'dist_daily_sma_200',
+  // Multi-day ranges ($)
+  range5dMin: 'range_5d', range5dMax: 'range_5d',
+  range10dMin: 'range_10d', range10dMax: 'range_10d',
+  range20dMin: 'range_20d', range20dMax: 'range_20d',
+  // Position in multi-day ranges (%)
+  posIn5dRangeMin: 'pos_in_5d_range', posIn5dRangeMax: 'pos_in_5d_range',
+  posIn10dRangeMin: 'pos_in_10d_range', posIn10dRangeMax: 'pos_in_10d_range',
+  posIn20dRangeMin: 'pos_in_20d_range', posIn20dRangeMax: 'pos_in_20d_range',
+  posIn52wRangeMin: 'pos_in_52w_range', posIn52wRangeMax: 'pos_in_52w_range',
+  // Multi-day ranges (%) — ATR-normalized
+  range5dPctMin: 'range_5d_pct', range5dPctMax: 'range_5d_pct',
+  range10dPctMin: 'range_10d_pct', range10dPctMax: 'range_10d_pct',
+  range20dPctMin: 'range_20d_pct', range20dPctMax: 'range_20d_pct',
+  // Change 5/10/20 Days ($)
+  change5dDollarsMin: 'change_5d_dollars', change5dDollarsMax: 'change_5d_dollars',
+  change10dDollarsMin: 'change_10d_dollars', change10dDollarsMax: 'change_10d_dollars',
+  change20dDollarsMin: 'change_20d_dollars', change20dDollarsMax: 'change_20d_dollars',
+  // Change from Open Weighted
+  changeFromOpenWeightedMin: 'change_from_open_weighted', changeFromOpenWeightedMax: 'change_from_open_weighted',
+  // Distance from Daily SMA 5/8/10 ($)
+  distDailySma5DollarsMin: 'dist_daily_sma_5_dollars', distDailySma5DollarsMax: 'dist_daily_sma_5_dollars',
+  distDailySma8DollarsMin: 'dist_daily_sma_8_dollars', distDailySma8DollarsMax: 'dist_daily_sma_8_dollars',
+  distDailySma10DollarsMin: 'dist_daily_sma_10_dollars', distDailySma10DollarsMax: 'dist_daily_sma_10_dollars',
+  // Distance from Daily SMA 20/50/200 ($)
+  distDailySma20DollarsMin: 'dist_daily_sma_20_dollars', distDailySma20DollarsMax: 'dist_daily_sma_20_dollars',
+  distDailySma50DollarsMin: 'dist_daily_sma_50_dollars', distDailySma50DollarsMax: 'dist_daily_sma_50_dollars',
+  distDailySma200DollarsMin: 'dist_daily_sma_200_dollars', distDailySma200DollarsMax: 'dist_daily_sma_200_dollars',
+  // Distance from Daily SMA 5/8/10 (%)
+  distDailySma5Min: 'dist_daily_sma_5', distDailySma5Max: 'dist_daily_sma_5',
+  distDailySma8Min: 'dist_daily_sma_8', distDailySma8Max: 'dist_daily_sma_8',
+  distDailySma10Min: 'dist_daily_sma_10', distDailySma10Max: 'dist_daily_sma_10',
+  // 20 vs 200 SMA cross per TF
+  sma20vs200_2mMin: 'sma_20_vs_200_2m', sma20vs200_2mMax: 'sma_20_vs_200_2m',
+  sma20vs200_5mMin: 'sma_20_vs_200_5m', sma20vs200_5mMax: 'sma_20_vs_200_5m',
+  sma20vs200_15mMin: 'sma_20_vs_200_15m', sma20vs200_15mMax: 'sma_20_vs_200_15m',
+  sma20vs200_60mMin: 'sma_20_vs_200_60m', sma20vs200_60mMax: 'sma_20_vs_200_60m',
+  // Change in 1 Year
+  change1yMin: 'change_1y', change1yMax: 'change_1y',
+  change1yDollarsMin: 'change_1y_dollars', change1yDollarsMax: 'change_1y_dollars',
+  // Change Since Jan 1
+  changeYtdMin: 'change_ytd', changeYtdMax: 'change_ytd',
+  changeYtdDollarsMin: 'change_ytd_dollars', changeYtdDollarsMax: 'change_ytd_dollars',
+  // Yearly Standard Deviation
+  yearlyStdDevMin: 'yearly_std_dev', yearlyStdDevMax: 'yearly_std_dev',
+  // Consecutive Days Up
+  consecutiveDaysUpMin: 'consecutive_days_up', consecutiveDaysUpMax: 'consecutive_days_up',
+  // Change from 10/130/200 Period SMA (multi-TF)
+  distSma10_2mMin: 'dist_sma_10_2m', distSma10_2mMax: 'dist_sma_10_2m',
+  distSma10_5mMin: 'dist_sma_10_5m', distSma10_5mMax: 'dist_sma_10_5m',
+  distSma10_15mMin: 'dist_sma_10_15m', distSma10_15mMax: 'dist_sma_10_15m',
+  distSma10_60mMin: 'dist_sma_10_60m', distSma10_60mMax: 'dist_sma_10_60m',
+  distSma130_15mMin: 'dist_sma_130_15m', distSma130_15mMax: 'dist_sma_130_15m',
+  distSma200_2mMin: 'dist_sma_200_2m', distSma200_2mMax: 'dist_sma_200_2m',
+  distSma200_5mMin: 'dist_sma_200_5m', distSma200_5mMax: 'dist_sma_200_5m',
+  distSma200_15mMin: 'dist_sma_200_15m', distSma200_15mMax: 'dist_sma_200_15m',
+  distSma200_60mMin: 'dist_sma_200_60m', distSma200_60mMax: 'dist_sma_200_60m',
+  distSma5_60mMin: 'dist_sma_5_60m', distSma5_60mMax: 'dist_sma_5_60m',
+  // Position in Range (3M/6M/9M/2Y/Lifetime)
+  posIn3mRangeMin: 'pos_in_3m_range', posIn3mRangeMax: 'pos_in_3m_range',
+  posIn6mRangeMin: 'pos_in_6m_range', posIn6mRangeMax: 'pos_in_6m_range',
+  posIn9mRangeMin: 'pos_in_9m_range', posIn9mRangeMax: 'pos_in_9m_range',
+  posIn2yRangeMin: 'pos_in_2y_range', posIn2yRangeMax: 'pos_in_2y_range',
+  posInLifetimeRangeMin: 'pos_in_lifetime_range', posInLifetimeRangeMax: 'pos_in_lifetime_range',
+  // Pre-Market
+  belowPremarketHighMin: 'below_premarket_high', belowPremarketHighMax: 'below_premarket_high',
+  abovePremarketLowMin: 'above_premarket_low', abovePremarketLowMax: 'above_premarket_low',
+  posInPremarketRangeMin: 'pos_in_premarket_range', posInPremarketRangeMax: 'pos_in_premarket_range',
+  // Consolidation / RC / LR
+  consolidationDaysMin: 'consolidation_days', consolidationDaysMax: 'consolidation_days',
+  posInConsolidationMin: 'pos_in_consolidation', posInConsolidationMax: 'pos_in_consolidation',
+  rangeContractionMin: 'range_contraction', rangeContractionMax: 'range_contraction',
+  lrDivergence130Min: 'lr_divergence_130', lrDivergence130Max: 'lr_divergence_130',
+  changePrevDayPctMin: 'change_prev_day_pct', changePrevDayPctMax: 'change_prev_day_pct',
   // String filters
   securityType: 'security_type',
   sector: 'sector',
@@ -1550,6 +2038,9 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.bb_lower, 'bbLowerMin', 'bbLowerMax')) return false;
 
   // Daily indicators (enriched)
+  if (!chkEvt(enriched.daily_sma_5, 'dailySma5Min', 'dailySma5Max')) return false;
+  if (!chkEvt(enriched.daily_sma_8, 'dailySma8Min', 'dailySma8Max')) return false;
+  if (!chkEvt(enriched.daily_sma_10, 'dailySma10Min', 'dailySma10Max')) return false;
   if (!chkEvt(enriched.daily_sma_20, 'dailySma20Min', 'dailySma20Max')) return false;
   if (!chkEvt(enriched.daily_sma_50, 'dailySma50Min', 'dailySma50Max')) return false;
   if (!chkEvt(enriched.daily_sma_200, 'dailySma200Min', 'dailySma200Max')) return false;
@@ -1638,6 +2129,12 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.dist_pivot_r2, 'distPivotR2Min', 'distPivotR2Max')) return false;
   if (!chkEvt(enriched.dist_pivot_s2, 'distPivotS2Min', 'distPivotS2Max')) return false;
   if (!chkEvt(enriched.consecutive_candles, 'consecutiveCandlesMin', 'consecutiveCandlesMax')) return false;
+  if (!chkEvt(enriched.consecutive_candles_2m, 'consecutiveCandles2mMin', 'consecutiveCandles2mMax')) return false;
+  if (!chkEvt(enriched.consecutive_candles_5m, 'consecutiveCandles5mMin', 'consecutiveCandles5mMax')) return false;
+  if (!chkEvt(enriched.consecutive_candles_10m, 'consecutiveCandles10mMin', 'consecutiveCandles10mMax')) return false;
+  if (!chkEvt(enriched.consecutive_candles_15m, 'consecutiveCandles15mMin', 'consecutiveCandles15mMax')) return false;
+  if (!chkEvt(enriched.consecutive_candles_30m, 'consecutiveCandles30mMin', 'consecutiveCandles30mMax')) return false;
+  if (!chkEvt(enriched.consecutive_candles_60m, 'consecutiveCandles60mMin', 'consecutiveCandles60mMax')) return false;
   // Position in intraday TF ranges
   if (!chkEvt(enriched.pos_in_range_5m, 'posInRange5mMin', 'posInRange5mMax')) return false;
   if (!chkEvt(enriched.pos_in_range_15m, 'posInRange15mMin', 'posInRange15mMax')) return false;
@@ -1656,6 +2153,110 @@ function eventPassesSubscription(evt, sub) {
   // Change 2min / 120min
   if (!chkEvt(enriched.chg_2min, 'chg2minMin', 'chg2minMax')) return false;
   if (!chkEvt(enriched.chg_120min, 'chg120minMin', 'chg120minMax')) return false;
+
+  // Extended Trade Ideas parity filters
+  if (!chkEvt(enriched.gap_dollars, 'gapDollarsMin', 'gapDollarsMax')) return false;
+  if (!chkEvt(enriched.gap_ratio, 'gapRatioMin', 'gapRatioMax')) return false;
+  if (!chkEvt(enriched.change_from_close, 'changeFromCloseDollarsMin', 'changeFromCloseDollarsMax')) return false;
+  if (!chkEvt(enriched.change_from_close_ratio, 'changeFromCloseRatioMin', 'changeFromCloseRatioMax')) return false;
+  if (!chkEvt(enriched.change_from_open_ratio, 'changeFromOpenRatioMin', 'changeFromOpenRatioMax')) return false;
+  if (!chkEvt(enriched.postmarket_change_dollars, 'postmarketChangeDollarsMin', 'postmarketChangeDollarsMax')) return false;
+  if (!chkEvt(enriched.decimal, 'decimalMin', 'decimalMax')) return false;
+  if (!chkEvt(enriched.pos_in_prev_day_range, 'posInPrevDayRangeMin', 'posInPrevDayRangeMax')) return false;
+  if (!chkEvt(enriched.plus_di_minus_di, 'plusDiMinusDiMin', 'plusDiMinusDiMax')) return false;
+  if (!chkEvt(enriched.bb_std_dev, 'bbStdDevMin', 'bbStdDevMax')) return false;
+  // Multi-TF SMA distances
+  if (!chkEvt(enriched.dist_sma_5_2m, 'distSma5_2mMin', 'distSma5_2mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_5_5m, 'distSma5_5mMin', 'distSma5_5mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_5_15m, 'distSma5_15mMin', 'distSma5_15mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_8_2m, 'distSma8_2mMin', 'distSma8_2mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_8_5m, 'distSma8_5mMin', 'distSma8_5mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_8_15m, 'distSma8_15mMin', 'distSma8_15mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_8_60m, 'distSma8_60mMin', 'distSma8_60mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_20_2m, 'distSma20_2mMin', 'distSma20_2mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_20_5m, 'distSma20_5mMin', 'distSma20_5mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_20_15m, 'distSma20_15mMin', 'distSma20_15mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_20_60m, 'distSma20_60mMin', 'distSma20_60mMax')) return false;
+  // SMA cross: 8 vs 20
+  if (!chkEvt(enriched.sma_8_vs_20_2m, 'sma8vs20_2mMin', 'sma8vs20_2mMax')) return false;
+  if (!chkEvt(enriched.sma_8_vs_20_5m, 'sma8vs20_5mMin', 'sma8vs20_5mMax')) return false;
+  if (!chkEvt(enriched.sma_8_vs_20_15m, 'sma8vs20_15mMin', 'sma8vs20_15mMax')) return false;
+  if (!chkEvt(enriched.sma_8_vs_20_60m, 'sma8vs20_60mMin', 'sma8vs20_60mMax')) return false;
+  // Distance from Daily SMA 200
+  if (!chkEvt(enriched.dist_daily_sma_200, 'distDailySma200Min', 'distDailySma200Max')) return false;
+  // Multi-day ranges ($) [Range5D, Range10D, Range20D]
+  if (!chkEvt(enriched.range_5d, 'range5dMin', 'range5dMax')) return false;
+  if (!chkEvt(enriched.range_10d, 'range10dMin', 'range10dMax')) return false;
+  if (!chkEvt(enriched.range_20d, 'range20dMin', 'range20dMax')) return false;
+  // Position in multi-day ranges (%) [R5D, R10D, R20D, R52W]
+  if (!chkEvt(enriched.pos_in_5d_range, 'posIn5dRangeMin', 'posIn5dRangeMax')) return false;
+  if (!chkEvt(enriched.pos_in_10d_range, 'posIn10dRangeMin', 'posIn10dRangeMax')) return false;
+  if (!chkEvt(enriched.pos_in_20d_range, 'posIn20dRangeMin', 'posIn20dRangeMax')) return false;
+  if (!chkEvt(enriched.pos_in_52w_range, 'posIn52wRangeMin', 'posIn52wRangeMax')) return false;
+  // Multi-day ranges (%) — ATR-normalized [Range5DP, Range10DP, Range20DP]
+  if (!chkEvt(enriched.range_5d_pct, 'range5dPctMin', 'range5dPctMax')) return false;
+  if (!chkEvt(enriched.range_10d_pct, 'range10dPctMin', 'range10dPctMax')) return false;
+  if (!chkEvt(enriched.range_20d_pct, 'range20dPctMin', 'range20dPctMax')) return false;
+  // Change 5/10/20 Days ($) [U5DD, U10DD, U20DD]
+  if (!chkEvt(enriched.change_5d_dollars, 'change5dDollarsMin', 'change5dDollarsMax')) return false;
+  if (!chkEvt(enriched.change_10d_dollars, 'change10dDollarsMin', 'change10dDollarsMax')) return false;
+  if (!chkEvt(enriched.change_20d_dollars, 'change20dDollarsMin', 'change20dDollarsMax')) return false;
+  // Change from Open Weighted [FOW]
+  if (!chkEvt(enriched.change_from_open_weighted, 'changeFromOpenWeightedMin', 'changeFromOpenWeightedMax')) return false;
+  // Distance from Daily SMA 5/8/10 ($) [MA5P, MA8P, MA10P]
+  if (!chkEvt(enriched.dist_daily_sma_5_dollars, 'distDailySma5DollarsMin', 'distDailySma5DollarsMax')) return false;
+  if (!chkEvt(enriched.dist_daily_sma_8_dollars, 'distDailySma8DollarsMin', 'distDailySma8DollarsMax')) return false;
+  if (!chkEvt(enriched.dist_daily_sma_10_dollars, 'distDailySma10DollarsMin', 'distDailySma10DollarsMax')) return false;
+  // Distance from Daily SMA 20/50/200 ($) [MA20P, MA50P, MA200P]
+  if (!chkEvt(enriched.dist_daily_sma_20_dollars, 'distDailySma20DollarsMin', 'distDailySma20DollarsMax')) return false;
+  if (!chkEvt(enriched.dist_daily_sma_50_dollars, 'distDailySma50DollarsMin', 'distDailySma50DollarsMax')) return false;
+  if (!chkEvt(enriched.dist_daily_sma_200_dollars, 'distDailySma200DollarsMin', 'distDailySma200DollarsMax')) return false;
+  // Distance from Daily SMA 5/8/10 (%) [MA5R, MA8R, MA10R]
+  if (!chkEvt(enriched.dist_daily_sma_5, 'distDailySma5Min', 'distDailySma5Max')) return false;
+  if (!chkEvt(enriched.dist_daily_sma_8, 'distDailySma8Min', 'distDailySma8Max')) return false;
+  if (!chkEvt(enriched.dist_daily_sma_10, 'distDailySma10Min', 'distDailySma10Max')) return false;
+  // 20 vs 200 SMA cross per TF [2Sma20a200, 5Sma20a200, 15Sma20a200, 60Sma20a200]
+  if (!chkEvt(enriched.sma_20_vs_200_2m, 'sma20vs200_2mMin', 'sma20vs200_2mMax')) return false;
+  if (!chkEvt(enriched.sma_20_vs_200_5m, 'sma20vs200_5mMin', 'sma20vs200_5mMax')) return false;
+  if (!chkEvt(enriched.sma_20_vs_200_15m, 'sma20vs200_15mMin', 'sma20vs200_15mMax')) return false;
+  if (!chkEvt(enriched.sma_20_vs_200_60m, 'sma20vs200_60mMin', 'sma20vs200_60mMax')) return false;
+  // Change in 1 Year [UYP/UYD]
+  if (!chkEvt(enriched.change_1y, 'change1yMin', 'change1yMax')) return false;
+  if (!chkEvt(enriched.change_1y_dollars, 'change1yDollarsMin', 'change1yDollarsMax')) return false;
+  // Change Since Jan 1 [UpJan1P/UpJan1D]
+  if (!chkEvt(enriched.change_ytd, 'changeYtdMin', 'changeYtdMax')) return false;
+  if (!chkEvt(enriched.change_ytd_dollars, 'changeYtdDollarsMin', 'changeYtdDollarsMax')) return false;
+  // Yearly Standard Deviation [YSD]
+  if (!chkEvt(enriched.yearly_std_dev, 'yearlyStdDevMin', 'yearlyStdDevMax')) return false;
+  // Consecutive Days Up [Up]
+  if (!chkEvt(enriched.consecutive_days_up, 'consecutiveDaysUpMin', 'consecutiveDaysUpMax')) return false;
+  // Change from 10 Period SMA (multi-TF)
+  if (!chkEvt(enriched.dist_sma_10_2m, 'distSma10_2mMin', 'distSma10_2mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_10_5m, 'distSma10_5mMin', 'distSma10_5mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_10_15m, 'distSma10_15mMin', 'distSma10_15mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_10_60m, 'distSma10_60mMin', 'distSma10_60mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_130_15m, 'distSma130_15mMin', 'distSma130_15mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_200_2m, 'distSma200_2mMin', 'distSma200_2mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_200_5m, 'distSma200_5mMin', 'distSma200_5mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_200_15m, 'distSma200_15mMin', 'distSma200_15mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_200_60m, 'distSma200_60mMin', 'distSma200_60mMax')) return false;
+  if (!chkEvt(enriched.dist_sma_5_60m, 'distSma5_60mMin', 'distSma5_60mMax')) return false;
+  // Position in Range (3M/6M/9M/2Y/Lifetime)
+  if (!chkEvt(enriched.pos_in_3m_range, 'posIn3mRangeMin', 'posIn3mRangeMax')) return false;
+  if (!chkEvt(enriched.pos_in_6m_range, 'posIn6mRangeMin', 'posIn6mRangeMax')) return false;
+  if (!chkEvt(enriched.pos_in_9m_range, 'posIn9mRangeMin', 'posIn9mRangeMax')) return false;
+  if (!chkEvt(enriched.pos_in_2y_range, 'posIn2yRangeMin', 'posIn2yRangeMax')) return false;
+  if (!chkEvt(enriched.pos_in_lifetime_range, 'posInLifetimeRangeMin', 'posInLifetimeRangeMax')) return false;
+  // Pre-Market
+  if (!chkEvt(enriched.below_premarket_high, 'belowPremarketHighMin', 'belowPremarketHighMax')) return false;
+  if (!chkEvt(enriched.above_premarket_low, 'abovePremarketLowMin', 'abovePremarketLowMax')) return false;
+  if (!chkEvt(enriched.pos_in_premarket_range, 'posInPremarketRangeMin', 'posInPremarketRangeMax')) return false;
+  // Consolidation / RC / LR
+  if (!chkEvt(enriched.consolidation_days, 'consolidationDaysMin', 'consolidationDaysMax')) return false;
+  if (!chkEvt(enriched.pos_in_consolidation, 'posInConsolidationMin', 'posInConsolidationMax')) return false;
+  if (!chkEvt(enriched.range_contraction, 'rangeContractionMin', 'rangeContractionMax')) return false;
+  if (!chkEvt(enriched.lr_divergence_130, 'lrDivergence130Min', 'lrDivergence130Max')) return false;
+  if (!chkEvt(enriched.change_prev_day_pct, 'changePrevDayPctMin', 'changePrevDayPctMax')) return false;
 
   // ── String filters ──
   if (sub.securityType !== null) {

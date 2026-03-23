@@ -210,6 +210,12 @@ export interface MarketEvent {
   dist_pivot_r2?: number;
   dist_pivot_s2?: number;
   consecutive_candles?: number;
+  consecutive_candles_2m?: number;
+  consecutive_candles_5m?: number;
+  consecutive_candles_10m?: number;
+  consecutive_candles_15m?: number;
+  consecutive_candles_30m?: number;
+  consecutive_candles_60m?: number;
   // Position in TF ranges
   pos_in_range_5m?: number;
   pos_in_range_15m?: number;
@@ -748,6 +754,12 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
   if (!chk(e.dist_pivot_r2, f.min_dist_pivot_r2, f.max_dist_pivot_r2)) return false;
   if (!chk(e.dist_pivot_s2, f.min_dist_pivot_s2, f.max_dist_pivot_s2)) return false;
   if (!chk(e.consecutive_candles, f.min_consecutive_candles, f.max_consecutive_candles)) return false;
+  if (!chk(e.consecutive_candles_2m, f.min_consecutive_candles_2m, f.max_consecutive_candles_2m)) return false;
+  if (!chk(e.consecutive_candles_5m, f.min_consecutive_candles_5m, f.max_consecutive_candles_5m)) return false;
+  if (!chk(e.consecutive_candles_10m, f.min_consecutive_candles_10m, f.max_consecutive_candles_10m)) return false;
+  if (!chk(e.consecutive_candles_15m, f.min_consecutive_candles_15m, f.max_consecutive_candles_15m)) return false;
+  if (!chk(e.consecutive_candles_30m, f.min_consecutive_candles_30m, f.max_consecutive_candles_30m)) return false;
+  if (!chk(e.consecutive_candles_60m, f.min_consecutive_candles_60m, f.max_consecutive_candles_60m)) return false;
   // Position in TF ranges
   if (!chk(e.pos_in_range_5m, f.min_pos_in_range_5m, f.max_pos_in_range_5m)) return false;
   if (!chk(e.pos_in_range_15m, f.min_pos_in_range_15m, f.max_pos_in_range_15m)) return false;
@@ -1109,6 +1121,12 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('distPivotS2Min', filters.min_dist_pivot_s2); setF('distPivotS2Max', filters.max_dist_pivot_s2);
     // Consecutive candles
     setF('consecutiveCandlesMin', filters.min_consecutive_candles); setF('consecutiveCandlesMax', filters.max_consecutive_candles);
+    setF('consecutiveCandles2mMin', filters.min_consecutive_candles_2m); setF('consecutiveCandles2mMax', filters.max_consecutive_candles_2m);
+    setF('consecutiveCandles5mMin', filters.min_consecutive_candles_5m); setF('consecutiveCandles5mMax', filters.max_consecutive_candles_5m);
+    setF('consecutiveCandles10mMin', filters.min_consecutive_candles_10m); setF('consecutiveCandles10mMax', filters.max_consecutive_candles_10m);
+    setF('consecutiveCandles15mMin', filters.min_consecutive_candles_15m); setF('consecutiveCandles15mMax', filters.max_consecutive_candles_15m);
+    setF('consecutiveCandles30mMin', filters.min_consecutive_candles_30m); setF('consecutiveCandles30mMax', filters.max_consecutive_candles_30m);
+    setF('consecutiveCandles60mMin', filters.min_consecutive_candles_60m); setF('consecutiveCandles60mMax', filters.max_consecutive_candles_60m);
     // Position in TF range
     setF('posInRange5mMin', filters.min_pos_in_range_5m); setF('posInRange5mMax', filters.max_pos_in_range_5m);
     setF('posInRange15mMin', filters.min_pos_in_range_15m); setF('posInRange15mMax', filters.max_pos_in_range_15m);
@@ -1127,6 +1145,109 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     // Change 2min / 120min
     setF('chg2minMin', filters.min_chg_2min); setF('chg2minMax', filters.max_chg_2min);
     setF('chg120minMin', filters.min_chg_120min); setF('chg120minMax', filters.max_chg_120min);
+    // Extended Trade Ideas parity filters
+    setF('gapDollarsMin', filters.min_gap_dollars); setF('gapDollarsMax', filters.max_gap_dollars);
+    setF('gapRatioMin', filters.min_gap_ratio); setF('gapRatioMax', filters.max_gap_ratio);
+    setF('changeFromCloseDollarsMin', filters.min_change_from_close_dollars); setF('changeFromCloseDollarsMax', filters.max_change_from_close_dollars);
+    setF('changeFromCloseRatioMin', filters.min_change_from_close_ratio); setF('changeFromCloseRatioMax', filters.max_change_from_close_ratio);
+    setF('changeFromOpenRatioMin', filters.min_change_from_open_ratio); setF('changeFromOpenRatioMax', filters.max_change_from_open_ratio);
+    setF('postmarketChangeDollarsMin', filters.min_postmarket_change_dollars); setF('postmarketChangeDollarsMax', filters.max_postmarket_change_dollars);
+    setF('decimalMin', filters.min_decimal); setF('decimalMax', filters.max_decimal);
+    setF('posInPrevDayRangeMin', filters.min_pos_in_prev_day_range); setF('posInPrevDayRangeMax', filters.max_pos_in_prev_day_range);
+    setF('plusDiMinusDiMin', filters.min_plus_di_minus_di); setF('plusDiMinusDiMax', filters.max_plus_di_minus_di);
+    setF('bbStdDevMin', filters.min_bb_std_dev); setF('bbStdDevMax', filters.max_bb_std_dev);
+    // Multi-TF SMA distances
+    setF('distSma5_2mMin', filters.min_dist_sma_5_2m); setF('distSma5_2mMax', filters.max_dist_sma_5_2m);
+    setF('distSma5_5mMin', filters.min_dist_sma_5_5m); setF('distSma5_5mMax', filters.max_dist_sma_5_5m);
+    setF('distSma5_15mMin', filters.min_dist_sma_5_15m); setF('distSma5_15mMax', filters.max_dist_sma_5_15m);
+    setF('distSma8_2mMin', filters.min_dist_sma_8_2m); setF('distSma8_2mMax', filters.max_dist_sma_8_2m);
+    setF('distSma8_5mMin', filters.min_dist_sma_8_5m); setF('distSma8_5mMax', filters.max_dist_sma_8_5m);
+    setF('distSma8_15mMin', filters.min_dist_sma_8_15m); setF('distSma8_15mMax', filters.max_dist_sma_8_15m);
+    setF('distSma8_60mMin', filters.min_dist_sma_8_60m); setF('distSma8_60mMax', filters.max_dist_sma_8_60m);
+    setF('distSma20_2mMin', filters.min_dist_sma_20_2m); setF('distSma20_2mMax', filters.max_dist_sma_20_2m);
+    setF('distSma20_5mMin', filters.min_dist_sma_20_5m); setF('distSma20_5mMax', filters.max_dist_sma_20_5m);
+    setF('distSma20_15mMin', filters.min_dist_sma_20_15m); setF('distSma20_15mMax', filters.max_dist_sma_20_15m);
+    setF('distSma20_60mMin', filters.min_dist_sma_20_60m); setF('distSma20_60mMax', filters.max_dist_sma_20_60m);
+    // SMA cross: 8 vs 20
+    setF('sma8vs20_2mMin', filters.min_sma_8_vs_20_2m); setF('sma8vs20_2mMax', filters.max_sma_8_vs_20_2m);
+    setF('sma8vs20_5mMin', filters.min_sma_8_vs_20_5m); setF('sma8vs20_5mMax', filters.max_sma_8_vs_20_5m);
+    setF('sma8vs20_15mMin', filters.min_sma_8_vs_20_15m); setF('sma8vs20_15mMax', filters.max_sma_8_vs_20_15m);
+    setF('sma8vs20_60mMin', filters.min_sma_8_vs_20_60m); setF('sma8vs20_60mMax', filters.max_sma_8_vs_20_60m);
+    // Distance from Daily SMA 200
+    setF('distDailySma200Min', filters.min_dist_daily_sma_200); setF('distDailySma200Max', filters.max_dist_daily_sma_200);
+    // Multi-day ranges ($)
+    setF('range5dMin', filters.min_range_5d); setF('range5dMax', filters.max_range_5d);
+    setF('range10dMin', filters.min_range_10d); setF('range10dMax', filters.max_range_10d);
+    setF('range20dMin', filters.min_range_20d); setF('range20dMax', filters.max_range_20d);
+    // Position in multi-day ranges (%)
+    setF('posIn5dRangeMin', filters.min_pos_in_5d_range); setF('posIn5dRangeMax', filters.max_pos_in_5d_range);
+    setF('posIn10dRangeMin', filters.min_pos_in_10d_range); setF('posIn10dRangeMax', filters.max_pos_in_10d_range);
+    setF('posIn20dRangeMin', filters.min_pos_in_20d_range); setF('posIn20dRangeMax', filters.max_pos_in_20d_range);
+    setF('posIn52wRangeMin', filters.min_pos_in_52w_range); setF('posIn52wRangeMax', filters.max_pos_in_52w_range);
+    // Multi-day ranges (%) — ATR-normalized
+    setF('range5dPctMin', filters.min_range_5d_pct); setF('range5dPctMax', filters.max_range_5d_pct);
+    setF('range10dPctMin', filters.min_range_10d_pct); setF('range10dPctMax', filters.max_range_10d_pct);
+    setF('range20dPctMin', filters.min_range_20d_pct); setF('range20dPctMax', filters.max_range_20d_pct);
+    // Change 5/10/20 Days ($)
+    setF('change5dDollarsMin', filters.min_change_5d_dollars); setF('change5dDollarsMax', filters.max_change_5d_dollars);
+    setF('change10dDollarsMin', filters.min_change_10d_dollars); setF('change10dDollarsMax', filters.max_change_10d_dollars);
+    setF('change20dDollarsMin', filters.min_change_20d_dollars); setF('change20dDollarsMax', filters.max_change_20d_dollars);
+    // Change from Open Weighted
+    setF('changeFromOpenWeightedMin', filters.min_change_from_open_weighted); setF('changeFromOpenWeightedMax', filters.max_change_from_open_weighted);
+    // Distance from Daily SMA 5/8/10 ($)
+    setF('distDailySma5DollarsMin', filters.min_dist_daily_sma_5_dollars); setF('distDailySma5DollarsMax', filters.max_dist_daily_sma_5_dollars);
+    setF('distDailySma8DollarsMin', filters.min_dist_daily_sma_8_dollars); setF('distDailySma8DollarsMax', filters.max_dist_daily_sma_8_dollars);
+    setF('distDailySma10DollarsMin', filters.min_dist_daily_sma_10_dollars); setF('distDailySma10DollarsMax', filters.max_dist_daily_sma_10_dollars);
+    // Distance from Daily SMA 20/50/200 ($)
+    setF('distDailySma20DollarsMin', filters.min_dist_daily_sma_20_dollars); setF('distDailySma20DollarsMax', filters.max_dist_daily_sma_20_dollars);
+    setF('distDailySma50DollarsMin', filters.min_dist_daily_sma_50_dollars); setF('distDailySma50DollarsMax', filters.max_dist_daily_sma_50_dollars);
+    setF('distDailySma200DollarsMin', filters.min_dist_daily_sma_200_dollars); setF('distDailySma200DollarsMax', filters.max_dist_daily_sma_200_dollars);
+    // Distance from Daily SMA 5/8/10 (%)
+    setF('distDailySma5Min', filters.min_dist_daily_sma_5); setF('distDailySma5Max', filters.max_dist_daily_sma_5);
+    setF('distDailySma8Min', filters.min_dist_daily_sma_8); setF('distDailySma8Max', filters.max_dist_daily_sma_8);
+    setF('distDailySma10Min', filters.min_dist_daily_sma_10); setF('distDailySma10Max', filters.max_dist_daily_sma_10);
+    // 20 vs 200 SMA cross per TF
+    setF('sma20vs200_2mMin', filters.min_sma_20_vs_200_2m); setF('sma20vs200_2mMax', filters.max_sma_20_vs_200_2m);
+    setF('sma20vs200_5mMin', filters.min_sma_20_vs_200_5m); setF('sma20vs200_5mMax', filters.max_sma_20_vs_200_5m);
+    setF('sma20vs200_15mMin', filters.min_sma_20_vs_200_15m); setF('sma20vs200_15mMax', filters.max_sma_20_vs_200_15m);
+    setF('sma20vs200_60mMin', filters.min_sma_20_vs_200_60m); setF('sma20vs200_60mMax', filters.max_sma_20_vs_200_60m);
+    // Change in 1 Year
+    setF('change1yMin', filters.min_change_1y); setF('change1yMax', filters.max_change_1y);
+    setF('change1yDollarsMin', filters.min_change_1y_dollars); setF('change1yDollarsMax', filters.max_change_1y_dollars);
+    // Change Since Jan 1
+    setF('changeYtdMin', filters.min_change_ytd); setF('changeYtdMax', filters.max_change_ytd);
+    setF('changeYtdDollarsMin', filters.min_change_ytd_dollars); setF('changeYtdDollarsMax', filters.max_change_ytd_dollars);
+    // Yearly Standard Deviation
+    setF('yearlyStdDevMin', filters.min_yearly_std_dev); setF('yearlyStdDevMax', filters.max_yearly_std_dev);
+    // Consecutive Days Up
+    setF('consecutiveDaysUpMin', filters.min_consecutive_days_up); setF('consecutiveDaysUpMax', filters.max_consecutive_days_up);
+    // Change from 10 Period SMA (multi-TF)
+    setF('distSma10_2mMin', filters.min_dist_sma_10_2m); setF('distSma10_2mMax', filters.max_dist_sma_10_2m);
+    setF('distSma10_5mMin', filters.min_dist_sma_10_5m); setF('distSma10_5mMax', filters.max_dist_sma_10_5m);
+    setF('distSma10_15mMin', filters.min_dist_sma_10_15m); setF('distSma10_15mMax', filters.max_dist_sma_10_15m);
+    setF('distSma10_60mMin', filters.min_dist_sma_10_60m); setF('distSma10_60mMax', filters.max_dist_sma_10_60m);
+    setF('distSma130_15mMin', filters.min_dist_sma_130_15m); setF('distSma130_15mMax', filters.max_dist_sma_130_15m);
+    setF('distSma200_2mMin', filters.min_dist_sma_200_2m); setF('distSma200_2mMax', filters.max_dist_sma_200_2m);
+    setF('distSma200_5mMin', filters.min_dist_sma_200_5m); setF('distSma200_5mMax', filters.max_dist_sma_200_5m);
+    setF('distSma200_15mMin', filters.min_dist_sma_200_15m); setF('distSma200_15mMax', filters.max_dist_sma_200_15m);
+    setF('distSma200_60mMin', filters.min_dist_sma_200_60m); setF('distSma200_60mMax', filters.max_dist_sma_200_60m);
+    setF('distSma5_60mMin', filters.min_dist_sma_5_60m); setF('distSma5_60mMax', filters.max_dist_sma_5_60m);
+    // Position in Range (3M/6M/9M/2Y/Lifetime)
+    setF('posIn3mRangeMin', filters.min_pos_in_3m_range); setF('posIn3mRangeMax', filters.max_pos_in_3m_range);
+    setF('posIn6mRangeMin', filters.min_pos_in_6m_range); setF('posIn6mRangeMax', filters.max_pos_in_6m_range);
+    setF('posIn9mRangeMin', filters.min_pos_in_9m_range); setF('posIn9mRangeMax', filters.max_pos_in_9m_range);
+    setF('posIn2yRangeMin', filters.min_pos_in_2y_range); setF('posIn2yRangeMax', filters.max_pos_in_2y_range);
+    setF('posInLifetimeRangeMin', filters.min_pos_in_lifetime_range); setF('posInLifetimeRangeMax', filters.max_pos_in_lifetime_range);
+    // Pre-Market
+    setF('belowPremarketHighMin', filters.min_below_premarket_high); setF('belowPremarketHighMax', filters.max_below_premarket_high);
+    setF('abovePremarketLowMin', filters.min_above_premarket_low); setF('abovePremarketLowMax', filters.max_above_premarket_low);
+    setF('posInPremarketRangeMin', filters.min_pos_in_premarket_range); setF('posInPremarketRangeMax', filters.max_pos_in_premarket_range);
+    // Consolidation / RC / LR
+    setF('consolidationDaysMin', filters.min_consolidation_days); setF('consolidationDaysMax', filters.max_consolidation_days);
+    setF('posInConsolidationMin', filters.min_pos_in_consolidation); setF('posInConsolidationMax', filters.max_pos_in_consolidation);
+    setF('rangeContractionMin', filters.min_range_contraction); setF('rangeContractionMax', filters.max_range_contraction);
+    setF('lrDivergence130Min', filters.min_lr_divergence_130); setF('lrDivergence130Max', filters.max_lr_divergence_130);
+    setF('changePrevDayPctMin', filters.min_change_prev_day_pct); setF('changePrevDayPctMax', filters.max_change_prev_day_pct);
     // String filters
     setS('security_type', filters.security_type);
     setS('sector', filters.sector);

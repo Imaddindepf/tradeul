@@ -211,7 +211,7 @@ class VolumeAlertDetector(BaseAlertDetector):
             else:
                 context = "Trading between"
 
-        exchange = current.exchange or ""
+        exchange = str(current.exchange or "")
 
         parts = [f"Block trade {trade_size:,} shares @ ${price:.2f}"]
         if context:

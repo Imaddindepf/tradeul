@@ -38,11 +38,12 @@ class WindowLayout(BaseModel):
     id: str
     type: str
     title: str
-    position: Dict[str, int]  # {x, y}
-    size: Dict[str, int]  # {width, height}
+    position: Dict[str, float]
+    size: Dict[str, float]
     isMinimized: bool = False
     zIndex: int = 0
     componentState: Optional[Dict[str, Any]] = None
+    linkGroup: Optional[str] = None
 
 
 class Workspace(BaseModel):
@@ -461,9 +462,13 @@ async def update_layout(
 
 
 class WorkspacesUpdateRequest(BaseModel):
-    """Request para actualizar solo workspaces"""
+    """Request para actualizar workspaces y opcionalmente otras preferencias"""
     workspaces: List[Workspace]
     activeWorkspaceId: str = "main"
+    colors: Optional[ColorPreferences] = None
+    theme: Optional[ThemePreferences] = None
+    columnVisibility: Optional[Dict[str, Dict[str, bool]]] = None
+    columnOrder: Optional[Dict[str, List[str]]] = None
 
 
 @router.patch("/preferences/workspaces")
@@ -473,7 +478,7 @@ async def update_workspaces(
     db=Depends(get_timescale)
 ):
     """
-    Actualiza los workspaces del usuario.
+    Actualiza los workspaces del usuario y opcionalmente colors/theme/columns.
     Supports normal auth (header) and sendBeacon fallback (_token in body).
     """
     body = await request.json()
@@ -491,25 +496,41 @@ async def update_workspaces(
     data = WorkspacesUpdateRequest(
         workspaces=[Workspace(**w) for w in body.get('workspaces', [])],
         activeWorkspaceId=body.get('activeWorkspaceId', 'main'),
+        colors=ColorPreferences(**body['colors']) if body.get('colors') else None,
+        theme=ThemePreferences(**body['theme']) if body.get('theme') else None,
+        columnVisibility=body.get('columnVisibility'),
+        columnOrder=body.get('columnOrder'),
     )
 
     try:
         user_id = user.id
         workspaces_json = json.dumps([w.model_dump() for w in data.workspaces])
+        colors_json = json.dumps(data.colors.model_dump()) if data.colors else None
+        theme_json = json.dumps(data.theme.model_dump()) if data.theme else None
+        col_vis_json = json.dumps(data.columnVisibility) if data.columnVisibility else None
+        col_ord_json = json.dumps(data.columnOrder) if data.columnOrder else None
         
         query = """
-            INSERT INTO user_preferences (user_id, workspaces, active_workspace_id)
-            VALUES ($1, $2::jsonb, $3)
+            INSERT INTO user_preferences (user_id, workspaces, active_workspace_id, colors, theme, column_visibility, column_order)
+            VALUES ($1, $2::jsonb, $3,
+                COALESCE($4::jsonb, '{"tickUp":"#10b981","tickDown":"#ef4444","background":"#ffffff","primary":"#3b82f6"}'::jsonb),
+                COALESCE($5::jsonb, '{"font":"jetbrains-mono","colorScheme":"light","newsSquawkEnabled":false}'::jsonb),
+                COALESCE($6::jsonb, '{}'::jsonb),
+                COALESCE($7::jsonb, '{}'::jsonb))
             ON CONFLICT (user_id) DO UPDATE SET
                 workspaces = $2::jsonb,
                 active_workspace_id = $3,
+                colors = COALESCE($4::jsonb, user_preferences.colors),
+                theme = COALESCE($5::jsonb, user_preferences.theme),
+                column_visibility = COALESCE($6::jsonb, user_preferences.column_visibility),
+                column_order = COALESCE($7::jsonb, user_preferences.column_order),
                 updated_at = NOW()
             RETURNING updated_at
         """
         
-        result = await db.fetchrow(query, user_id, workspaces_json, data.activeWorkspaceId)
+        result = await db.fetchrow(query, user_id, workspaces_json, data.activeWorkspaceId,
+                                   colors_json, theme_json, col_vis_json, col_ord_json)
         
-        # Contar ventanas totales en todos los workspaces
         total_windows = sum(len(w.windowLayouts) for w in data.workspaces)
         
         logger.info("workspaces_saved", 

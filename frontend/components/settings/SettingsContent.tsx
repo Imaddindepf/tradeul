@@ -6,7 +6,7 @@ import { usePinnedCommands } from '@/hooks/usePinnedCommands';
 import { useUserPreferencesStore, FontFamily, TimezoneOption } from '@/stores/useUserPreferencesStore';
 import { TIMEZONE_LABELS } from '@/lib/date-utils';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
-import { useSaveLayoutToCloud } from '@/hooks/useClerkSync';
+import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
 import { Pin, RotateCcw, Save, Layout, Trash2, Check, Cloud, CloudOff, Globe, Clock, Sun, Moon, Monitor } from 'lucide-react';
 import { MAIN_COMMANDS } from '@/lib/commands';
 import { AVAILABLE_LANGUAGES, changeLanguage, getCurrentLanguage, type LanguageCode } from '@/lib/i18n';
@@ -62,7 +62,7 @@ export function SettingsContent() {
   const resetColors = useUserPreferencesStore((state) => state.resetColors);
 
   const { saveLayout, hasLayout, clearLayout, savedCount } = useLayoutPersistence();
-  const { saveLayout: saveToCloud, isSignedIn } = useSaveLayoutToCloud();
+  const { isAuthenticated: isSignedIn, forceSync } = useWorkspaceSync();
   const [saved, setSaved] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [currentLang, setCurrentLang] = useState<LanguageCode>(getCurrentLanguage());
@@ -75,14 +75,12 @@ export function SettingsContent() {
   };
 
   const handleSaveLayout = async () => {
-    // Guardar localmente
     saveLayout();
     setSaved(true);
 
-    // Si está logueado, sincronizar con la nube
     if (isSignedIn) {
       setSyncing(true);
-      await saveToCloud();
+      await forceSync();
       setSyncing(false);
     }
 

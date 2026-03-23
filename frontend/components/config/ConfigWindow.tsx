@@ -82,10 +82,459 @@ const TOPLIST_FOLDERS = [
 ] as const;
 
 // ============================================================================
+// Filter metadata — single source of truth for labels and suffixes.
+// Generated from FG filter definitions. Every key must be here.
+// ============================================================================
+
+const FILTER_META: Record<string, { label: string; suf: string }> = {
+  'industry': { label: 'Industry', suf: '' },
+  'max_above_low': { label: 'Above Low <', suf: '$' },
+  'max_above_premarket_low': { label: 'Above Pre-Market Low <', suf: '$' },
+  'max_adx_14': { label: 'ADX (Intraday) <', suf: '' },
+  'max_ask_size': { label: 'Ask Size <', suf: '' },
+  'max_atr': { label: 'Average True Range <', suf: '$' },
+  'max_atr_percent': { label: 'Average True Range % <', suf: '%' },
+  'max_avg_volume_10d': { label: 'Average Daily Volume (10D) <', suf: '' },
+  'max_avg_volume_20d': { label: 'Average Daily Volume (20D) <', suf: '' },
+  'max_avg_volume_3m': { label: 'Average Daily Volume (3M) <', suf: '' },
+  'max_avg_volume_5d': { label: 'Average Daily Volume (5D) <', suf: '' },
+  'max_bb_lower': { label: 'Bollinger Lower <', suf: '$' },
+  'max_bb_position_15m': { label: 'Position in Bollinger Bands (15m) <', suf: '%' },
+  'max_bb_position_1m': { label: 'Position in Bollinger Bands (1m) <', suf: '%' },
+  'max_bb_position_5m': { label: 'Position in Bollinger Bands (5m) <', suf: '%' },
+  'max_bb_position_60m': { label: 'Position in Bollinger Bands (60m) <', suf: '%' },
+  'max_bb_std_dev': { label: 'Standard Deviation (Bollinger) <', suf: '$' },
+  'max_bb_upper': { label: 'Bollinger Upper <', suf: '$' },
+  'max_below_high': { label: 'Below High <', suf: '$' },
+  'max_below_premarket_high': { label: 'Below Pre-Market High <', suf: '$' },
+  'max_bid_ask_ratio': { label: 'Bid / Ask Ratio <', suf: '' },
+  'max_bid_size': { label: 'Bid Size <', suf: '' },
+  'max_change_10d': { label: 'Change in 10 Days <', suf: '%' },
+  'max_change_10d_dollars': { label: 'Change in 10 Days $ <', suf: '$' },
+  'max_change_1d': { label: 'Change Previous Day <', suf: '%' },
+  'max_change_1y': { label: 'Change in 1 Year % <', suf: '%' },
+  'max_change_1y_dollars': { label: 'Change in 1 Year $ <', suf: '$' },
+  'max_change_20d': { label: 'Change in 20 Days <', suf: '%' },
+  'max_change_20d_dollars': { label: 'Change in 20 Days $ <', suf: '$' },
+  'max_change_3d': { label: 'Change in 3 Days <', suf: '%' },
+  'max_change_5d': { label: 'Change in 5 Days <', suf: '%' },
+  'max_change_5d_dollars': { label: 'Change in 5 Days $ <', suf: '$' },
+  'max_change_from_close_dollars': { label: 'Change from the Close $ <', suf: '$' },
+  'max_change_from_close_ratio': { label: 'Change from the Close (ATR) <', suf: 'x' },
+  'max_change_from_open': { label: 'Change from the Open % <', suf: '%' },
+  'max_change_from_open_dollars': { label: 'Change from the Open $ <', suf: '$' },
+  'max_change_from_open_ratio': { label: 'Change from the Open (ATR) <', suf: 'x' },
+  'max_change_from_open_weighted': { label: 'Change from the Open Weighted <', suf: '' },
+  'max_change_percent': { label: 'Change from the Close % <', suf: '%' },
+  'max_change_prev_day_pct': { label: 'Change Previous Day % <', suf: '%' },
+  'max_change_ytd': { label: 'Change Since January 1 % <', suf: '%' },
+  'max_change_ytd_dollars': { label: 'Change Since January 1 $ <', suf: '$' },
+  'max_chg_10min': { label: 'Change 10 Minute <', suf: '%' },
+  'max_chg_120min': { label: 'Change 120 Minute <', suf: '%' },
+  'max_chg_15min': { label: 'Change 15 Minute <', suf: '%' },
+  'max_chg_1min': { label: 'Change 1 Minute <', suf: '%' },
+  'max_chg_2min': { label: 'Change 2 Minute <', suf: '%' },
+  'max_chg_30min': { label: 'Change 30 Minute <', suf: '%' },
+  'max_chg_5min': { label: 'Change 5 Minute <', suf: '%' },
+  'max_chg_60min': { label: 'Change 60 Minute <', suf: '%' },
+  'max_consecutive_candles': { label: 'Consecutive Candles (1m) <', suf: '' },
+  'max_consecutive_candles_10m': { label: 'Consecutive Candles (10m) <', suf: '' },
+  'max_consecutive_candles_15m': { label: 'Consecutive Candles (15m) <', suf: '' },
+  'max_consecutive_candles_2m': { label: 'Consecutive Candles (2m) <', suf: '' },
+  'max_consecutive_candles_30m': { label: 'Consecutive Candles (30m) <', suf: '' },
+  'max_consecutive_candles_5m': { label: 'Consecutive Candles (5m) <', suf: '' },
+  'max_consecutive_candles_60m': { label: 'Consecutive Candles (60m) <', suf: '' },
+  'max_consecutive_days_up': { label: 'Consecutive Days Up/Down <', suf: '' },
+  'max_consolidation_days': { label: 'Consolidation Days <', suf: '' },
+  'max_daily_adx_14': { label: 'Average Directional Index (Daily) <', suf: '' },
+  'max_daily_atr_percent': { label: 'Daily ATR % <', suf: '%' },
+  'max_daily_bb_position': { label: 'Position in Bollinger Bands (Daily) <', suf: '%' },
+  'max_daily_rsi': { label: 'Daily RSI <', suf: '' },
+  'max_daily_sma_10': { label: '10 Day SMA <', suf: '$' },
+  'max_daily_sma_20': { label: '20 Day SMA <', suf: '$' },
+  'max_daily_sma_200': { label: '200 Day SMA <', suf: '$' },
+  'max_daily_sma_5': { label: '5 Day SMA <', suf: '$' },
+  'max_daily_sma_50': { label: '50 Day SMA <', suf: '$' },
+  'max_daily_sma_8': { label: '8 Day SMA <', suf: '$' },
+  'max_decimal': { label: 'Decimal <', suf: '' },
+  'max_dist_daily_sma_10': { label: 'Change from 10 Day SMA % <', suf: '%' },
+  'max_dist_daily_sma_10_dollars': { label: 'Change from 10 Day SMA $ <', suf: '$' },
+  'max_dist_daily_sma_20': { label: 'Change from 20 Day SMA % <', suf: '%' },
+  'max_dist_daily_sma_20_dollars': { label: 'Change from 20 Day SMA $ <', suf: '$' },
+  'max_dist_daily_sma_200': { label: 'Change from 200 Day SMA % <', suf: '%' },
+  'max_dist_daily_sma_200_dollars': { label: 'Change from 200 Day SMA $ <', suf: '$' },
+  'max_dist_daily_sma_5': { label: 'Change from 5 Day SMA % <', suf: '%' },
+  'max_dist_daily_sma_5_dollars': { label: 'Change from 5 Day SMA $ <', suf: '$' },
+  'max_dist_daily_sma_50': { label: 'Change from 50 Day SMA % <', suf: '%' },
+  'max_dist_daily_sma_50_dollars': { label: 'Change from 50 Day SMA $ <', suf: '$' },
+  'max_dist_daily_sma_8': { label: 'Change from 8 Day SMA % <', suf: '%' },
+  'max_dist_daily_sma_8_dollars': { label: 'Change from 8 Day SMA $ <', suf: '$' },
+  'max_dist_from_vwap': { label: 'Distance from VWAP <', suf: '%' },
+  'max_dist_pivot': { label: 'Distance from Pivot <', suf: '%' },
+  'max_dist_pivot_r1': { label: 'Distance from Pivot R1 <', suf: '%' },
+  'max_dist_pivot_r2': { label: 'Distance from Pivot R2 <', suf: '%' },
+  'max_dist_pivot_s1': { label: 'Distance from Pivot S1 <', suf: '%' },
+  'max_dist_pivot_s2': { label: 'Distance from Pivot S2 <', suf: '%' },
+  'max_dist_sma_10_15m': { label: 'Change from 10 Period SMA (15m) <', suf: '%' },
+  'max_dist_sma_10_2m': { label: 'Change from 10 Period SMA (2m) <', suf: '%' },
+  'max_dist_sma_10_5m': { label: 'Change from 10 Period SMA (5m) <', suf: '%' },
+  'max_dist_sma_10_60m': { label: 'Change from 10 Period SMA (60m) <', suf: '%' },
+  'max_dist_sma_130_15m': { label: 'Change from 130 Period SMA (15m) <', suf: '%' },
+  'max_dist_sma_20': { label: 'Change from SMA 20 (Intraday) <', suf: '%' },
+  'max_dist_sma_20_15m': { label: 'Change from 20 Period SMA (15m) <', suf: '%' },
+  'max_dist_sma_20_2m': { label: 'Change from 20 Period SMA (2m) <', suf: '%' },
+  'max_dist_sma_20_5m': { label: 'Change from 20 Period SMA (5m) <', suf: '%' },
+  'max_dist_sma_20_60m': { label: 'Change from 20 Period SMA (60m) <', suf: '%' },
+  'max_dist_sma_200': { label: 'Change from SMA 200 (Intraday) <', suf: '%' },
+  'max_dist_sma_200_15m': { label: 'Change from 200 Period SMA (15m) <', suf: '%' },
+  'max_dist_sma_200_2m': { label: 'Change from 200 Period SMA (2m) <', suf: '%' },
+  'max_dist_sma_200_5m': { label: 'Change from 200 Period SMA (5m) <', suf: '%' },
+  'max_dist_sma_200_60m': { label: 'Change from 200 Period SMA (60m) <', suf: '%' },
+  'max_dist_sma_5': { label: 'Change from SMA 5 (Intraday) <', suf: '%' },
+  'max_dist_sma_5_15m': { label: 'Change from 5 Period SMA (15m) <', suf: '%' },
+  'max_dist_sma_5_2m': { label: 'Change from 5 Period SMA (2m) <', suf: '%' },
+  'max_dist_sma_5_5m': { label: 'Change from 5 Period SMA (5m) <', suf: '%' },
+  'max_dist_sma_5_60m': { label: 'Change from 5 Period SMA (60m) <', suf: '%' },
+  'max_dist_sma_50': { label: 'Change from SMA 50 (Intraday) <', suf: '%' },
+  'max_dist_sma_8': { label: 'Change from SMA 8 (Intraday) <', suf: '%' },
+  'max_dist_sma_8_15m': { label: 'Change from 8 Period SMA (15m) <', suf: '%' },
+  'max_dist_sma_8_2m': { label: 'Change from 8 Period SMA (2m) <', suf: '%' },
+  'max_dist_sma_8_5m': { label: 'Change from 8 Period SMA (5m) <', suf: '%' },
+  'max_dist_sma_8_60m': { label: 'Change from 8 Period SMA (60m) <', suf: '%' },
+  'max_distance_from_nbbo': { label: 'Distance from Inside Market <', suf: '%' },
+  'max_dollar_volume': { label: 'Dollar Volume <', suf: '$' },
+  'max_ema_20': { label: 'EMA 20 <', suf: '$' },
+  'max_ema_50': { label: 'EMA 50 <', suf: '$' },
+  'max_float_shares': { label: 'Float <', suf: '' },
+  'max_float_turnover': { label: 'Float Turnover <', suf: 'x' },
+  'max_from_52w_high': { label: 'From 52 Week High % <', suf: '%' },
+  'max_from_52w_low': { label: 'From 52 Week Low % <', suf: '%' },
+  'max_gap_dollars': { label: 'Gap $ <', suf: '$' },
+  'max_gap_percent': { label: 'Gap % <', suf: '%' },
+  'max_gap_ratio': { label: 'Gap (ATR) <', suf: 'x' },
+  'max_high_52w': { label: '52 Week High <', suf: '$' },
+  'max_low_52w': { label: '52 Week Low <', suf: '$' },
+  'max_lr_divergence_130': { label: 'Linear Regression Divergence <', suf: '%' },
+  'max_macd_hist': { label: 'MACD Histogram <', suf: '' },
+  'max_macd_line': { label: 'MACD Line <', suf: '' },
+  'max_market_cap': { label: 'Market Cap <', suf: '$' },
+  'max_minute_volume': { label: 'Minute Volume <', suf: '' },
+  'max_plus_di_minus_di': { label: 'Directional Indicator (+DI - -DI) <', suf: '' },
+  'max_pos_in_10d_range': { label: 'Position in 10 Day Range <', suf: '%' },
+  'max_pos_in_20d_range': { label: 'Position in 20 Day Range <', suf: '%' },
+  'max_pos_in_2y_range': { label: 'Position in 2 Year Range <', suf: '%' },
+  'max_pos_in_3m_range': { label: 'Position in 3 Month Range <', suf: '%' },
+  'max_pos_in_52w_range': { label: 'Position in 52 Week Range <', suf: '%' },
+  'max_pos_in_5d_range': { label: 'Position in 5 Day Range <', suf: '%' },
+  'max_pos_in_6m_range': { label: 'Position in 6 Month Range <', suf: '%' },
+  'max_pos_in_9m_range': { label: 'Position in 9 Month Range <', suf: '%' },
+  'max_pos_in_consolidation': { label: 'Position in Consolidation <', suf: '%' },
+  'max_pos_in_lifetime_range': { label: 'Position in Lifetime Range <', suf: '%' },
+  'max_pos_in_premarket_range': { label: 'Position in Pre-Market Range <', suf: '%' },
+  'max_pos_in_range': { label: 'Position in Range (Today) <', suf: '%' },
+  'max_pos_in_range_15m': { label: 'Position in 15 Minute Range <', suf: '%' },
+  'max_pos_in_range_30m': { label: 'Position in 30 Minute Range <', suf: '%' },
+  'max_pos_in_range_5m': { label: 'Position in 5 Minute Range <', suf: '%' },
+  'max_pos_in_range_60m': { label: 'Position in 60 Minute Range <', suf: '%' },
+  'max_pos_of_open': { label: 'Position of Open <', suf: '%' },
+  'max_postmarket_change_dollars': { label: 'Change Post-Market $ <', suf: '$' },
+  'max_postmarket_change_percent': { label: 'Change Post-Market % <', suf: '%' },
+  'max_postmarket_volume': { label: 'Post-Market Volume <', suf: '' },
+  'max_premarket_change_percent': { label: 'Change Pre-Market % <', suf: '%' },
+  'max_prev_day_volume': { label: 'Previous Day Volume <', suf: '' },
+  'max_price': { label: 'Price <', suf: '$' },
+  'max_price_from_high': { label: 'From High % <', suf: '%' },
+  'max_price_from_intraday_high': { label: 'From Intraday High % <', suf: '%' },
+  'max_price_from_intraday_low': { label: 'From Intraday Low % <', suf: '%' },
+  'max_price_from_low': { label: 'From Low % <', suf: '%' },
+  'max_range_10d': { label: '10 Day Range $ <', suf: '$' },
+  'max_range_10d_pct': { label: '10 Day Range % <', suf: '%' },
+  'max_range_120min': { label: '120 Minute Range $ <', suf: '$' },
+  'max_range_120min_pct': { label: '120 Minute Range % <', suf: '%' },
+  'max_range_15min': { label: '15 Minute Range $ <', suf: '$' },
+  'max_range_15min_pct': { label: '15 Minute Range % <', suf: '%' },
+  'max_range_20d': { label: '20 Day Range $ <', suf: '$' },
+  'max_range_20d_pct': { label: '20 Day Range % <', suf: '%' },
+  'max_range_2min': { label: '2 Minute Range $ <', suf: '$' },
+  'max_range_2min_pct': { label: '2 Minute Range % <', suf: '%' },
+  'max_range_30min': { label: '30 Minute Range $ <', suf: '$' },
+  'max_range_30min_pct': { label: '30 Minute Range % <', suf: '%' },
+  'max_range_5d': { label: '5 Day Range $ <', suf: '$' },
+  'max_range_5d_pct': { label: '5 Day Range % <', suf: '%' },
+  'max_range_5min': { label: '5 Minute Range $ <', suf: '$' },
+  'max_range_5min_pct': { label: '5 Minute Range % <', suf: '%' },
+  'max_range_60min': { label: '60 Minute Range $ <', suf: '$' },
+  'max_range_60min_pct': { label: '60 Minute Range % <', suf: '%' },
+  'max_range_contraction': { label: 'Range Contraction <', suf: '' },
+  'max_rsi': { label: 'RSI (1m) <', suf: '' },
+  'max_rsi_15m': { label: '15 Minute RSI <', suf: '' },
+  'max_rsi_2m': { label: '2 Minute RSI <', suf: '' },
+  'max_rsi_5m': { label: '5 Minute RSI <', suf: '' },
+  'max_rsi_60m': { label: '60 Minute RSI <', suf: '' },
+  'max_rvol': { label: 'Relative Volume <', suf: 'x' },
+  'max_shares_outstanding': { label: 'Shares Outstanding <', suf: '' },
+  'max_sma_20': { label: 'SMA 20 <', suf: '$' },
+  'max_sma_20_vs_200_15m': { label: '20 vs. 200 Period SMA (15m) <', suf: '%' },
+  'max_sma_20_vs_200_2m': { label: '20 vs. 200 Period SMA (2m) <', suf: '%' },
+  'max_sma_20_vs_200_5m': { label: '20 vs. 200 Period SMA (5m) <', suf: '%' },
+  'max_sma_20_vs_200_60m': { label: '20 vs. 200 Period SMA (60m) <', suf: '%' },
+  'max_sma_200': { label: 'SMA 200 <', suf: '$' },
+  'max_sma_5': { label: 'SMA 5 <', suf: '$' },
+  'max_sma_50': { label: 'SMA 50 <', suf: '$' },
+  'max_sma_8': { label: 'SMA 8 <', suf: '$' },
+  'max_sma_8_vs_20_15m': { label: '8 vs. 20 Period SMA (15m) <', suf: '%' },
+  'max_sma_8_vs_20_2m': { label: '8 vs. 20 Period SMA (2m) <', suf: '%' },
+  'max_sma_8_vs_20_5m': { label: '8 vs. 20 Period SMA (5m) <', suf: '%' },
+  'max_sma_8_vs_20_60m': { label: '8 vs. 20 Period SMA (60m) <', suf: '%' },
+  'max_spread': { label: 'Spread <', suf: '$' },
+  'max_stoch_d': { label: 'Stochastic %D <', suf: '' },
+  'max_stoch_k': { label: 'Stochastic %K <', suf: '' },
+  'max_trades_today': { label: 'Average Number of Prints <', suf: '' },
+  'max_trades_z_score': { label: 'Trades Z-Score <', suf: '' },
+  'max_vol_10min': { label: 'Volume 10 Minute <', suf: '' },
+  'max_vol_10min_pct': { label: 'Average Volume 10m % <', suf: '%' },
+  'max_vol_15min': { label: 'Volume 15 Minute <', suf: '' },
+  'max_vol_15min_pct': { label: 'Average Volume 15m % <', suf: '%' },
+  'max_vol_1min': { label: 'Volume 1 Minute <', suf: '' },
+  'max_vol_1min_pct': { label: 'Average Volume 1m % <', suf: '%' },
+  'max_vol_30min': { label: 'Volume 30 Minute <', suf: '' },
+  'max_vol_30min_pct': { label: 'Average Volume 30m % <', suf: '%' },
+  'max_vol_5min': { label: 'Volume 5 Minute <', suf: '' },
+  'max_vol_5min_pct': { label: 'Average Volume 5m % <', suf: '%' },
+  'max_volume': { label: 'Volume Today <', suf: '' },
+  'max_volume_today_pct': { label: 'Volume Today % <', suf: '%' },
+  'max_volume_yesterday_pct': { label: 'Volume Yesterday % <', suf: '%' },
+  'max_vwap': { label: 'VWAP <', suf: '$' },
+  'max_yearly_std_dev': { label: 'Yearly Standard Deviation <', suf: '$' },
+  'min_above_low': { label: 'Above Low >', suf: '$' },
+  'min_above_premarket_low': { label: 'Above Pre-Market Low >', suf: '$' },
+  'min_adx_14': { label: 'ADX (Intraday) >', suf: '' },
+  'min_ask_size': { label: 'Ask Size >', suf: '' },
+  'min_atr': { label: 'Average True Range >', suf: '$' },
+  'min_atr_percent': { label: 'Average True Range % >', suf: '%' },
+  'min_avg_volume_10d': { label: 'Average Daily Volume (10D) >', suf: '' },
+  'min_avg_volume_20d': { label: 'Average Daily Volume (20D) >', suf: '' },
+  'min_avg_volume_3m': { label: 'Average Daily Volume (3M) >', suf: '' },
+  'min_avg_volume_5d': { label: 'Average Daily Volume (5D) >', suf: '' },
+  'min_bb_lower': { label: 'Bollinger Lower >', suf: '$' },
+  'min_bb_position_15m': { label: 'Position in Bollinger Bands (15m) >', suf: '%' },
+  'min_bb_position_1m': { label: 'Position in Bollinger Bands (1m) >', suf: '%' },
+  'min_bb_position_5m': { label: 'Position in Bollinger Bands (5m) >', suf: '%' },
+  'min_bb_position_60m': { label: 'Position in Bollinger Bands (60m) >', suf: '%' },
+  'min_bb_std_dev': { label: 'Standard Deviation (Bollinger) >', suf: '$' },
+  'min_bb_upper': { label: 'Bollinger Upper >', suf: '$' },
+  'min_below_high': { label: 'Below High >', suf: '$' },
+  'min_below_premarket_high': { label: 'Below Pre-Market High >', suf: '$' },
+  'min_bid_ask_ratio': { label: 'Bid / Ask Ratio >', suf: '' },
+  'min_bid_size': { label: 'Bid Size >', suf: '' },
+  'min_change_10d': { label: 'Change in 10 Days >', suf: '%' },
+  'min_change_10d_dollars': { label: 'Change in 10 Days $ >', suf: '$' },
+  'min_change_1d': { label: 'Change Previous Day >', suf: '%' },
+  'min_change_1y': { label: 'Change in 1 Year % >', suf: '%' },
+  'min_change_1y_dollars': { label: 'Change in 1 Year $ >', suf: '$' },
+  'min_change_20d': { label: 'Change in 20 Days >', suf: '%' },
+  'min_change_20d_dollars': { label: 'Change in 20 Days $ >', suf: '$' },
+  'min_change_3d': { label: 'Change in 3 Days >', suf: '%' },
+  'min_change_5d': { label: 'Change in 5 Days >', suf: '%' },
+  'min_change_5d_dollars': { label: 'Change in 5 Days $ >', suf: '$' },
+  'min_change_from_close_dollars': { label: 'Change from the Close $ >', suf: '$' },
+  'min_change_from_close_ratio': { label: 'Change from the Close (ATR) >', suf: 'x' },
+  'min_change_from_open': { label: 'Change from the Open % >', suf: '%' },
+  'min_change_from_open_dollars': { label: 'Change from the Open $ >', suf: '$' },
+  'min_change_from_open_ratio': { label: 'Change from the Open (ATR) >', suf: 'x' },
+  'min_change_from_open_weighted': { label: 'Change from the Open Weighted >', suf: '' },
+  'min_change_percent': { label: 'Change from the Close % >', suf: '%' },
+  'min_change_prev_day_pct': { label: 'Change Previous Day % >', suf: '%' },
+  'min_change_ytd': { label: 'Change Since January 1 % >', suf: '%' },
+  'min_change_ytd_dollars': { label: 'Change Since January 1 $ >', suf: '$' },
+  'min_chg_10min': { label: 'Change 10 Minute >', suf: '%' },
+  'min_chg_120min': { label: 'Change 120 Minute >', suf: '%' },
+  'min_chg_15min': { label: 'Change 15 Minute >', suf: '%' },
+  'min_chg_1min': { label: 'Change 1 Minute >', suf: '%' },
+  'min_chg_2min': { label: 'Change 2 Minute >', suf: '%' },
+  'min_chg_30min': { label: 'Change 30 Minute >', suf: '%' },
+  'min_chg_5min': { label: 'Change 5 Minute >', suf: '%' },
+  'min_chg_60min': { label: 'Change 60 Minute >', suf: '%' },
+  'min_consecutive_candles': { label: 'Consecutive Candles (1m) >', suf: '' },
+  'min_consecutive_candles_10m': { label: 'Consecutive Candles (10m) >', suf: '' },
+  'min_consecutive_candles_15m': { label: 'Consecutive Candles (15m) >', suf: '' },
+  'min_consecutive_candles_2m': { label: 'Consecutive Candles (2m) >', suf: '' },
+  'min_consecutive_candles_30m': { label: 'Consecutive Candles (30m) >', suf: '' },
+  'min_consecutive_candles_5m': { label: 'Consecutive Candles (5m) >', suf: '' },
+  'min_consecutive_candles_60m': { label: 'Consecutive Candles (60m) >', suf: '' },
+  'min_consecutive_days_up': { label: 'Consecutive Days Up/Down >', suf: '' },
+  'min_consolidation_days': { label: 'Consolidation Days >', suf: '' },
+  'min_daily_adx_14': { label: 'Average Directional Index (Daily) >', suf: '' },
+  'min_daily_atr_percent': { label: 'Daily ATR % >', suf: '%' },
+  'min_daily_bb_position': { label: 'Position in Bollinger Bands (Daily) >', suf: '%' },
+  'min_daily_rsi': { label: 'Daily RSI >', suf: '' },
+  'min_daily_sma_10': { label: '10 Day SMA >', suf: '$' },
+  'min_daily_sma_20': { label: '20 Day SMA >', suf: '$' },
+  'min_daily_sma_200': { label: '200 Day SMA >', suf: '$' },
+  'min_daily_sma_5': { label: '5 Day SMA >', suf: '$' },
+  'min_daily_sma_50': { label: '50 Day SMA >', suf: '$' },
+  'min_daily_sma_8': { label: '8 Day SMA >', suf: '$' },
+  'min_decimal': { label: 'Decimal >', suf: '' },
+  'min_dist_daily_sma_10': { label: 'Change from 10 Day SMA % >', suf: '%' },
+  'min_dist_daily_sma_10_dollars': { label: 'Change from 10 Day SMA $ >', suf: '$' },
+  'min_dist_daily_sma_20': { label: 'Change from 20 Day SMA % >', suf: '%' },
+  'min_dist_daily_sma_20_dollars': { label: 'Change from 20 Day SMA $ >', suf: '$' },
+  'min_dist_daily_sma_200': { label: 'Change from 200 Day SMA % >', suf: '%' },
+  'min_dist_daily_sma_200_dollars': { label: 'Change from 200 Day SMA $ >', suf: '$' },
+  'min_dist_daily_sma_5': { label: 'Change from 5 Day SMA % >', suf: '%' },
+  'min_dist_daily_sma_5_dollars': { label: 'Change from 5 Day SMA $ >', suf: '$' },
+  'min_dist_daily_sma_50': { label: 'Change from 50 Day SMA % >', suf: '%' },
+  'min_dist_daily_sma_50_dollars': { label: 'Change from 50 Day SMA $ >', suf: '$' },
+  'min_dist_daily_sma_8': { label: 'Change from 8 Day SMA % >', suf: '%' },
+  'min_dist_daily_sma_8_dollars': { label: 'Change from 8 Day SMA $ >', suf: '$' },
+  'min_dist_from_vwap': { label: 'Distance from VWAP >', suf: '%' },
+  'min_dist_pivot': { label: 'Distance from Pivot >', suf: '%' },
+  'min_dist_pivot_r1': { label: 'Distance from Pivot R1 >', suf: '%' },
+  'min_dist_pivot_r2': { label: 'Distance from Pivot R2 >', suf: '%' },
+  'min_dist_pivot_s1': { label: 'Distance from Pivot S1 >', suf: '%' },
+  'min_dist_pivot_s2': { label: 'Distance from Pivot S2 >', suf: '%' },
+  'min_dist_sma_10_15m': { label: 'Change from 10 Period SMA (15m) >', suf: '%' },
+  'min_dist_sma_10_2m': { label: 'Change from 10 Period SMA (2m) >', suf: '%' },
+  'min_dist_sma_10_5m': { label: 'Change from 10 Period SMA (5m) >', suf: '%' },
+  'min_dist_sma_10_60m': { label: 'Change from 10 Period SMA (60m) >', suf: '%' },
+  'min_dist_sma_130_15m': { label: 'Change from 130 Period SMA (15m) >', suf: '%' },
+  'min_dist_sma_20': { label: 'Change from SMA 20 (Intraday) >', suf: '%' },
+  'min_dist_sma_20_15m': { label: 'Change from 20 Period SMA (15m) >', suf: '%' },
+  'min_dist_sma_20_2m': { label: 'Change from 20 Period SMA (2m) >', suf: '%' },
+  'min_dist_sma_20_5m': { label: 'Change from 20 Period SMA (5m) >', suf: '%' },
+  'min_dist_sma_20_60m': { label: 'Change from 20 Period SMA (60m) >', suf: '%' },
+  'min_dist_sma_200': { label: 'Change from SMA 200 (Intraday) >', suf: '%' },
+  'min_dist_sma_200_15m': { label: 'Change from 200 Period SMA (15m) >', suf: '%' },
+  'min_dist_sma_200_2m': { label: 'Change from 200 Period SMA (2m) >', suf: '%' },
+  'min_dist_sma_200_5m': { label: 'Change from 200 Period SMA (5m) >', suf: '%' },
+  'min_dist_sma_200_60m': { label: 'Change from 200 Period SMA (60m) >', suf: '%' },
+  'min_dist_sma_5': { label: 'Change from SMA 5 (Intraday) >', suf: '%' },
+  'min_dist_sma_5_15m': { label: 'Change from 5 Period SMA (15m) >', suf: '%' },
+  'min_dist_sma_5_2m': { label: 'Change from 5 Period SMA (2m) >', suf: '%' },
+  'min_dist_sma_5_5m': { label: 'Change from 5 Period SMA (5m) >', suf: '%' },
+  'min_dist_sma_5_60m': { label: 'Change from 5 Period SMA (60m) >', suf: '%' },
+  'min_dist_sma_50': { label: 'Change from SMA 50 (Intraday) >', suf: '%' },
+  'min_dist_sma_8': { label: 'Change from SMA 8 (Intraday) >', suf: '%' },
+  'min_dist_sma_8_15m': { label: 'Change from 8 Period SMA (15m) >', suf: '%' },
+  'min_dist_sma_8_2m': { label: 'Change from 8 Period SMA (2m) >', suf: '%' },
+  'min_dist_sma_8_5m': { label: 'Change from 8 Period SMA (5m) >', suf: '%' },
+  'min_dist_sma_8_60m': { label: 'Change from 8 Period SMA (60m) >', suf: '%' },
+  'min_distance_from_nbbo': { label: 'Distance from Inside Market >', suf: '%' },
+  'min_dollar_volume': { label: 'Dollar Volume >', suf: '$' },
+  'min_ema_20': { label: 'EMA 20 >', suf: '$' },
+  'min_ema_50': { label: 'EMA 50 >', suf: '$' },
+  'min_float_shares': { label: 'Float >', suf: '' },
+  'min_float_turnover': { label: 'Float Turnover >', suf: 'x' },
+  'min_from_52w_high': { label: 'From 52 Week High % >', suf: '%' },
+  'min_from_52w_low': { label: 'From 52 Week Low % >', suf: '%' },
+  'min_gap_dollars': { label: 'Gap $ >', suf: '$' },
+  'min_gap_percent': { label: 'Gap % >', suf: '%' },
+  'min_gap_ratio': { label: 'Gap (ATR) >', suf: 'x' },
+  'min_high_52w': { label: '52 Week High >', suf: '$' },
+  'min_low_52w': { label: '52 Week Low >', suf: '$' },
+  'min_lr_divergence_130': { label: 'Linear Regression Divergence >', suf: '%' },
+  'min_macd_hist': { label: 'MACD Histogram >', suf: '' },
+  'min_macd_line': { label: 'MACD Line >', suf: '' },
+  'min_market_cap': { label: 'Market Cap >', suf: '$' },
+  'min_minute_volume': { label: 'Minute Volume >', suf: '' },
+  'min_plus_di_minus_di': { label: 'Directional Indicator (+DI - -DI) >', suf: '' },
+  'min_pos_in_10d_range': { label: 'Position in 10 Day Range >', suf: '%' },
+  'min_pos_in_20d_range': { label: 'Position in 20 Day Range >', suf: '%' },
+  'min_pos_in_2y_range': { label: 'Position in 2 Year Range >', suf: '%' },
+  'min_pos_in_3m_range': { label: 'Position in 3 Month Range >', suf: '%' },
+  'min_pos_in_52w_range': { label: 'Position in 52 Week Range >', suf: '%' },
+  'min_pos_in_5d_range': { label: 'Position in 5 Day Range >', suf: '%' },
+  'min_pos_in_6m_range': { label: 'Position in 6 Month Range >', suf: '%' },
+  'min_pos_in_9m_range': { label: 'Position in 9 Month Range >', suf: '%' },
+  'min_pos_in_consolidation': { label: 'Position in Consolidation >', suf: '%' },
+  'min_pos_in_lifetime_range': { label: 'Position in Lifetime Range >', suf: '%' },
+  'min_pos_in_premarket_range': { label: 'Position in Pre-Market Range >', suf: '%' },
+  'min_pos_in_range': { label: 'Position in Range (Today) >', suf: '%' },
+  'min_pos_in_range_15m': { label: 'Position in 15 Minute Range >', suf: '%' },
+  'min_pos_in_range_30m': { label: 'Position in 30 Minute Range >', suf: '%' },
+  'min_pos_in_range_5m': { label: 'Position in 5 Minute Range >', suf: '%' },
+  'min_pos_in_range_60m': { label: 'Position in 60 Minute Range >', suf: '%' },
+  'min_pos_of_open': { label: 'Position of Open >', suf: '%' },
+  'min_postmarket_change_dollars': { label: 'Change Post-Market $ >', suf: '$' },
+  'min_postmarket_change_percent': { label: 'Change Post-Market % >', suf: '%' },
+  'min_postmarket_volume': { label: 'Post-Market Volume >', suf: '' },
+  'min_premarket_change_percent': { label: 'Change Pre-Market % >', suf: '%' },
+  'min_prev_day_volume': { label: 'Previous Day Volume >', suf: '' },
+  'min_price': { label: 'Price >', suf: '$' },
+  'min_price_from_high': { label: 'From High % >', suf: '%' },
+  'min_price_from_intraday_high': { label: 'From Intraday High % >', suf: '%' },
+  'min_price_from_intraday_low': { label: 'From Intraday Low % >', suf: '%' },
+  'min_price_from_low': { label: 'From Low % >', suf: '%' },
+  'min_range_10d': { label: '10 Day Range $ >', suf: '$' },
+  'min_range_10d_pct': { label: '10 Day Range % >', suf: '%' },
+  'min_range_120min': { label: '120 Minute Range $ >', suf: '$' },
+  'min_range_120min_pct': { label: '120 Minute Range % >', suf: '%' },
+  'min_range_15min': { label: '15 Minute Range $ >', suf: '$' },
+  'min_range_15min_pct': { label: '15 Minute Range % >', suf: '%' },
+  'min_range_20d': { label: '20 Day Range $ >', suf: '$' },
+  'min_range_20d_pct': { label: '20 Day Range % >', suf: '%' },
+  'min_range_2min': { label: '2 Minute Range $ >', suf: '$' },
+  'min_range_2min_pct': { label: '2 Minute Range % >', suf: '%' },
+  'min_range_30min': { label: '30 Minute Range $ >', suf: '$' },
+  'min_range_30min_pct': { label: '30 Minute Range % >', suf: '%' },
+  'min_range_5d': { label: '5 Day Range $ >', suf: '$' },
+  'min_range_5d_pct': { label: '5 Day Range % >', suf: '%' },
+  'min_range_5min': { label: '5 Minute Range $ >', suf: '$' },
+  'min_range_5min_pct': { label: '5 Minute Range % >', suf: '%' },
+  'min_range_60min': { label: '60 Minute Range $ >', suf: '$' },
+  'min_range_60min_pct': { label: '60 Minute Range % >', suf: '%' },
+  'min_range_contraction': { label: 'Range Contraction >', suf: '' },
+  'min_rsi': { label: 'RSI (1m) >', suf: '' },
+  'min_rsi_15m': { label: '15 Minute RSI >', suf: '' },
+  'min_rsi_2m': { label: '2 Minute RSI >', suf: '' },
+  'min_rsi_5m': { label: '5 Minute RSI >', suf: '' },
+  'min_rsi_60m': { label: '60 Minute RSI >', suf: '' },
+  'min_rvol': { label: 'Relative Volume >', suf: 'x' },
+  'min_shares_outstanding': { label: 'Shares Outstanding >', suf: '' },
+  'min_sma_20': { label: 'SMA 20 >', suf: '$' },
+  'min_sma_20_vs_200_15m': { label: '20 vs. 200 Period SMA (15m) >', suf: '%' },
+  'min_sma_20_vs_200_2m': { label: '20 vs. 200 Period SMA (2m) >', suf: '%' },
+  'min_sma_20_vs_200_5m': { label: '20 vs. 200 Period SMA (5m) >', suf: '%' },
+  'min_sma_20_vs_200_60m': { label: '20 vs. 200 Period SMA (60m) >', suf: '%' },
+  'min_sma_200': { label: 'SMA 200 >', suf: '$' },
+  'min_sma_5': { label: 'SMA 5 >', suf: '$' },
+  'min_sma_50': { label: 'SMA 50 >', suf: '$' },
+  'min_sma_8': { label: 'SMA 8 >', suf: '$' },
+  'min_sma_8_vs_20_15m': { label: '8 vs. 20 Period SMA (15m) >', suf: '%' },
+  'min_sma_8_vs_20_2m': { label: '8 vs. 20 Period SMA (2m) >', suf: '%' },
+  'min_sma_8_vs_20_5m': { label: '8 vs. 20 Period SMA (5m) >', suf: '%' },
+  'min_sma_8_vs_20_60m': { label: '8 vs. 20 Period SMA (60m) >', suf: '%' },
+  'min_spread': { label: 'Spread >', suf: '$' },
+  'min_stoch_d': { label: 'Stochastic %D >', suf: '' },
+  'min_stoch_k': { label: 'Stochastic %K >', suf: '' },
+  'min_trades_today': { label: 'Average Number of Prints >', suf: '' },
+  'min_trades_z_score': { label: 'Trades Z-Score >', suf: '' },
+  'min_vol_10min': { label: 'Volume 10 Minute >', suf: '' },
+  'min_vol_10min_pct': { label: 'Average Volume 10m % >', suf: '%' },
+  'min_vol_15min': { label: 'Volume 15 Minute >', suf: '' },
+  'min_vol_15min_pct': { label: 'Average Volume 15m % >', suf: '%' },
+  'min_vol_1min': { label: 'Volume 1 Minute >', suf: '' },
+  'min_vol_1min_pct': { label: 'Average Volume 1m % >', suf: '%' },
+  'min_vol_30min': { label: 'Volume 30 Minute >', suf: '' },
+  'min_vol_30min_pct': { label: 'Average Volume 30m % >', suf: '%' },
+  'min_vol_5min': { label: 'Volume 5 Minute >', suf: '' },
+  'min_vol_5min_pct': { label: 'Average Volume 5m % >', suf: '%' },
+  'min_volume': { label: 'Volume Today >', suf: '' },
+  'min_volume_today_pct': { label: 'Volume Today % >', suf: '%' },
+  'min_volume_yesterday_pct': { label: 'Volume Yesterday % >', suf: '%' },
+  'min_vwap': { label: 'VWAP >', suf: '$' },
+  'min_yearly_std_dev': { label: 'Yearly Standard Deviation >', suf: '$' },
+  'sector': { label: 'Sector', suf: '' },
+  'security_type': { label: 'Type', suf: '' },
+};
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
 function fmtFilter(key: string, val: number): string {
+  const meta = FILTER_META[key];
+  if (!meta) return String(val);
   const fmtLarge = (v: number, prefix = '') => {
     const a = Math.abs(v);
     if (a >= 1e9) return `${prefix}${parseFloat((v / 1e9).toPrecision(3))}B`;
@@ -93,102 +542,21 @@ function fmtFilter(key: string, val: number): string {
     if (a >= 1e3) return `${prefix}${parseFloat((v / 1e3).toPrecision(3))}K`;
     return `${prefix}${v}`;
   };
-  if (key.includes('market_cap') || key.includes('dollar_volume')) return fmtLarge(val, '$');
-  if (key.includes('float') || key.includes('shares_outstanding') || key.includes('bid_size') || key.includes('ask_size')) return fmtLarge(val);
-  if (key.includes('price') && !key.includes('percent') || key.includes('vwap') || key.includes('ema_') || key.includes('sma_') || key.includes('_atr') && !key.includes('percent')) return `$${val}`;
-  if (key.includes('rvol')) return `${val}x`;
-  if (key.includes('rsi')) return String(val);
-  if (key.includes('percent') || key.includes('gap') || key.includes('atr') || key.includes('from_open') || key.includes('chg_') || key.includes('spread') || key.includes('nbbo') || key.includes('volatility') || key.includes('short_interest') || key.includes('today_pct') || key.includes('from_high')) return `${val}%`;
-  if (key.includes('volume') || key.includes('vol_')) return fmtLarge(val);
-  if (key.includes('range') && !key.includes('_pct')) return `$${val}`;
-  if (key.includes('range') && key.includes('_pct')) return `${val}%`;
-  return String(val);
+  switch (meta.suf) {
+    case '%': return `${val}%`;
+    case '$': return (Math.abs(val) >= 1e3) ? fmtLarge(val, '$') : `$${val}`;
+    case 'x': return `${val}x`;
+    default:  return (Math.abs(val) >= 1e3) ? fmtLarge(val) : String(val);
+  }
 }
 
 function filtersToDisplay(filters: Record<string, any>): string[] {
-  const labels: Record<string, string> = {
-    // String filters
-    security_type: 'Type',
-    sector: 'Sector',
-    industry: 'Industry',
-    // Numeric filters
-    min_price: 'Price >', max_price: 'Price <',
-    min_vwap: 'VWAP >', max_vwap: 'VWAP <',
-    min_spread: 'Spread >', max_spread: 'Spread <',
-    min_bid_size: 'Bid >', max_bid_size: 'Bid <',
-    min_ask_size: 'Ask >', max_ask_size: 'Ask <',
-    min_distance_from_nbbo: 'NBBO >', max_distance_from_nbbo: 'NBBO <',
-    min_change_percent: 'Change % >', max_change_percent: 'Change % <',
-    min_change_from_open: 'From Open >', max_change_from_open: 'From Open <',
-    min_gap_percent: 'Gap % >', max_gap_percent: 'Gap % <',
-    min_premarket_change_percent: 'Pre-Market >', max_premarket_change_percent: 'Pre-Market <',
-    min_postmarket_change_percent: 'Post-Market >', max_postmarket_change_percent: 'Post-Market <',
-    min_price_from_high: 'From High >', max_price_from_high: 'From High <',
-    min_price_from_low: 'From Low >', max_price_from_low: 'From Low <',
-    min_price_from_intraday_high: 'From Intra Hi >', max_price_from_intraday_high: 'From Intra Hi <',
-    min_price_from_intraday_low: 'From Intra Lo >', max_price_from_intraday_low: 'From Intra Lo <',
-    min_change_from_open_dollars: 'Open $ >', max_change_from_open_dollars: 'Open $ <',
-    min_rvol: 'RVOL >', max_rvol: 'RVOL <',
-    min_volume: 'Vol >', max_volume: 'Vol <',
-    min_avg_volume_5d: 'Avg Vol 5D >', max_avg_volume_5d: 'Avg Vol 5D <',
-    min_avg_volume_10d: 'Avg Vol 10D >', max_avg_volume_10d: 'Avg Vol 10D <',
-    min_avg_volume_3m: 'Avg Vol 3M >', max_avg_volume_3m: 'Avg Vol 3M <',
-    min_dollar_volume: 'Dollar Vol >', max_dollar_volume: 'Dollar Vol <',
-    min_volume_today_pct: 'Vol Today % >', max_volume_today_pct: 'Vol Today % <',
-    min_vol_1min: 'Vol 1m >', max_vol_1min: 'Vol 1m <',
-    min_vol_5min: 'Vol 5m >', max_vol_5min: 'Vol 5m <',
-    min_vol_1min_pct: 'Vol 1m % >', max_vol_1min_pct: 'Vol 1m % <',
-    min_vol_5min_pct: 'Vol 5m % >', max_vol_5min_pct: 'Vol 5m % <',
-    min_vol_10min_pct: 'Vol 10m % >', max_vol_10min_pct: 'Vol 10m % <',
-    min_vol_15min_pct: 'Vol 15m % >', max_vol_15min_pct: 'Vol 15m % <',
-    min_vol_30min_pct: 'Vol 30m % >', max_vol_30min_pct: 'Vol 30m % <',
-    min_range_2min: 'Range 2m $ >', max_range_2min: 'Range 2m $ <',
-    min_range_5min: 'Range 5m $ >', max_range_5min: 'Range 5m $ <',
-    min_range_15min: 'Range 15m $ >', max_range_15min: 'Range 15m $ <',
-    min_range_30min: 'Range 30m $ >', max_range_30min: 'Range 30m $ <',
-    min_range_60min: 'Range 60m $ >', max_range_60min: 'Range 60m $ <',
-    min_range_120min: 'Range 120m $ >', max_range_120min: 'Range 120m $ <',
-    min_range_2min_pct: 'Range 2m % >', max_range_2min_pct: 'Range 2m % <',
-    min_range_5min_pct: 'Range 5m % >', max_range_5min_pct: 'Range 5m % <',
-    min_range_15min_pct: 'Range 15m % >', max_range_15min_pct: 'Range 15m % <',
-    min_range_30min_pct: 'Range 30m % >', max_range_30min_pct: 'Range 30m % <',
-    min_range_60min_pct: 'Range 60m % >', max_range_60min_pct: 'Range 60m % <',
-    min_range_120min_pct: 'Range 120m % >', max_range_120min_pct: 'Range 120m % <',
-    min_chg_1min: 'Chg 1m >', max_chg_1min: 'Chg 1m <',
-    min_chg_5min: 'Chg 5m >', max_chg_5min: 'Chg 5m <',
-    min_chg_10min: 'Chg 10m >', max_chg_10min: 'Chg 10m <',
-    min_chg_15min: 'Chg 15m >', max_chg_15min: 'Chg 15m <',
-    min_chg_30min: 'Chg 30m >', max_chg_30min: 'Chg 30m <',
-    min_atr: 'ATR >', max_atr: 'ATR <',
-    min_atr_percent: 'ATR % >', max_atr_percent: 'ATR % <',
-    min_volatility: 'Volatility >', max_volatility: 'Volatility <',
-    min_rsi: 'RSI >', max_rsi: 'RSI <',
-    min_ema_20: 'EMA20 >', max_ema_20: 'EMA20 <',
-    min_ema_50: 'EMA50 >', max_ema_50: 'EMA50 <',
-    min_market_cap: 'Market Cap >', max_market_cap: 'Market Cap <',
-    min_float_shares: 'Float >', max_float_shares: 'Float <',
-    min_shares_outstanding: 'Shares Out >', max_shares_outstanding: 'Shares Out <',
-    min_sma_5: 'SMA5 >', max_sma_5: 'SMA5 <',
-    min_sma_8: 'SMA8 >', max_sma_8: 'SMA8 <',
-    min_sma_20: 'SMA20 >', max_sma_20: 'SMA20 <',
-    min_sma_50: 'SMA50 >', max_sma_50: 'SMA50 <',
-    min_sma_200: 'SMA200 >', max_sma_200: 'SMA200 <',
-    min_macd_line: 'MACD >', max_macd_line: 'MACD <',
-    min_macd_hist: 'MACD Hist >', max_macd_hist: 'MACD Hist <',
-    min_stoch_k: 'Stoch %K >', max_stoch_k: 'Stoch %K <',
-    min_stoch_d: 'Stoch %D >', max_stoch_d: 'Stoch %D <',
-    min_adx_14: 'ADX >', max_adx_14: 'ADX <',
-    min_bb_upper: 'BB Upper >', max_bb_upper: 'BB Upper <',
-    min_bb_lower: 'BB Lower >', max_bb_lower: 'BB Lower <',
-  };
   return Object.entries(filters)
     .filter(([, v]) => v != null && (typeof v === 'number' || typeof v === 'string'))
     .map(([k, v]) => {
-      const label = labels[k] || k;
-      // Handle string filters differently (no formatting needed)
-      if (typeof v === 'string') {
-        return `${label}: ${v}`;
-      }
+      const meta = FILTER_META[k];
+      const label = meta ? meta.label : k;
+      if (typeof v === 'string') return `${label}: ${v}`;
       return `${label} ${fmtFilter(k, v as number)}`;
     });
 }
@@ -1050,109 +1418,407 @@ export function ConfigWindow({
         {/* ====== FILTERS TAB ====== */}
         {activeTab === 'filters' && (() => {
           const FG = [
+            // ═══════════════════════════════════════════════════════════
+            // PRICE & QUOTE
+            // ═══════════════════════════════════════════════════════════
             {
-              id: 'price', group: 'Price', filters: [
+              id: 'price', group: 'Price & Quote', filters: [
                 { label: 'Price', minK: 'min_price', maxK: 'max_price', suf: '$', phMin: '0.50', phMax: '500' },
-                { label: 'VWAP', minK: 'min_vwap', maxK: 'max_vwap', suf: '$', phMin: '5', phMax: '200' },
-                { label: 'Spread', minK: 'min_spread', maxK: 'max_spread', suf: '%', phMin: '0.01', phMax: '1' },
+                { label: 'Spread', minK: 'min_spread', maxK: 'max_spread', suf: '$', phMin: '0.01', phMax: '0.50' },
                 { label: 'Bid Size', minK: 'min_bid_size', maxK: 'max_bid_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
                 { label: 'Ask Size', minK: 'min_ask_size', maxK: 'max_ask_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-                { label: 'NBBO Distance', minK: 'min_distance_from_nbbo', maxK: 'max_distance_from_nbbo', suf: '%', phMin: '0', phMax: '1' },
+                { label: 'Bid / Ask Ratio', minK: 'min_bid_ask_ratio', maxK: 'max_bid_ask_ratio', suf: '', phMin: '0.5', phMax: '3' },
+                { label: 'Distance from Inside Market', minK: 'min_distance_from_nbbo', maxK: 'max_distance_from_nbbo', suf: '%', phMin: '0', phMax: '1' },
+                { label: 'Decimal', minK: 'min_decimal', maxK: 'max_decimal', suf: '', phMin: '0', phMax: '0.99' },
               ]
             },
-            {
-              id: 'change', group: 'Change', filters: [
-                { label: 'Change %', minK: 'min_change_percent', maxK: 'max_change_percent', suf: '%', phMin: '-10', phMax: '50' },
-                { label: 'Change from Open', minK: 'min_change_from_open', maxK: 'max_change_from_open', suf: '%', phMin: '-5', phMax: '20' },
-                { label: 'Gap %', minK: 'min_gap_percent', maxK: 'max_gap_percent', suf: '%', phMin: '-10', phMax: '30' },
-                { label: 'Pre-Market %', minK: 'min_premarket_change_percent', maxK: 'max_premarket_change_percent', suf: '%', phMin: '-5', phMax: '20' },
-                { label: 'Post-Market %', minK: 'min_postmarket_change_percent', maxK: 'max_postmarket_change_percent', suf: '%', phMin: '-5', phMax: '10' },
-                { label: 'From High %', minK: 'min_price_from_high', maxK: 'max_price_from_high', suf: '%', phMin: '-20', phMax: '0' },
-                { label: 'From Low %', minK: 'min_price_from_low', maxK: 'max_price_from_low', suf: '%', phMin: '0', phMax: '50' },
-                { label: 'Change Open $', minK: 'min_change_from_open_dollars', maxK: 'max_change_from_open_dollars', suf: '$', phMin: '-5', phMax: '10' },
-                { label: 'From Intraday High', minK: 'min_price_from_intraday_high', maxK: 'max_price_from_intraday_high', suf: '%', phMin: '-10', phMax: '0' },
-                { label: 'From Intraday Low', minK: 'min_price_from_intraday_low', maxK: 'max_price_from_intraday_low', suf: '%', phMin: '0', phMax: '20' },
-              ]
-            },
+            // ═══════════════════════════════════════════════════════════
+            // VOLUME
+            // ═══════════════════════════════════════════════════════════
             {
               id: 'volume', group: 'Volume', filters: [
-                { label: 'RVOL', minK: 'min_rvol', maxK: 'max_rvol', suf: 'x', phMin: '1', phMax: '10' },
-                { label: 'Volume', minK: 'min_volume', maxK: 'max_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-                { label: 'Volume 1 Min', minK: 'min_vol_1min', maxK: 'max_vol_1min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '50' },
-                { label: 'Volume 5 Min', minK: 'min_vol_5min', maxK: 'max_vol_5min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '100' },
-                { label: 'Volume 10 Min', minK: 'min_vol_10min', maxK: 'max_vol_10min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '5', phMax: '200' },
-                { label: 'Volume 15 Min', minK: 'min_vol_15min', maxK: 'max_vol_15min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-                { label: 'Volume 30 Min', minK: 'min_vol_30min', maxK: 'max_vol_30min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '20', phMax: '1000' },
-                { label: 'Volume 1m %', minK: 'min_vol_1min_pct', maxK: 'max_vol_1min_pct', suf: '%', phMin: '100', phMax: '500' },
-                { label: 'Volume 5m %', minK: 'min_vol_5min_pct', maxK: 'max_vol_5min_pct', suf: '%', phMin: '100', phMax: '500' },
-                { label: 'Volume 10m %', minK: 'min_vol_10min_pct', maxK: 'max_vol_10min_pct', suf: '%', phMin: '100', phMax: '500' },
-                { label: 'Volume 15m %', minK: 'min_vol_15min_pct', maxK: 'max_vol_15min_pct', suf: '%', phMin: '100', phMax: '500' },
-                { label: 'Volume 30m %', minK: 'min_vol_30min_pct', maxK: 'max_vol_30min_pct', suf: '%', phMin: '100', phMax: '500' },
-                { label: 'Range 2m $', minK: 'min_range_2min', maxK: 'max_range_2min', suf: '$', phMin: '0.10', phMax: '2' },
-                { label: 'Range 5m $', minK: 'min_range_5min', maxK: 'max_range_5min', suf: '$', phMin: '0.20', phMax: '5' },
-                { label: 'Range 15m $', minK: 'min_range_15min', maxK: 'max_range_15min', suf: '$', phMin: '0.50', phMax: '10' },
-                { label: 'Range 30m $', minK: 'min_range_30min', maxK: 'max_range_30min', suf: '$', phMin: '1', phMax: '15' },
-                { label: 'Range 60m $', minK: 'min_range_60min', maxK: 'max_range_60min', suf: '$', phMin: '1', phMax: '20' },
-                { label: 'Range 120m $', minK: 'min_range_120min', maxK: 'max_range_120min', suf: '$', phMin: '2', phMax: '30' },
-                { label: 'Range 2m %', minK: 'min_range_2min_pct', maxK: 'max_range_2min_pct', suf: '%', phMin: '50', phMax: '300' },
-                { label: 'Range 5m %', minK: 'min_range_5min_pct', maxK: 'max_range_5min_pct', suf: '%', phMin: '50', phMax: '300' },
-                { label: 'Range 15m %', minK: 'min_range_15min_pct', maxK: 'max_range_15min_pct', suf: '%', phMin: '50', phMax: '300' },
-                { label: 'Range 30m %', minK: 'min_range_30min_pct', maxK: 'max_range_30min_pct', suf: '%', phMin: '50', phMax: '300' },
-                { label: 'Range 60m %', minK: 'min_range_60min_pct', maxK: 'max_range_60min_pct', suf: '%', phMin: '50', phMax: '300' },
-                { label: 'Range 120m %', minK: 'min_range_120min_pct', maxK: 'max_range_120min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: 'Relative Volume', minK: 'min_rvol', maxK: 'max_rvol', suf: 'x', phMin: '1', phMax: '10' },
+                { label: 'Volume Today', minK: 'min_volume', maxK: 'max_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
                 { label: 'Volume Today %', minK: 'min_volume_today_pct', maxK: 'max_volume_today_pct', suf: '%', phMin: '50', phMax: '500' },
+                { label: 'Volume Yesterday %', minK: 'min_volume_yesterday_pct', maxK: 'max_volume_yesterday_pct', suf: '%', phMin: '50', phMax: '500' },
+                { label: 'Dollar Volume', minK: 'min_dollar_volume', maxK: 'max_dollar_volume', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '100' },
+                { label: 'Float Turnover', minK: 'min_float_turnover', maxK: 'max_float_turnover', suf: 'x', phMin: '0.01', phMax: '5' },
+                { label: 'Previous Day Volume', minK: 'min_prev_day_volume', maxK: 'max_prev_day_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '10000' },
+                { label: 'Post-Market Volume', minK: 'min_postmarket_volume', maxK: 'max_postmarket_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
               ]
             },
             {
-              id: 'windows', group: 'Time Windows', filters: [
-                { label: 'Change 1 Min', minK: 'min_chg_1min', maxK: 'max_chg_1min', suf: '%', phMin: '-2', phMax: '5' },
-                { label: 'Change 5 Min', minK: 'min_chg_5min', maxK: 'max_chg_5min', suf: '%', phMin: '-5', phMax: '10' },
-                { label: 'Change 10 Min', minK: 'min_chg_10min', maxK: 'max_chg_10min', suf: '%', phMin: '-5', phMax: '15' },
-                { label: 'Change 15 Min', minK: 'min_chg_15min', maxK: 'max_chg_15min', suf: '%', phMin: '-8', phMax: '20' },
-                { label: 'Change 30 Min', minK: 'min_chg_30min', maxK: 'max_chg_30min', suf: '%', phMin: '-10', phMax: '25' },
-                { label: 'Change 60 Min', minK: 'min_chg_60min', maxK: 'max_chg_60min', suf: '%', phMin: '-15', phMax: '30' },
+              id: 'volwindows', group: 'Volume by Minute Window', filters: [
+                { label: 'Volume 1 Minute', minK: 'min_vol_1min', maxK: 'max_vol_1min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '50' },
+                { label: 'Volume 5 Minute', minK: 'min_vol_5min', maxK: 'max_vol_5min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '100' },
+                { label: 'Volume 10 Minute', minK: 'min_vol_10min', maxK: 'max_vol_10min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '5', phMax: '200' },
+                { label: 'Volume 15 Minute', minK: 'min_vol_15min', maxK: 'max_vol_15min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
+                { label: 'Volume 30 Minute', minK: 'min_vol_30min', maxK: 'max_vol_30min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '20', phMax: '1000' },
+                { label: 'Average Volume 1m %', minK: 'min_vol_1min_pct', maxK: 'max_vol_1min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Average Volume 5m %', minK: 'min_vol_5min_pct', maxK: 'max_vol_5min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Average Volume 10m %', minK: 'min_vol_10min_pct', maxK: 'max_vol_10min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Average Volume 15m %', minK: 'min_vol_15min_pct', maxK: 'max_vol_15min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Average Volume 30m %', minK: 'min_vol_30min_pct', maxK: 'max_vol_30min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Minute Volume', minK: 'min_minute_volume', maxK: 'max_minute_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '100' },
               ]
             },
             {
-              id: 'quote', group: 'Quote', filters: [
-                { label: 'Bid', minK: 'min_bid', maxK: 'max_bid', suf: '$', phMin: '1', phMax: '500' },
-                { label: 'Ask', minK: 'min_ask', maxK: 'max_ask', suf: '$', phMin: '1', phMax: '500' },
-                { label: 'Bid Size', minK: 'min_bid_size', maxK: 'max_bid_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-                { label: 'Ask Size', minK: 'min_ask_size', maxK: 'max_ask_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-                { label: 'Spread', minK: 'min_spread', maxK: 'max_spread', suf: '$', phMin: '0.01', phMax: '0.50' },
+              id: 'avgvol', group: 'Average Daily Volume', filters: [
+                { label: 'Average Daily Volume (5D)', minK: 'min_avg_volume_5d', maxK: 'max_avg_volume_5d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Average Daily Volume (10D)', minK: 'min_avg_volume_10d', maxK: 'max_avg_volume_10d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Average Daily Volume (20D)', minK: 'min_avg_volume_20d', maxK: 'max_avg_volume_20d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Average Daily Volume (3M)', minK: 'min_avg_volume_3m', maxK: 'max_avg_volume_3m', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
               ]
             },
+            // ═══════════════════════════════════════════════════════════
+            // CHANGE FROM CLOSE / OPEN / GAP
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'change', group: 'Change from Close / Open', filters: [
+                { label: 'Change from the Close %', minK: 'min_change_percent', maxK: 'max_change_percent', suf: '%', phMin: '-10', phMax: '50' },
+                { label: 'Change from the Close $', minK: 'min_change_from_close_dollars', maxK: 'max_change_from_close_dollars', suf: '$', phMin: '-10', phMax: '20' },
+                { label: 'Change from the Close (ATR)', minK: 'min_change_from_close_ratio', maxK: 'max_change_from_close_ratio', suf: 'x', phMin: '-5', phMax: '5' },
+                { label: 'Change from the Open %', minK: 'min_change_from_open', maxK: 'max_change_from_open', suf: '%', phMin: '-5', phMax: '20' },
+                { label: 'Change from the Open $', minK: 'min_change_from_open_dollars', maxK: 'max_change_from_open_dollars', suf: '$', phMin: '-5', phMax: '10' },
+                { label: 'Change from the Open (ATR)', minK: 'min_change_from_open_ratio', maxK: 'max_change_from_open_ratio', suf: 'x', phMin: '-5', phMax: '5' },
+                { label: 'Change from the Open Weighted', minK: 'min_change_from_open_weighted', maxK: 'max_change_from_open_weighted', suf: '', phMin: '-3', phMax: '3' },
+              ]
+            },
+            {
+              id: 'gap', group: 'Gap', filters: [
+                { label: 'Gap %', minK: 'min_gap_percent', maxK: 'max_gap_percent', suf: '%', phMin: '-10', phMax: '30' },
+                { label: 'Gap $', minK: 'min_gap_dollars', maxK: 'max_gap_dollars', suf: '$', phMin: '-5', phMax: '10' },
+                { label: 'Gap (ATR)', minK: 'min_gap_ratio', maxK: 'max_gap_ratio', suf: 'x', phMin: '-3', phMax: '5' },
+              ]
+            },
+            {
+              id: 'prepost', group: 'Pre-Market / Post-Market', filters: [
+                { label: 'Change Pre-Market %', minK: 'min_premarket_change_percent', maxK: 'max_premarket_change_percent', suf: '%', phMin: '-5', phMax: '20' },
+                { label: 'Change Post-Market %', minK: 'min_postmarket_change_percent', maxK: 'max_postmarket_change_percent', suf: '%', phMin: '-5', phMax: '10' },
+                { label: 'Change Post-Market $', minK: 'min_postmarket_change_dollars', maxK: 'max_postmarket_change_dollars', suf: '$', phMin: '-5', phMax: '5' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // INTRADAY CHANGE BY MINUTE
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'chgminute', group: 'Change by Minute', filters: [
+                { label: 'Change 1 Minute', minK: 'min_chg_1min', maxK: 'max_chg_1min', suf: '%', phMin: '-2', phMax: '5' },
+                { label: 'Change 2 Minute', minK: 'min_chg_2min', maxK: 'max_chg_2min', suf: '%', phMin: '-3', phMax: '7' },
+                { label: 'Change 5 Minute', minK: 'min_chg_5min', maxK: 'max_chg_5min', suf: '%', phMin: '-5', phMax: '10' },
+                { label: 'Change 10 Minute', minK: 'min_chg_10min', maxK: 'max_chg_10min', suf: '%', phMin: '-5', phMax: '15' },
+                { label: 'Change 15 Minute', minK: 'min_chg_15min', maxK: 'max_chg_15min', suf: '%', phMin: '-8', phMax: '20' },
+                { label: 'Change 30 Minute', minK: 'min_chg_30min', maxK: 'max_chg_30min', suf: '%', phMin: '-10', phMax: '25' },
+                { label: 'Change 60 Minute', minK: 'min_chg_60min', maxK: 'max_chg_60min', suf: '%', phMin: '-15', phMax: '30' },
+                { label: 'Change 120 Minute', minK: 'min_chg_120min', maxK: 'max_chg_120min', suf: '%', phMin: '-20', phMax: '40' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // MULTI-DAY CHANGE
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'multiday', group: 'Change in Days %', filters: [
+                { label: 'Change Previous Day', minK: 'min_change_1d', maxK: 'max_change_1d', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change in 3 Days', minK: 'min_change_3d', maxK: 'max_change_3d', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Change in 5 Days', minK: 'min_change_5d', maxK: 'max_change_5d', suf: '%', phMin: '-20', phMax: '50' },
+                { label: 'Change in 10 Days', minK: 'min_change_10d', maxK: 'max_change_10d', suf: '%', phMin: '-30', phMax: '100' },
+                { label: 'Change in 20 Days', minK: 'min_change_20d', maxK: 'max_change_20d', suf: '%', phMin: '-50', phMax: '200' },
+              ]
+            },
+            {
+              id: 'multidaychgdollars', group: 'Change in Days $', filters: [
+                { label: 'Change in 5 Days $', minK: 'min_change_5d_dollars', maxK: 'max_change_5d_dollars', suf: '$', phMin: '-10', phMax: '10' },
+                { label: 'Change in 10 Days $', minK: 'min_change_10d_dollars', maxK: 'max_change_10d_dollars', suf: '$', phMin: '-20', phMax: '20' },
+                { label: 'Change in 20 Days $', minK: 'min_change_20d_dollars', maxK: 'max_change_20d_dollars', suf: '$', phMin: '-30', phMax: '30' },
+              ]
+            },
+            {
+              id: 'longterm', group: 'Long-Term Change', filters: [
+                { label: 'Change in 1 Year %', minK: 'min_change_1y', maxK: 'max_change_1y', suf: '%', phMin: '-50', phMax: '200' },
+                { label: 'Change in 1 Year $', minK: 'min_change_1y_dollars', maxK: 'max_change_1y_dollars', suf: '$', phMin: '-50', phMax: '100' },
+                { label: 'Change Since January 1 %', minK: 'min_change_ytd', maxK: 'max_change_ytd', suf: '%', phMin: '-30', phMax: '100' },
+                { label: 'Change Since January 1 $', minK: 'min_change_ytd_dollars', maxK: 'max_change_ytd_dollars', suf: '$', phMin: '-20', phMax: '50' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // VOLATILITY & RANGE
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'volatility', group: 'Volatility', filters: [
+                { label: 'Average True Range', minK: 'min_atr', maxK: 'max_atr', suf: '$', phMin: '0.1', phMax: '5' },
+                { label: 'Average True Range %', minK: 'min_atr_percent', maxK: 'max_atr_percent', suf: '%', phMin: '2', phMax: '10' },
+                { label: 'Yearly Standard Deviation', minK: 'min_yearly_std_dev', maxK: 'max_yearly_std_dev', suf: '$', phMin: '0.5', phMax: '10' },
+                { label: 'Standard Deviation (Bollinger)', minK: 'min_bb_std_dev', maxK: 'max_bb_std_dev', suf: '$', phMin: '0.01', phMax: '5' },
+                { label: 'Daily ATR %', minK: 'min_daily_atr_percent', maxK: 'max_daily_atr_percent', suf: '%', phMin: '1', phMax: '15' },
+              ]
+            },
+            {
+              id: 'todayrange', group: "Today's Range", filters: [
+                { label: "Today's Range $", minK: 'min_todays_range', maxK: 'max_todays_range', suf: '$', phMin: '0.1', phMax: '10' },
+                { label: "Today's Range %", minK: 'min_todays_range_pct', maxK: 'max_todays_range_pct', suf: '%', phMin: '1', phMax: '20' },
+              ]
+            },
+            {
+              id: 'minuterange', group: 'Minute Range $', filters: [
+                { label: '2 Minute Range $', minK: 'min_range_2min', maxK: 'max_range_2min', suf: '$', phMin: '0.10', phMax: '2' },
+                { label: '5 Minute Range $', minK: 'min_range_5min', maxK: 'max_range_5min', suf: '$', phMin: '0.20', phMax: '5' },
+                { label: '15 Minute Range $', minK: 'min_range_15min', maxK: 'max_range_15min', suf: '$', phMin: '0.50', phMax: '10' },
+                { label: '30 Minute Range $', minK: 'min_range_30min', maxK: 'max_range_30min', suf: '$', phMin: '1', phMax: '15' },
+                { label: '60 Minute Range $', minK: 'min_range_60min', maxK: 'max_range_60min', suf: '$', phMin: '1', phMax: '20' },
+                { label: '120 Minute Range $', minK: 'min_range_120min', maxK: 'max_range_120min', suf: '$', phMin: '2', phMax: '30' },
+              ]
+            },
+            {
+              id: 'minuterangepct', group: 'Minute Range %', filters: [
+                { label: '2 Minute Range %', minK: 'min_range_2min_pct', maxK: 'max_range_2min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: '5 Minute Range %', minK: 'min_range_5min_pct', maxK: 'max_range_5min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: '15 Minute Range %', minK: 'min_range_15min_pct', maxK: 'max_range_15min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: '30 Minute Range %', minK: 'min_range_30min_pct', maxK: 'max_range_30min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: '60 Minute Range %', minK: 'min_range_60min_pct', maxK: 'max_range_60min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: '120 Minute Range %', minK: 'min_range_120min_pct', maxK: 'max_range_120min_pct', suf: '%', phMin: '50', phMax: '300' },
+              ]
+            },
+            {
+              id: 'multidayrange', group: 'Multi-Day Range $', filters: [
+                { label: '5 Day Range $', minK: 'min_range_5d', maxK: 'max_range_5d', suf: '$', phMin: '0.5', phMax: '20' },
+                { label: '10 Day Range $', minK: 'min_range_10d', maxK: 'max_range_10d', suf: '$', phMin: '1', phMax: '30' },
+                { label: '20 Day Range $', minK: 'min_range_20d', maxK: 'max_range_20d', suf: '$', phMin: '2', phMax: '50' },
+              ]
+            },
+            {
+              id: 'multidayrangepct', group: 'Multi-Day Range %', filters: [
+                { label: '5 Day Range %', minK: 'min_range_5d_pct', maxK: 'max_range_5d_pct', suf: '%', phMin: '50', phMax: '500' },
+                { label: '10 Day Range %', minK: 'min_range_10d_pct', maxK: 'max_range_10d_pct', suf: '%', phMin: '100', phMax: '800' },
+                { label: '20 Day Range %', minK: 'min_range_20d_pct', maxK: 'max_range_20d_pct', suf: '%', phMin: '150', phMax: '1200' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // POSITION IN RANGE
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'posrange', group: 'Position in Range', filters: [
+                { label: 'Position in Range (Today)', minK: 'min_pos_in_range', maxK: 'max_pos_in_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: "Position in Previous Day's Range", minK: 'min_pos_in_prev_day_range', maxK: 'max_pos_in_prev_day_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 5 Day Range', minK: 'min_pos_in_5d_range', maxK: 'max_pos_in_5d_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 10 Day Range', minK: 'min_pos_in_10d_range', maxK: 'max_pos_in_10d_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 20 Day Range', minK: 'min_pos_in_20d_range', maxK: 'max_pos_in_20d_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 52 Week Range', minK: 'min_pos_in_52w_range', maxK: 'max_pos_in_52w_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 3 Month Range', minK: 'min_pos_in_3m_range', maxK: 'max_pos_in_3m_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 6 Month Range', minK: 'min_pos_in_6m_range', maxK: 'max_pos_in_6m_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 9 Month Range', minK: 'min_pos_in_9m_range', maxK: 'max_pos_in_9m_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 2 Year Range', minK: 'min_pos_in_2y_range', maxK: 'max_pos_in_2y_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in Lifetime Range', minK: 'min_pos_in_lifetime_range', maxK: 'max_pos_in_lifetime_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in Pre-Market Range', minK: 'min_pos_in_premarket_range', maxK: 'max_pos_in_premarket_range', suf: '%', phMin: '0', phMax: '100' },
+              ]
+            },
+            {
+              id: 'tfrange', group: 'Position in Minute Range', filters: [
+                { label: 'Position in 5 Minute Range', minK: 'min_pos_in_range_5m', maxK: 'max_pos_in_range_5m', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 15 Minute Range', minK: 'min_pos_in_range_15m', maxK: 'max_pos_in_range_15m', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 30 Minute Range', minK: 'min_pos_in_range_30m', maxK: 'max_pos_in_range_30m', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in 60 Minute Range', minK: 'min_pos_in_range_60m', maxK: 'max_pos_in_range_60m', suf: '%', phMin: '0', phMax: '100' },
+              ]
+            },
+            {
+              id: 'highlow', group: 'High / Low', filters: [
+                { label: 'Below High', minK: 'min_below_high', maxK: 'max_below_high', suf: '$', phMin: '0', phMax: '5' },
+                { label: 'Above Low', minK: 'min_above_low', maxK: 'max_above_low', suf: '$', phMin: '0', phMax: '5' },
+                { label: 'Below Pre-Market High', minK: 'min_below_premarket_high', maxK: 'max_below_premarket_high', suf: '$', phMin: '0', phMax: '5' },
+                { label: 'Above Pre-Market Low', minK: 'min_above_premarket_low', maxK: 'max_above_premarket_low', suf: '$', phMin: '0', phMax: '5' },
+                { label: 'From Intraday High %', minK: 'min_price_from_intraday_high', maxK: 'max_price_from_intraday_high', suf: '%', phMin: '-10', phMax: '0' },
+                { label: 'From Intraday Low %', minK: 'min_price_from_intraday_low', maxK: 'max_price_from_intraday_low', suf: '%', phMin: '0', phMax: '20' },
+                { label: 'From High %', minK: 'min_price_from_high', maxK: 'max_price_from_high', suf: '%', phMin: '-20', phMax: '0' },
+                { label: 'From Low %', minK: 'min_price_from_low', maxK: 'max_price_from_low', suf: '%', phMin: '0', phMax: '50' },
+                { label: 'Position of Open', minK: 'min_pos_of_open', maxK: 'max_pos_of_open', suf: '%', phMin: '0', phMax: '100' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // CONSECUTIVE CANDLES / DAYS
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'consec', group: 'Consecutive Candles', filters: [
+                { label: 'Consecutive Candles (1m)', minK: 'min_consecutive_candles', maxK: 'max_consecutive_candles', suf: '', phMin: '-10', phMax: '10' },
+                { label: 'Consecutive Candles (2m)', minK: 'min_consecutive_candles_2m', maxK: 'max_consecutive_candles_2m', suf: '', phMin: '-10', phMax: '10' },
+                { label: 'Consecutive Candles (5m)', minK: 'min_consecutive_candles_5m', maxK: 'max_consecutive_candles_5m', suf: '', phMin: '-10', phMax: '10' },
+                { label: 'Consecutive Candles (10m)', minK: 'min_consecutive_candles_10m', maxK: 'max_consecutive_candles_10m', suf: '', phMin: '-10', phMax: '10' },
+                { label: 'Consecutive Candles (15m)', minK: 'min_consecutive_candles_15m', maxK: 'max_consecutive_candles_15m', suf: '', phMin: '-10', phMax: '10' },
+                { label: 'Consecutive Candles (30m)', minK: 'min_consecutive_candles_30m', maxK: 'max_consecutive_candles_30m', suf: '', phMin: '-10', phMax: '10' },
+                { label: 'Consecutive Candles (60m)', minK: 'min_consecutive_candles_60m', maxK: 'max_consecutive_candles_60m', suf: '', phMin: '-10', phMax: '10' },
+              ]
+            },
+            {
+              id: 'consecdays', group: 'Consecutive Days', filters: [
+                { label: 'Consecutive Days Up/Down', minK: 'min_consecutive_days_up', maxK: 'max_consecutive_days_up', suf: '', phMin: '-5', phMax: '5' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // PIVOT POINTS & VWAP
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'pivot', group: 'Pivot Points', filters: [
+                { label: 'Distance from Pivot', minK: 'min_dist_pivot', maxK: 'max_dist_pivot', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Distance from Pivot R1', minK: 'min_dist_pivot_r1', maxK: 'max_dist_pivot_r1', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Distance from Pivot R2', minK: 'min_dist_pivot_r2', maxK: 'max_dist_pivot_r2', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Distance from Pivot S1', minK: 'min_dist_pivot_s1', maxK: 'max_dist_pivot_s1', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Distance from Pivot S2', minK: 'min_dist_pivot_s2', maxK: 'max_dist_pivot_s2', suf: '%', phMin: '-5', phMax: '5' },
+              ]
+            },
+            {
+              id: 'vwap', group: 'VWAP', filters: [
+                { label: 'VWAP', minK: 'min_vwap', maxK: 'max_vwap', suf: '$', phMin: '5', phMax: '200' },
+                { label: 'Distance from VWAP', minK: 'min_dist_from_vwap', maxK: 'max_dist_from_vwap', suf: '%', phMin: '-10', phMax: '10' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // INTRADAY TECHNICAL INDICATORS
+            // ═══════════════════════════════════════════════════════════
             {
               id: 'tech', group: 'Intraday Technical', filters: [
-                { label: 'ATR (14)', minK: 'min_atr', maxK: 'max_atr', suf: '$', phMin: '0.1', phMax: '5' },
-                { label: 'ATR %', minK: 'min_atr_percent', maxK: 'max_atr_percent', suf: '%', phMin: '2', phMax: '10' },
-                { label: 'RSI', minK: 'min_rsi', maxK: 'max_rsi', suf: '', phMin: '20', phMax: '80' },
-                { label: 'EMA 20', minK: 'min_ema_20', maxK: 'max_ema_20', suf: '$', phMin: '5', phMax: '500' },
-                { label: 'EMA 50', minK: 'min_ema_50', maxK: 'max_ema_50', suf: '$', phMin: '5', phMax: '500' },
+                { label: 'RSI (1m)', minK: 'min_rsi', maxK: 'max_rsi', suf: '', phMin: '20', phMax: '80' },
                 { label: 'SMA 5', minK: 'min_sma_5', maxK: 'max_sma_5', suf: '$', phMin: '1', phMax: '500' },
                 { label: 'SMA 8', minK: 'min_sma_8', maxK: 'max_sma_8', suf: '$', phMin: '1', phMax: '500' },
                 { label: 'SMA 20', minK: 'min_sma_20', maxK: 'max_sma_20', suf: '$', phMin: '5', phMax: '500' },
                 { label: 'SMA 50', minK: 'min_sma_50', maxK: 'max_sma_50', suf: '$', phMin: '5', phMax: '500' },
                 { label: 'SMA 200', minK: 'min_sma_200', maxK: 'max_sma_200', suf: '$', phMin: '5', phMax: '500' },
-                { label: 'MACD', minK: 'min_macd_line', maxK: 'max_macd_line', suf: '', phMin: '-5', phMax: '5' },
-                { label: 'MACD Hist', minK: 'min_macd_hist', maxK: 'max_macd_hist', suf: '', phMin: '-2', phMax: '2' },
+                { label: 'EMA 20', minK: 'min_ema_20', maxK: 'max_ema_20', suf: '$', phMin: '5', phMax: '500' },
+                { label: 'EMA 50', minK: 'min_ema_50', maxK: 'max_ema_50', suf: '$', phMin: '5', phMax: '500' },
+                { label: 'MACD Line', minK: 'min_macd_line', maxK: 'max_macd_line', suf: '', phMin: '-5', phMax: '5' },
+                { label: 'MACD Histogram', minK: 'min_macd_hist', maxK: 'max_macd_hist', suf: '', phMin: '-2', phMax: '2' },
                 { label: 'Stochastic %K', minK: 'min_stoch_k', maxK: 'max_stoch_k', suf: '', phMin: '20', phMax: '80' },
                 { label: 'Stochastic %D', minK: 'min_stoch_d', maxK: 'max_stoch_d', suf: '', phMin: '20', phMax: '80' },
-                { label: 'ADX', minK: 'min_adx_14', maxK: 'max_adx_14', suf: '', phMin: '20', phMax: '50' },
+                { label: 'ADX (Intraday)', minK: 'min_adx_14', maxK: 'max_adx_14', suf: '', phMin: '20', phMax: '50' },
                 { label: 'Bollinger Upper', minK: 'min_bb_upper', maxK: 'max_bb_upper', suf: '$', phMin: '', phMax: '' },
                 { label: 'Bollinger Lower', minK: 'min_bb_lower', maxK: 'max_bb_lower', suf: '$', phMin: '', phMax: '' },
               ]
             },
             {
-              id: 'daily', group: 'Daily Indicators', filters: [
-                { label: 'Daily SMA 20', minK: 'min_daily_sma_20', maxK: 'max_daily_sma_20', suf: '$', phMin: '', phMax: '' },
-                { label: 'Daily SMA 50', minK: 'min_daily_sma_50', maxK: 'max_daily_sma_50', suf: '$', phMin: '', phMax: '' },
-                { label: 'Daily SMA 200', minK: 'min_daily_sma_200', maxK: 'max_daily_sma_200', suf: '$', phMin: '', phMax: '' },
-                { label: 'Daily RSI', minK: 'min_daily_rsi', maxK: 'max_daily_rsi', suf: '', phMin: '20', phMax: '80' },
-                { label: '52w High', minK: 'min_high_52w', maxK: 'max_high_52w', suf: '$', phMin: '', phMax: '' },
-                { label: '52w Low', minK: 'min_low_52w', maxK: 'max_low_52w', suf: '$', phMin: '', phMax: '' },
+              id: 'tfrsi', group: 'Multi-Timeframe RSI', filters: [
+                { label: '2 Minute RSI', minK: 'min_rsi_2m', maxK: 'max_rsi_2m', suf: '', phMin: '20', phMax: '80' },
+                { label: '5 Minute RSI', minK: 'min_rsi_5m', maxK: 'max_rsi_5m', suf: '', phMin: '20', phMax: '80' },
+                { label: '15 Minute RSI', minK: 'min_rsi_15m', maxK: 'max_rsi_15m', suf: '', phMin: '20', phMax: '80' },
+                { label: '60 Minute RSI', minK: 'min_rsi_60m', maxK: 'max_rsi_60m', suf: '', phMin: '20', phMax: '80' },
               ]
             },
+            {
+              id: 'tfboll', group: 'Position in Bollinger Bands', filters: [
+                { label: 'Position in Bollinger Bands (1m)', minK: 'min_bb_position_1m', maxK: 'max_bb_position_1m', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in Bollinger Bands (5m)', minK: 'min_bb_position_5m', maxK: 'max_bb_position_5m', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in Bollinger Bands (15m)', minK: 'min_bb_position_15m', maxK: 'max_bb_position_15m', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in Bollinger Bands (60m)', minK: 'min_bb_position_60m', maxK: 'max_bb_position_60m', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Position in Bollinger Bands (Daily)', minK: 'min_daily_bb_position', maxK: 'max_daily_bb_position', suf: '%', phMin: '0', phMax: '100' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // INTRADAY SMA DISTANCE (%)
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'tfsma', group: 'Change from Period SMA (Intraday)', filters: [
+                { label: 'Change from 5 Period SMA (2m)', minK: 'min_dist_sma_5_2m', maxK: 'max_dist_sma_5_2m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 5 Period SMA (5m)', minK: 'min_dist_sma_5_5m', maxK: 'max_dist_sma_5_5m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 5 Period SMA (15m)', minK: 'min_dist_sma_5_15m', maxK: 'max_dist_sma_5_15m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 5 Period SMA (60m)', minK: 'min_dist_sma_5_60m', maxK: 'max_dist_sma_5_60m', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change from 8 Period SMA (2m)', minK: 'min_dist_sma_8_2m', maxK: 'max_dist_sma_8_2m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 8 Period SMA (5m)', minK: 'min_dist_sma_8_5m', maxK: 'max_dist_sma_8_5m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 8 Period SMA (15m)', minK: 'min_dist_sma_8_15m', maxK: 'max_dist_sma_8_15m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 8 Period SMA (60m)', minK: 'min_dist_sma_8_60m', maxK: 'max_dist_sma_8_60m', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change from 10 Period SMA (2m)', minK: 'min_dist_sma_10_2m', maxK: 'max_dist_sma_10_2m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 10 Period SMA (5m)', minK: 'min_dist_sma_10_5m', maxK: 'max_dist_sma_10_5m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 10 Period SMA (15m)', minK: 'min_dist_sma_10_15m', maxK: 'max_dist_sma_10_15m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 10 Period SMA (60m)', minK: 'min_dist_sma_10_60m', maxK: 'max_dist_sma_10_60m', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change from 20 Period SMA (2m)', minK: 'min_dist_sma_20_2m', maxK: 'max_dist_sma_20_2m', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change from 20 Period SMA (5m)', minK: 'min_dist_sma_20_5m', maxK: 'max_dist_sma_20_5m', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change from 20 Period SMA (15m)', minK: 'min_dist_sma_20_15m', maxK: 'max_dist_sma_20_15m', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change from 20 Period SMA (60m)', minK: 'min_dist_sma_20_60m', maxK: 'max_dist_sma_20_60m', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change from 130 Period SMA (15m)', minK: 'min_dist_sma_130_15m', maxK: 'max_dist_sma_130_15m', suf: '%', phMin: '-15', phMax: '15' },
+                { label: 'Change from 200 Period SMA (2m)', minK: 'min_dist_sma_200_2m', maxK: 'max_dist_sma_200_2m', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Change from 200 Period SMA (5m)', minK: 'min_dist_sma_200_5m', maxK: 'max_dist_sma_200_5m', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Change from 200 Period SMA (15m)', minK: 'min_dist_sma_200_15m', maxK: 'max_dist_sma_200_15m', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Change from 200 Period SMA (60m)', minK: 'min_dist_sma_200_60m', maxK: 'max_dist_sma_200_60m', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Change from SMA 5 (Intraday)', minK: 'min_dist_sma_5', maxK: 'max_dist_sma_5', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from SMA 8 (Intraday)', minK: 'min_dist_sma_8', maxK: 'max_dist_sma_8', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from SMA 20 (Intraday)', minK: 'min_dist_sma_20', maxK: 'max_dist_sma_20', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change from SMA 50 (Intraday)', minK: 'min_dist_sma_50', maxK: 'max_dist_sma_50', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Change from SMA 200 (Intraday)', minK: 'min_dist_sma_200', maxK: 'max_dist_sma_200', suf: '%', phMin: '-50', phMax: '50' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // SMA CROSS (INTRADAY)
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'smacross', group: '8 vs. 20 Period SMA', filters: [
+                { label: '8 vs. 20 Period SMA (2m)', minK: 'min_sma_8_vs_20_2m', maxK: 'max_sma_8_vs_20_2m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: '8 vs. 20 Period SMA (5m)', minK: 'min_sma_8_vs_20_5m', maxK: 'max_sma_8_vs_20_5m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: '8 vs. 20 Period SMA (15m)', minK: 'min_sma_8_vs_20_15m', maxK: 'max_sma_8_vs_20_15m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: '8 vs. 20 Period SMA (60m)', minK: 'min_sma_8_vs_20_60m', maxK: 'max_sma_8_vs_20_60m', suf: '%', phMin: '-5', phMax: '5' },
+              ]
+            },
+            {
+              id: 'smacross20v200', group: '20 vs. 200 Period SMA', filters: [
+                { label: '20 vs. 200 Period SMA (2m)', minK: 'min_sma_20_vs_200_2m', maxK: 'max_sma_20_vs_200_2m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: '20 vs. 200 Period SMA (5m)', minK: 'min_sma_20_vs_200_5m', maxK: 'max_sma_20_vs_200_5m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: '20 vs. 200 Period SMA (15m)', minK: 'min_sma_20_vs_200_15m', maxK: 'max_sma_20_vs_200_15m', suf: '%', phMin: '-5', phMax: '5' },
+                { label: '20 vs. 200 Period SMA (60m)', minK: 'min_sma_20_vs_200_60m', maxK: 'max_sma_20_vs_200_60m', suf: '%', phMin: '-5', phMax: '5' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // DAILY INDICATORS & SMA
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'daily', group: 'Daily SMA', filters: [
+                { label: '5 Day SMA', minK: 'min_daily_sma_5', maxK: 'max_daily_sma_5', suf: '$', phMin: '', phMax: '' },
+                { label: '8 Day SMA', minK: 'min_daily_sma_8', maxK: 'max_daily_sma_8', suf: '$', phMin: '', phMax: '' },
+                { label: '10 Day SMA', minK: 'min_daily_sma_10', maxK: 'max_daily_sma_10', suf: '$', phMin: '', phMax: '' },
+                { label: '20 Day SMA', minK: 'min_daily_sma_20', maxK: 'max_daily_sma_20', suf: '$', phMin: '', phMax: '' },
+                { label: '50 Day SMA', minK: 'min_daily_sma_50', maxK: 'max_daily_sma_50', suf: '$', phMin: '', phMax: '' },
+                { label: '200 Day SMA', minK: 'min_daily_sma_200', maxK: 'max_daily_sma_200', suf: '$', phMin: '', phMax: '' },
+              ]
+            },
+            {
+              id: 'dailysmapct', group: 'Change from Daily SMA %', filters: [
+                { label: 'Change from 5 Day SMA %', minK: 'min_dist_daily_sma_5', maxK: 'max_dist_daily_sma_5', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 8 Day SMA %', minK: 'min_dist_daily_sma_8', maxK: 'max_dist_daily_sma_8', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 10 Day SMA %', minK: 'min_dist_daily_sma_10', maxK: 'max_dist_daily_sma_10', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Change from 20 Day SMA %', minK: 'min_dist_daily_sma_20', maxK: 'max_dist_daily_sma_20', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change from 50 Day SMA %', minK: 'min_dist_daily_sma_50', maxK: 'max_dist_daily_sma_50', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Change from 200 Day SMA %', minK: 'min_dist_daily_sma_200', maxK: 'max_dist_daily_sma_200', suf: '%', phMin: '-50', phMax: '50' },
+              ]
+            },
+            {
+              id: 'dailysmadollars', group: 'Change from Daily SMA $', filters: [
+                { label: 'Change from 5 Day SMA $', minK: 'min_dist_daily_sma_5_dollars', maxK: 'max_dist_daily_sma_5_dollars', suf: '$', phMin: '-2', phMax: '2' },
+                { label: 'Change from 8 Day SMA $', minK: 'min_dist_daily_sma_8_dollars', maxK: 'max_dist_daily_sma_8_dollars', suf: '$', phMin: '-3', phMax: '3' },
+                { label: 'Change from 10 Day SMA $', minK: 'min_dist_daily_sma_10_dollars', maxK: 'max_dist_daily_sma_10_dollars', suf: '$', phMin: '-5', phMax: '5' },
+                { label: 'Change from 20 Day SMA $', minK: 'min_dist_daily_sma_20_dollars', maxK: 'max_dist_daily_sma_20_dollars', suf: '$', phMin: '-10', phMax: '10' },
+                { label: 'Change from 50 Day SMA $', minK: 'min_dist_daily_sma_50_dollars', maxK: 'max_dist_daily_sma_50_dollars', suf: '$', phMin: '-20', phMax: '20' },
+                { label: 'Change from 200 Day SMA $', minK: 'min_dist_daily_sma_200_dollars', maxK: 'max_dist_daily_sma_200_dollars', suf: '$', phMin: '-50', phMax: '50' },
+              ]
+            },
+            {
+              id: 'dailyextra', group: 'Daily Indicators', filters: [
+                { label: 'Daily RSI', minK: 'min_daily_rsi', maxK: 'max_daily_rsi', suf: '', phMin: '20', phMax: '80' },
+                { label: 'Average Directional Index (Daily)', minK: 'min_daily_adx_14', maxK: 'max_daily_adx_14', suf: '', phMin: '20', phMax: '50' },
+                { label: 'Directional Indicator (+DI - -DI)', minK: 'min_plus_di_minus_di', maxK: 'max_plus_di_minus_di', suf: '', phMin: '-30', phMax: '30' },
+                { label: '52 Week High', minK: 'min_high_52w', maxK: 'max_high_52w', suf: '$', phMin: '', phMax: '' },
+                { label: '52 Week Low', minK: 'min_low_52w', maxK: 'max_low_52w', suf: '$', phMin: '', phMax: '' },
+                { label: 'From 52 Week High %', minK: 'min_from_52w_high', maxK: 'max_from_52w_high', suf: '%', phMin: '-80', phMax: '0' },
+                { label: 'From 52 Week Low %', minK: 'min_from_52w_low', maxK: 'max_from_52w_low', suf: '%', phMin: '0', phMax: '500' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // CONSOLIDATION / RANGE CONTRACTION / LINEAR REGRESSION
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'consolidation', group: 'Consolidation & Regression', filters: [
+                { label: 'Consolidation Days', minK: 'min_consolidation_days', maxK: 'max_consolidation_days', suf: '', phMin: '2', phMax: '20' },
+                { label: 'Position in Consolidation', minK: 'min_pos_in_consolidation', maxK: 'max_pos_in_consolidation', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Range Contraction', minK: 'min_range_contraction', maxK: 'max_range_contraction', suf: '', phMin: '0.2', phMax: '1' },
+                { label: 'Linear Regression Divergence', minK: 'min_lr_divergence_130', maxK: 'max_lr_divergence_130', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Change Previous Day %', minK: 'min_change_prev_day_pct', maxK: 'max_change_prev_day_pct', suf: '%', phMin: '-10', phMax: '10' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // FUNDAMENTALS
+            // ═══════════════════════════════════════════════════════════
             {
               id: 'fund', group: 'Fundamentals', filters: [
                 { label: 'Market Cap', minK: 'min_market_cap', maxK: 'max_market_cap', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '50', phMax: '10' },
@@ -1160,67 +1826,13 @@ export function ConfigWindow({
                 { label: 'Shares Outstanding', minK: 'min_shares_outstanding', maxK: 'max_shares_outstanding', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '500' },
               ]
             },
+            // ═══════════════════════════════════════════════════════════
+            // PRINTS / TRADES
+            // ═══════════════════════════════════════════════════════════
             {
-              id: 'classification', group: 'Classification', filters: [
-                // String filters - estos se manejan con selects, no con inputs numéricos
-              ]
-            },
-            {
-              id: 'trades', group: 'Trades Anomaly', filters: [
-                { label: 'Trades', minK: 'min_trades_today', maxK: 'max_trades_today', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-                { label: 'Z-Score', minK: 'min_trades_z_score', maxK: 'max_trades_z_score', suf: '', phMin: '1', phMax: '5' },
-              ]
-            },
-            {
-              id: 'derived', group: 'Derived', filters: [
-                { label: '$ Volume', minK: 'min_dollar_volume', maxK: 'max_dollar_volume', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '100' },
-                { label: 'Range $', minK: 'min_todays_range', maxK: 'max_todays_range', suf: '$', phMin: '0.1', phMax: '10' },
-                { label: 'Range %', minK: 'min_todays_range_pct', maxK: 'max_todays_range_pct', suf: '%', phMin: '1', phMax: '20' },
-                { label: 'Bid/Ask Ratio', minK: 'min_bid_ask_ratio', maxK: 'max_bid_ask_ratio', suf: '', phMin: '0.5', phMax: '3' },
-                { label: 'Float Turnover', minK: 'min_float_turnover', maxK: 'max_float_turnover', suf: 'x', phMin: '0.01', phMax: '5' },
-                { label: 'Position in Range', minK: 'min_pos_in_range', maxK: 'max_pos_in_range', suf: '%', phMin: '0', phMax: '100' },
-                { label: 'Below High', minK: 'min_below_high', maxK: 'max_below_high', suf: '$', phMin: '0', phMax: '5' },
-                { label: 'Above Low', minK: 'min_above_low', maxK: 'max_above_low', suf: '$', phMin: '0', phMax: '5' },
-                { label: 'Position of Open', minK: 'min_pos_of_open', maxK: 'max_pos_of_open', suf: '%', phMin: '0', phMax: '100' },
-                { label: 'Previous Volume', minK: 'min_prev_day_volume', maxK: 'max_prev_day_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '10000' },
-              ]
-            },
-            {
-              id: 'dist', group: 'Distance %', filters: [
-                { label: 'Distance VWAP', minK: 'min_dist_from_vwap', maxK: 'max_dist_from_vwap', suf: '%', phMin: '-10', phMax: '10' },
-                { label: 'Distance SMA 5', minK: 'min_dist_sma_5', maxK: 'max_dist_sma_5', suf: '%', phMin: '-5', phMax: '5' },
-                { label: 'Distance SMA 8', minK: 'min_dist_sma_8', maxK: 'max_dist_sma_8', suf: '%', phMin: '-5', phMax: '5' },
-                { label: 'Distance SMA 20', minK: 'min_dist_sma_20', maxK: 'max_dist_sma_20', suf: '%', phMin: '-10', phMax: '10' },
-                { label: 'Distance SMA 50', minK: 'min_dist_sma_50', maxK: 'max_dist_sma_50', suf: '%', phMin: '-20', phMax: '20' },
-                { label: 'Distance SMA 200', minK: 'min_dist_sma_200', maxK: 'max_dist_sma_200', suf: '%', phMin: '-50', phMax: '50' },
-                { label: 'Dist Daily SMA 20', minK: 'min_dist_daily_sma_20', maxK: 'max_dist_daily_sma_20', suf: '%', phMin: '-10', phMax: '10' },
-                { label: 'Dist Daily SMA 50', minK: 'min_dist_daily_sma_50', maxK: 'max_dist_daily_sma_50', suf: '%', phMin: '-20', phMax: '20' },
-              ]
-            },
-            {
-              id: 'multiday', group: 'Multi-Day Change %', filters: [
-                { label: '1 Day', minK: 'min_change_1d', maxK: 'max_change_1d', suf: '%', phMin: '-10', phMax: '10' },
-                { label: '3 Days', minK: 'min_change_3d', maxK: 'max_change_3d', suf: '%', phMin: '-20', phMax: '20' },
-                { label: '5 Days', minK: 'min_change_5d', maxK: 'max_change_5d', suf: '%', phMin: '-20', phMax: '50' },
-                { label: '10 Days', minK: 'min_change_10d', maxK: 'max_change_10d', suf: '%', phMin: '-30', phMax: '100' },
-                { label: '20 Days', minK: 'min_change_20d', maxK: 'max_change_20d', suf: '%', phMin: '-50', phMax: '200' },
-              ]
-            },
-            {
-              id: 'avgvol', group: 'Avg Volume', filters: [
-                { label: 'Average 5 Day', minK: 'min_avg_volume_5d', maxK: 'max_avg_volume_5d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
-                { label: 'Average 10 Day', minK: 'min_avg_volume_10d', maxK: 'max_avg_volume_10d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
-                { label: 'Average 20 Day', minK: 'min_avg_volume_20d', maxK: 'max_avg_volume_20d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
-                { label: 'Average 3 Month', minK: 'min_avg_volume_3m', maxK: 'max_avg_volume_3m', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
-              ]
-            },
-            {
-              id: '52wextra', group: '52W / Daily Extra', filters: [
-                { label: 'From 52W High %', minK: 'min_from_52w_high', maxK: 'max_from_52w_high', suf: '%', phMin: '-80', phMax: '0' },
-                { label: 'From 52W Low %', minK: 'min_from_52w_low', maxK: 'max_from_52w_low', suf: '%', phMin: '0', phMax: '500' },
-                { label: 'Daily ADX', minK: 'min_daily_adx_14', maxK: 'max_daily_adx_14', suf: '', phMin: '20', phMax: '50' },
-                { label: 'Daily ATR %', minK: 'min_daily_atr_percent', maxK: 'max_daily_atr_percent', suf: '%', phMin: '1', phMax: '15' },
-                { label: 'Daily BB Position', minK: 'min_daily_bb_position', maxK: 'max_daily_bb_position', suf: '%', phMin: '0', phMax: '100' },
+              id: 'trades', group: 'Prints / Trades', filters: [
+                { label: 'Average Number of Prints', minK: 'min_trades_today', maxK: 'max_trades_today', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
+                { label: 'Trades Z-Score', minK: 'min_trades_z_score', maxK: 'max_trades_z_score', suf: '', phMin: '1', phMax: '5' },
               ]
             },
           ] as const;

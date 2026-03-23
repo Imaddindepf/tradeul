@@ -429,16 +429,37 @@ class ScreenerEngine:
                     LAG(close, 5) OVER w as close_5d_ago,
                     LAG(close, 10) OVER w as close_10d_ago,
                     LAG(close, 20) OVER w as close_20d_ago,
+                    LAG(close, 251) OVER w as close_252d_ago,
+                    MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS 4 PRECEDING) as high_5d,
+                    MIN(low) OVER (PARTITION BY symbol ORDER BY date ROWS 4 PRECEDING) as low_5d,
+                    MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS 9 PRECEDING) as high_10d,
+                    MIN(low) OVER (PARTITION BY symbol ORDER BY date ROWS 9 PRECEDING) as low_10d,
+                    MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as high_20d,
+                    MIN(low) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as low_20d,
+                    MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS 62 PRECEDING) as high_3m,
+                    MIN(low) OVER (PARTITION BY symbol ORDER BY date ROWS 62 PRECEDING) as low_3m,
+                    MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS 125 PRECEDING) as high_6m,
+                    MIN(low) OVER (PARTITION BY symbol ORDER BY date ROWS 125 PRECEDING) as low_6m,
+                    MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS 188 PRECEDING) as high_9m,
+                    MIN(low) OVER (PARTITION BY symbol ORDER BY date ROWS 188 PRECEDING) as low_9m,
                     MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS 251 PRECEDING) as high_52w,
                     MIN(low) OVER (PARTITION BY symbol ORDER BY date ROWS 251 PRECEDING) as low_52w,
+                    MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS 503 PRECEDING) as high_2y,
+                    MIN(low) OVER (PARTITION BY symbol ORDER BY date ROWS 503 PRECEDING) as low_2y,
+                    MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as high_all,
+                    MIN(low) OVER (PARTITION BY symbol ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as low_all,
                     AVG(volume) OVER (PARTITION BY symbol ORDER BY date ROWS 4 PRECEDING) as avg_volume_5,
                     AVG(volume) OVER (PARTITION BY symbol ORDER BY date ROWS 9 PRECEDING) as avg_volume_10,
                     AVG(volume) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as avg_volume_20,
                     AVG(volume) OVER (PARTITION BY symbol ORDER BY date ROWS 62 PRECEDING) as avg_volume_63,
+                    AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 4 PRECEDING) as sma_5,
+                    AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 7 PRECEDING) as sma_8,
+                    AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 9 PRECEDING) as sma_10,
                     AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as sma_20,
                     AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 49 PRECEDING) as sma_50,
                     AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 199 PRECEDING) as sma_200,
                     STDDEV(close) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as std_20,
+                    STDDEV(close) OVER (PARTITION BY symbol ORDER BY date ROWS 251 PRECEDING) as std_252,
                     -- EMA approximation using weighted average (good enough for Keltner)
                     AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as ema_20
                 FROM {source_table}
@@ -497,16 +518,37 @@ class ScreenerEngine:
                     p.close_5d_ago,
                     p.close_10d_ago,
                     p.close_20d_ago,
+                    p.close_252d_ago,
+                    p.high_5d,
+                    p.low_5d,
+                    p.high_10d,
+                    p.low_10d,
+                    p.high_20d,
+                    p.low_20d,
+                    p.high_3m,
+                    p.low_3m,
+                    p.high_6m,
+                    p.low_6m,
+                    p.high_9m,
+                    p.low_9m,
                     p.high_52w,
                     p.low_52w,
+                    p.high_2y,
+                    p.low_2y,
+                    p.high_all,
+                    p.low_all,
                     p.avg_volume_5,
                     p.avg_volume_10,
                     p.avg_volume_20,
                     p.avg_volume_63,
+                    p.sma_5,
+                    p.sma_8,
+                    p.sma_10,
                     p.sma_20,
                     p.sma_50,
                     p.sma_200,
                     p.std_20,
+                    p.std_252,
                     p.ema_20,
                     a.atr_14,
                     a.atr_10,
@@ -529,9 +571,33 @@ class ScreenerEngine:
                 ((d.close - d.close_5d_ago) / NULLIF(d.close_5d_ago, 0)) * 100 as change_5d,
                 ((d.close - d.close_10d_ago) / NULLIF(d.close_10d_ago, 0)) * 100 as change_10d,
                 ((d.close - d.close_20d_ago) / NULLIF(d.close_20d_ago, 0)) * 100 as change_20d,
+                d.close - d.close_5d_ago as change_5d_dollars,
+                d.close - d.close_10d_ago as change_10d_dollars,
+                d.close - d.close_20d_ago as change_20d_dollars,
+                ((d.close - d.close_252d_ago) / NULLIF(d.close_252d_ago, 0)) * 100 as change_1y,
+                d.close - d.close_252d_ago as change_1y_dollars,
                 ((d.open - d.prev_close) / NULLIF(d.prev_close, 0)) * 100 as gap_percent,
+                d.high_5d,
+                d.low_5d,
+                d.high_5d - d.low_5d as range_5d,
+                d.high_10d,
+                d.low_10d,
+                d.high_10d - d.low_10d as range_10d,
+                d.high_20d,
+                d.low_20d,
+                d.high_20d - d.low_20d as range_20d,
+                d.high_3m,
+                d.low_3m,
+                d.high_6m,
+                d.low_6m,
+                d.high_9m,
+                d.low_9m,
                 d.high_52w,
                 d.low_52w,
+                d.high_2y,
+                d.low_2y,
+                d.high_all,
+                d.low_all,
                 ((d.close - d.high_52w) / NULLIF(d.high_52w, 0)) * 100 as from_52w_high,
                 ((d.close - d.low_52w) / NULLIF(d.low_52w, 0)) * 100 as from_52w_low,
                 d.avg_volume_5,
@@ -539,11 +605,19 @@ class ScreenerEngine:
                 d.avg_volume_20,
                 d.avg_volume_63,
                 d.volume / NULLIF(d.avg_volume_20, 0) as relative_volume,
+                d.sma_5,
+                d.sma_8,
+                d.sma_10,
                 d.sma_20,
                 d.sma_50,
                 d.sma_200,
+                ((d.close - d.sma_5) / NULLIF(d.sma_5, 0)) * 100 as dist_sma_5,
+                ((d.close - d.sma_8) / NULLIF(d.sma_8, 0)) * 100 as dist_sma_8,
+                ((d.close - d.sma_10) / NULLIF(d.sma_10, 0)) * 100 as dist_sma_10,
                 ((d.close - d.sma_20) / NULLIF(d.sma_20, 0)) * 100 as dist_sma_20,
                 ((d.close - d.sma_50) / NULLIF(d.sma_50, 0)) * 100 as dist_sma_50,
+                ((d.close - d.sma_200) / NULLIF(d.sma_200, 0)) * 100 as dist_sma_200,
+                d.std_252 as yearly_std_dev,
                 NULL as rsi_14,
                 d.atr_14,
                 (d.atr_14 / NULLIF(d.close, 0)) * 100 as atr_percent,
@@ -580,7 +654,182 @@ class ScreenerEngine:
         """)
 
         self._compute_rsi_wilder(source_table, target_table)
-    
+        self._compute_consecutive_days(source_table, target_table)
+        self._compute_change_since_jan1(source_table, target_table)
+        self._compute_consolidation(source_table, target_table)
+        self._compute_linear_regression(source_table, target_table)
+
+    def _compute_consecutive_days(self, source_table: str, target_table: str):
+        """Compute consecutive days up/down [Up] — Trade Ideas parity."""
+        df = self.conn.execute(f"""
+            SELECT symbol, date, close
+            FROM {source_table}
+            WHERE close IS NOT NULL
+            ORDER BY symbol, date
+        """).fetchdf()
+
+        if df.empty:
+            return
+
+        df['prev_close'] = df.groupby('symbol')['close'].shift(1)
+        df['up'] = (df['close'] > df['prev_close']).astype(int)
+        df['down'] = (df['close'] < df['prev_close']).astype(int)
+
+        def streak(series):
+            result = []
+            count = 0
+            for val in series:
+                if val:
+                    count += 1
+                else:
+                    count = 0
+                result.append(count)
+            return result
+
+        df['consec_up'] = df.groupby('symbol')['up'].transform(streak)
+        df['consec_down'] = df.groupby('symbol')['down'].transform(streak)
+        df['consecutive_days_up'] = df['consec_up'] - df['consec_down']
+
+        latest = df.sort_values('date').groupby('symbol').tail(1)[['symbol', 'consecutive_days_up']]
+
+        if latest.empty:
+            return
+
+        self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS consecutive_days_up INTEGER")
+        self.conn.register('_consec_update', latest)
+        self.conn.execute(f"""
+            UPDATE {target_table} t
+            SET consecutive_days_up = r.consecutive_days_up
+            FROM _consec_update r
+            WHERE t.symbol = r.symbol
+        """)
+        self.conn.unregister('_consec_update')
+        logger.info("consecutive_days_computed", symbols=len(latest))
+
+    def _compute_change_since_jan1(self, source_table: str, target_table: str):
+        """Compute change since January 1 [UpJan1D/UpJan1P]."""
+        try:
+            jan1_df = self.conn.execute(f"""
+                WITH jan1_close AS (
+                    SELECT DISTINCT ON (symbol) symbol, close as jan1_close
+                    FROM {source_table}
+                    WHERE date >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '7 days'
+                      AND date < DATE_TRUNC('year', CURRENT_DATE)
+                      AND close IS NOT NULL
+                    ORDER BY symbol, date DESC
+                )
+                SELECT symbol, jan1_close FROM jan1_close
+            """).fetchdf()
+
+            if jan1_df.empty:
+                return
+
+            self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS change_ytd DOUBLE")
+            self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS change_ytd_dollars DOUBLE")
+            self.conn.register('_jan1_update', jan1_df)
+            self.conn.execute(f"""
+                UPDATE {target_table} t
+                SET change_ytd = ((t.price - r.jan1_close) / NULLIF(r.jan1_close, 0)) * 100,
+                    change_ytd_dollars = t.price - r.jan1_close
+                FROM _jan1_update r
+                WHERE t.symbol = r.symbol
+            """)
+            self.conn.unregister('_jan1_update')
+            logger.info("change_ytd_computed", symbols=len(jan1_df))
+        except Exception as e:
+            logger.error("change_ytd_failed", error=str(e))
+
+    def _compute_consolidation(self, source_table: str, target_table: str):
+        """Compute Consolidation Days [ConDays] and Range Contraction [RC]."""
+        try:
+            df = self.conn.execute(f"""
+                SELECT symbol, date, high, low, close
+                FROM {source_table}
+                WHERE close IS NOT NULL
+                ORDER BY symbol, date
+            """).fetchdf()
+            if df.empty:
+                return
+            df['daily_range'] = df['high'] - df['low']
+            df['prev_high'] = df.groupby('symbol')['high'].shift(1)
+            df['prev_low'] = df.groupby('symbol')['low'].shift(1)
+            df['inside_day'] = ((df['high'] <= df['prev_high']) & (df['low'] >= df['prev_low'])).astype(int)
+            def consec_inside(series):
+                result, count = [], 0
+                for val in series:
+                    count = count + 1 if val else 0
+                    result.append(count)
+                return result
+            df['consolidation_days'] = df.groupby('symbol')['inside_day'].transform(consec_inside)
+            avg_range_20 = df.groupby('symbol')['daily_range'].transform(lambda x: x.rolling(20, min_periods=5).mean())
+            avg_range_5 = df.groupby('symbol')['daily_range'].transform(lambda x: x.rolling(5, min_periods=2).mean())
+            df['range_contraction'] = np.where(
+                avg_range_20 > 0,
+                (avg_range_5 / avg_range_20).round(4),
+                None
+            )
+            latest = df.sort_values('date').groupby('symbol').tail(1)[['symbol', 'consolidation_days', 'range_contraction']]
+            if latest.empty:
+                return
+            self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS consolidation_days INTEGER")
+            self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS range_contraction DOUBLE")
+            self.conn.register('_consol_update', latest)
+            self.conn.execute(f"""
+                UPDATE {target_table} t
+                SET consolidation_days = r.consolidation_days,
+                    range_contraction = r.range_contraction
+                FROM _consol_update r
+                WHERE t.symbol = r.symbol
+            """)
+            self.conn.unregister('_consol_update')
+            logger.info("consolidation_computed", symbols=len(latest))
+        except Exception as e:
+            logger.error("consolidation_failed", error=str(e))
+
+    def _compute_linear_regression(self, source_table: str, target_table: str):
+        """Compute Linear Regression Divergence [LR130]."""
+        try:
+            import numpy as np
+            df = self.conn.execute(f"""
+                SELECT symbol, date, close FROM {source_table}
+                WHERE close IS NOT NULL ORDER BY symbol, date
+            """).fetchdf()
+            if df.empty:
+                return
+            results = []
+            for symbol, grp in df.groupby('symbol'):
+                closes = grp['close'].values
+                if len(closes) < 130:
+                    results.append({'symbol': symbol, 'lr_divergence_130': None})
+                    continue
+                last_130 = closes[-130:]
+                if np.any(np.isnan(last_130)) or np.any(np.isinf(last_130)):
+                    results.append({'symbol': symbol, 'lr_divergence_130': None})
+                    continue
+                x = np.arange(130)
+                coeffs = np.polyfit(x, last_130, 1)
+                lr_value = coeffs[0] * 129 + coeffs[1]
+                if np.isnan(lr_value) or np.isinf(lr_value) or lr_value == 0:
+                    results.append({'symbol': symbol, 'lr_divergence_130': None})
+                    continue
+                current_price = closes[-1]
+                div = round(((current_price - lr_value) / lr_value) * 100, 2)
+                results.append({'symbol': symbol, 'lr_divergence_130': div})
+            if not results:
+                return
+            import pandas as pd
+            lr_df = pd.DataFrame(results)
+            self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS lr_divergence_130 DOUBLE")
+            self.conn.register('_lr_update', lr_df)
+            self.conn.execute(f"""
+                UPDATE {target_table} t SET lr_divergence_130 = r.lr_divergence_130
+                FROM _lr_update r WHERE t.symbol = r.symbol
+            """)
+            self.conn.unregister('_lr_update')
+            logger.info("linear_regression_computed", symbols=len(lr_df))
+        except Exception as e:
+            logger.error("linear_regression_failed", error=str(e))
+
     def _compute_rsi_wilder(self, source_table: str, target_table: str, period: int = 14):
         """Compute RSI using Wilder's smoothing (identical to TradingView ta.rma)."""
         df = self.conn.execute(f"""
@@ -605,8 +854,11 @@ class ScreenerEngine:
             lambda x: x.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
         )
 
-        rs = df['avg_gain'] / df['avg_loss'].replace(0, np.nan)
-        df['rsi_14'] = 100 - (100 / (1 + rs))
+        df['rsi_14'] = np.where(
+            df['avg_loss'] == 0,
+            100.0,
+            100 - (100 / (1 + df['avg_gain'] / df['avg_loss']))
+        )
 
         latest = df.sort_values('date').groupby('symbol').tail(1)[['symbol', 'rsi_14']].dropna()
 
@@ -659,6 +911,9 @@ class ScreenerEngine:
                 SELECT
                     symbol,
                     price as last_close,
+                    sma_5,
+                    sma_8,
+                    sma_10,
                     sma_20,
                     sma_50,
                     sma_200,
@@ -669,32 +924,85 @@ class ScreenerEngine:
                     atr_14,
                     atr_percent,
                     adx_14,
+                    high_5d,
+                    low_5d,
+                    range_5d,
+                    high_10d,
+                    low_10d,
+                    range_10d,
+                    high_20d,
+                    low_20d,
+                    range_20d,
                     high_52w,
                     low_52w,
                     from_52w_high,
                     from_52w_low,
                     market_cap,
                     free_float,
-                    -- Multi-day changes
+                    -- Multi-day changes (%)
                     change_1d,
                     change_3d,
                     change_5d,
                     change_10d,
                     change_20d,
+                    -- Multi-day changes ($)
+                    change_5d_dollars,
+                    change_10d_dollars,
+                    change_20d_dollars,
+                    -- 1-year change
+                    change_1y,
+                    change_1y_dollars,
                     gap_percent,
                     -- Average volumes
                     avg_volume_5,
                     avg_volume_10,
                     avg_volume_20,
                     avg_volume_63,
-                    -- Distance from SMA
+                    -- Distance from SMA (%)
+                    dist_sma_5,
+                    dist_sma_8,
+                    dist_sma_10,
                     dist_sma_20,
-                    dist_sma_50
+                    dist_sma_50,
+                    dist_sma_200,
+                    -- Yearly standard deviation
+                    yearly_std_dev,
+                    -- Directional indicators
+                    plus_di_14,
+                    minus_di_14,
+                    -- Consecutive days up/down
+                    consecutive_days_up,
+                    -- YTD change
+                    change_ytd,
+                    change_ytd_dollars,
+                    -- Position in range (high/low for 3M/6M/9M/2Y/lifetime)
+                    high_3m,
+                    low_3m,
+                    high_6m,
+                    low_6m,
+                    high_9m,
+                    low_9m,
+                    high_2y,
+                    low_2y,
+                    high_all,
+                    low_all,
+                    -- Consolidation / Range Contraction / Linear Regression
+                    consolidation_days,
+                    range_contraction,
+                    lr_divergence_130
                 FROM screener_data
                 WHERE sma_20 IS NOT NULL
             """).fetchdf()
             
+            import math
             records = result.to_dict(orient="records")
+            for rec in records:
+                for k, v in rec.items():
+                    try:
+                        if v is not None and isinstance(v, (float, np.floating)) and (math.isnan(v) or math.isinf(v)):
+                            rec[k] = None
+                    except (TypeError, ValueError):
+                        pass
             logger.info("daily_indicators_exported", count=len(records))
             return records
         except Exception as e:
