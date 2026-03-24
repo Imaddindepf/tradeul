@@ -4,17 +4,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { useFloatingWindow, useCurrentWindowId, type LinkGroup, type TickerBroadcast } from '@/contexts/FloatingWindowContext';
 
 /**
- * Get the current window's linkGroup from context.
- */
-export function useWindowLinkGroup(): LinkGroup {
-  const { windows } = useFloatingWindow();
-  const windowId = useCurrentWindowId();
-  if (!windowId) return null;
-  const win = windows.find(w => w.id === windowId);
-  return win?.linkGroup ?? null;
-}
-
-/**
  * Hook for subscriber windows (chart, FAN, etc.)
  * Subscribes to ticker broadcasts for the window's link group.
  * Returns the latest broadcasted ticker, or null.

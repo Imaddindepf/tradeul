@@ -17,7 +17,7 @@ import {
 // Hook Return Type
 // ============================================================================
 
-export interface UseUserFiltersReturn {
+interface UseUserFiltersReturn {
   // State
   filters: UserFilter[];
   loading: boolean;

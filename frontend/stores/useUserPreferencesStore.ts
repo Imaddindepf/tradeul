@@ -11,12 +11,6 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 // Holds componentState for newly created windows that haven't been auto-saved yet.
 // Solves the race condition: openWindow() → updateComponentState() → auto-save (3s later).
 const _pendingComponentStates = new Map<string, Record<string, unknown>>();
-export function setPendingComponentState(windowId: string, state: Record<string, unknown>) {
-  _pendingComponentStates.set(windowId, state);
-}
-export function getPendingComponentState(windowId: string): Record<string, unknown> | undefined {
-  return _pendingComponentStates.get(windowId);
-}
 export function consumePendingComponentStates(): Map<string, Record<string, unknown>> {
   const copy = new Map(_pendingComponentStates);
   _pendingComponentStates.clear();
@@ -78,7 +72,7 @@ export type TimezoneOption =
   | 'Asia/Singapore'      // SGT - Singapore
   | 'UTC';                // UTC
 
-export interface ThemePreferences {
+interface ThemePreferences {
   font: FontFamily;
   colorScheme: 'light' | 'dark' | 'system';
   newsSquawkEnabled: boolean;
@@ -566,19 +560,13 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
 // ============================================================================
 
 export const selectColors = (state: UserPreferencesState) => state.colors;
-export const selectTheme = (state: UserPreferencesState) => state.theme;
 export const selectFont = (state: UserPreferencesState) => state.theme.font;
 export const selectTimezone = (state: UserPreferencesState) => state.theme.timezone || 'America/New_York';
-export const selectWindowLayouts = (state: UserPreferencesState) => state.windowLayouts;
 
 // Workspace selectors
 export const selectWorkspaces = (state: UserPreferencesState) => state.workspaces;
 export const selectActiveWorkspaceId = (state: UserPreferencesState) => state.activeWorkspaceId;
 export const selectActiveWorkspace = (state: UserPreferencesState) => 
   state.workspaces.find(w => w.id === state.activeWorkspaceId);
-export const selectActiveWorkspaceLayouts = (state: UserPreferencesState) => {
-  const activeWs = state.workspaces.find(w => w.id === state.activeWorkspaceId);
-  return activeWs?.windowLayouts || [];
-};
 
 

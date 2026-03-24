@@ -40,7 +40,7 @@ export interface AlertPresetFilters {
   max_atr_percent?: number;
 }
 
-export interface UserAlertPreset {
+interface UserAlertPreset {
   id: string;
   name: string;
   eventTypes: string[];

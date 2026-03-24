@@ -24,13 +24,11 @@ import asyncio
 import json as stdlib_json  # For parsing data with NaN/Inf values (DuckDB screener)
 import orjson
 from datetime import datetime, date
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
-from shared.events import EventBus, EventType, Event
-
 from .change_detector import ChangeDetector
 from bar_engine import BarEngine
 from shared.enums.market_session import MarketSession
@@ -472,7 +470,6 @@ class EnrichmentPipeline:
         _range_windows = ('range_2min', 'range_5min', 'range_15min',
                           'range_30min', 'range_60min', 'range_120min')
         if self.price_window_tracker:
-            from price_window_tracker import PriceRangeResult
             pr = self.price_window_tracker.get_range_windows(symbol)
             _atr_for_range = ticker_data.get('atr')
             for _rkey, _rval in zip(_range_windows, pr):

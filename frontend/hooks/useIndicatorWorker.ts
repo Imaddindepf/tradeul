@@ -28,7 +28,7 @@ export interface WorkerIndicatorConfig {
   params: Record<string, number | string>;
 }
 
-export interface IndicatorDataPoint {
+interface IndicatorDataPoint {
   time: number;
   value: number;
   color?: string;
@@ -40,29 +40,29 @@ export interface BandIndicatorData {
   lower: IndicatorDataPoint[];
 }
 
-export interface MACDData {
+interface MACDData {
   macd: IndicatorDataPoint[];
   signal: IndicatorDataPoint[];
   histogram: IndicatorDataPoint[];
 }
 
-export interface StochData {
+interface StochData {
   k: IndicatorDataPoint[];
   d: IndicatorDataPoint[];
 }
 
-export interface ADXData {
+interface ADXData {
   adx: IndicatorDataPoint[];
   pdi: IndicatorDataPoint[];
   mdi: IndicatorDataPoint[];
 }
 
-export interface SqueezeData extends IndicatorDataPoint {
+interface SqueezeData extends IndicatorDataPoint {
   squeezeOn: boolean;
 }
 
 /** Result for a single instance */
-export interface InstanceResult {
+interface InstanceResult {
   type: string;
   data: IndicatorDataPoint[] | BandIndicatorData | MACDData | StochData | ADXData | SqueezeData[];
 }
@@ -71,9 +71,6 @@ export interface InstanceResult {
 export type IndicatorResults = Record<string, InstanceResult>;
 
 // Legacy types for backward compat
-export type OverlayIndicator = string;
-export type OscillatorIndicator = string;
-export type PanelIndicator = string;
 export type IndicatorType = string;
 
 interface WorkerMessage {

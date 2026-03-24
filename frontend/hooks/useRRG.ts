@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export interface RRGTrailPoint {
+interface RRGTrailPoint {
   date: string;
   x: number;
   y: number;
@@ -16,7 +16,7 @@ export interface RRGGroup {
   quadrant: 'leading' | 'weakening' | 'lagging' | 'improving';
 }
 
-export interface RRGData {
+interface RRGData {
   groups: RRGGroup[];
   quadrant_distribution: Record<string, number>;
   axis_labels: { x: string; y: string };

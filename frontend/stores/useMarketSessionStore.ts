@@ -114,12 +114,7 @@ export const useMarketSessionStore = create<MarketSessionState>((set, get) => ({
 // ============================================================================
 
 export const selectSession = (state: MarketSessionState) => state.session;
-export const selectIsMarketOpen = (state: MarketSessionState) => state.isMarketOpen;
-export const selectIsPreMarket = (state: MarketSessionState) => state.isPreMarket;
-export const selectIsPostMarket = (state: MarketSessionState) => state.isPostMarket;
 export const selectIsClosed = (state: MarketSessionState) => state.isClosed;
-export const selectIsExtendedHours = (state: MarketSessionState) => 
-  state.isPreMarket || state.isPostMarket;
 export const selectIsTrading = (state: MarketSessionState) => 
   state.isMarketOpen || state.isPreMarket || state.isPostMarket;
 

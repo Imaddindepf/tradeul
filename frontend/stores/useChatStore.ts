@@ -31,7 +31,7 @@ export interface ChatMessage {
   edited_at?: string;
 }
 
-export interface ChatChannel {
+interface ChatChannel {
   id: string;
   name: string;
   description?: string;
@@ -54,14 +54,6 @@ export interface ChatGroup {
   created_at: string;
 }
 
-export interface ChatMember {
-  user_id: string;
-  user_name: string;
-  user_avatar?: string;
-  role: 'owner' | 'admin' | 'member';
-  joined_at: string;
-}
-
 export interface ChatInvite {
   id: string;
   group_id: string;
@@ -79,7 +71,7 @@ export interface TypingUser {
   timestamp: number;
 }
 
-export interface ChatState {
+interface ChatState {
   // Connection
   isConnected: boolean;
   connectionError?: string;

@@ -16,7 +16,7 @@ import type { Ticker } from '@/lib/types';
 // TYPES
 // ============================================================================
 
-export interface TickersList {
+interface TickersList {
   sequence: number;
   tickers: Map<string, Ticker>;
   order: string[]; // Array de símbolos ordenados por rank
@@ -525,26 +525,12 @@ export const useTickersStore = create<TickersState & TickersActions>()(
 // SELECTORS (para evitar re-renders innecesarios)
 // ============================================================================
 
-// Selector para una lista específica
-export const selectList = (listName: string) => (state: TickersState & TickersActions) =>
-  state.lists.get(listName);
-
 // Selector para tickers ordenados de una lista
 export const selectOrderedTickers = (listName: string) => (state: TickersState & TickersActions) => {
   const list = state.lists.get(listName);
   if (!list) return [];
   return list.order.map((symbol) => list.tickers.get(symbol)!).filter(Boolean);
 };
-
-// Selector para un ticker específico
-export const selectTicker = (listName: string, symbol: string) => (state: TickersState & TickersActions) =>
-  state.lists.get(listName)?.tickers.get(symbol);
-
-// Selector para conexión WebSocket
-export const selectConnection = (state: TickersState & TickersActions) => ({
-  isConnected: state.isConnected,
-  connectionId: state.connectionId,
-});
 
 // Selector para stats
 export const selectStats = (state: TickersState & TickersActions) => state.stats;
@@ -553,37 +539,4 @@ export const selectStats = (state: TickersState & TickersActions) => state.stats
 // OPTIMIZED HOOKS CON SHALLOW EQUALITY
 // ============================================================================
 
-import { shallow } from 'zustand/shallow';
-
-/**
- * Hook optimizado para una lista completa
- * Solo re-renderiza si el ARRAY de tickers cambia (shallow comparison)
- */
-export function useOrderedTickersOptimized(listName: string) {
-  return useTickersStore(selectOrderedTickers(listName), shallow);
-}
-
-/**
- * Hook optimizado para un ticker específico
- * Solo re-renderiza si ESE ticker específico cambia
- */
-export function useTickerOptimized(listName: string, symbol: string) {
-  return useTickersStore(selectTicker(listName, symbol), shallow);
-}
-
-/**
- * Hook optimizado para conexión
- * Solo re-renderiza si cambia isConnected o connectionId
- */
-export function useConnectionOptimized() {
-  return useTickersStore(selectConnection, shallow);
-}
-
-/**
- * Hook optimizado para stats
- * Solo re-renderiza si cambian las estadísticas
- */
-export function useStatsOptimized() {
-  return useTickersStore(selectStats, shallow);
-}
 

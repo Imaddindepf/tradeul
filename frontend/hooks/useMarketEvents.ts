@@ -159,13 +159,13 @@ class MarketEventsStore {
 // REACT HOOK
 // ============================================================================
 
-export interface UseMarketEventsOptions {
+interface UseMarketEventsOptions {
   autoSubscribe?: boolean;
   filter?: MarketEventsFilter;
   maxEvents?: number;
 }
 
-export interface UseMarketEventsReturn {
+interface UseMarketEventsReturn {
   events: MarketEvent[];
   newEvent$: Observable<MarketEvent>;
   isSubscribed: boolean;

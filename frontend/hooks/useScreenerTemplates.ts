@@ -7,7 +7,7 @@ import { useAuth } from '@clerk/nextjs';
 // Types
 // ============================================================================
 
-export interface IndicatorParams {
+interface IndicatorParams {
     period?: number;
     multiplier?: number;
     std_dev?: number;
@@ -45,7 +45,7 @@ export interface ScreenerTemplate {
     updatedAt: string;
 }
 
-export interface CreateTemplateData {
+interface CreateTemplateData {
     name: string;
     description?: string;
     filters: FilterCondition[];
@@ -57,7 +57,7 @@ export interface CreateTemplateData {
     icon?: string;
 }
 
-export interface UpdateTemplateData {
+interface UpdateTemplateData {
     name?: string;
     description?: string;
     filters?: FilterCondition[];

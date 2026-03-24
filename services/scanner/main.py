@@ -701,30 +701,6 @@ async def trigger_postmarket_capture_manual():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/categories/stats")
-async def get_categories_stats():
-    """
-    Obtiene estadísticas de TODAS las categorías
-    
-    IMPORTANTE: Este endpoint debe ir ANTES del parametrizado
-    
-    Returns:
-        Dict con cantidad de tickers en cada categoría
-    """
-    try:
-        stats = await scanner_engine.get_category_stats()
-        
-        return {
-            "timestamp": datetime.now().isoformat(),
-            "session": scanner_engine.current_session,
-            "categories": stats
-        }
-    
-    except Exception as e:
-        logger.error("Error getting categories stats", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/api/categories/{category_name}")
 async def get_category_tickers(category_name: str, limit: int = settings.default_category_limit):
     """

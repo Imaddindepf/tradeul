@@ -7,7 +7,7 @@ import { useAuth } from '@clerk/nextjs';
 // Types
 // ============================================================================
 
-export interface AlertStrategyFilters {
+interface AlertStrategyFilters {
   [key: string]: number | string | undefined;
 }
 
@@ -35,7 +35,7 @@ export interface CreateStrategyData {
   is_favorite?: boolean;
 }
 
-export interface UpdateStrategyData {
+interface UpdateStrategyData {
   name?: string;
   description?: string;
   category?: string;

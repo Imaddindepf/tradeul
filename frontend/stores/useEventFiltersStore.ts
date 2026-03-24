@@ -16,7 +16,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 // Types
 // ============================================================================
 
-export interface EventFilterParameters {
+interface EventFilterParameters {
   // Event type filters (which events to show)
   event_types?: string[];
 

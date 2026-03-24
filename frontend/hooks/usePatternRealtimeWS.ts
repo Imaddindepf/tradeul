@@ -35,7 +35,7 @@ export interface PredictionResult {
     verified_at: string | null;
 }
 
-export interface VerificationUpdate {
+interface VerificationUpdate {
     prediction_id: string;
     symbol: string;
     actual_return: number;

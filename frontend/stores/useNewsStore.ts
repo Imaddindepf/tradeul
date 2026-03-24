@@ -379,7 +379,6 @@ export const useNewsStore = create<NewsState & NewsActions>()(
 
 export const selectArticles = (state: NewsState & NewsActions) => state.articles;
 export const selectIsPaused = (state: NewsState & NewsActions) => state.isPaused;
-export const selectPausedBuffer = (state: NewsState & NewsActions) => state.pausedBuffer;
 export const selectIsConnected = (state: NewsState & NewsActions) => state.isConnected;
 export const selectStats = (state: NewsState & NewsActions) => state.stats;
 export const selectHasMore = (state: NewsState & NewsActions) => state.hasMore;
@@ -395,11 +394,3 @@ export function useArticlesByTicker(ticker: string): NewsArticle[] {
   });
 }
 
-/** @deprecated Use useArticlesByTicker */
-export const useFilteredArticles = (tickerFilter: string) => {
-  return useArticlesByTicker(tickerFilter);
-};
-
-export const useLiveCount = () => {
-  return useNewsStore((state) => state.stats.liveCount);
-};

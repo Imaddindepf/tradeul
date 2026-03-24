@@ -16,7 +16,7 @@ import { useAuth } from '@clerk/nextjs';
 
 const PREFS_SYNC_DEBOUNCE_MS = 3000;
 
-export interface UseWorkspaceSyncOptions {
+interface UseWorkspaceSyncOptions {
   enableInitialLoad?: boolean;
 }
 
