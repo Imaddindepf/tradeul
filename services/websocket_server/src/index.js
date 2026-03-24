@@ -1956,7 +1956,8 @@ function eventPassesSubscription(evt, sub) {
   function chkEvt(v, minKey, maxKey) {
     const lo = sub[minKey], hi = sub[maxKey];
     if (lo === null && hi === null) return true;
-    if (v == null) return false;
+    // Match EventTableContent.passesFilters + queryHistoricalEvents JSONB: missing field does not exclude.
+    if (v == null) return true;
     if (lo !== null && hi !== null && lo > hi) return v >= lo || v <= hi;
     if (lo !== null && v < lo) return false;
     if (hi !== null && v > hi) return false;

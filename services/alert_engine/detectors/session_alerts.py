@@ -1,7 +1,11 @@
 """
-Session Alert Detector - Pre/Post market highs and lows.
+Session extremes (pre/post high & low) — DISABLED in detector list.
 
-Quality = lookback_days (same as regular new high/low).
+PriceAlertDetector already emits PRE_MARKET_HIGH/LOW and POST_MARKET_HIGH/LOW
+with n-day lookback and shared cooldowns. Keeping SessionAlertDetector registered
+caused duplicate stream rows (same event_type, two descriptions) and wasted work.
+
+This module is retained for reference; it is not imported from ALL_DETECTOR_CLASSES.
 """
 
 from typing import Optional, List, Dict

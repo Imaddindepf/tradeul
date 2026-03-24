@@ -457,6 +457,23 @@ class AlertEngine:
                     rv = t.get(key)
                     if rv and rv != "":
                         entry[key] = str(rv)
+                # Full snapshot scalars: analytics adds fields often; whitelist above drifts.
+                # Persisting complete context fixes historical SQL + replay vs user filters.
+                for k, v in t.items():
+                    if k in entry or v is None:
+                        continue
+                    if type(v) is bool:
+                        continue
+                    if isinstance(v, (dict, list)):
+                        continue
+                    if isinstance(v, int):
+                        if abs(v) > 10**12:
+                            continue
+                        entry[k] = int(v)
+                    elif isinstance(v, float):
+                        entry[k] = float(v)
+                    elif isinstance(v, str) and len(v) <= 512:
+                        entry[k] = v
                 cache[sym] = entry
             self._enriched_cache = cache
         except Exception as e:

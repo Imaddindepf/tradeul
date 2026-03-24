@@ -6,7 +6,6 @@ from detectors.cross_alerts import CrossAlertDetector
 from detectors.pullback_alerts import PullbackAlertDetector
 from detectors.gap_alerts import GapAlertDetector
 from detectors.bidask_alerts import BidAskAlertDetector
-from detectors.session_alerts import SessionAlertDetector
 from detectors.technical_alerts import TechnicalAlertDetector
 from detectors.orb_alerts import ORBAlertDetector
 from detectors.consolidation_alerts import ConsolidationAlertDetector
@@ -31,7 +30,6 @@ ALL_DETECTOR_CLASSES = [
     PullbackAlertDetector,
     GapAlertDetector,
     BidAskAlertDetector,
-    SessionAlertDetector,
     TechnicalAlertDetector,
     ORBAlertDetector,
     ConsolidationAlertDetector,

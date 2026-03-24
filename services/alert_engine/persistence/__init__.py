@@ -139,7 +139,9 @@ class AlertWriter:
             self._buffer = self._buffer[drop:]
             self._total_dropped += drop
             logger.warning("Buffer overflow — dropped %d oldest alerts (total dropped: %d)", drop, self._total_dropped)
-        self._buffer.append({"alert": alert_dict, "enriched": enriched})
+        # Shallow copy: freeze point-in-time scalars for COPY flush (same dict must not mutate).
+        frozen = dict(enriched) if enriched else None
+        self._buffer.append({"alert": alert_dict, "enriched": frozen})
 
     async def run(self):
         """Main loop — crash-proof, never exits unless stopped."""
