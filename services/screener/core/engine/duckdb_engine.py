@@ -740,7 +740,26 @@ class ScreenerEngine:
             logger.error("change_ytd_failed", error=str(e))
 
     def _compute_consolidation(self, source_table: str, target_table: str):
-        """Compute Consolidation Days [ConDays] and Range Contraction [RC]."""
+        """Compute Consolidation Days [ConDays], Range Contraction [RC],
+        consolidation_high/low for Position in Consolidation [RCon].
+
+        Sqrt-scaling ATR algorithm:
+        Under Brownian motion the expected range grows with sqrt(N), so the
+        threshold scales as ATR(14) * K * sqrt(N) where N = window size in days.
+        This keeps the consolidation criterion statistically consistent across
+        short (5-day) and long (60+ day) bases.
+
+        K = 1.3:
+          5 days:  threshold ≈ ATR × 2.91
+          20 days: threshold ≈ ATR × 5.81
+          60 days: threshold ≈ ATR × 10.07
+
+        Range Contraction [RC] = avg_range_5d / avg_range_20d (unchanged).
+        """
+        SQRT_K = 1.3
+        MAX_CONSOL_DAYS = 120
+        ATR_PERIOD = 14
+
         try:
             df = self.conn.execute(f"""
                 SELECT symbol, date, high, low, close
@@ -750,39 +769,110 @@ class ScreenerEngine:
             """).fetchdf()
             if df.empty:
                 return
+
             df['daily_range'] = df['high'] - df['low']
-            df['prev_high'] = df.groupby('symbol')['high'].shift(1)
-            df['prev_low'] = df.groupby('symbol')['low'].shift(1)
-            df['inside_day'] = ((df['high'] <= df['prev_high']) & (df['low'] >= df['prev_low'])).astype(int)
-            def consec_inside(series):
-                result, count = [], 0
-                for val in series:
-                    count = count + 1 if val else 0
-                    result.append(count)
-                return result
-            df['consolidation_days'] = df.groupby('symbol')['inside_day'].transform(consec_inside)
-            avg_range_20 = df.groupby('symbol')['daily_range'].transform(lambda x: x.rolling(20, min_periods=5).mean())
-            avg_range_5 = df.groupby('symbol')['daily_range'].transform(lambda x: x.rolling(5, min_periods=2).mean())
+            df['tr'] = np.maximum(
+                df['high'] - df['low'],
+                np.maximum(
+                    abs(df['high'] - df.groupby('symbol')['close'].shift(1)),
+                    abs(df['low'] - df.groupby('symbol')['close'].shift(1))
+                )
+            )
+            df['atr'] = df.groupby('symbol')['tr'].transform(
+                lambda x: x.rolling(ATR_PERIOD, min_periods=ATR_PERIOD).mean()
+            )
+
+            avg_range_20 = df.groupby('symbol')['daily_range'].transform(
+                lambda x: x.rolling(20, min_periods=5).mean()
+            )
+            avg_range_5 = df.groupby('symbol')['daily_range'].transform(
+                lambda x: x.rolling(5, min_periods=2).mean()
+            )
             df['range_contraction'] = np.where(
                 avg_range_20 > 0,
                 (avg_range_5 / avg_range_20).round(4),
-                None
+                np.nan
             )
-            latest = df.sort_values('date').groupby('symbol').tail(1)[['symbol', 'consolidation_days', 'range_contraction']]
+
+            df_sorted = df.sort_values(['symbol', 'date'])
+            results = []
+            sqrt_table = [np.sqrt(n) for n in range(MAX_CONSOL_DAYS + 2)]
+
+            for symbol, grp in df_sorted.groupby('symbol'):
+                if len(grp) < ATR_PERIOD + 2:
+                    results.append({
+                        'symbol': symbol,
+                        'consolidation_days': 0,
+                        'consolidation_high': np.nan,
+                        'consolidation_low': np.nan,
+                        'range_contraction': grp['range_contraction'].iloc[-1] if len(grp) > 0 else np.nan,
+                    })
+                    continue
+
+                highs = grp['high'].values
+                lows = grp['low'].values
+                atrs = grp['atr'].values
+                rc = grp['range_contraction'].iloc[-1]
+
+                last_idx = len(highs) - 1
+                last_atr = atrs[last_idx]
+
+                if np.isnan(last_atr) or last_atr <= 0:
+                    results.append({
+                        'symbol': symbol, 'consolidation_days': 0,
+                        'consolidation_high': np.nan, 'consolidation_low': np.nan,
+                        'range_contraction': rc,
+                    })
+                    continue
+
+                con_days = 0
+                rolling_high = highs[last_idx]
+                rolling_low = lows[last_idx]
+
+                for i in range(1, min(MAX_CONSOL_DAYS + 1, last_idx + 1)):
+                    look_idx = last_idx - i
+                    candidate_high = max(rolling_high, highs[look_idx])
+                    candidate_low = min(rolling_low, lows[look_idx])
+                    rng = candidate_high - candidate_low
+                    threshold = last_atr * SQRT_K * sqrt_table[i + 1]
+
+                    if rng < threshold:
+                        rolling_high = candidate_high
+                        rolling_low = candidate_low
+                        con_days += 1
+                    else:
+                        break
+
+                results.append({
+                    'symbol': symbol,
+                    'consolidation_days': con_days,
+                    'consolidation_high': rolling_high if con_days > 0 else np.nan,
+                    'consolidation_low': rolling_low if con_days > 0 else np.nan,
+                    'range_contraction': rc,
+                })
+
+            latest = pd.DataFrame(results)
             if latest.empty:
                 return
+
             self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS consolidation_days INTEGER")
             self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS range_contraction DOUBLE")
+            self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS consolidation_high DOUBLE")
+            self.conn.execute(f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS consolidation_low DOUBLE")
             self.conn.register('_consol_update', latest)
             self.conn.execute(f"""
                 UPDATE {target_table} t
                 SET consolidation_days = r.consolidation_days,
-                    range_contraction = r.range_contraction
+                    range_contraction = r.range_contraction,
+                    consolidation_high = r.consolidation_high,
+                    consolidation_low = r.consolidation_low
                 FROM _consol_update r
                 WHERE t.symbol = r.symbol
             """)
             self.conn.unregister('_consol_update')
-            logger.info("consolidation_computed", symbols=len(latest))
+            logger.info("consolidation_computed", symbols=len(latest),
+                        avg_days=round(latest['consolidation_days'].mean(), 1),
+                        with_consolidation=int((latest['consolidation_days'] > 0).sum()))
         except Exception as e:
             logger.error("consolidation_failed", error=str(e))
 
@@ -988,6 +1078,8 @@ class ScreenerEngine:
                     low_all,
                     -- Consolidation / Range Contraction / Linear Regression
                     consolidation_days,
+                    consolidation_high,
+                    consolidation_low,
                     range_contraction,
                     lr_divergence_130
                 FROM screener_data

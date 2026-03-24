@@ -705,6 +705,8 @@ class EnrichmentPipeline:
         ticker_data['low_all'] = daily.get('low_all')
         # Consolidation / range contraction / LR divergence
         ticker_data['consolidation_days'] = daily.get('consolidation_days')
+        ticker_data['consolidation_high'] = daily.get('consolidation_high')
+        ticker_data['consolidation_low'] = daily.get('consolidation_low')
         ticker_data['range_contraction'] = daily.get('range_contraction')
         ticker_data['lr_divergence_130'] = daily.get('lr_divergence_130')
         
@@ -749,11 +751,13 @@ class EnrichmentPipeline:
             else:
                 ticker_data[_pos_key] = None
 
-        # Position in Consolidation [RCon] = position in consolidation range
+        # Position in Consolidation [RCon] = position within the consolidation range
+        # Trade Ideas: based on the high/low of the consolidation period (inside-day streak),
+        # not today's intraday range. >100 = broken out above, <0 = broken down below.
         _con_days = ticker_data.get('consolidation_days')
         if _con_days and _con_days > 0 and price:
-            _con_high = ticker_data.get('intraday_high')
-            _con_low = ticker_data.get('intraday_low')
+            _con_high = ticker_data.get('consolidation_high')
+            _con_low = ticker_data.get('consolidation_low')
             if _con_high and _con_low and _con_high != _con_low:
                 ticker_data['pos_in_consolidation'] = round((price - _con_low) / (_con_high - _con_low) * 100, 2)
             else:
@@ -789,12 +793,15 @@ class EnrichmentPipeline:
             else:
                 ticker_data[_dist_key] = None
 
-        # Distance from Daily SMA 200 (%) — real-time with current price
-        _dsma200 = ticker_data.get('daily_sma_200')
-        if price and _dsma200 and _dsma200 > 0:
-            ticker_data['dist_daily_sma_200'] = round((price - _dsma200) / _dsma200 * 100, 2)
-        else:
-            ticker_data.setdefault('dist_daily_sma_200', None)
+        # Distance from Daily SMAs (%) — real-time with current price
+        # Trade Ideas [MA50P] formula: ((Last Price) - (SMA)) / (SMA) * 100
+        for _sma_period in ('5', '8', '10', '20', '50', '200'):
+            _sma_val = ticker_data.get(f'daily_sma_{_sma_period}')
+            _dist_key = f'dist_daily_sma_{_sma_period}'
+            if price and _sma_val and _sma_val > 0:
+                ticker_data[_dist_key] = round((price - _sma_val) / _sma_val * 100, 2)
+            else:
+                ticker_data.setdefault(_dist_key, None)
 
         # Range % (ATR-normalized) [Range5DP, Range10DP, Range20DP]
         _atr = ticker_data.get('atr')
@@ -1583,6 +1590,8 @@ class EnrichmentPipeline:
                     "low_all": sf(ind.get("low_all")),
                     # Consolidation / Range Contraction / Linear Regression
                     "consolidation_days": sf(ind.get("consolidation_days")),
+                    "consolidation_high": sf(ind.get("consolidation_high")),
+                    "consolidation_low": sf(ind.get("consolidation_low")),
                     "range_contraction": sf(ind.get("range_contraction")),
                     "lr_divergence_130": sf(ind.get("lr_divergence_130")),
                 }
