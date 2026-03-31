@@ -1374,7 +1374,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         filterDebounceRef.current = null;
       }
     };
-  }, [ws.isConnected, ws.messages$, ws.send, activeEventTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ws.isConnected, ws.send, activeEventTypes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2) FILTER UPDATE EFFECT: debounced + idempotent
   //    Only sends update_event_filters when filters ACTUALLY change.

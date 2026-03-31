@@ -507,6 +507,25 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
   const managerRef = useRef<WebSocketManager>(WebSocketManager.getInstance());
   const isInitializedRef = useRef(false);
 
+  // Capture stable Observable references ONCE from the singleton manager.
+  // These getters on WebSocketManager create a new Observable instance (via
+  // pipe(share())) each time they are called. If we re-call them inside
+  // useMemo, every connectionId change produces a new messages$ reference,
+  // which causes every EventTableContent subscription effect to cleanup and
+  // re-run — triggering a second subscribe_events within ~155 ms of the first.
+  // The second set of DB queries then races against the first, hits the pool
+  // timeout (max 5 connections), falls back to Redis (0 events), and
+  // overwrites the display with an empty snapshot → "Waiting for events..."
+  //
+  // Fix: capture these once in refs so their identity never changes across
+  // re-renders caused by connectionId updates.
+  const messages$Ref = useRef(managerRef.current.messages$);
+  const snapshots$Ref = useRef(managerRef.current.snapshots$);
+  const deltas$Ref = useRef(managerRef.current.deltas$);
+  const aggregates$Ref = useRef(managerRef.current.aggregates$);
+  const errors$Ref = useRef(managerRef.current.errors$);
+  const tokenRefreshRequest$Ref = useRef(managerRef.current.tokenRefreshRequest$);
+
   // Inicializar conexión UNA SOLA VEZ
   useEffect(() => {
     if (!isInitializedRef.current) {
@@ -549,17 +568,18 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
     managerRef.current.unsubscribeNews();
   }, []);
 
-  // Memoizar el objeto retornado para evitar re-renders infinitos
-  // Solo cambia cuando isConnected o connectionId cambian
+  // Memoizar el objeto retornado para evitar re-renders innecesarios.
+  // isConnected y connectionId son los únicos valores que cambian con el estado
+  // de la conexión. Las referencias de Observables son estables (refs).
   return useMemo(() => ({
     isConnected,
     connectionId,
-    messages$: managerRef.current.messages$,
-    snapshots$: managerRef.current.snapshots$,
-    deltas$: managerRef.current.deltas$,
-    aggregates$: managerRef.current.aggregates$,
-    errors$: managerRef.current.errors$,
-    tokenRefreshRequest$: managerRef.current.tokenRefreshRequest$,
+    messages$: messages$Ref.current,
+    snapshots$: snapshots$Ref.current,
+    deltas$: deltas$Ref.current,
+    aggregates$: aggregates$Ref.current,
+    errors$: errors$Ref.current,
+    tokenRefreshRequest$: tokenRefreshRequest$Ref.current,
     send,
     subscribeNews,
     unsubscribeNews,

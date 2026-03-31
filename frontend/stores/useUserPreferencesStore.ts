@@ -22,6 +22,7 @@ export function consumePendingComponentStates(): Map<string, Record<string, unkn
 // ============================================================================
 
 export type FontFamily = 'oxygen-mono' | 'ibm-plex-mono' | 'jetbrains-mono' | 'fira-code';
+export type NewsViewMode = 'table' | 'feed';
 
 export interface WindowLayout {
   id: string;
@@ -77,6 +78,7 @@ interface ThemePreferences {
   colorScheme: 'light' | 'dark' | 'system';
   newsSquawkEnabled: boolean;
   timezone: TimezoneOption;
+  newsViewMode: NewsViewMode;
 }
 
 export interface UserPreferences {
@@ -110,6 +112,7 @@ interface UserPreferencesState extends UserPreferences {
   setColorScheme: (scheme: 'light' | 'dark' | 'system') => void;
   setNewsSquawkEnabled: (enabled: boolean) => void;
   setTimezone: (timezone: TimezoneOption) => void;
+  setNewsViewMode: (mode: NewsViewMode) => void;
   
   // Actions - Layout (DEPRECATED - usar workspaces)
   saveWindowLayouts: (layouts: WindowLayout[]) => void;
@@ -172,6 +175,7 @@ const DEFAULT_THEME: ThemePreferences = {
   colorScheme: 'light',
   newsSquawkEnabled: false,
   timezone: 'America/New_York', // ET - Standard for US markets
+  newsViewMode: 'table',
 };
 
 // Default Main workspace
@@ -255,6 +259,11 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       setTimezone: (timezone) =>
         set((state) => ({
           theme: { ...state.theme, timezone },
+        })),
+
+      setNewsViewMode: (newsViewMode) =>
+        set((state) => ({
+          theme: { ...state.theme, newsViewMode },
         })),
 
       // ========================================
@@ -450,22 +459,61 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           
           if (data.workspaces && data.workspaces.length > 0) {
             const local = get();
+            const remoteWorkspaces = data.workspaces as Workspace[];
+            const legacyWindowLayouts = Array.isArray(data.windowLayouts)
+              ? (data.windowLayouts as WindowLayout[])
+              : [];
+
+            const hasWorkspaceLayouts = remoteWorkspaces.some(
+              (w) => Array.isArray(w.windowLayouts) && w.windowLayouts.length > 0
+            );
+
+            // Backward-compatibility: if backend only has legacy windowLayouts,
+            // hydrate Main workspace from that data after fresh browser sessions.
+            let hydratedWorkspaces = remoteWorkspaces;
+            if (!hasWorkspaceLayouts && legacyWindowLayouts.length > 0) {
+              const mainWorkspace = remoteWorkspaces.find((w) => w.id === 'main');
+              if (mainWorkspace) {
+                hydratedWorkspaces = remoteWorkspaces.map((w) =>
+                  w.id === 'main' ? { ...w, windowLayouts: legacyWindowLayouts } : w
+                );
+              } else {
+                hydratedWorkspaces = [
+                  {
+                    id: 'main',
+                    name: 'Main',
+                    isMain: true,
+                    createdAt: Date.now(),
+                    windowLayouts: legacyWindowLayouts,
+                  },
+                  ...remoteWorkspaces,
+                ];
+              }
+            }
+
             const remoteActiveId = data.activeWorkspaceId || 'main';
-            const validActiveId = data.workspaces.some((w: Workspace) => w.id === local.activeWorkspaceId)
+            const validActiveId = hydratedWorkspaces.some((w) => w.id === local.activeWorkspaceId)
               ? local.activeWorkspaceId
-              : remoteActiveId;
+              : hydratedWorkspaces.some((w) => w.id === remoteActiveId)
+                ? remoteActiveId
+                : (hydratedWorkspaces[0]?.id || 'main');
 
             set({
-              workspaces: data.workspaces,
+              workspaces: hydratedWorkspaces,
               activeWorkspaceId: validActiveId,
               colors: data.colors || DEFAULT_COLORS,
-              theme: data.theme || DEFAULT_THEME,
+              theme: { ...DEFAULT_THEME, ...(data.theme || {}) },
               columnVisibility: data.columnVisibility || {},
               columnOrder: data.columnOrder || {},
+              // Keep layoutInitialized in sync so workspace page does not open defaults.
+              layoutInitialized:
+                hasWorkspaceLayouts || legacyWindowLayouts.length > 0
+                  ? true
+                  : local.layoutInitialized,
               workspacesModifiedAt: data.updatedAt ? new Date(data.updatedAt).getTime() : Date.now(),
               lastSyncedAt: Date.now(),
             });
-            
+
             return true;
           }
           
@@ -520,7 +568,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           const data = JSON.parse(json);
           set({
             colors: data.colors || DEFAULT_COLORS,
-            theme: data.theme || DEFAULT_THEME,
+            theme: { ...DEFAULT_THEME, ...(data.theme || {}) },
             windowLayouts: data.windowLayouts || [],
             layoutInitialized: data.layoutInitialized ?? false,
             workspaces: data.workspaces || [DEFAULT_MAIN_WORKSPACE],

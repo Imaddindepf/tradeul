@@ -88,9 +88,16 @@ class BuildTickerChainTask:
                 await self.redis.client.delete(TICKER_CHAIN_HASH)
                 
                 pipe = self.redis.client.pipeline()
+                # Store chain for BOTH the active symbol and all legacy aliases.
+                # This guarantees direct HGET for old ticker queries.
+                expanded_entries = 0
                 for symbol, chain in chains.items():
                     import orjson
-                    pipe.hset(TICKER_CHAIN_HASH, symbol, orjson.dumps(chain).decode())
+                    encoded_chain = orjson.dumps(chain).decode()
+                    members = {symbol, *chain}
+                    for member in members:
+                        pipe.hset(TICKER_CHAIN_HASH, str(member).upper(), encoded_chain)
+                        expanded_entries += 1
                 
                 if chains:
                     await pipe.execute()
@@ -104,6 +111,7 @@ class BuildTickerChainTask:
                 logger.info(
                     "build_ticker_chain_completed",
                     chains_built=len(chains),
+                    hash_entries=expanded_entries,
                     examples=stats["examples"]
                 )
                 

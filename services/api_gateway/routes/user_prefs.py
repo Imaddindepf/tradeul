@@ -32,6 +32,8 @@ class ThemePreferences(BaseModel):
     font: str = Field(default="jetbrains-mono", description="Fuente monospace seleccionada")
     colorScheme: str = Field(default="light", description="Esquema de color: light/dark/system")
     newsSquawkEnabled: bool = Field(default=False, description="Squawk activo para noticias")
+    timezone: str = Field(default="America/New_York", description="Zona horaria preferida")
+    newsViewMode: str = Field(default="table", description="Vista de noticias: table o feed")
 
 
 class WindowLayout(BaseModel):
@@ -322,7 +324,7 @@ async def save_preferences(
             INSERT INTO user_preferences (user_id, colors, theme, window_layouts, saved_filters, column_visibility, column_order, news_alerts, workspaces, active_workspace_id)
             VALUES ($1, 
                 COALESCE($2::jsonb, '{"tickUp":"#10b981","tickDown":"#ef4444","background":"#ffffff","primary":"#3b82f6"}'::jsonb),
-                COALESCE($3::jsonb, '{"font":"jetbrains-mono","colorScheme":"light"}'::jsonb),
+                COALESCE($3::jsonb, '{"font":"jetbrains-mono","colorScheme":"light","newsSquawkEnabled":false,"timezone":"America/New_York","newsViewMode":"table"}'::jsonb),
                 COALESCE($4::jsonb, '[]'::jsonb),
                 COALESCE($5::jsonb, '{}'::jsonb),
                 COALESCE($6::jsonb, '{}'::jsonb),
@@ -514,7 +516,7 @@ async def update_workspaces(
             INSERT INTO user_preferences (user_id, workspaces, active_workspace_id, colors, theme, column_visibility, column_order)
             VALUES ($1, $2::jsonb, $3,
                 COALESCE($4::jsonb, '{"tickUp":"#10b981","tickDown":"#ef4444","background":"#ffffff","primary":"#3b82f6"}'::jsonb),
-                COALESCE($5::jsonb, '{"font":"jetbrains-mono","colorScheme":"light","newsSquawkEnabled":false}'::jsonb),
+                COALESCE($5::jsonb, '{"font":"jetbrains-mono","colorScheme":"light","newsSquawkEnabled":false,"timezone":"America/New_York","newsViewMode":"table"}'::jsonb),
                 COALESCE($6::jsonb, '{}'::jsonb),
                 COALESCE($7::jsonb, '{}'::jsonb))
             ON CONFLICT (user_id) DO UPDATE SET

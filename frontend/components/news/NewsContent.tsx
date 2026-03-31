@@ -12,7 +12,7 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { TableVirtuoso } from 'react-virtuoso';
+import { TableVirtuoso, Virtuoso } from 'react-virtuoso';
 import { useNewsStore, NewsArticle, selectArticles, selectIsPaused, selectIsConnected, selectHasMore, selectIsLoadingMore, PAGE_SIZE } from '@/stores/useNewsStore';
 import { useSquawk } from '@/contexts/SquawkContext';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
@@ -64,6 +64,28 @@ function getQuickDateRange(days: number): { from: string; to: string } {
   return { from: from.toISOString().split('T')[0], to };
 }
 
+function stripHtml(raw: string): string {
+  return raw
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildNewsSnippet(article: NewsArticle, maxChars = 190): string {
+  const teaser = (article.teaser || '').trim();
+  if (teaser) {
+    const decodedTeaser = decodeHtmlEntities(teaser);
+    return decodedTeaser.length > maxChars ? `${decodedTeaser.slice(0, maxChars - 1)}…` : decodedTeaser;
+  }
+
+  const body = (article.body || '').trim();
+  if (!body) return '';
+  const cleanedBody = decodeHtmlEntities(stripHtml(body));
+  if (!cleanedBody) return '';
+  return cleanedBody.length > maxChars ? `${cleanedBody.slice(0, maxChars - 1)}…` : cleanedBody;
+}
+
 // Row height for virtualization
 const ROW_HEIGHT = 24;
 
@@ -83,6 +105,8 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
   // Fuente del usuario
   const userFont = useUserPreferencesStore((s) => s.theme.font);
+  const newsViewMode = useUserPreferencesStore((s) => s.theme.newsViewMode || 'table');
+  const setNewsViewMode = useUserPreferencesStore((s) => s.setNewsViewMode);
   const fontFamily = FONT_FAMILIES[userFont] || FONT_FAMILIES['jetbrains-mono'];
 
   // Use persisted ticker
@@ -524,6 +548,25 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
         </div>
 
         <div className="flex items-center gap-1.5">
+          <div className="flex items-center bg-muted rounded p-0.5">
+            <button
+              onClick={() => setNewsViewMode('table')}
+              className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${newsViewMode === 'table' ? 'bg-surface text-foreground shadow-sm font-medium' : 'text-muted-fg hover:text-foreground'}`}
+              style={{ fontFamily }}
+              title={t('news.tableView')}
+            >
+              {t('news.tableView')}
+            </button>
+            <button
+              onClick={() => setNewsViewMode('feed')}
+              className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${newsViewMode === 'feed' ? 'bg-surface text-foreground shadow-sm font-medium' : 'text-muted-fg hover:text-foreground'}`}
+              style={{ fontFamily }}
+              title={t('news.feedView')}
+            >
+              {t('news.feedView')}
+            </button>
+          </div>
+
           {!isSearchMode && (
             <div className="flex items-center gap-1.5 text-[10px]" style={{ fontFamily }}>
               {tickerFilter && (
@@ -727,119 +770,186 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
         </div>
       )}
 
-      {/* Virtualized Table */}
+      {/* Virtualized Content */}
       {(!isSearchMode || (isSearchMode && searchResults.length > 0)) && !searchLoading && (
-        <div className="flex-1">
-          <TableVirtuoso
-            ref={virtuosoRef}
-            style={{ height: '100%' }}
-            data={displayedArticles}
-            overscan={20}
-            endReached={isSearchMode ? undefined : handleEndReached}
-            fixedHeaderContent={() => (
-              <tr className="text-left uppercase tracking-wide text-foreground/80 bg-surface-inset">
-                {!hiddenCols.has('ticker') && <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>}
-                <th className="px-1.5 py-1 font-medium text-[11px]" style={{ fontFamily }}>{t('news.headline')}</th>
-                {!hiddenCols.has('date') && <th className="px-1.5 py-1 font-medium w-20 text-center text-[11px]" style={{ fontFamily }}>{t('news.date')}</th>}
-                {!hiddenCols.has('time') && <th className="px-1.5 py-1 font-medium w-16 text-center text-[11px]" style={{ fontFamily }}>{t('news.time')}</th>}
-                {!hiddenCols.has('source') && <th className="px-1.5 py-1 font-medium w-28 text-[11px]" style={{ fontFamily }}>{t('news.source')}</th>}
-              </tr>
-            )}
-            itemContent={(index, article) => {
-              const dt = formatDateTime(article.published);
-              const displayTicker = tickerFilter && !isSearchMode
-                ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
-                : (article.tickers?.[0] || '—');
-              const hasMultipleTickers = (article.tickers?.length || 0) > 1;
-              const articleId = String(article.benzinga_id || article.id || '');
-              const isHighlighted = highlightedId && highlightedId.includes(articleId);
+        <div className="flex-1 flex flex-col">
+          {newsViewMode === 'table' ? (
+            <TableVirtuoso
+              ref={virtuosoRef}
+              style={{ height: '100%' }}
+              data={displayedArticles}
+              overscan={20}
+              endReached={isSearchMode ? undefined : handleEndReached}
+              fixedHeaderContent={() => (
+                <tr className="text-left uppercase tracking-wide text-foreground/80 bg-surface-inset">
+                  {!hiddenCols.has('ticker') && <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>}
+                  <th className="px-1.5 py-1 font-medium text-[11px]" style={{ fontFamily }}>{t('news.headline')}</th>
+                  {!hiddenCols.has('date') && <th className="px-1.5 py-1 font-medium w-20 text-center text-[11px]" style={{ fontFamily }}>{t('news.date')}</th>}
+                  {!hiddenCols.has('time') && <th className="px-1.5 py-1 font-medium w-16 text-center text-[11px]" style={{ fontFamily }}>{t('news.time')}</th>}
+                  {!hiddenCols.has('source') && <th className="px-1.5 py-1 font-medium w-28 text-[11px]" style={{ fontFamily }}>{t('news.source')}</th>}
+                </tr>
+              )}
+              itemContent={(index, article) => {
+                const dt = formatDateTime(article.published);
+                const displayTicker = tickerFilter && !isSearchMode
+                  ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
+                  : (article.tickers?.[0] || '—');
+                const hasMultipleTickers = (article.tickers?.length || 0) > 1;
+                const articleId = String(article.benzinga_id || article.id || '');
+                const isHighlighted = highlightedId && highlightedId.includes(articleId);
 
-              return (
-                <>
-                  {!hiddenCols.has('ticker') && (
+                return (
+                  <>
+                    {!hiddenCols.has('ticker') && (
+                      <td
+                        className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
+                        style={{ fontFamily, height: ROW_HEIGHT }}
+                        onClick={() => setSelectedArticle(article)}
+                      >
+                        <span className="text-primary font-semibold">
+                          {displayTicker}
+                          {hasMultipleTickers && <span className="text-foreground/60 dark:text-foreground/85 text-[9px] ml-0.5">+{(article.tickers?.length || 1) - 1}</span>}
+                        </span>
+                      </td>
+                    )}
                     <td
-                      className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
+                      className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
                       style={{ fontFamily, height: ROW_HEIGHT }}
                       onClick={() => setSelectedArticle(article)}
                     >
-                      <span className="text-primary font-semibold">
-                        {displayTicker}
-                        {hasMultipleTickers && <span className="text-muted-fg text-[9px] ml-0.5">+{(article.tickers?.length || 1) - 1}</span>}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        {article.isLive && <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />}
+                        <span className="text-foreground truncate" style={{ maxWidth: '450px' }}>{decodeHtmlEntities(article.title)}</span>
+                      </div>
                     </td>
-                  )}
-                  <td
-                    className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
-                    style={{ fontFamily, height: ROW_HEIGHT }}
-                    onClick={() => setSelectedArticle(article)}
+                    {!hiddenCols.has('date') && (
+                      <td className={`px-1.5 py-0.5 text-center text-foreground/70 dark:text-foreground/90 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
+                        style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
+                        {dt.date}
+                      </td>
+                    )}
+                    {!hiddenCols.has('time') && (
+                      <td className={`px-1.5 py-0.5 text-center text-foreground/70 dark:text-foreground/90 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
+                        style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
+                        {dt.time}
+                      </td>
+                    )}
+                    {!hiddenCols.has('source') && (
+                      <td className={`px-1.5 py-0.5 text-foreground/70 dark:text-foreground/90 truncate text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
+                        style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
+                        {article.author}
+                      </td>
+                    )}
+                  </>
+                );
+              }}
+              components={{
+                Table: ({ style, ...props }) => (
+                  <table {...props} style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }} className="text-[11px]" />
+                ),
+                TableHead: React.forwardRef(({ style, ...props }, ref) => (
+                  <thead {...props} ref={ref} style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }} />
+                )),
+                TableRow: ({ style, ...props }) => (
+                  <tr {...props} style={{ ...style }} className="hover:bg-surface-hover transition-colors border-b border-border-subtle" />
+                ),
+                TableFoot: React.forwardRef(({ style, ...props }, ref) => (
+                  <tfoot {...props} ref={ref} style={style}>
+                    {/* Live mode: loading more */}
+                    {!isSearchMode && isLoadingMore && (
+                      <tr>
+                        <td colSpan={5 - hiddenCols.size} className="text-center py-2 text-xs text-muted-fg" style={{ fontFamily }}>
+                          Loading more...
+                        </td>
+                      </tr>
+                    )}
+                    {/* Search mode: load more button */}
+                    {isSearchMode && searchNextUrl && (
+                      <tr>
+                        <td colSpan={5 - hiddenCols.size} className="text-center py-2">
+                          <button
+                            onClick={handleLoadMoreSearch}
+                            disabled={searchLoadingMore}
+                            className="px-3 py-1 text-[10px] bg-surface-inset text-foreground rounded hover:bg-surface-hover disabled:opacity-50 transition-colors"
+                            style={{ fontFamily }}
+                          >
+                            {searchLoadingMore ? (
+                              <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading...</span>
+                            ) : t('news.loadMore')}
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  </tfoot>
+                )),
+              }}
+            />
+          ) : (
+            <>
+              <Virtuoso
+                ref={virtuosoRef}
+                style={{ height: '100%' }}
+                data={displayedArticles}
+                overscan={20}
+                endReached={isSearchMode ? undefined : handleEndReached}
+                itemContent={(index, article) => {
+                  const dt = formatDateTime(article.published);
+                  const articleId = String(article.benzinga_id || article.id || '');
+                  const isHighlighted = highlightedId && highlightedId.includes(articleId);
+                  const snippet = buildNewsSnippet(article);
+                  const tickerLine = (article.tickers || [])
+                    .slice(0, 8)
+                    .map((tk) => (tk.startsWith('$') ? tk : `$${tk}`))
+                    .join(', ');
+
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedArticle(article)}
+                      className={`w-full text-left px-2 py-1.5 border-b border-border-subtle hover:bg-surface-hover transition-colors ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
+                      style={{ fontFamily }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-[11px] text-foreground dark:text-white leading-snug">
+                          {decodeHtmlEntities(article.title)}
+                        </span>
+                        <span className="text-[10px] text-foreground/70 dark:text-foreground/90 font-mono whitespace-nowrap">{dt.time}</span>
+                      </div>
+                      {snippet && (
+                        <p className="mt-1 text-[10px] text-foreground/75 dark:text-foreground/90 leading-snug line-clamp-2">
+                          {snippet}
+                        </p>
+                      )}
+                      {tickerLine && (
+                        <p className="mt-1 text-[10px] text-primary font-medium truncate">
+                          {tickerLine}
+                        </p>
+                      )}
+                    </button>
+                  );
+                }}
+              />
+              {!isSearchMode && isLoadingMore && (
+                <div className="text-center py-2 text-xs text-muted-fg" style={{ fontFamily }}>
+                  Loading more...
+                </div>
+              )}
+              {isSearchMode && searchNextUrl && (
+                <div className="text-center py-2 border-t border-border-subtle">
+                  <button
+                    onClick={handleLoadMoreSearch}
+                    disabled={searchLoadingMore}
+                    className="px-3 py-1 text-[10px] bg-surface-inset text-foreground rounded hover:bg-surface-hover disabled:opacity-50 transition-colors"
+                    style={{ fontFamily }}
                   >
-                    <div className="flex items-center gap-1">
-                      {article.isLive && <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />}
-                      <span className="text-foreground truncate" style={{ maxWidth: '450px' }}>{decodeHtmlEntities(article.title)}</span>
-                    </div>
-                  </td>
-                  {!hiddenCols.has('date') && (
-                    <td className={`px-1.5 py-0.5 text-center text-muted-fg text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
-                      style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
-                      {dt.date}
-                    </td>
-                  )}
-                  {!hiddenCols.has('time') && (
-                    <td className={`px-1.5 py-0.5 text-center text-muted-fg text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
-                      style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
-                      {dt.time}
-                    </td>
-                  )}
-                  {!hiddenCols.has('source') && (
-                    <td className={`px-1.5 py-0.5 text-muted-fg truncate text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
-                      style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
-                      {article.author}
-                    </td>
-                  )}
-                </>
-              );
-            }}
-            components={{
-              Table: ({ style, ...props }) => (
-                <table {...props} style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }} className="text-[11px]" />
-              ),
-              TableHead: React.forwardRef(({ style, ...props }, ref) => (
-                <thead {...props} ref={ref} style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }} />
-              )),
-              TableRow: ({ style, ...props }) => (
-                <tr {...props} style={{ ...style }} className="hover:bg-surface-hover transition-colors border-b border-border-subtle" />
-              ),
-              TableFoot: React.forwardRef(({ style, ...props }, ref) => (
-                <tfoot {...props} ref={ref} style={style}>
-                  {/* Live mode: loading more */}
-                  {!isSearchMode && isLoadingMore && (
-                    <tr>
-                      <td colSpan={5 - hiddenCols.size} className="text-center py-2 text-xs text-muted-fg" style={{ fontFamily }}>
-                        Loading more...
-                      </td>
-                    </tr>
-                  )}
-                  {/* Search mode: load more button */}
-                  {isSearchMode && searchNextUrl && (
-                    <tr>
-                      <td colSpan={5 - hiddenCols.size} className="text-center py-2">
-                        <button
-                          onClick={handleLoadMoreSearch}
-                          disabled={searchLoadingMore}
-                          className="px-3 py-1 text-[10px] bg-surface-inset text-foreground rounded hover:bg-surface-hover disabled:opacity-50 transition-colors"
-                          style={{ fontFamily }}
-                        >
-                          {searchLoadingMore ? (
-                            <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading...</span>
-                          ) : t('news.loadMore')}
-                        </button>
-                      </td>
-                    </tr>
-                  )}
-                </tfoot>
-              )),
-            }}
-          />
+                    {searchLoadingMore ? (
+                      <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading...</span>
+                    ) : t('news.loadMore')}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

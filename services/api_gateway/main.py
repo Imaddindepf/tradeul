@@ -3463,11 +3463,22 @@ async def get_chart_data(
         source = "unknown"
         
         # Unified Polygon path for all intervals (with ticker chaining)
+        requested_symbol = symbol
         chain = await get_ticker_chain(symbol, redis_client)
         if chain:
+            # If user requested an old/legacy symbol (e.g. XXII), anchor fetch on
+            # the latest symbol in chain (e.g. CEP) so chart includes recent bars.
+            effective_symbol = chain[-1]
+            if effective_symbol != requested_symbol:
+                logger.info(
+                    "chart_symbol_resolved_to_latest_chain_member",
+                    requested=requested_symbol,
+                    effective=effective_symbol,
+                    chain=chain
+                )
             chart_data, oldest_time = await fetch_chained_polygon_data(
-                symbol, config["polygon_multiplier"], config["polygon_timespan"],
-                to_date, bars_limit, before, chain, fetch_polygon_chunk
+                effective_symbol, config["polygon_multiplier"], config["polygon_timespan"],
+                to_date, bars_limit, before, chain, fetch_polygon_chunk, fetch_fmp_chunk
             )
         else:
             chart_data, oldest_time = await fetch_polygon_chunk(

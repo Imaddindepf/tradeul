@@ -32,6 +32,8 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
 
   const colors = useUserPreferencesStore((s) => s.colors);
   const theme = useUserPreferencesStore((s) => s.theme);
+  const workspaces = useUserPreferencesStore((s) => s.workspaces);
+  const activeWorkspaceId = useUserPreferencesStore((s) => s.activeWorkspaceId);
   const columnVisibility = useUserPreferencesStore((s) => s.columnVisibility);
   const columnOrder = useUserPreferencesStore((s) => s.columnOrder);
 
@@ -91,7 +93,17 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
         clearTimeout(prefsSyncTimeoutRef.current);
       }
     };
-  }, [colors, theme, columnVisibility, columnOrder, isSignedIn, syncWorkspacesToBackend, getToken]);
+  }, [
+    colors,
+    theme,
+    workspaces,
+    activeWorkspaceId,
+    columnVisibility,
+    columnOrder,
+    isSignedIn,
+    syncWorkspacesToBackend,
+    getToken,
+  ]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {

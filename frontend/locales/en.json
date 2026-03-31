@@ -338,7 +338,9 @@
     "dateTo": "To",
     "today": "Today",
     "searchMode": "Search Mode",
-    "liveMode": "Live Mode"
+    "liveMode": "Live Mode",
+    "tableView": "Table",
+    "feedView": "Feed"
   },
   "secFilings": {
     "title": "SEC Filings",

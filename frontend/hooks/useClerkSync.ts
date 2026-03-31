@@ -45,7 +45,13 @@ interface WindowLayoutAPI {
 interface UserPreferencesAPI {
     userId: string;
     colors: ColorPreferences;
-    theme: { font: FontFamily; colorScheme: 'light' | 'dark' | 'system'; newsSquawkEnabled?: boolean };
+    theme: {
+        font: FontFamily;
+        colorScheme: 'light' | 'dark' | 'system';
+        newsSquawkEnabled?: boolean;
+        timezone?: string;
+        newsViewMode?: 'table' | 'feed';
+    };
     windowLayouts: WindowLayoutAPI[];
     columnVisibility: Record<string, Record<string, boolean>>;
     columnOrder: Record<string, string[]>;
@@ -122,6 +128,12 @@ export function useClerkSync() {
                     if (data.theme.newsSquawkEnabled !== undefined) {
                         useUserPreferencesStore.getState().setNewsSquawkEnabled(data.theme.newsSquawkEnabled);
                     }
+                    if (data.theme.timezone) {
+                        useUserPreferencesStore.getState().setTimezone(data.theme.timezone as any);
+                    }
+                    if (data.theme.newsViewMode) {
+                        useUserPreferencesStore.getState().setNewsViewMode(data.theme.newsViewMode);
+                    }
                 }
 
                 const currentLocalLayouts = useUserPreferencesStore.getState().windowLayouts;
@@ -171,6 +183,8 @@ export function useClerkSync() {
                     font: theme.font,
                     colorScheme: theme.colorScheme,
                     newsSquawkEnabled: theme.newsSquawkEnabled ?? false,
+                    timezone: theme.timezone,
+                    newsViewMode: theme.newsViewMode,
                 },
                 windowLayouts: windowLayouts.map((w) => ({
                     id: w.id,

@@ -147,7 +147,7 @@ const pgPool = new Pool({
   user: process.env.POSTGRES_USER || "tradeul_user",
   password: process.env.POSTGRES_PASSWORD || "",
   database: process.env.POSTGRES_DB || "tradeul",
-  max: 5,              // Small pool — only for on-demand historical queries
+  max: 15,             // Raised from 5→15 to handle concurrent historical queries from multiple strategy tables
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 });
