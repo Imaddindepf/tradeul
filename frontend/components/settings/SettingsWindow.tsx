@@ -16,6 +16,7 @@ import {
   type FontFamily,
   type ColorPreferences 
 } from '@/stores/useUserPreferencesStore';
+import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
 
 interface SettingsWindowProps {
   onClose: () => void;
@@ -138,6 +139,7 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
   const exportPreferences = useUserPreferencesStore((state) => state.exportPreferences);
   const importPreferences = useUserPreferencesStore((state) => state.importPreferences);
   const resetAll = useUserPreferencesStore((state) => state.resetAll);
+  const { forceSync } = useWorkspaceSync({ enableInitialLoad: false });
 
   const handleExport = () => {
     const data = exportPreferences();
@@ -161,6 +163,7 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
         reader.onload = (e) => {
           const content = e.target?.result as string;
           if (importPreferences(content)) {
+            forceSync();
             alert('Preferences imported successfully!');
           } else {
             alert('Failed to import preferences. Invalid file format.');
@@ -281,6 +284,7 @@ export function SettingsWindow({ onClose, onSaveLayout }: SettingsWindowProps) {
             onClick={() => {
               if (confirm('Reset all preferences to default? This cannot be undone.')) {
                 resetAll();
+                forceSync();
               }
             }}
             className="w-full flex items-center justify-center gap-2 px-4 py-2 text-red-600 hover:bg-red-500/10 rounded-lg text-sm font-medium transition-colors"

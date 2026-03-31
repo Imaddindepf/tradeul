@@ -89,14 +89,14 @@ export interface DrilldownTicker {
   _changedKeys?: Set<string>;
 }
 
-export interface PerformanceResponse {
+interface PerformanceResponse {
   group_by: string;
   data: PerformanceEntry[];
   timestamp: number;
   total_tickers: number;
 }
 
-export interface DrilldownResponse {
+interface DrilldownResponse {
   group_type: string;
   group_name: string;
   data: DrilldownTicker[];
@@ -241,7 +241,7 @@ export interface TickerContextPeer {
   rvol: number | null;
 }
 
-export interface SectorRanked {
+interface SectorRanked {
   name: string;
   count: number;
   weighted_change: number;
@@ -251,7 +251,7 @@ export interface SectorRanked {
   total_market_cap: number;
 }
 
-export interface ThemeContext {
+interface ThemeContext {
   name: string;
   relevance: number;
   count: number;

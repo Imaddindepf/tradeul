@@ -155,8 +155,8 @@ class SnapshotConsumer:
                     price_sources["prevDay"] += 1
                 else:
                     price_sources["none"] += 1
-                # Filtrar: descartar si precio None o < 0.5
-                if cp is None or cp < 0.5:
+                # Filtrar: descartar si precio None o < 0.1
+                if cp is None or cp < 0.1:
                     skipped_low_price += 1
                     continue
                 ticker_dict = s.model_dump(mode='json')

@@ -209,19 +209,3 @@ export function useWebSocket(): UseRxWebSocketReturn {
     return context.ws;
 }
 
-/**
- * Hook para verificar si está autenticado y listo
- */
-export function useWebSocketAuth() {
-    const context = useContext(AuthWebSocketContext);
-
-    if (!context) {
-        throw new Error('useWebSocketAuth must be used within AuthWebSocketProvider');
-    }
-
-    return {
-        isAuthenticated: context.isAuthenticated,
-        isReady: context.isReady,
-    };
-}
-

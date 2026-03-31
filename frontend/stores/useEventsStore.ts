@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export interface CachedEventEntry {
+interface CachedEventEntry {
   id: string;
   [key: string]: any;
 }

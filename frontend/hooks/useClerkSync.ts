@@ -45,7 +45,13 @@ interface WindowLayoutAPI {
 interface UserPreferencesAPI {
     userId: string;
     colors: ColorPreferences;
-    theme: { font: FontFamily; colorScheme: 'light' | 'dark' | 'system'; newsSquawkEnabled?: boolean };
+    theme: {
+        font: FontFamily;
+        colorScheme: 'light' | 'dark' | 'system';
+        newsSquawkEnabled?: boolean;
+        timezone?: string;
+        newsViewMode?: 'table' | 'feed';
+    };
     windowLayouts: WindowLayoutAPI[];
     columnVisibility: Record<string, Record<string, boolean>>;
     columnOrder: Record<string, string[]>;
@@ -122,6 +128,12 @@ export function useClerkSync() {
                     if (data.theme.newsSquawkEnabled !== undefined) {
                         useUserPreferencesStore.getState().setNewsSquawkEnabled(data.theme.newsSquawkEnabled);
                     }
+                    if (data.theme.timezone) {
+                        useUserPreferencesStore.getState().setTimezone(data.theme.timezone as any);
+                    }
+                    if (data.theme.newsViewMode) {
+                        useUserPreferencesStore.getState().setNewsViewMode(data.theme.newsViewMode);
+                    }
                 }
 
                 const currentLocalLayouts = useUserPreferencesStore.getState().windowLayouts;
@@ -171,6 +183,8 @@ export function useClerkSync() {
                     font: theme.font,
                     colorScheme: theme.colorScheme,
                     newsSquawkEnabled: theme.newsSquawkEnabled ?? false,
+                    timezone: theme.timezone,
+                    newsViewMode: theme.newsViewMode,
                 },
                 windowLayouts: windowLayouts.map((w) => ({
                     id: w.id,
@@ -260,50 +274,5 @@ export function useClerkSync() {
         lastSync: lastSyncRef.current,
         isLoading: isLoadingRef.current,
     };
-}
-
-/**
- * Hook simplificado para solo guardar el layout
- */
-export function useSaveLayoutToCloud() {
-    const { isSignedIn, userId, getToken } = useAuth();
-    const windowLayouts = useUserPreferencesStore((s) => s.windowLayouts);
-
-    const saveLayout = useCallback(async () => {
-        if (!isSignedIn || !userId) {
-            return false;
-        }
-
-        try {
-            const layouts = windowLayouts.map((w) => ({
-                id: w.id,
-                type: w.type,
-                title: w.title,
-                position: w.position,
-                size: w.size,
-                isMinimized: w.isMinimized,
-                zIndex: w.zIndex,
-                componentState: w.componentState,
-                linkGroup: w.linkGroup,
-            }));
-
-            // Usar JWT en lugar de X-User-ID (más seguro)
-            const response = await authFetch(
-                `${API_BASE_URL}/api/v1/user/preferences/layout`,
-                getToken,
-                {
-                    method: 'PATCH',
-                    body: JSON.stringify(layouts),
-                }
-            );
-
-            return response.ok;
-        } catch (error) {
-            console.error('[ClerkSync] Error guardando layout:', error);
-            return false;
-        }
-    }, [isSignedIn, userId, getToken, windowLayouts]);
-
-    return { saveLayout, isSignedIn };
 }
 

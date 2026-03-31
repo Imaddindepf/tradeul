@@ -68,8 +68,8 @@ class RedisStreamManager:
             "trim_interval": 120,     # Trim cada 2 min
             "approximate": True,
         },
-        "stream:events:market": {
-            "maxlen": 5000,           # Market events (new highs, VWAP crosses, etc.)
+        "stream:alerts:market": {
+            "maxlen": 5000,           # Market alerts (new highs, VWAP crosses, etc.)
             "trim_threshold": 6000,
             "trim_interval": 60,      # Trim cada minuto
             "approximate": True,

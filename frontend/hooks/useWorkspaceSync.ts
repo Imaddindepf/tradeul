@@ -1,24 +1,27 @@
 'use client';
 
 /**
- * useWorkspaceSync - Hook para sincronización de workspaces con backend
- * 
- * Estrategia: "sync on mutate" — cada cambio estructural se sincroniza
- * inmediatamente. beforeunload usa un token pre-cacheado como fallback.
+ * useWorkspaceSync - Unified sync hook for all user preferences
+ *
+ * Architecture: each browser tab is independent.
+ * - On mount: load from backend (source of truth)
+ * - On preference change: debounced sync to backend
+ * - On tab close: sendBeacon to backend with pre-cached token
+ * - No cross-tab communication (no BroadcastChannel, no shared localStorage sync)
  */
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { useAuth } from '@clerk/nextjs';
 
-export interface UseWorkspaceSyncOptions {
+const PREFS_SYNC_DEBOUNCE_MS = 3000;
+
+interface UseWorkspaceSyncOptions {
   enableInitialLoad?: boolean;
-  periodicSyncInterval?: number;
 }
 
 const DEFAULT_OPTIONS: UseWorkspaceSyncOptions = {
   enableInitialLoad: true,
-  periodicSyncInterval: 0,
 };
 
 export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTIONS) {
@@ -26,10 +29,19 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
   const loadFromBackend = useUserPreferencesStore((s) => s.loadFromBackend);
   const syncWorkspacesToBackend = useUserPreferencesStore((s) => s.syncWorkspacesToBackend);
   const lastSyncedAt = useUserPreferencesStore((s) => s.lastSyncedAt);
-  
+
+  const colors = useUserPreferencesStore((s) => s.colors);
+  const theme = useUserPreferencesStore((s) => s.theme);
+  const workspaces = useUserPreferencesStore((s) => s.workspaces);
+  const activeWorkspaceId = useUserPreferencesStore((s) => s.activeWorkspaceId);
+  const columnVisibility = useUserPreferencesStore((s) => s.columnVisibility);
+  const columnOrder = useUserPreferencesStore((s) => s.columnOrder);
+
   const hasLoadedRef = useRef(false);
-  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const cachedTokenRef = useRef<string | null>(null);
+  const prefsSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isFirstPrefsRenderRef = useRef(true);
+  const isLoadingRef = useRef(false);
 
   const refreshToken = useCallback(async () => {
     if (!getToken) return;
@@ -38,7 +50,6 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
     } catch { /* token refresh failed, keep old */ }
   }, [getToken]);
 
-  // Keep a fresh token cached for sendBeacon
   useEffect(() => {
     if (!isSignedIn) return;
     refreshToken();
@@ -46,7 +57,6 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
     return () => clearInterval(interval);
   }, [isSignedIn, refreshToken]);
 
-  // Initial load from backend
   useEffect(() => {
     if (
       options.enableInitialLoad &&
@@ -55,26 +65,46 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
       !hasLoadedRef.current
     ) {
       hasLoadedRef.current = true;
-      loadFromBackend(getToken);
+      isLoadingRef.current = true;
+      loadFromBackend(getToken).finally(() => {
+        isLoadingRef.current = false;
+      });
     }
   }, [isLoaded, isSignedIn, options.enableInitialLoad, loadFromBackend, getToken]);
 
-  // Periodic sync (optional)
   useEffect(() => {
-    if (options.periodicSyncInterval && options.periodicSyncInterval > 0 && isSignedIn) {
-      syncIntervalRef.current = setInterval(() => {
-        syncWorkspacesToBackend(getToken);
-      }, options.periodicSyncInterval);
-
-      return () => {
-        if (syncIntervalRef.current) {
-          clearInterval(syncIntervalRef.current);
-        }
-      };
+    if (isFirstPrefsRenderRef.current) {
+      isFirstPrefsRenderRef.current = false;
+      return;
     }
-  }, [options.periodicSyncInterval, isSignedIn, syncWorkspacesToBackend, getToken]);
+    if (!isSignedIn || !hasLoadedRef.current) return;
+    if (isLoadingRef.current) return;
 
-  // Fallback: sendBeacon on tab close with pre-cached token
+    if (prefsSyncTimeoutRef.current) {
+      clearTimeout(prefsSyncTimeoutRef.current);
+    }
+    prefsSyncTimeoutRef.current = setTimeout(() => {
+      if (isLoadingRef.current) return;
+      syncWorkspacesToBackend(getToken);
+    }, PREFS_SYNC_DEBOUNCE_MS);
+
+    return () => {
+      if (prefsSyncTimeoutRef.current) {
+        clearTimeout(prefsSyncTimeoutRef.current);
+      }
+    };
+  }, [
+    colors,
+    theme,
+    workspaces,
+    activeWorkspaceId,
+    columnVisibility,
+    columnOrder,
+    isSignedIn,
+    syncWorkspacesToBackend,
+    getToken,
+  ]);
+
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (!isSignedIn || !navigator.sendBeacon) return;
@@ -84,6 +114,10 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
       const payload = JSON.stringify({
         workspaces: state.workspaces,
         activeWorkspaceId: state.activeWorkspaceId,
+        colors: state.colors,
+        theme: state.theme,
+        columnVisibility: state.columnVisibility,
+        columnOrder: state.columnOrder,
         _token: cachedTokenRef.current,
       });
       const blob = new Blob([payload], { type: 'application/json' });
@@ -93,6 +127,12 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isSignedIn]);
+
+  useEffect(() => {
+    return () => {
+      if (prefsSyncTimeoutRef.current) clearTimeout(prefsSyncTimeoutRef.current);
+    };
+  }, []);
 
   return {
     lastSyncedAt,
@@ -104,4 +144,3 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
 }
 
 export default useWorkspaceSync;
-

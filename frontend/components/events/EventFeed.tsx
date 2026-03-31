@@ -15,11 +15,9 @@ import { formatDistanceToNow } from 'date-fns';
 import {
   useMarketEvents,
   MarketEvent,
-  MarketEventType,
-  EVENT_TYPE_LABELS,
-  EVENT_TYPE_COLORS,
   MarketEventsFilter,
 } from '@/hooks/useMarketEvents';
+import { getEventLabel, getEventColor, ALERT_BY_EVENT_TYPE } from '@/lib/alert-catalog';
 import { cn } from '@/lib/utils';
 
 // ============================================================================
@@ -73,13 +71,11 @@ function EventRow({ event, compact, onClick }: EventRowProps) {
         : event.volume.toString()
     : '';
 
-  const colorClass = EVENT_TYPE_COLORS[event.event_type] || 'text-muted-fg';
-  const label = EVENT_TYPE_LABELS[event.event_type] || event.event_type;
-
-  const isPositive = ['new_high', 'vwap_cross_up', 'resume', 'crossed_above_open', 'crossed_above_prev_close',
-    'running_up', 'percent_up_5', 'percent_up_10', 'pullback_75_from_low', 'pullback_25_from_low', 'gap_down_reversal'].includes(event.event_type);
-  const isNegative = ['new_low', 'vwap_cross_down', 'halt', 'crossed_below_open', 'crossed_below_prev_close',
-    'running_down', 'percent_down_5', 'percent_down_10', 'pullback_75_from_high', 'pullback_25_from_high', 'gap_up_reversal'].includes(event.event_type);
+  const colorClass = getEventColor(event.event_type);
+  const label = getEventLabel(event.event_type);
+  const def = ALERT_BY_EVENT_TYPE[event.event_type];
+  const isPositive = def?.direction === 'bullish';
+  const isNegative = def?.direction === 'bearish';
 
   return (
     <div
@@ -144,17 +140,17 @@ function EventRow({ event, compact, onClick }: EventRowProps) {
 // ============================================================================
 
 interface FilterBarProps {
-  selectedTypes: MarketEventType[];
-  onTypesChange: (types: MarketEventType[]) => void;
+  selectedTypes: string[];
+  onTypesChange: (types: string[]) => void;
 }
 
 function FilterBar({ selectedTypes, onTypesChange }: FilterBarProps) {
-  const allTypes: MarketEventType[] = [
+  const allTypes: string[] = [
     'new_high', 'new_low', 'vwap_cross_up', 'vwap_cross_down',
     'rvol_spike', 'volume_surge', 'halt', 'resume'
   ];
 
-  const toggleType = (type: MarketEventType) => {
+  const toggleType = (type: string) => {
     if (selectedTypes.includes(type)) {
       onTypesChange(selectedTypes.filter(t => t !== type));
     } else {
@@ -190,7 +186,7 @@ function FilterBar({ selectedTypes, onTypesChange }: FilterBarProps) {
               : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700',
           )}
         >
-          <span>{EVENT_TYPE_LABELS[type]}</span>
+          <span>{getEventLabel(type)}</span>
         </button>
       ))}
     </div>
@@ -209,7 +205,7 @@ export function EventFeed({
   className,
   onEventClick,
 }: EventFeedProps) {
-  const [selectedTypes, setSelectedTypes] = useState<MarketEventType[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 

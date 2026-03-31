@@ -11,11 +11,11 @@ Tradeul es una plataforma de trading en tiempo real que procesa +11,000 tickers 
 | Pilar | Servicio | Pregunta que responde | Paradigma |
 |-------|----------|----------------------|-----------|
 | **Scanner** (Estrategias) | `scanner` | "Quien cumple esta condicion AHORA?" | Snapshot-based (10s) |
-| **Event Detector** (Eventos) | `event_detector` | "Que PASO y CUANDO?" | Stream-based (~1s) |
+| **Alert Engine** (Eventos) | `alert_engine` | "Que PASO y CUANDO?" | Stream-based (~1s) |
 
 **Diferencias clave:**
 
-| Aspecto | Scanner | Event Detector |
+| Aspecto | Scanner | Alert Engine |
 |---------|---------|----------------|
 | Cardinalidad | 1 ticker = max 1 fila | 1 ticker = N filas (historial) |
 | Actualizacion | DELTAS (entra/sale/actualiza) | APPEND-ONLY (cada evento = nueva fila) |
@@ -48,7 +48,7 @@ Tradeul es una plataforma de trading en tiempo real que procesa +11,000 tickers 
 | Servicio | Puerto | Container | Funcion |
 |----------|--------|-----------|---------|
 | scanner | 8005 | `tradeul_scanner` | Motor RETE, categorizacion, deltas, reglas de usuario |
-| event_detector | 8040 | `tradeul_event_detector` | Deteccion de eventos en tiempo real (25 tipos) |
+| alert_engine | 8040 | `tradeul_alert_engine` | Deteccion de eventos en tiempo real (25 tipos) |
 | screener | 8026 | `tradeul_screener` | Screener basado en DuckDB |
 
 ### 2.4 Entrega al Frontend
@@ -121,12 +121,12 @@ Tradeul es una plataforma de trading en tiempo real que procesa +11,000 tickers 
                   |            |              |          |
                   v            v              v          |
          +----------+  +------------------+             |
-         | SCANNER  |  | EVENT DETECTOR   |             |
+         | SCANNER  |  | ALERT ENGINE     |             |
          | 12 cats  |  | 27 event types   |             |
          | RETE     |  | 6 plugins        |             |
          +----+-----+  +--------+---------+             |
               |                  |                       |
-    ranking:deltas     events:market                     |
+    ranking:deltas     alerts:market                     |
               |                  |                       |
               +--------+---------+-----------------------+
                        |
@@ -156,11 +156,11 @@ Tradeul es una plataforma de trading en tiempo real que procesa +11,000 tickers 
 
 | Stream | Max | Publicador | Consumidores |
 |--------|-----|-----------|-------------|
-| `stream:realtime:aggregates` | 3000 | polygon_ws | analytics, event_detector, ws_server |
+| `stream:realtime:aggregates` | 3000 | polygon_ws | analytics, alert_engine, ws_server |
 | `stream:realtime:quotes` | - | polygon_ws | ws_server |
-| `stream:halt:events` | 500 | polygon_ws | event_detector |
+| `stream:halt:events` | 500 | polygon_ws | alert_engine |
 | `stream:ranking:deltas` | 5000 | scanner | ws_server |
-| `stream:events:market` | 5000 | event_detector | ws_server |
+| `stream:alerts:market` | 5000 | alert_engine | ws_server |
 | `polygon_ws:subscriptions` | 2000 | scanner | polygon_ws |
 | `snapshots:raw` | 1000 | data_ingest | scanner |
 
@@ -168,11 +168,11 @@ Tradeul es una plataforma de trading en tiempo real que procesa +11,000 tickers 
 
 | Stream | Consumer Group | Consumer | Servicio |
 |--------|---------------|----------|----------|
-| `stream:realtime:aggregates` | `event_detector_aggregates` | `detector_1` | event_detector |
+| `stream:realtime:aggregates` | `alert_engine_aggregates` | `detector_1` | alert_engine |
 | `stream:realtime:aggregates` | `websocket_server_aggregates` | `ws_server_1` | ws_server |
-| `stream:halt:events` | `event_detector_halts` | `detector_1` | event_detector |
+| `stream:halt:events` | `alert_engine_halts` | `detector_1` | alert_engine |
 | `stream:ranking:deltas` | `websocket_server_deltas` | `ws_server_1` | ws_server |
-| `stream:events:market` | `websocket_server_events` | `ws_server_{pid}` | ws_server |
+| `stream:alerts:market` | `websocket_server_events` | `ws_server_{pid}` | ws_server |
 | `stream:realtime:quotes` | `websocket_server_quotes` | `ws_server_1` | ws_server |
 
 **Garantias:**
@@ -226,7 +226,7 @@ Tradeul es una plataforma de trading en tiempo real que procesa +11,000 tickers 
 
 ---
 
-## 6. Event Detector Service
+## 6. Alert Engine Service
 
 ### 6.1 Arquitectura de Plugins (6 detectores)
 
@@ -378,8 +378,8 @@ Eventos del sistema: `DAY_CHANGED` (reset caches), `SESSION_CHANGED` (transicion
 ### 10.3 Halt Detectado
 
 1. Polygon WS recibe LULD halt -> stream:halt:events
-2. Event Detector consume -> EventRecord(HALT, metadata)
-3. stream:events:market -> WS server filtra -> cliente recibe
+2. Alert Engine consume -> EventRecord(HALT, metadata)
+3. stream:alerts:market -> WS server filtra -> cliente recibe
 
 ### 10.4 Scan Personalizado
 
@@ -405,8 +405,8 @@ Eventos del sistema: `DAY_CHANGED` (reset caches), `SESSION_CHANGED` (transicion
 
 | # | Mejora | Desc | Complejidad |
 |---|--------|------|-------------|
-| 6 | **Health Check** en event_detector | Puerto 8040 sin HTTP server | Baja |
-| 7 | **Limpiar Codigo Legacy** | Detectores no usados en event_detector | Baja |
+| 6 | **Health Check** en alert_engine | Puerto 8040 sin HTTP server | Baja |
+| 7 | **Limpiar Codigo Legacy** | Detectores no usados en alert_engine | Baja |
 | 8 | **Categorias Custom Scanner** | Combinaciones de condiciones como Trade Ideas | Alta |
 | 9 | **Filtros Avanzados Scanner** | Sector, industry, EPS, earnings date, short interest | Media |
 | 10 | **Server-Side Filtering Completo** | Filtrar por precio, RVOL, change% en WS server | Media |
@@ -442,7 +442,7 @@ Eventos del sistema: `DAY_CHANGED` (reset caches), `SESSION_CHANGED` (transicion
 ## 12. Roadmap Sugerido
 
 ### Fase 1: Estabilizacion (1-2 dias)
-- [ ] #6 Health check en event_detector
+- [ ] #6 Health check en alert_engine
 - [ ] #7 Limpiar codigo legacy
 - [ ] #13 Panel de filtros para eventos en frontend
 - [ ] #19 Integrar EventFeed como widget
@@ -506,7 +506,7 @@ Inspirado en Trade Ideas. El sistema tiene:
 
 ### 12.2 Alert Registry
 
-Catalogo completo en `services/event_detector/registry/alert_catalog.py`:
+Catalogo completo en `services/alert_engine/registry/alert_catalog.py`:
 
 | Phase | Descripcion | # Alerts | Status |
 |-------|------------|----------|--------|
@@ -538,13 +538,13 @@ Catalogo completo en `services/event_detector/registry/alert_catalog.py`:
             └───────┬────────┴───────────────┘
                     ▼
            ┌────────────────┐
-           │ Event Detector  │
+           │ Alert Engine    │
            │ 9 plugins       │
            │ 53 EventTypes   │
            │ 38 TickerState  │
            └────────┬────────┘
                     │
-            stream:events:market
+            stream:alerts:market
                     │
            ┌────────┴────────┐
            │  WebSocket Srv  │ ← subscribe_events + filters
@@ -559,11 +559,11 @@ Catalogo completo en `services/event_detector/registry/alert_catalog.py`:
               └────────────┘
 ```
 
-### 12.4 Screener → Event Detector Bridge
+### 12.4 Screener → Alert Engine Bridge
 
 - Screener exporta SMA(20/50/200), Bollinger, RSI, 52w a Redis cada 5 min
 - Redis key: `screener:daily_indicators:latest`
-- Event detector lee cada 60s y popula TickerState con indicadores diarios
+- Alert engine lee cada 60s y popula TickerState con indicadores diarios
 - Permite detectar cruces de SMA y rupturas de Bollinger en tiempo real
 
 ### 12.5 Bar Builder Service
@@ -572,7 +572,7 @@ Catalogo completo en `services/event_detector/registry/alert_catalog.py`:
 
 - Consume `stream:realtime:aggregates` (1s data de Polygon WS)
 - Construye OHLC bars en 7 timeframes: 1m, 2m, 5m, 10m, 15m, 30m, 60m
-- Publica barra cerrada a `stream:bars:{timeframe}` para event_detector
+- Publica barra cerrada a `stream:bars:{timeframe}` para alert_engine
 - Almacena ultima barra en `bars:{timeframe}:latest` hash
 - Foundation para Phase 3-5 alerts (ORB, candlestick patterns, MACD crosses)
 

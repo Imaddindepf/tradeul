@@ -13,7 +13,7 @@ services:
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
     command: >
-      redis-server  --appendonly yes  --maxmemory 4gb  --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD} --rename-command FLUSHDB "" --rename-command FLUSHALL "" --rename-command CONFIG "CONFIG_ADMIN_ONLY" --rename-command SHUTDOWN "SHUTDOWN_ADMIN_ONLY"
+      redis-server  --appendonly yes  --maxmemory 5gb  --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD} --rename-command FLUSHDB "" --rename-command FLUSHALL "" --rename-command CONFIG "CONFIG_ADMIN_ONLY" --rename-command SHUTDOWN "SHUTDOWN_ADMIN_ONLY"
     logging:
       driver: "json-file"
       options:
@@ -30,9 +30,9 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 4G
+          memory: 6G
         reservations:
-          memory: 1G
+          memory: 2G
 
   timescaledb:
     image: timescale/timescaledb:latest-pg15
@@ -132,7 +132,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
+          cpus: "0.5"
           memory: 1G
         reservations:
           memory: 512M
@@ -199,7 +199,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
+          cpus: "0.5"
           memory: 2048M
         reservations:
           memory: 512M
@@ -226,7 +226,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
+          cpus: "0.25"
           memory: 2048M
         reservations:
           memory: 512M
@@ -277,7 +277,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
+          cpus: "1.5"
           memory: 1G
         reservations:
           memory: 512M
@@ -308,19 +308,21 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 5G
+          memory: 6500M
 
   # =============================================
-  # EVENT DETECTOR - Real-time market events
+  # ALERT ENGINE - Professional alert detection
   # =============================================
-  event_detector:
+  alert_worker_0:
     build:
       context: .
-      dockerfile: services/event_detector/Dockerfile
-    container_name: tradeul_event_detector
+      dockerfile: services/alert_engine/Dockerfile
+    container_name: tradeul_alert_worker_0
     env_file:
       - .env
     environment:
+      - PARTITION_ID=0
+      - NUM_PARTITIONS=4
       - POSTGRES_HOST=timescaledb
       - POSTGRES_PORT=5432
       - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
@@ -341,15 +343,127 @@ services:
     restart: unless-stopped
     networks:
       - tradeul_network
-    ports:
-      - "127.0.0.1:8040:8040"
     deploy:
       resources:
         limits:
-          cpus: "1"
-          memory: 1G
+          cpus: "2"
+          memory: 2G
         reservations:
-          memory: 256M
+          memory: 512M
+
+  alert_worker_1:
+    build:
+      context: .
+      dockerfile: services/alert_engine/Dockerfile
+    container_name: tradeul_alert_worker_1
+    env_file:
+      - .env
+    environment:
+      - PARTITION_ID=1
+      - NUM_PARTITIONS=4
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-tradeul}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      analytics:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  alert_worker_2:
+    build:
+      context: .
+      dockerfile: services/alert_engine/Dockerfile
+    container_name: tradeul_alert_worker_2
+    env_file:
+      - .env
+    environment:
+      - PARTITION_ID=2
+      - NUM_PARTITIONS=4
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-tradeul}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      analytics:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  alert_worker_3:
+    build:
+      context: .
+      dockerfile: services/alert_engine/Dockerfile
+    container_name: tradeul_alert_worker_3
+    env_file:
+      - .env
+    environment:
+      - PARTITION_ID=3
+      - NUM_PARTITIONS=4
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-tradeul}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      analytics:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          memory: 512M
 
   data_maintenance:
     build:
@@ -382,7 +496,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
+          cpus: "0.5"
           memory: 2G
         reservations:
           memory: 512M
@@ -508,7 +622,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.5"
+          cpus: "0.5"
           memory: 2G
         reservations:
           memory: 512M
@@ -548,7 +662,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
+          cpus: "0.5"
           memory: 1G
         reservations:
           memory: 512M
@@ -767,7 +881,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
+          cpus: "0.5"
           memory: 1024M
         reservations:
           memory: 256M
@@ -879,7 +993,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
+          cpus: "0.5"
           memory: 1G
         reservations:
           memory: 512M
@@ -919,7 +1033,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
+          cpus: "0.5"
           memory: 2G
         reservations:
           memory: 512M
@@ -949,7 +1063,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
+          cpus: "0.25"
           memory: 2G
 
   # =============================================
@@ -1141,7 +1255,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2"
+          cpus: "1"
           memory: 6G # DuckDB needs RAM for queries
         reservations:
           memory: 1G

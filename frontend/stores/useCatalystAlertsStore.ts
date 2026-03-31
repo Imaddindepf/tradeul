@@ -69,7 +69,7 @@ export interface CatalystAlert {
   alertType: AlertType;    // "early" o "confirmed"
 }
 
-export interface AlertCriteria {
+interface AlertCriteria {
   // Cambio de precio desde la noticia
   priceChange: {
     enabled: boolean;
@@ -378,9 +378,6 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
 // ============================================================================
 // Selector Helpers
 // ============================================================================
-
-export const useActiveAlerts = () =>
-  useCatalystAlertsStore((state) => state.alerts.filter((a) => !a.dismissed));
 
 export const useAlertCount = () =>
   useCatalystAlertsStore((state) => state.alerts.filter((a) => !a.dismissed).length);

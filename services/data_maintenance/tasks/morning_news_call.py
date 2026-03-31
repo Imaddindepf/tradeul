@@ -29,11 +29,21 @@ from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Símbolos de FMP para datos de mercado "Before the Bell"
-MARKET_SYMBOLS = {
+# Futuros E-Mini para pre-market (actualizan 24h, a diferencia de índices cash)
+US_FUTURES_SYMBOLS = {
+    'sp500': 'ESUSD',
+    'dow': 'YMUSD',
+    'nasdaq': 'NQUSD',
+}
+
+# Índices cash (solo se actualizan en horario de mercado 9:30-16:00 ET)
+US_CASH_SYMBOLS = {
     'sp500': '^GSPC',
     'dow': '^DJI',
     'nasdaq': '^IXIC',
+}
+
+MARKET_SYMBOLS = {
     'vix': '^VIX',
     'dax': '^GDAXI',
     'ftse': '^FTSE',
@@ -45,6 +55,8 @@ MARKET_SYMBOLS = {
     'bitcoin': 'BTCUSD',
     'dxy': 'DX-Y.NYB'
 }
+
+STALE_THRESHOLD_SECONDS = 3600  # 1h - datos más viejos se consideran stale
 
 NY_TZ = ZoneInfo("America/New_York")
 
@@ -86,40 +98,83 @@ def format_date_es(d: date) -> str:
     return f"{DAYS_ES[d.weekday()]}, {d.day} DE {MESES_ES[d.month]} DE {d.year}"
 
 
+async def _fetch_fmp_quote(client: httpx.AsyncClient, symbol: str, fmp_key: str) -> Optional[dict]:
+    """Fetch a single FMP quote and validate freshness."""
+    try:
+        url = f'https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={fmp_key}'
+        resp = await client.get(url)
+        data = resp.json()
+        if data and len(data) > 0:
+            d = data[0]
+            ts = d.get('timestamp')
+            age_seconds = (datetime.now(NY_TZ).timestamp() - ts) if ts else None
+            is_stale = age_seconds is not None and age_seconds > STALE_THRESHOLD_SECONDS
+            return {
+                'price': d.get('price'),
+                'change_pct': d.get('changesPercentage'),
+                'change': d.get('change'),
+                'name': d.get('name', symbol),
+                'timestamp': ts,
+                'age_seconds': round(age_seconds) if age_seconds else None,
+                'stale': is_stale,
+            }
+    except Exception as e:
+        logger.warning("fmp_quote_error", symbol=symbol, error=str(e))
+    return None
+
+
+def _is_premarket_hours(now_et: datetime) -> bool:
+    """True if before US cash market open (9:30 AM ET) on a weekday."""
+    return now_et.weekday() < 5 and now_et.hour < 9 or (now_et.hour == 9 and now_et.minute < 30)
+
+
 async def get_market_data_from_fmp() -> dict:
     """
     Obtener datos de mercado en tiempo real desde FMP para "Before the Bell".
     
-    Returns:
-        Dict con datos de índices, commodities, crypto
+    Pre-market (antes de 9:30 ET): usa futuros E-Mini para US (ESUSD, NQUSD, YMUSD)
+    Mercado abierto: usa índices cash (^GSPC, ^DJI, ^IXIC)
+    
+    Incluye detección de datos stale (>1h sin actualizar).
     """
     fmp_key = os.getenv('FMP_API_KEY')
     if not fmp_key:
         logger.warning("FMP_API_KEY not found")
         return {}
     
+    now_et = datetime.now(NY_TZ)
+    premarket = _is_premarket_hours(now_et)
+    us_symbols = US_FUTURES_SYMBOLS if premarket else US_CASH_SYMBOLS
+    
+    logger.info("market_data_source", 
+                mode="futures" if premarket else "cash",
+                time_et=now_et.strftime("%H:%M"))
+    
     results = {}
+    stale_warnings = []
     
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            for name, symbol in MARKET_SYMBOLS.items():
-                try:
-                    url = f'https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={fmp_key}'
-                    resp = await client.get(url)
-                    data = resp.json()
-                    
-                    if data and len(data) > 0:
-                        d = data[0]
-                        results[name] = {
-                            'price': d.get('price'),
-                            'change_pct': d.get('changesPercentage'),
-                            'change': d.get('change'),
-                            'name': d.get('name', symbol)
-                        }
-                except Exception as e:
-                    logger.warning(f"fmp_quote_error", symbol=symbol, error=str(e))
+            all_symbols = {**us_symbols, **MARKET_SYMBOLS}
+            
+            for name, symbol in all_symbols.items():
+                quote = await _fetch_fmp_quote(client, symbol, fmp_key)
+                if quote:
+                    results[name] = quote
+                    if quote.get('stale'):
+                        stale_warnings.append(f"{name}({symbol}): {quote['age_seconds']}s old")
         
-        logger.info("market_data_fetched", count=len(results))
+        if stale_warnings:
+            logger.warning("stale_market_data", stale=stale_warnings)
+        
+        results['_meta'] = {
+            'source': 'futures' if premarket else 'cash',
+            'fetched_at': now_et.isoformat(),
+            'stale_count': len(stale_warnings),
+        }
+        
+        logger.info("market_data_fetched", count=len(results) - 1, 
+                    source="futures" if premarket else "cash")
         return results
         
     except Exception as e:
@@ -130,9 +185,13 @@ async def get_market_data_from_fmp() -> dict:
 def format_market_data_section(market_data: dict) -> str:
     """
     Formatear los datos de mercado para la sección "Before the Bell".
+    Distingue entre futuros (pre-market) e índices cash (mercado abierto).
     """
     if not market_data:
         return ""
+    
+    meta = market_data.get('_meta', {})
+    is_futures = meta.get('source') == 'futures'
     
     def fmt_pct(val):
         if val is None:
@@ -149,43 +208,37 @@ def format_market_data_section(market_data: dict) -> str:
     
     lines = []
     
-    # US Futures/Indices
     sp = market_data.get('sp500', {})
     dow = market_data.get('dow', {})
     nas = market_data.get('nasdaq', {})
-    lines.append(f"US Indices: S&P 500 {fmt_pct(sp.get('change_pct'))}, Dow {fmt_pct(dow.get('change_pct'))}, Nasdaq {fmt_pct(nas.get('change_pct'))}")
+    us_label = "US Futures" if is_futures else "US Indices"
+    lines.append(f"{us_label}: S&P 500 {fmt_pct(sp.get('change_pct'))}, Dow {fmt_pct(dow.get('change_pct'))}, Nasdaq {fmt_pct(nas.get('change_pct'))}")
     
-    # VIX
     vix = market_data.get('vix', {})
     if vix.get('price'):
         lines.append(f"VIX: {vix.get('price'):.2f} ({fmt_pct(vix.get('change_pct'))})")
     
-    # Europe
     dax = market_data.get('dax', {})
     ftse = market_data.get('ftse', {})
     cac = market_data.get('cac', {})
     lines.append(f"Europe: DAX {fmt_pct(dax.get('change_pct'))}, FTSE 100 {fmt_pct(ftse.get('change_pct'))}, CAC 40 {fmt_pct(cac.get('change_pct'))}")
     
-    # Asia
     nik = market_data.get('nikkei', {})
     hsi = market_data.get('hangseng', {})
     lines.append(f"Asia: Nikkei {fmt_pct(nik.get('change_pct'))}, Hang Seng {fmt_pct(hsi.get('change_pct'))}")
     
-    # Dollar Index
     dxy = market_data.get('dxy', {})
     if dxy.get('price'):
         lines.append(f"Dollar Index (DXY): {dxy.get('price'):.2f} ({fmt_pct(dxy.get('change_pct'))})")
     
-    # Commodities
     gold = market_data.get('gold', {})
     oil = market_data.get('oil', {})
     if gold.get('price') or oil.get('price'):
         gold_str = f"Gold: {fmt_price(gold.get('price'))}/oz ({fmt_pct(gold.get('change_pct'))})" if gold.get('price') else "Gold: N/A"
         oil_str = f"WTI Crude: {fmt_price(oil.get('price'))}/bbl ({fmt_pct(oil.get('change_pct'))})" if oil.get('price') else "WTI: N/A"
-        lines.append(f"{gold_str}")
-        lines.append(f"{oil_str}")
+        lines.append(gold_str)
+        lines.append(oil_str)
     
-    # Crypto
     btc = market_data.get('bitcoin', {})
     if btc.get('price'):
         lines.append(f"Bitcoin: {fmt_price(btc.get('price'), 0)} ({fmt_pct(btc.get('change_pct'))})")
@@ -491,6 +544,8 @@ CRITICAL RULES:
 7. Each STOCKS TO WATCH entry should be a detailed paragraph
 8. {lang_instruction}
 9. For "BEFORE THE BELL" section, USE THE EXACT MARKET DATA provided above - do not invent different numbers
+10. NARRATIVE-DATA COHERENCE (MANDATORY): The market direction described in TOP NEWS and ANALYSIS MUST be consistent with the REAL-TIME MARKET DATA numbers above. If futures/indices show positive changes, the narrative MUST reflect an upward market. If they show negative changes, the narrative MUST reflect a downward market. NEVER describe "futures declining" when the data shows positive percentages, or vice versa. When the research text contradicts the real-time data, ALWAYS trust the real-time market data numbers for direction.
+11. COMMODITY PRICE COHERENCE: When mentioning commodity prices (oil, gold, etc.) in TOP NEWS or ANALYSIS, the prices and direction MUST match the REAL-TIME MARKET DATA above. Do not cite different price levels from the research if they conflict with the actual data.
 
 START DIRECTLY with ==== (no introduction)
 
@@ -510,7 +565,7 @@ USA EDITION
 
 TOP NEWS
 
-(Write 6-8 detailed news paragraphs. Each should be 4-5 sentences with specific facts, figures, executive names, and market impact. Cover: major market moves, Fed/policy, big deals, sector themes)
+(Write 6-8 detailed news paragraphs. Each should be 4-5 sentences with specific facts, figures, executive names, and market impact. Cover: major market moves, Fed/policy, big deals, sector themes. IMPORTANT: The first paragraph MUST describe today's market direction based on the REAL-TIME MARKET DATA above - if futures are up, say they are up; if down, say they are down. Reference yesterday's close for context but describe TODAY's direction accurately.)
 
 
 BEFORE THE BELL
@@ -532,7 +587,7 @@ Company Name (TICKER): +/-XX.X% - Brief catalyst explanation)
 
 ANALYSIS
 
-(Write 2-3 paragraphs of professional market analysis. Discuss key themes, risks, sector rotations, and what traders should watch today.)
+(Write 2-3 paragraphs of professional market analysis. Discuss key themes, risks, sector rotations, and what traders should watch today. Your analysis MUST be consistent with the actual market data direction shown in BEFORE THE BELL - do not contradict the numbers.)
 
 
 ANALYSTS' RECOMMENDATIONS

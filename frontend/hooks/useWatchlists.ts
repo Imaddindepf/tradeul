@@ -53,7 +53,7 @@ export interface Watchlist {
   updated_at: string;
 }
 
-export interface WatchlistCreate {
+interface WatchlistCreate {
   name: string;
   description?: string;
   color?: string;
@@ -61,7 +61,7 @@ export interface WatchlistCreate {
   is_synthetic_etf?: boolean;
 }
 
-export interface WatchlistUpdate {
+interface WatchlistUpdate {
   name?: string;
   description?: string;
   color?: string;

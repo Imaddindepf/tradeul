@@ -132,10 +132,6 @@ export interface Ticker {
   [key: string]: any;
 }
 
-export interface ScannerTicker extends Ticker {
-  // Alias for backward compatibility
-}
-
 // ============================================================================
 // WEBSOCKET MESSAGES
 // ============================================================================

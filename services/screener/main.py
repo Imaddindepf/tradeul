@@ -96,7 +96,7 @@ async def auto_refresh_loop():
 
 
 async def export_daily_indicators_to_redis():
-    """Export daily indicators (SMA, BB, RSI, etc.) to Redis for event_detector consumption."""
+    """Export daily indicators (SMA, BB, RSI, etc.) to Redis for alert_engine consumption."""
     global engine, redis_client
     
     if not engine or not redis_client:
@@ -108,7 +108,6 @@ async def export_daily_indicators_to_redis():
             logger.warning("no_indicators_to_export")
             return
         
-        # Build lookup by symbol for efficient consumption
         payload = {
             "updated_at": datetime.utcnow().isoformat(),
             "count": len(indicators),
@@ -117,7 +116,7 @@ async def export_daily_indicators_to_redis():
         
         await redis_client.set(
             REDIS_KEY_DAILY_INDICATORS,
-            json.dumps(payload, default=str),
+            json.dumps(payload, default=str, allow_nan=False),
             ex=REDIS_KEY_TTL,
         )
         logger.info("daily_indicators_exported_to_redis", count=len(indicators))

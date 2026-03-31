@@ -118,7 +118,6 @@ if [ "$COMPONENT" = "all" ] || [ "$COMPONENT" = "db" ]; then
             tradeul_ticker_metadata
             tradeul_dilution_tracker
             tradeul_dilution_worker
-            tradeul_event_detector
             tradeul_sec_filings
             tradeul_benzinga_earnings
             tradeul_prediction_markets

@@ -338,7 +338,9 @@
     "dateTo": "Hasta",
     "today": "Hoy",
     "searchMode": "Modo Búsqueda",
-    "liveMode": "Modo Directo"
+    "liveMode": "Modo Directo",
+    "tableView": "Tabla",
+    "feedView": "Feed"
   },
   "secFilings": {
     "title": "SEC Filings",

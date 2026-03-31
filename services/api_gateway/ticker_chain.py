@@ -26,6 +26,53 @@ logger = get_logger(__name__)
 # {symbol: (chain_or_None, timestamp)}
 _chain_cache: dict[str, tuple] = {}
 _CACHE_TTL = 3600  # 1 hour
+_reverse_chain_cache: dict[str, tuple] = {}  # {symbol: (chain, timestamp)}
+
+# Vendor feeds can miss or lag corporate-action chains.
+# Manual overrides guarantee continuity for critical symbols.
+MANUAL_CHAIN_OVERRIDES: dict[str, List[str]] = {
+    # Cantor Equity Partners -> Twenty One Capital
+    "CEP": ["CEP", "XXI"],
+    "XXI": ["CEP", "XXI"],
+}
+
+
+def _normalize_chain(raw_chain: object) -> Optional[List[str]]:
+    """Normalize Redis value into an uppercase list chain."""
+    if not isinstance(raw_chain, list) or not raw_chain:
+        return None
+    normalized = [str(s).upper() for s in raw_chain if s]
+    return normalized if normalized else None
+
+
+async def _get_chain_from_reverse_index(symbol: str, redis_client, now: float) -> Optional[List[str]]:
+    """
+    Resolve symbol -> chain by scanning all chains once per TTL.
+    This covers legacy tickers that are not hash keys (e.g. XXII -> CEP).
+    """
+    cached = _reverse_chain_cache.get(symbol)
+    if cached and now - cached[1] < _CACHE_TTL:
+        return cached[0]
+
+    all_chains = await redis_client.hgetall("ticker:chain")
+    if not all_chains:
+        _reverse_chain_cache[symbol] = (None, now)
+        return None
+
+    best_chain: Optional[List[str]] = None
+    for _, raw_chain in all_chains.items():
+        chain = _normalize_chain(raw_chain)
+        if not chain:
+            continue
+        if symbol in chain:
+            # Prefer the longest chain when multiple matches exist.
+            if best_chain is None or len(chain) > len(best_chain):
+                best_chain = chain
+
+    _reverse_chain_cache[symbol] = (best_chain, now)
+    if best_chain:
+        logger.info("ticker_chain_resolved_via_reverse_index", symbol=symbol, chain=best_chain)
+    return best_chain
 
 
 async def get_ticker_chain(symbol: str, redis_client) -> Optional[List[str]]:
@@ -35,7 +82,12 @@ async def get_ticker_chain(symbol: str, redis_client) -> Optional[List[str]]:
     Returns:
         List of tickers ordered old→new (e.g. ["FB", "META"]), or None if no chain.
     """
+    symbol = symbol.upper()
     now = time.time()
+
+    # Hard override first (deterministic, no Redis dependency).
+    if symbol in MANUAL_CHAIN_OVERRIDES:
+        return MANUAL_CHAIN_OVERRIDES[symbol]
     
     # Check in-process cache first
     if symbol in _chain_cache:
@@ -43,8 +95,13 @@ async def get_ticker_chain(symbol: str, redis_client) -> Optional[List[str]]:
         if now - cached_at < _CACHE_TTL:
             return cached_val
     
-    # Fetch from Redis hash
+    # Fetch from direct Redis hash lookup first
     chain = await redis_client.hget("ticker:chain", symbol)
+    chain = _normalize_chain(chain)
+
+    # Fallback: reverse index for legacy/inactive symbols
+    if chain is None:
+        chain = await _get_chain_from_reverse_index(symbol, redis_client, now)
     
     # Cache result (including None for tickers without chains)
     _chain_cache[symbol] = (chain, now)
@@ -60,7 +117,8 @@ async def fetch_chained_polygon_data(
     bars_limit: int,
     before_timestamp: Optional[int],
     chain: List[str],
-    fetch_fn
+    fetch_fn,
+    fetch_legacy_daily_fn=None,
 ) -> Tuple[List[dict], Optional[int]]:
     """
     Fetch chart data across a ticker chain.
@@ -100,6 +158,21 @@ async def fetch_chained_polygon_data(
             ticker, multiplier, timespan, current_to_date, remaining,
             before_timestamp=current_before
         )
+
+        # Fallback for legacy aliases missing in Polygon (daily chains only).
+        if (
+            not bars
+            and fetch_legacy_daily_fn is not None
+            and timespan == "day"
+        ):
+            legacy_bars, _ = await fetch_legacy_daily_fn(
+                ticker,
+                current_to_date,
+                remaining
+            )
+            if current_before:
+                legacy_bars = [b for b in legacy_bars if b.get("time", 0) < current_before]
+            bars = legacy_bars[-remaining:] if len(legacy_bars) > remaining else legacy_bars
         
         if bars:
             # Normalize symbol to the requested ticker

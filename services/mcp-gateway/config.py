@@ -29,7 +29,6 @@ class MCPGatewayConfig(BaseSettings):
     prediction_markets_url: str = "http://prediction-markets:8021"
     ticker_metadata_url: str = "http://ticker_metadata:8010"
     pattern_matching_url: str = "http://pattern_matching:8025"
-    event_detector_url: str = "http://event_detector:8040"
 
     # Historical data paths
     day_aggs_path: str = "/data/polygon/day_aggs"

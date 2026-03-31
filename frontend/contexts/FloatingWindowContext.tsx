@@ -475,35 +475,44 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
     setWindows([]);
   }, []);
 
-  // Auto-guardar layout cuando cambian las ventanas (después de 3 segundos de inactividad)
-  // NUEVO: Guarda en el workspace activo
-  // NOTA: Se desactiva durante cambio de workspace (isWorkspaceSwitching)
+  // Auto-save: persist window positions/sizes to the active workspace after 3s idle.
+  // CRITICAL: capture activeWorkspaceId at trigger time (not at timeout time)
+  // to prevent saving windows into the wrong workspace during a switch.
+  const activeWorkspaceIdRef = useRef(useUserPreferencesStore.getState().activeWorkspaceId);
   useEffect(() => {
-    // No guardar en el primer render
+    // Keep ref in sync — this runs synchronously on every render
+    activeWorkspaceIdRef.current = useUserPreferencesStore.getState().activeWorkspaceId;
+  });
+
+  useEffect(() => {
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
       return;
     }
 
-    // Cancelar timeout anterior
+    // Capture the workspace ID NOW (when windows changed), not 3s later
+    const targetWorkspaceId = activeWorkspaceIdRef.current;
+
     if (autoSaveTimeoutRef.current) {
       clearTimeout(autoSaveTimeoutRef.current);
     }
 
-    // Nuevo timeout de 3 segundos
     autoSaveTimeoutRef.current = setTimeout(() => {
       const store = useUserPreferencesStore.getState();
-
-      // No guardar durante cambio de workspace
       if (store.isWorkspaceSwitching) return;
 
-      const activeWorkspaceId = store.activeWorkspaceId;
-      const activeWorkspace = store.workspaces.find(w => w.id === activeWorkspaceId);
+      const currentWindows = windowsRef.current;
+      if (currentWindows.length === 0) return;
+
+      // Only save if we're still on the same workspace we captured
+      if (store.activeWorkspaceId !== targetWorkspaceId) return;
+
+      const activeWorkspace = store.workspaces.find(w => w.id === targetWorkspaceId);
       const existingLayouts = activeWorkspace?.windowLayouts || store.windowLayouts;
       const csMap = new Map(existingLayouts.map(l => [l.id, l.componentState]));
       const pendingCs = consumePendingComponentStates();
 
-      const layouts = windows.map((w) => ({
+      const layouts = currentWindows.map((w) => ({
         id: w.id,
         type: getWindowType(w.title),
         title: w.title,
@@ -514,11 +523,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         componentState: pendingCs.get(w.id) || csMap.get(w.id) || w.componentState,
       }));
 
-      if (activeWorkspaceId) {
-        store.saveWorkspaceLayouts(activeWorkspaceId, layouts);
-      } else {
-        saveWindowLayouts(layouts);
-      }
+      store.saveWorkspaceLayouts(targetWorkspaceId, layouts);
     }, 3000);
 
     return () => {

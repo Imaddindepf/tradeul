@@ -196,12 +196,12 @@ class ClearRealtimeCachesTask:
                     error=str(e)
                 )
         
-        # Trim event detector stream (clear previous day events)
+        # Trim alert engine stream (clear previous day alerts)
         try:
-            await self.redis.client.xtrim("stream:events:market", maxlen=0)
-            logger.info("event_stream_trimmed", stream="stream:events:market")
+            await self.redis.client.xtrim("stream:alerts:market", maxlen=0)
+            logger.info("alert_stream_trimmed", stream="stream:alerts:market")
         except Exception as e:
-            logger.warning("event_stream_trim_failed", error=str(e))
+            logger.warning("alert_stream_trim_failed", error=str(e))
         
         return cleared
     

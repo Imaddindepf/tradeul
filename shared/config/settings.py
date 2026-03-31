@@ -165,9 +165,6 @@ class Settings(BaseSettings):
     analytics_host: str = Field(default="analytics", description="Analytics host")
     analytics_port: int = Field(default=8007, description="Analytics port")
     
-    event_detector_host: str = Field(default="event_detector", description="Event Detector host")
-    event_detector_port: int = Field(default=8040, description="Event Detector port")
-    
     api_gateway_host: str = Field(default="api_gateway", description="API Gateway host")
     api_gateway_port: int = Field(default=8000, description="API Gateway port")
     
@@ -275,8 +272,8 @@ class Settings(BaseSettings):
     # Halt events stream (polygon_ws → scanner)
     stream_halt_events: str = Field(default="stream:halt:events", description="Trading halt/resume events from polygon_ws")
     
-    # Market events stream (event_detector → websocket_server)
-    stream_events_market: str = Field(default="stream:events:market", description="Market events (new highs, VWAP crosses, halts, etc.)")
+    # Alert engine stream
+    stream_alerts_market: str = Field(default="stream:alerts:market", description="Market alerts stream (alert_engine → ws_server)")
     
     # Polygon WS subscription control
     key_polygon_subscriptions: str = Field(default="polygon_ws:subscriptions", description="Polygon WS subscription commands stream")
@@ -310,7 +307,6 @@ class Settings(BaseSettings):
             "scanner": f"http://{self.scanner_host}:{self.scanner_port}",
             "polygon_ws": f"http://{self.polygon_ws_host}:{self.polygon_ws_port}",
             "analytics": f"http://{self.analytics_host}:{self.analytics_port}",
-            "event_detector": f"http://{self.event_detector_host}:{self.event_detector_port}",
             "api_gateway": f"http://{self.api_gateway_host}:{self.api_gateway_port}",
             "admin_panel": f"http://{self.admin_panel_host}:{self.admin_panel_port}",
         }

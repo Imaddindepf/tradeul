@@ -18,7 +18,7 @@ import { devtools } from 'zustand/middleware';
 // TYPES
 // ============================================================================
 
-export interface StoredNewsArticle {
+interface StoredNewsArticle {
   id: string | number;     // benzinga_id o id único
   title: string;
   author: string;
@@ -482,53 +482,10 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
 // SELECTORS
 // ============================================================================
 
-export const selectActiveCount = (state: NewsTickersState & NewsTickersActions) => {
-  const currentTradingDay = getTradingDay();
-  let count = 0;
-  state.tickers.forEach((entry) => {
-    if (entry.tradingDay === currentTradingDay && entry.newsIds.size > 0) {
-      count++;
-    }
-  });
-  return count;
-};
-
 export const selectStats = (state: NewsTickersState & NewsTickersActions) => state.stats;
-
-export const selectCurrentTradingDay = (state: NewsTickersState & NewsTickersActions) =>
-  state.currentTradingDay;
 
 // ============================================================================
 // HOOKS HELPER
 // ============================================================================
-
-export function useHasNews(symbol: string): boolean {
-  return useNewsTickersStore((state) => {
-    const entry = state.tickers.get(symbol.toUpperCase());
-    if (!entry) return false;
-    const currentTradingDay = getTradingDay();
-    return entry.tradingDay === currentTradingDay && entry.newsIds.size > 0;
-  });
-}
-
-export function useTickerNewsCount(symbol: string): number {
-  return useNewsTickersStore((state) => {
-    const entry = state.tickers.get(symbol.toUpperCase());
-    if (!entry) return 0;
-    const currentTradingDay = getTradingDay();
-    if (entry.tradingDay !== currentTradingDay) return 0;
-    return entry.newsIds.size;
-  });
-}
-
-export function useTickerNews(symbol: string): StoredNewsArticle[] {
-  return useNewsTickersStore((state) => {
-    const entry = state.tickers.get(symbol.toUpperCase());
-    if (!entry) return [];
-    const currentTradingDay = getTradingDay();
-    if (entry.tradingDay !== currentTradingDay) return [];
-    return entry.articles;
-  });
-}
 
 export { getTradingDay };

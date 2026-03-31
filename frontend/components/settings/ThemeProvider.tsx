@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { ThemeProvider as NextThemesProvider, useTheme as useNextTheme } from 'next-themes';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
-import { useClerkSync } from '@/hooks/useClerkSync';
 
 interface ThemeProviderProps {
   children: React.ReactNode;
@@ -14,8 +13,6 @@ function ThemeSync() {
   const theme = useUserPreferencesStore((state) => state.theme);
   const { setTheme } = useNextTheme();
   const [hydrated, setHydrated] = useState(false);
-
-  useClerkSync();
 
   useEffect(() => {
     useUserPreferencesStore.persist.rehydrate();

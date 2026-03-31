@@ -33,7 +33,7 @@ export interface AnalystRating {
   sentiment: string;
 }
 
-export interface AnalystRatingsData {
+interface AnalystRatingsData {
   consensus: AnalystConsensus;
   ratings: AnalystRating[];
 }

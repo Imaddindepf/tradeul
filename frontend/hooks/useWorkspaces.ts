@@ -29,7 +29,7 @@ import { getWindowType } from '@/lib/window-config';
 // Debounce delay para sync al backend (3 segundos)
 const SYNC_DEBOUNCE_MS = 3000;
 
-export interface UseWorkspacesReturn {
+interface UseWorkspacesReturn {
   /** Lista de todos los workspaces */
   workspaces: Workspace[];
   /** ID del workspace activo */

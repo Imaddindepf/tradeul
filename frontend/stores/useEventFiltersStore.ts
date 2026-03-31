@@ -16,7 +16,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 // Types
 // ============================================================================
 
-export interface EventFilterParameters {
+interface EventFilterParameters {
   // Event type filters (which events to show)
   event_types?: string[];
 
@@ -307,6 +307,10 @@ export interface EventFilterParameters {
   max_volume_today_pct?: number;
   // Minute volume
   min_minute_volume?: number;
+  max_minute_volume?: number;
+  // Volume Yesterday %
+  min_volume_yesterday_pct?: number;
+  max_volume_yesterday_pct?: number;
   // Price from day high (%)
   min_price_from_high?: number;
   max_price_from_high?: number;
@@ -325,12 +329,254 @@ export interface EventFilterParameters {
   // Post-Market %
   min_postmarket_change_percent?: number;
   max_postmarket_change_percent?: number;
+  // Post-Market Volume
+  min_postmarket_volume?: number;
+  max_postmarket_volume?: number;
   // Avg Volume 3M
   min_avg_volume_3m?: number;
   max_avg_volume_3m?: number;
   // ATR ($)
   min_atr?: number;
   max_atr?: number;
+  // Pivot Points (distance %)
+  min_dist_pivot?: number;
+  max_dist_pivot?: number;
+  min_dist_pivot_r1?: number;
+  max_dist_pivot_r1?: number;
+  min_dist_pivot_s1?: number;
+  max_dist_pivot_s1?: number;
+  min_dist_pivot_r2?: number;
+  max_dist_pivot_r2?: number;
+  min_dist_pivot_s2?: number;
+  max_dist_pivot_s2?: number;
+  // Consecutive Candles
+  min_consecutive_candles?: number;
+  max_consecutive_candles?: number;
+  min_consecutive_candles_2m?: number;
+  max_consecutive_candles_2m?: number;
+  min_consecutive_candles_5m?: number;
+  max_consecutive_candles_5m?: number;
+  min_consecutive_candles_10m?: number;
+  max_consecutive_candles_10m?: number;
+  min_consecutive_candles_15m?: number;
+  max_consecutive_candles_15m?: number;
+  min_consecutive_candles_30m?: number;
+  max_consecutive_candles_30m?: number;
+  min_consecutive_candles_60m?: number;
+  max_consecutive_candles_60m?: number;
+  // Position in TF Range (0-100%)
+  min_pos_in_range_5m?: number;
+  max_pos_in_range_5m?: number;
+  min_pos_in_range_15m?: number;
+  max_pos_in_range_15m?: number;
+  min_pos_in_range_30m?: number;
+  max_pos_in_range_30m?: number;
+  min_pos_in_range_60m?: number;
+  max_pos_in_range_60m?: number;
+  // Multi-TF RSI
+  min_rsi_2m?: number;
+  max_rsi_2m?: number;
+  min_rsi_5m?: number;
+  max_rsi_5m?: number;
+  min_rsi_15m?: number;
+  max_rsi_15m?: number;
+  min_rsi_60m?: number;
+  max_rsi_60m?: number;
+  // Multi-TF Bollinger Position (0-100%)
+  min_bb_position_1m?: number;
+  max_bb_position_1m?: number;
+  min_bb_position_5m?: number;
+  max_bb_position_5m?: number;
+  min_bb_position_15m?: number;
+  max_bb_position_15m?: number;
+  min_bb_position_60m?: number;
+  max_bb_position_60m?: number;
+  // Change 2min / 120min (%)
+  min_chg_2min?: number;
+  max_chg_2min?: number;
+  min_chg_120min?: number;
+  max_chg_120min?: number;
+
+  // === Extended Trade Ideas parity filters ===
+  // Gap $ [GUD]
+  min_gap_dollars?: number;
+  max_gap_dollars?: number;
+  // Gap Ratio [GUR]
+  min_gap_ratio?: number;
+  max_gap_ratio?: number;
+  // Change from Close $ [FCD]
+  min_change_from_close_dollars?: number;
+  max_change_from_close_dollars?: number;
+  // Change from Close Ratio [FCR]
+  min_change_from_close_ratio?: number;
+  max_change_from_close_ratio?: number;
+  // Change from Open Ratio [FOR]
+  min_change_from_open_ratio?: number;
+  max_change_from_open_ratio?: number;
+  // Post-Market Change $ [PostD]
+  min_postmarket_change_dollars?: number;
+  max_postmarket_change_dollars?: number;
+  // Decimal [Dec]
+  min_decimal?: number;
+  max_decimal?: number;
+  // Position in Previous Day Range [RPD]
+  min_pos_in_prev_day_range?: number;
+  max_pos_in_prev_day_range?: number;
+  // Directional Indicator [PDIMDI]
+  min_plus_di_minus_di?: number;
+  max_plus_di_minus_di?: number;
+  // Standard Deviation [BB]
+  min_bb_std_dev?: number;
+  max_bb_std_dev?: number;
+  // Multi-TF SMA distances (%)
+  min_dist_sma_5_2m?: number;
+  max_dist_sma_5_2m?: number;
+  min_dist_sma_5_5m?: number;
+  max_dist_sma_5_5m?: number;
+  min_dist_sma_5_15m?: number;
+  max_dist_sma_5_15m?: number;
+  min_dist_sma_8_2m?: number;
+  max_dist_sma_8_2m?: number;
+  min_dist_sma_8_5m?: number;
+  max_dist_sma_8_5m?: number;
+  min_dist_sma_8_15m?: number;
+  max_dist_sma_8_15m?: number;
+  min_dist_sma_8_60m?: number;
+  max_dist_sma_8_60m?: number;
+  min_dist_sma_20_2m?: number;
+  max_dist_sma_20_2m?: number;
+  min_dist_sma_20_5m?: number;
+  max_dist_sma_20_5m?: number;
+  min_dist_sma_20_15m?: number;
+  max_dist_sma_20_15m?: number;
+  min_dist_sma_20_60m?: number;
+  max_dist_sma_20_60m?: number;
+  // SMA cross: 8 vs 20 per TF
+  min_sma_8_vs_20_2m?: number;
+  max_sma_8_vs_20_2m?: number;
+  min_sma_8_vs_20_5m?: number;
+  max_sma_8_vs_20_5m?: number;
+  min_sma_8_vs_20_15m?: number;
+  max_sma_8_vs_20_15m?: number;
+  min_sma_8_vs_20_60m?: number;
+  max_sma_8_vs_20_60m?: number;
+  // Distance from Daily SMA 200 (%)
+  min_dist_daily_sma_200?: number;
+  max_dist_daily_sma_200?: number;
+  // Multi-day ranges ($) [Range5D, Range10D, Range20D]
+  min_range_5d?: number;
+  max_range_5d?: number;
+  min_range_10d?: number;
+  max_range_10d?: number;
+  min_range_20d?: number;
+  max_range_20d?: number;
+  // Position in multi-day ranges (%) [R5D, R10D, R20D, R52W]
+  min_pos_in_5d_range?: number;
+  max_pos_in_5d_range?: number;
+  min_pos_in_10d_range?: number;
+  max_pos_in_10d_range?: number;
+  min_pos_in_20d_range?: number;
+  max_pos_in_20d_range?: number;
+  min_pos_in_52w_range?: number;
+  max_pos_in_52w_range?: number;
+  // Multi-day ranges (%) — ATR-normalized [Range5DP, Range10DP, Range20DP]
+  min_range_5d_pct?: number;
+  max_range_5d_pct?: number;
+  min_range_10d_pct?: number;
+  max_range_10d_pct?: number;
+  min_range_20d_pct?: number;
+  max_range_20d_pct?: number;
+  // Change 5/10/20 Days ($) [U5DD, U10DD, U20DD]
+  min_change_5d_dollars?: number;
+  max_change_5d_dollars?: number;
+  min_change_10d_dollars?: number;
+  max_change_10d_dollars?: number;
+  min_change_20d_dollars?: number;
+  max_change_20d_dollars?: number;
+  // Change from Open Weighted [FOW]
+  min_change_from_open_weighted?: number;
+  max_change_from_open_weighted?: number;
+  // Distance from Daily SMA 5/8/10 ($) [MA5P, MA8P, MA10P]
+  min_dist_daily_sma_5_dollars?: number;
+  max_dist_daily_sma_5_dollars?: number;
+  min_dist_daily_sma_8_dollars?: number;
+  max_dist_daily_sma_8_dollars?: number;
+  min_dist_daily_sma_10_dollars?: number;
+  max_dist_daily_sma_10_dollars?: number;
+  // Distance from Daily SMA 20/50/200 ($) [MA20P, MA50P, MA200P]
+  min_dist_daily_sma_20_dollars?: number;
+  max_dist_daily_sma_20_dollars?: number;
+  min_dist_daily_sma_50_dollars?: number;
+  max_dist_daily_sma_50_dollars?: number;
+  min_dist_daily_sma_200_dollars?: number;
+  max_dist_daily_sma_200_dollars?: number;
+  // Distance from Daily SMA 5/8/10 (%) [MA5R, MA8R, MA10R]
+  min_dist_daily_sma_5?: number;
+  max_dist_daily_sma_5?: number;
+  min_dist_daily_sma_8?: number;
+  max_dist_daily_sma_8?: number;
+  min_dist_daily_sma_10?: number;
+  max_dist_daily_sma_10?: number;
+  // 20 vs 200 SMA cross per TF [2Sma20a200, 5Sma20a200, 15Sma20a200, 60Sma20a200]
+  min_sma_20_vs_200_2m?: number;
+  max_sma_20_vs_200_2m?: number;
+  min_sma_20_vs_200_5m?: number;
+  max_sma_20_vs_200_5m?: number;
+  min_sma_20_vs_200_15m?: number;
+  max_sma_20_vs_200_15m?: number;
+  min_sma_20_vs_200_60m?: number;
+  max_sma_20_vs_200_60m?: number;
+  // Change in 1 Year [UYP/UYD]
+  min_change_1y?: number;
+  max_change_1y?: number;
+  min_change_1y_dollars?: number;
+  max_change_1y_dollars?: number;
+  // Change Since Jan 1 [UpJan1P/UpJan1D]
+  min_change_ytd?: number;
+  max_change_ytd?: number;
+  min_change_ytd_dollars?: number;
+  max_change_ytd_dollars?: number;
+  // Yearly Standard Deviation [YSD]
+  min_yearly_std_dev?: number;
+  max_yearly_std_dev?: number;
+  // Consecutive Days Up [Up]
+  min_consecutive_days_up?: number;
+  max_consecutive_days_up?: number;
+
+  // Change from 10 Period SMA (multi-TF)
+  min_dist_sma_10_2m?: number; max_dist_sma_10_2m?: number;
+  min_dist_sma_10_5m?: number; max_dist_sma_10_5m?: number;
+  min_dist_sma_10_15m?: number; max_dist_sma_10_15m?: number;
+  min_dist_sma_10_60m?: number; max_dist_sma_10_60m?: number;
+  // Change from 130 Period SMA (15m)
+  min_dist_sma_130_15m?: number; max_dist_sma_130_15m?: number;
+  // Change from 200 Period SMA (multi-TF)
+  min_dist_sma_200_2m?: number; max_dist_sma_200_2m?: number;
+  min_dist_sma_200_5m?: number; max_dist_sma_200_5m?: number;
+  min_dist_sma_200_15m?: number; max_dist_sma_200_15m?: number;
+  min_dist_sma_200_60m?: number; max_dist_sma_200_60m?: number;
+  // Change from 5 Period SMA (60m)
+  min_dist_sma_5_60m?: number; max_dist_sma_5_60m?: number;
+  // Position in Range (3M/6M/9M/2Y/Lifetime)
+  min_pos_in_3m_range?: number; max_pos_in_3m_range?: number;
+  min_pos_in_6m_range?: number; max_pos_in_6m_range?: number;
+  min_pos_in_9m_range?: number; max_pos_in_9m_range?: number;
+  min_pos_in_2y_range?: number; max_pos_in_2y_range?: number;
+  min_pos_in_lifetime_range?: number; max_pos_in_lifetime_range?: number;
+  // Pre-Market
+  min_below_premarket_high?: number; max_below_premarket_high?: number;
+  min_above_premarket_low?: number; max_above_premarket_low?: number;
+  min_pos_in_premarket_range?: number; max_pos_in_premarket_range?: number;
+  // Consolidation / Range Contraction / LR
+  min_consolidation_days?: number; max_consolidation_days?: number;
+  min_pos_in_consolidation?: number; max_pos_in_consolidation?: number;
+  min_range_contraction?: number; max_range_contraction?: number;
+  min_lr_divergence_130?: number; max_lr_divergence_130?: number;
+  // Change Previous Day
+  min_change_prev_day_pct?: number; max_change_prev_day_pct?: number;
+
+  // Per-alert custom settings (keys like "aq:running_up", "aq:new_high", etc.)
+  [key: `aq:${string}`]: number | undefined;
 }
 
 export interface ActiveEventFilters extends EventFilterParameters { }
@@ -354,58 +600,12 @@ interface EventFiltersState {
 }
 
 // ============================================================================
-// Available Event Types
+// Available Event Types — derived from alert-catalog.ts (single source of truth)
 // ============================================================================
 
-export const ALL_EVENT_TYPES = [
-  'new_high', 'new_low',
-  'crossed_above_open', 'crossed_below_open',
-  'crossed_above_prev_close', 'crossed_below_prev_close',
-  'vwap_cross_up', 'vwap_cross_down',
-  'rvol_spike', 'volume_surge', 'volume_spike_1min', 'unusual_prints', 'block_trade',
-  'running_up', 'running_down',
-  'percent_up_5', 'percent_down_5', 'percent_up_10', 'percent_down_10',
-  'pullback_75_from_high', 'pullback_25_from_high',
-  'pullback_75_from_low', 'pullback_25_from_low',
-  'pullback_75_from_high_close', 'pullback_25_from_high_close',
-  'pullback_75_from_low_close', 'pullback_25_from_low_close',
-  'pullback_75_from_high_open', 'pullback_25_from_high_open',
-  'pullback_75_from_low_open', 'pullback_25_from_low_open',
-  'gap_up_reversal', 'gap_down_reversal',
-  'halt', 'resume',
-  'crossed_above_ema20', 'crossed_below_ema20',
-  'crossed_above_ema50', 'crossed_below_ema50',
-  'crossed_above_sma8', 'crossed_below_sma8',
-  'crossed_above_sma20', 'crossed_below_sma20',
-  'crossed_above_sma50', 'crossed_below_sma50',
-  'sma_8_cross_above_20', 'sma_8_cross_below_20',
-  'macd_cross_bullish', 'macd_cross_bearish',
-  'macd_zero_cross_up', 'macd_zero_cross_down',
-  'stoch_cross_bullish', 'stoch_cross_bearish',
-  'stoch_oversold', 'stoch_overbought',
-  'sma8_above_sma20_5min', 'sma8_below_sma20_5min',
-  'macd_above_signal_5min', 'macd_below_signal_5min',
-  'macd_above_zero_5min', 'macd_below_zero_5min',
-  'stoch_cross_bullish_5min', 'stoch_cross_bearish_5min',
-  'stoch_oversold_5min', 'stoch_overbought_5min',
-  'crossed_above_sma20_daily', 'crossed_below_sma20_daily',
-  'crossed_above_sma50_daily', 'crossed_below_sma50_daily',
-  'orb_breakout_up', 'orb_breakout_down',
-  'consolidation_breakout_up', 'consolidation_breakout_down',
-  'bb_upper_breakout', 'bb_lower_breakdown',
-  'crossed_daily_high_resistance', 'crossed_daily_low_support',
-  'false_gap_up_retracement', 'false_gap_down_retracement',
-  'running_up_sustained', 'running_down_sustained',
-  'running_up_confirmed', 'running_down_confirmed',
-  'crossed_above_sma200', 'crossed_below_sma200',
-  'pre_market_high', 'pre_market_low',
-  'post_market_high', 'post_market_low',
-  'crossed_above_open_confirmed', 'crossed_below_open_confirmed',
-  'crossed_above_close_confirmed', 'crossed_below_close_confirmed',
-  'vwap_divergence_up', 'vwap_divergence_down',
-] as const;
-
-export type EventType = typeof ALL_EVENT_TYPES[number];
+import { ALL_EVENT_TYPES } from '@/lib/alert-catalog';
+export { ALL_EVENT_TYPES };
+export type EventType = string;
 
 // ============================================================================
 // Helpers

@@ -26,7 +26,7 @@ export interface ChartBar {
 export type ChartInterval = '1min' | '2min' | '5min' | '15min' | '30min' | '1hour' | '4hour' | '12hour' | '1day' | '1week' | '1month' | '3month' | '1year';
 
 // Handler que el chart registra para recibir updates sin re-render
-export type RealtimeUpdateHandler = (bar: ChartBar, isNewBar: boolean) => void;
+type RealtimeUpdateHandler = (bar: ChartBar, isNewBar: boolean) => void;
 
 // ============================================================================
 // Constants

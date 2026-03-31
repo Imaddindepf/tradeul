@@ -1,9 +1,9 @@
 """
 Trigger Evaluation Engine
 
-Subscribes to the Redis stream ``stream:events:market`` as a consumer,
+Subscribes to the Redis stream ``stream:alerts:market`` as a consumer,
 loads active user triggers from ``triggers:active:{user_id}`` hashes, and
-evaluates every inbound market event against all registered triggers.
+evaluates every inbound market alert against all registered triggers.
 
 When a trigger matches, the engine dispatches the associated action:
   - **workflow** -> invoke the LangGraph orchestrator with trigger context
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────
 
-STREAM_KEY = "stream:events:market"
+STREAM_KEY = "stream:alerts:market"
 CONSUMER_GROUP = "trigger-engine"
 CONSUMER_NAME = f"engine-{uuid.uuid4().hex[:8]}"
 BLOCK_MS = 2000          # xreadgroup block time

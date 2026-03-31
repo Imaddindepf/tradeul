@@ -160,7 +160,7 @@ async def get_full_ticker_analysis(symbol: str) -> dict:
 
     # Events (from stream)
     from clients.redis_client import redis_xrevrange
-    events = await redis_xrevrange("stream:events:market", count=200)
+    events = await redis_xrevrange("stream:alerts:market", count=200)
     ticker_events = [e for e in events if e.get("symbol") == sym][:10]
     result["recent_events"] = ticker_events
 

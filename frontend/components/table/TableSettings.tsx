@@ -34,12 +34,40 @@ export function TableSettings<T>({ table, fontFamily, onResetToDefaults }: Table
 
   const allColumns = table.getAllLeafColumns();
   const columnOrder = table.getState().columnOrder;
-  const currentOrder = columnOrder.length > 0
-    ? columnOrder
-    : allColumns.map(c => c.id);
+  const currentOrder = (() => {
+    const fallbackOrder = allColumns.map((c) => c.id);
+    const baseOrder = columnOrder.length > 0 ? columnOrder : fallbackOrder;
+    const validIds = new Set(fallbackOrder);
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+
+    // 1) Keep persisted order but drop duplicates/invalid IDs
+    for (const id of baseOrder) {
+      if (!validIds.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      normalized.push(id);
+    }
+
+    // 2) Append any missing columns to keep full coverage
+    for (const id of fallbackOrder) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      normalized.push(id);
+    }
+
+    return normalized;
+  })();
 
   const visibleCount = allColumns.filter(c => c.getIsVisible()).length;
   const totalCount = allColumns.filter(c => c.getCanHide()).length;
+
+  // Self-heal corrupted persisted column orders (duplicates, stale IDs).
+  useEffect(() => {
+    if (columnOrder.length === 0) return;
+    if (columnOrder.length !== currentOrder.length || columnOrder.some((id, i) => id !== currentOrder[i])) {
+      table.setColumnOrder(currentOrder);
+    }
+  }, [columnOrder, currentOrder, table]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

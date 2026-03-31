@@ -50,7 +50,7 @@ class ChangeDetector:
     def detect_changes(
         self,
         enriched_tickers: Dict[str, dict]
-    ) -> Tuple[Dict[str, str], int, int]:
+    ) -> Tuple[Dict[str, str], int, int, set]:
         """
         Compare current enriched tickers against previous cycle.
 
@@ -94,7 +94,7 @@ class ChangeDetector:
         self._last_cycle_total = total
         self._last_cycle_duration_ms = elapsed_ms
 
-        return changed, total, len(changed)
+        return changed, total, len(changed), removed_symbols
 
     def force_full_write(
         self,
