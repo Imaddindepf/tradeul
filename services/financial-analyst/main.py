@@ -520,30 +520,190 @@ def _build_known_data_section(db_metadata: Optional[Dict[str, Any]]) -> tuple[st
         # Filing info
         if fundamentals.get("filing_type"):
             prefilled["fundamental_source"] = f"{fundamentals['filing_type']} ({fundamentals.get('filing_date', 'recent')})"
-    
+
+    # === POLYGON RATIOS (TTM, updated daily) ===
+    polygon_ratios = db_metadata.get("polygon_ratios", {})
+    if polygon_ratios:
+        poly_lines = []
+        if polygon_ratios.get("dividend_yield") is not None:
+            diy = polygon_ratios["dividend_yield"] * 100
+            poly_lines.append(f"Dividend Yield: {diy:.2f}%")
+            prefilled["dividend_yield"] = polygon_ratios["dividend_yield"]
+        if polygon_ratios.get("return_on_equity") is not None:
+            poly_lines.append(f"ROE: {polygon_ratios['return_on_equity']*100:.1f}%")
+            prefilled["roe"] = polygon_ratios["return_on_equity"]
+        if polygon_ratios.get("return_on_assets") is not None:
+            poly_lines.append(f"ROA: {polygon_ratios['return_on_assets']*100:.1f}%")
+        if polygon_ratios.get("current_ratio") is not None:
+            poly_lines.append(f"Current Ratio: {polygon_ratios['current_ratio']:.2f}")
+            prefilled["current_ratio"] = polygon_ratios["current_ratio"]
+        if polygon_ratios.get("quick_ratio") is not None:
+            poly_lines.append(f"Quick Ratio: {polygon_ratios['quick_ratio']:.2f}")
+        if polygon_ratios.get("debt_to_equity") is not None and not fundamentals.get("debt_equity"):
+            poly_lines.append(f"D/E: {polygon_ratios['debt_to_equity']:.2f}")
+            prefilled["debt_equity"] = polygon_ratios["debt_to_equity"]
+        if polygon_ratios.get("free_cash_flow") is not None:
+            fcf = polygon_ratios["free_cash_flow"]
+            fcf_str = f"${fcf/1e9:.2f}B" if abs(fcf) >= 1e9 else f"${fcf/1e6:.1f}M"
+            poly_lines.append(f"FCF: {fcf_str}")
+        if poly_lines:
+            known_fields.append(f"- Polygon Ratios (TTM): {' | '.join(poly_lines)}")
+            if polygon_ratios.get("date"):
+                known_fields.append(f"  (as of {polygon_ratios['date']})")
+
+    # === SHORT INTEREST (FINRA via Polygon, bi-monthly) ===
+    short_interest = db_metadata.get("short_interest", {})
+    if short_interest:
+        si_lines = []
+        if short_interest.get("short_interest") is not None:
+            si = short_interest["short_interest"]
+            si_str = f"{si/1e6:.1f}M shares" if si >= 1e6 else f"{si:,} shares"
+            si_lines.append(f"Short Shares: {si_str}")
+            prefilled["short_interest_shares"] = si
+        if short_interest.get("days_to_cover") is not None:
+            dtc = short_interest["days_to_cover"]
+            si_lines.append(f"Days to Cover: {dtc:.1f}")
+            prefilled["days_to_cover"] = dtc
+            squeeze = "High" if dtc > 10 else "Medium" if dtc > 5 else "Low"
+            prefilled["squeeze_potential"] = squeeze
+            si_lines.append(f"Squeeze Potential: {squeeze}")
+        if short_interest.get("settlement_date"):
+            si_lines.append(f"(as of {short_interest['settlement_date']})")
+        if si_lines:
+            known_fields.append(f"- Short Interest (FINRA): {' | '.join(si_lines)}")
+
+    # === ANALYST RATINGS (Perplexity Finance) ===
+    # Perplexity devuelve: {"consensus": {"consensusRating": "strong_buy", "averagePriceTarget": 276.53, ...},
+    #                       "analystRatings": [...]}
+    analyst_ratings = db_metadata.get("analyst_ratings", {})
+    if analyst_ratings:
+        ar_lines = []
+
+        # Extraer consensus - puede ser dict (Perplexity) o string directo
+        consensus_raw = analyst_ratings.get("consensus")
+        consensus_dict = consensus_raw if isinstance(consensus_raw, dict) else {}
+        consensus_str = (
+            consensus_dict.get("consensusRating")
+            or (consensus_raw if isinstance(consensus_raw, str) else None)
+            or analyst_ratings.get("rating")
+            or analyst_ratings.get("overallRating")
+        )
+        if consensus_str:
+            # Normalizar: "strong_buy" -> "Strong Buy"
+            consensus_display = consensus_str.replace("_", " ").title()
+            ar_lines.append(f"Consensus: {consensus_display}")
+            prefilled["consensus_rating"] = consensus_display
+
+        avg_pt = (
+            consensus_dict.get("averagePriceTarget")
+            or analyst_ratings.get("priceTarget")
+            or analyst_ratings.get("average_price_target")
+        )
+        if avg_pt:
+            ar_lines.append(f"Avg PT: ${float(avg_pt):.2f}")
+            prefilled["average_price_target"] = float(avg_pt)
+
+        pt_high = consensus_dict.get("highPriceTarget") or analyst_ratings.get("priceTargetHigh") or analyst_ratings.get("price_target_high")
+        pt_low = consensus_dict.get("lowPriceTarget") or analyst_ratings.get("priceTargetLow") or analyst_ratings.get("price_target_low")
+        if pt_high:
+            ar_lines.append(f"PT High: ${float(pt_high):.2f}")
+            prefilled["price_target_high"] = float(pt_high)
+        if pt_low:
+            ar_lines.append(f"PT Low: ${float(pt_low):.2f}")
+            prefilled["price_target_low"] = float(pt_low)
+
+        num_analysts = (
+            consensus_dict.get("totalRatings")
+            or analyst_ratings.get("numberOfAnalysts")
+            or analyst_ratings.get("num_analysts")
+        )
+        if num_analysts:
+            bullish = consensus_dict.get("bullishPercentage")
+            label = f"# Analysts: {num_analysts}"
+            if bullish is not None:
+                label += f" ({bullish:.0f}% bullish)"
+            ar_lines.append(label)
+            prefilled["num_analysts"] = num_analysts
+
+        if ar_lines:
+            known_fields.append(f"- Analyst Consensus: {' | '.join(ar_lines)}")
+
+        # Ratings individuales — Perplexity usa "ratings" con campos ratingCurrent/priceTargetCurrent/releaseDate
+        raw_ratings = (
+            analyst_ratings.get("ratings")
+            or analyst_ratings.get("analystRatings")
+            or analyst_ratings.get("analyst_ratings")
+            or []
+        )
+        if raw_ratings and isinstance(raw_ratings, list):
+            # Normalizar al formato que espera el frontend y Gemini: firm, rating, price_target, date
+            normalized = []
+            for r in raw_ratings:
+                normalized.append({
+                    "firm": r.get("firm") or r.get("analyst") or "Unknown",
+                    "rating": r.get("ratingCurrent") or r.get("rating") or r.get("action") or "N/A",
+                    "price_target": r.get("priceTargetCurrent") or r.get("priceTarget") or None,
+                    "date": (r.get("releaseDate") or r.get("date") or "")[:10] or None,
+                })
+            top = normalized[:5]
+            ratings_str = "; ".join(
+                f"{r['firm']}: {r['rating']}"
+                + (f" (PT: ${r['price_target']:.0f})" if r.get("price_target") else "")
+                for r in top
+            )
+            if ratings_str:
+                known_fields.append(f"  Latest ratings: {ratings_str}")
+            prefilled["analyst_ratings_list"] = normalized  # Ya normalizado
+
+    # === RECENT NEWS (Polygon) ===
+    recent_news = db_metadata.get("recent_news", [])
+    if recent_news and isinstance(recent_news, list):
+        headlines = [n.get("title", "") for n in recent_news if n.get("title")][:5]
+        if headlines:
+            known_fields.append(f"- Recent News Headlines:")
+            for h in headlines:
+                known_fields.append(f"  • {h}")
+            prefilled["recent_headlines"] = headlines
+
     if not known_fields:
         return "", {}
-    
-    # Determinar qué falta para búsqueda
-    has_valuation = bool(fundamentals.get("pe_ratio") or fundamentals.get("pb_ratio"))
-    search_items = ["Analyst ratings and price targets"]
-    if not has_valuation:
-        search_items.append("P/E, P/B, P/S ratios (if not provided above)")
-    search_items.extend([
-        "Short interest",
-        "Upcoming catalysts (earnings, FDA dates)",
-        "News headlines and sentiment",
-        "Risk factors"
-    ])
-    
+
+    # Determinar qué tenemos para afinar instrucciones de búsqueda a Gemini
+    has_analyst_ratings = bool(prefilled.get("consensus_rating") or prefilled.get("average_price_target"))
+    has_short_interest = bool(prefilled.get("days_to_cover"))
+    has_news = bool(prefilled.get("recent_headlines"))
+    has_valuation = bool(
+        fundamentals.get("pe_ratio") or fundamentals.get("pb_ratio") or polygon_ratios.get("price_to_earnings")
+    )
+
+    do_not_search = [
+        "Technical indicators (RSI, MA-50, MA-200, 52W High/Low) — already provided above",
+        "Valuation ratios (P/E, P/B, P/S, EV/EBITDA, D/E) — already provided from SEC XBRL and Polygon",
+    ]
+    if has_analyst_ratings:
+        do_not_search.append("Analyst ratings, consensus, and price targets — already provided above")
+    if has_short_interest:
+        do_not_search.append("Short interest and days-to-cover — already provided from FINRA data")
+    if has_news:
+        do_not_search.append("Recent news headlines — already provided above")
+
+    search_items = [
+        "Forward P/E and PEG ratio (if not provided above)",
+        "Top 3-5 competitors in the same industry",
+        "Upcoming catalysts: earnings date, FDA PDUFA dates, conferences, ex-dividend",
+        "Risk factors specific to this company",
+    ]
+    if not has_analyst_ratings:
+        search_items.insert(0, "Analyst ratings and price targets from major firms")
+    if not has_short_interest:
+        search_items.insert(0, "Short interest (% of float) and squeeze potential")
+
     section = f"""
 VERIFIED DATA FROM OUR DATABASE (use exactly as provided, do NOT search for these):
 {chr(10).join(known_fields)}
 
-IMPORTANT: 
-- Technical indicators above are DAILY (end-of-day close prices). DO NOT search for RSI, MA-50, MA-200, or 52W High/Low.
-- Valuation ratios (P/E, P/B, P/S, EV/EBITDA) are calculated from official SEC XBRL filings. USE THESE VALUES EXACTLY.
-- DO NOT override any provided values with different numbers from Google Search.
+STRICT RULES — DO NOT SEARCH OR OVERRIDE:
+{chr(10).join(f"- {item}" for item in do_not_search)}
 
 Focus your Google Search ONLY on data we DON'T have:
 {chr(10).join(f"- {item}" for item in search_items)}
@@ -568,58 +728,94 @@ def create_analysis_prompt(ticker: str, language: str = "en", db_metadata: Optio
     exchange = prefilled.get('exchange', 'NASDAQ')
     website = prefilled.get('website', 'https://company.com')
     employees = prefilled.get('employees', 'null')
-    
+
     # Valores técnicos prefijados (DIARIOS - desde screener)
     rsi_status = prefilled.get('rsi_status', 'Neutral')
     ma_50_status = prefilled.get('ma_50_status', 'Unknown')
     ma_200_status = prefilled.get('ma_200_status', 'Unknown')
-    
+
     # CEO/CFO desde insider data
     ceo = prefilled.get('ceo', 'Search for current CEO')
     insider_sentiment = prefilled.get('insider_sentiment', 'Neutral')
-    
+
+    # Analyst ratings pre-fetched (Perplexity)
+    consensus_rating = prefilled.get('consensus_rating', 'null')
+    avg_price_target = prefilled.get('average_price_target', 'null')
+    pt_high = prefilled.get('price_target_high', 'null')
+    pt_low = prefilled.get('price_target_low', 'null')
+    num_analysts = prefilled.get('num_analysts', 'null')
+
+    # Generar JSON de analyst_ratings ya normalizado (sin que Gemini tenga que inventar)
+    ratings_list_normalized = prefilled.get('analyst_ratings_list', [])
+    import json as _json
+    analyst_ratings_json = _json.dumps(ratings_list_normalized[:8]) if ratings_list_normalized else '[]'
+
+    # Short interest pre-fetched (FINRA via Polygon)
+    days_to_cover = prefilled.get('days_to_cover', 'null')
+    squeeze_potential = prefilled.get('squeeze_potential', 'null')
+
+    # Dividend yield pre-fetched (Polygon TTM)
+    dividend_yield = prefilled.get('dividend_yield', 'null')
+
+    # News headlines pre-fetched (Polygon)
+    recent_headlines = prefilled.get('recent_headlines', [])
+    headlines_json = str(recent_headlines).replace("'", '"') if recent_headlines else '[]'
+
+    # Determinar qué Gemini debe buscar vs usar datos locales
+    has_analyst_data = bool(prefilled.get('consensus_rating') or prefilled.get('average_price_target'))
+    has_short_interest_data = bool(prefilled.get('days_to_cover'))
+    has_news_data = bool(recent_headlines)
+
+    search_focus = []
+    if not has_analyst_data:
+        search_focus.append("A) ANALYST COVERAGE: Latest ratings, price targets, upgrades/downgrades from major firms")
+    if not has_short_interest_data:
+        search_focus.append("B) SHORT INTEREST: % of float short, days to cover, squeeze potential")
+    search_focus.extend([
+        "C) TECHNICAL: Support/resistance levels and chart patterns ONLY (RSI, MAs, 52W already provided)",
+        "D) COMPETITORS: Top 3-5 competitors in the same industry with competitive advantage",
+        "E) FINANCIAL HEALTH: Revenue growth YoY, earnings growth YoY",
+        "F) UPCOMING CATALYSTS: Next earnings date, FDA PDUFA dates, conferences, ex-dividend date",
+        "G) RISK FACTORS: Key risks — ALWAYS include at least 2-3 specific risks",
+    ])
+    if not has_news_data:
+        search_focus.append("H) NEWS SENTIMENT: Recent headlines and overall sentiment")
+    search_focus.append("I) Forward P/E and PEG ratio")
+
     return f"""You are a senior financial analyst at a top investment bank. Generate a COMPREHENSIVE real-time analysis for ticker symbol "{ticker}".
 
 {lang_instruction}
 {known_data_section}
 CRITICAL INSTRUCTIONS:
-1. Use Google Search to find the MOST RECENT real-time data available TODAY.
-2. Search for: "{ticker} stock analyst ratings", "{ticker} price target", "{ticker} short interest", "{ticker} earnings date"
+1. Use Google Search ONLY for data marked below as missing.
+2. DO NOT search for or override any data already provided in the verified section above.
+3. Use exact values from the verified section — do NOT substitute with values from Google Search.
 
-FOCUS YOUR SEARCH ON DYNAMIC DATA (do NOT search for data already provided above):
-A) ANALYST COVERAGE: Latest ratings, price targets, upgrades/downgrades from major firms
-B) VALUATION: P/E, Forward P/E, P/B, P/S, EV/EBITDA, PEG ratio  
-C) TECHNICAL: ONLY search for support/resistance levels and chart patterns (RSI, MAs, 52W already provided)
-D) SHORT INTEREST: % of float short, days to cover, squeeze potential
-E) COMPETITORS: Top 3-5 competitors in the same industry
-F) FINANCIAL HEALTH: Revenue growth, earnings growth, debt/equity, margins
-G) UPCOMING CATALYSTS: Earnings dates, FDA dates (PDUFA, NDA, BLA), conferences, ex-dividend
-H) NEWS SENTIMENT: Recent headlines and overall market sentiment - INCLUDE THE ACTUAL HEADLINES
-I) RISK FACTORS: Key risks facing the company - ALWAYS include at least 2-3 risks
+FOCUS GOOGLE SEARCH ON THESE MISSING DATA POINTS:
+{chr(10).join(search_focus)}
 
-CRITICAL EVENTS - MUST DETECT (set critical_event field if any of these occurred recently):
+CRITICAL EVENTS — MUST DETECT (set critical_event if any occurred recently):
 - FDA rejection / Complete Response Letter (CRL)
-- FDA approval
-- Clinical trial failure or success
-- SEC investigation / lawsuit
-- Bankruptcy filing
-- CEO resignation / major management change
-- Earnings miss > 20%
-- Major contract win/loss
+- FDA approval or clinical trial result
+- SEC investigation / lawsuit / restatement
+- Bankruptcy filing or Chapter 11
+- CEO / CFO resignation or major management change
+- Earnings miss > 20% or revenue guidance cut
+- Major contract win/loss or partnership
 - Merger/acquisition announcement
-- Delisting notice
+- Delisting notice or exchange compliance warning
 
-SPECIAL STATUS FLAGS (if applicable):
+SPECIAL STATUS FLAGS (set special_status if applicable):
 - SPAC: Pre-merger blank check company
 - De-SPAC: Recently completed SPAC merger
 - Chinese ADR/VIE: VIE structure risk
-- Meme Stock: High retail interest/volatility
+- Meme Stock: High retail interest/short-squeeze history
 - FDA Setback: Recent CRL or rejection
-- Bankruptcy Risk: Chapter 11 concerns
+- Bankruptcy Risk: Chapter 11 or going-concern issues
 - Delisting Warning: Exchange compliance issues
-- Pending M&A: Active merger/acquisition
+- Pending M&A: Active merger/acquisition target
 
-Return ONLY valid JSON (no markdown, no extra text) in this exact structure:
+Return ONLY valid JSON (no markdown, no extra text):
 {{
     "ticker": "{ticker}",
     "company_name": "{company_name}",
@@ -629,93 +825,93 @@ Return ONLY valid JSON (no markdown, no extra text) in this exact structure:
     "ceo": "{ceo}",
     "website": "{website}",
     "employees": {employees},
-    "business_summary": "Use the description from database if provided above, otherwise 2-3 sentences",
+    "business_summary": "Use description from verified data above, or write 2-3 sentences if not provided",
     "special_status": null,
-    
-    "consensus_rating": "Buy",
-    "analyst_ratings": [
-        {{"firm": "Goldman Sachs", "rating": "Buy", "price_target": 200.00, "date": "2025-01-02"}}
-    ],
-    "average_price_target": 195.00,
-    "price_target_high": 250.00,
-    "price_target_low": 150.00,
-    "num_analysts": 35,
-    
-    "pe_ratio": 28.5,
-    "forward_pe": 24.2,
-    "pb_ratio": 8.5,
-    "ps_ratio": 7.2,
-    "ev_ebitda": 18.5,
-    "peg_ratio": 1.2,
-    
-    "dividend_yield": 0.5,
-    "dividend_frequency": "Quarterly",
-    "ex_dividend_date": "2025-02-15",
-    
+
+    "consensus_rating": {"null" if consensus_rating == "null" else f'"{consensus_rating}"'},
+    "analyst_ratings": {analyst_ratings_json},
+    "average_price_target": {avg_price_target},
+    "price_target_high": {pt_high},
+    "price_target_low": {pt_low},
+    "num_analysts": {num_analysts},
+
+    "pe_ratio": null,
+    "forward_pe": null,
+    "pb_ratio": null,
+    "ps_ratio": null,
+    "ev_ebitda": null,
+    "peg_ratio": null,
+
+    "dividend_yield": {dividend_yield if dividend_yield != "null" else "null"},
+    "dividend_frequency": null,
+    "ex_dividend_date": null,
+
     "technical": {{
         "trend": "Search for current trend (Bullish/Bearish/Neutral)",
-        "support_level": "Search for support level",
-        "resistance_level": "Search for resistance level",
+        "support_level": null,
+        "resistance_level": null,
         "rsi_status": "{rsi_status}",
         "ma_50_status": "{ma_50_status}",
         "ma_200_status": "{ma_200_status}",
-        "pattern": "Search for chart pattern if any"
+        "pattern": null
     }},
-    
+
     "short_interest": {{
-        "short_percent_of_float": 3.5,
-        "days_to_cover": 2.1,
-        "short_ratio_change": "Decreasing",
-        "squeeze_potential": "Low"
+        "short_percent_of_float": null,
+        "days_to_cover": {days_to_cover},
+        "short_ratio_change": null,
+        "squeeze_potential": {"null" if squeeze_potential == "null" else f'"{squeeze_potential}"'}
     }},
-    
+
     "competitors": [
         {{"ticker": "COMP", "name": "Competitor Inc", "market_cap": "$50B", "competitive_advantage": "Price leader"}}
     ],
-    "competitive_moat": "Wide",
-    "market_position": "Leader",
-    
+    "competitive_moat": null,
+    "market_position": null,
+
     "financial_health": {{
-        "revenue_growth_yoy": 15.5,
-        "earnings_growth_yoy": 22.3,
-        "debt_to_equity": 0.45,
-        "current_ratio": 2.1,
-        "cash_position": "Strong",
-        "profit_margin": 25.5,
-        "roe": 35.2
+        "revenue_growth_yoy": null,
+        "earnings_growth_yoy": null,
+        "debt_to_equity": null,
+        "current_ratio": null,
+        "cash_position": null,
+        "profit_margin": null,
+        "roe": null
     }},
-    "financial_grade": "A",
-    
+    "financial_grade": null,
+
     "upcoming_catalysts": [
-        {{"event": "Q4 2024 Earnings", "date": "2025-01-28", "importance": "High"}},
-        {{"event": "Product Launch", "date": "2025-02-15", "importance": "Medium"}}
+        {{"event": "Next Earnings", "date": "YYYY-MM-DD", "importance": "High"}}
     ],
-    "earnings_date": "2025-01-28",
-    
+    "earnings_date": null,
+
     "insider_activity": [
         {{"type": "Buy", "insider_name": "John CEO", "title": "CEO", "shares": 10000, "value": "$2.5M", "date": "2024-12-15"}}
     ],
     "insider_sentiment": "{insider_sentiment}",
-    
+
     "news_sentiment": {{
-        "overall": "Bullish",
-        "score": 65,
-        "trending_topics": ["AI expansion", "Strong earnings"],
-        "recent_headlines": ["Company beats Q3 estimates - actual headline from news", "New partnership announced - actual headline from news"]
+        "overall": "Neutral",
+        "score": 0,
+        "trending_topics": [],
+        "recent_headlines": {headlines_json}
     }},
-    
-    NOTE ON SCORE: Score must be -100 to +100. NEGATIVE score for Bearish/Negative sentiment, POSITIVE for Bullish/Positive.
-    
-    "risk_sentiment": "Bullish",
+
+    "risk_sentiment": null,
     "risk_factors": [
-        {{"category": "Competition", "description": "Increasing competition from new entrants", "severity": "Medium"}},
-        {{"category": "Regulation", "description": "Pending antitrust review", "severity": "High"}}
+        {{"category": "Competition", "description": "Describe specific competitive risk", "severity": "Medium"}},
+        {{"category": "Regulation", "description": "Describe specific regulatory risk", "severity": "Medium"}}
     ],
-    "risk_score": 4,
+    "risk_score": null,
     "critical_event": null
 }}
 
-If data is not available, use null. Do NOT make up data. Search Google thoroughly.
+RULES:
+- Use null for any field you cannot confirm from verified data or Google Search.
+- Do NOT fabricate numbers. If unsure, use null.
+- news_sentiment.recent_headlines: if headlines were provided above, use them; otherwise search for real headlines.
+- risk_factors: ALWAYS include at least 2 specific, non-generic risks for this company.
+- NOTE ON SCORE: news_sentiment.score must be -100 to +100 (negative=bearish, positive=bullish).
 """
 
 

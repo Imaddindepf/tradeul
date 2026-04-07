@@ -82,6 +82,28 @@ docker exec tradeul_historical python /app/scripts/repopulate_metadata.py
 
 ## 🔍 **Scripts de Verificación**
 
+### ✅ **check_event_filter_parity.py**
+**Propósito:** Garantizar paridad exacta de filtros entre frontend y websocket backend
+
+```bash
+python3 /opt/tradeul/scripts/check_event_filter_parity.py
+# o desde packages:
+# cd frontend && npm run check:event-filter-parity
+# cd services/websocket_server && npm run check:event-filter-parity
+```
+
+**Qué verifica:**
+- Que `NUMERIC_FILTER_DEFS`/`STRING_FILTER_DEFS` coinciden con el catálogo compartido
+- Que frontend subscribe/update envía todas las claves necesarias
+- Que no existan claves wire no parseables por backend
+
+**Cuándo usar:**
+- Antes de deploy
+- Después de agregar/renombrar filtros
+- En troubleshooting de falsos positivos/negativos
+
+---
+
 ### ✅ **verify_historical_data.py**
 **Propósito:** Verificar integridad de datos históricos
 

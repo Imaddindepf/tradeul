@@ -44,6 +44,13 @@ if [ -f ".next/BUILD_ID" ]; then
 fi
 log "Current build ID: $OLD_BUILD_ID"
 
+# ── Step 0: Contract checks (fail fast, no downtime) ─────────
+log "Running filter parity check..."
+if ! npm run check:event-filter-parity >/dev/null 2>&1; then
+    fail "Parity check failed. Aborting deploy before stopping service."
+fi
+ok "Filter parity check passed"
+
 # ── Step 1: Stop the service ───────────────────────────────
 log "Stopping $SERVICE_NAME..."
 systemctl stop "$SERVICE_NAME" 2>/dev/null || true

@@ -13,17 +13,20 @@ Most patterns are End-of-Candle: evaluated only when a new bar starts
 two-bar setup is complete.
 """
 
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from typing import Optional, List, Dict, NamedTuple, Tuple
 from dataclasses import dataclass, field
+from zoneinfo import ZoneInfo
 
 from detectors.base import BaseAlertDetector
 from models.alert_types import AlertType
 from models.alert_state import AlertState
 from models.alert_record import AlertRecord
 
-MARKET_OPEN = time(9, 30)
-MARKET_CLOSE = time(16, 0)
+_ET = ZoneInfo("America/New_York")
+# Session boundaries in ET — used as fallback when market_session is unavailable
+_SESSION_START_ET = time(4, 0)    # Pre-market opens 4:00 AM ET
+_SESSION_END_ET = time(20, 0)     # Post-market closes 8:00 PM ET
 TREND_BARS = 5
 
 
@@ -404,10 +407,22 @@ class CandlePatternAlertDetector(BaseAlertDetector):
 
         sym = current.symbol
         ts = current.timestamp
-        if ts.tzinfo is not None:
-            ts = ts.replace(tzinfo=None)
-        if ts.time() < MARKET_OPEN or ts.time() >= MARKET_CLOSE:
+        # Convert to Eastern Time for bar-boundary calculations (regardless of session)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        ts_et = ts.astimezone(_ET).replace(tzinfo=None)
+
+        # Use EventBus session (authoritative: driven by Polygon + market_session service).
+        # Active sessions: PRE_MARKET, MARKET_OPEN, POST_MARKET.
+        # If session is unknown/None, fall back to ET time range 4:00–20:00.
+        session = current.market_session
+        if session == "CLOSED":
             return out
+        if session is None:
+            if ts_et.time() < _SESSION_START_ET or ts_et.time() >= _SESSION_END_ET:
+                return out
+
+        ts = ts_et
 
         price = current.price
         ss = self._st.setdefault(sym, {})

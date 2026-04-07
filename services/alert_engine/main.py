@@ -95,7 +95,12 @@ class AlertEngine:
         "prev_bar_high_30m", "prev_bar_low_30m", "cur_bar_high_30m", "cur_bar_low_30m",
         "prev_bar_high_60m", "prev_bar_low_60m", "cur_bar_high_60m", "cur_bar_low_60m",
     ]
-    _ENRICHED_INT_KEYS = ["vol_1min", "vol_5min", "bid_size", "ask_size", "shares_outstanding", "minute_volume"]
+    _ENRICHED_INT_KEYS = [
+        "vol_1min", "vol_5min", "bid_size", "ask_size", "shares_outstanding", "minute_volume",
+        # Dilution risk numeric scores (1=Low, 2=Medium, 3=High; null if not in dilution DB)
+        "dilution_overall_risk_score", "dilution_offering_ability_score",
+        "dilution_overhead_supply_score", "dilution_historical_score", "dilution_cash_need_score",
+    ]
 
     def __init__(self, redis_cl, baseline_loader=None, alert_writer=None):
         self.redis = redis_cl
@@ -344,8 +349,12 @@ class AlertEngine:
             adv = _f("avg_volume_10d")
             if adv is None and vol:
                 adv = vol.avg_daily_volume if vol.avg_daily_volume else None
+            # Use the actual message timestamp for accurate bar-boundary calculations.
+            # Falls back to utcnow() only when the stream message has no timestamp.
+            ts_ms = data.get("timestamp_start") or data.get("timestamp_end")
+            msg_ts = datetime.utcfromtimestamp(int(ts_ms) / 1000) if ts_ms else datetime.utcnow()
             return AlertState(
-                symbol=symbol, timestamp=datetime.utcnow(), price=price, volume=volume, minute_volume=minute_vol,
+                symbol=symbol, timestamp=msg_ts, price=price, volume=volume, minute_volume=minute_vol,
                 bid=_f("bid"), ask=_f("ask"), bid_size=_i("bid_size"), ask_size=_i("ask_size"), spread=_f("spread"),
                 vwap=vwap, intraday_high=_f("intraday_high"), intraday_low=_f("intraday_low"),
                 prev_close=pc, prev_open=_f("prev_open"), open_price=op,

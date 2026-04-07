@@ -392,10 +392,15 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['atrPercentMin',     'atrPercentMax',     'atr_pct',          null],
     ['rsiMin',            'rsiMax',            'rsi',              null],
     ['chg1minMin',        'chg1minMax',        'chg_1min',         null],
+    ['chg1minDollarsMin', 'chg1minDollarsMax', null, 'chg_1min_dollars'],
     ['chg5minMin',        'chg5minMax',        'chg_5min',         null],
+    ['chg5minDollarsMin', 'chg5minDollarsMax', null, 'chg_5min_dollars'],
     ['chg10minMin',       'chg10minMax',       'chg_10min',        null],
+    ['chg10minDollarsMin','chg10minDollarsMax',null, 'chg_10min_dollars'],
     ['chg15minMin',       'chg15minMax',       'chg_15min',        null],
+    ['chg15minDollarsMin','chg15minDollarsMax',null, 'chg_15min_dollars'],
     ['chg30minMin',       'chg30minMax',       'chg_30min',        null],
+    ['chg30minDollarsMin','chg30minDollarsMax',null, 'chg_30min_dollars'],
     ['vol1minMin',        'vol1minMax',        'vol_1min',         null],
     ['vol5minMin',        'vol5minMax',        'vol_5min',         null],
     ['vol1minPctMin',     'vol1minPctMax',     'vol_1min_pct',     null],
@@ -532,6 +537,9 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['bbPosition60mMin',  'bbPosition60mMax',  null, 'bb_position_60m'],
     ['chg2minMin',        'chg2minMax',        null, 'chg_2min'],
     ['chg120minMin',      'chg120minMax',      null, 'chg_120min'],
+    ['chg2minDollarsMin', 'chg2minDollarsMax', null, 'chg_2min_dollars'],
+    ['chg60minDollarsMin','chg60minDollarsMax',null, 'chg_60min_dollars'],
+    ['chg120minDollarsMin','chg120minDollarsMax',null,'chg_120min_dollars'],
     // Extended Trade Ideas parity
     ['gapDollarsMin',     'gapDollarsMax',     null, 'gap_dollars'],
     ['gapRatioMin',       'gapRatioMax',       null, 'gap_ratio'],
@@ -646,24 +654,20 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
         if (hi != null) conditions.push(`${nativeCol} <= ${addParam(hi)}`);
       }
     } else {
-      // JSONB context field: tolerate NULL (field absent in legacy events).
-      // If the field exists in context, apply the filter strictly.
-      // If absent, include the row — real-time enrichment + client filter will handle it.
+      // JSONB context field: strict mode.
+      // If a filter is active, missing context value must FAIL.
       const expr = `(context->>'${ctxKey}')::double precision`;
       const inverted = lo != null && hi != null && lo > hi;
       if (inverted) {
-        conditions.push(`(context->>'${ctxKey}' IS NULL OR ${expr} >= ${addParam(lo)} OR ${expr} <= ${addParam(hi)})`);
+        conditions.push(`(${expr} >= ${addParam(lo)} OR ${expr} <= ${addParam(hi)})`);
       } else {
-        const parts = [];
-        parts.push(`context->>'${ctxKey}' IS NULL`);
         if (lo != null && hi != null) {
-          parts.push(`(${expr} >= ${addParam(lo)} AND ${expr} <= ${addParam(hi)})`);
+          conditions.push(`(${expr} >= ${addParam(lo)} AND ${expr} <= ${addParam(hi)})`);
         } else if (lo != null) {
-          parts.push(`${expr} >= ${addParam(lo)}`);
+          conditions.push(`${expr} >= ${addParam(lo)}`);
         } else {
-          parts.push(`${expr} <= ${addParam(hi)}`);
+          conditions.push(`${expr} <= ${addParam(hi)}`);
         }
-        conditions.push(`(${parts.join(" OR ")})`);
       }
     }
   }
@@ -935,6 +939,9 @@ const ENRICHED_FLOAT_FIELDS = [
   "bid", "ask", "spread",
   // Time-window changes
   "chg_60min",
+  "chg_1min_dollars", "chg_2min_dollars", "chg_5min_dollars",
+  "chg_10min_dollars", "chg_15min_dollars", "chg_30min_dollars",
+  "chg_60min_dollars", "chg_120min_dollars",
   // Intraday SMA
   "sma_5", "sma_8", "sma_20", "sma_50", "sma_200",
   // EMA
@@ -1179,16 +1186,28 @@ const NUMERIC_FILTER_DEFS = [
   // Change windows
   ['chg1minMin', 'chg_1min_min', pf],
   ['chg1minMax', 'chg_1min_max', pf],
+  ['chg1minDollarsMin', 'chg_1min_dollars_min', pf],
+  ['chg1minDollarsMax', 'chg_1min_dollars_max', pf],
   ['chg5minMin', 'chg_5min_min', pf],
   ['chg5minMax', 'chg_5min_max', pf],
+  ['chg5minDollarsMin', 'chg_5min_dollars_min', pf],
+  ['chg5minDollarsMax', 'chg_5min_dollars_max', pf],
   ['chg10minMin', 'chg_10min_min', pf],
   ['chg10minMax', 'chg_10min_max', pf],
+  ['chg10minDollarsMin', 'chg_10min_dollars_min', pf],
+  ['chg10minDollarsMax', 'chg_10min_dollars_max', pf],
   ['chg15minMin', 'chg_15min_min', pf],
   ['chg15minMax', 'chg_15min_max', pf],
+  ['chg15minDollarsMin', 'chg_15min_dollars_min', pf],
+  ['chg15minDollarsMax', 'chg_15min_dollars_max', pf],
   ['chg30minMin', 'chg_30min_min', pf],
   ['chg30minMax', 'chg_30min_max', pf],
+  ['chg30minDollarsMin', 'chg_30min_dollars_min', pf],
+  ['chg30minDollarsMax', 'chg_30min_dollars_max', pf],
   ['chg60minMin', 'chg_60min_min', pf],
   ['chg60minMax', 'chg_60min_max', pf],
+  ['chg60minDollarsMin', 'chg_60min_dollars_min', pf],
+  ['chg60minDollarsMax', 'chg_60min_dollars_max', pf],
   // Quote data
   ['bidMin', 'bid_min', pf],
   ['bidMax', 'bid_max', pf],
@@ -1424,6 +1443,10 @@ const NUMERIC_FILTER_DEFS = [
   ['chg2minMax', 'chg_2min_max', pf],
   ['chg120minMin', 'chg_120min_min', pf],
   ['chg120minMax', 'chg_120min_max', pf],
+  ['chg2minDollarsMin', 'chg_2min_dollars_min', pf],
+  ['chg2minDollarsMax', 'chg_2min_dollars_max', pf],
+  ['chg120minDollarsMin', 'chg_120min_dollars_min', pf],
+  ['chg120minDollarsMax', 'chg_120min_dollars_max', pf],
   // === Extended Trade Ideas parity filters ===
   // Gap $ [GUD]
   ['gapDollarsMin', 'gap_dollars_min', pf],
@@ -1641,6 +1664,26 @@ const STRING_FILTER_DEFS = [
   ['industry', 'industry'],
 ];
 
+function pickWireKey(data, dataKey, subKey) {
+  if (Object.prototype.hasOwnProperty.call(data, dataKey)) return dataKey;
+  if (Object.prototype.hasOwnProperty.call(data, subKey)) return subKey;
+  if (dataKey === "change_min" && Object.prototype.hasOwnProperty.call(data, "min_change_percent")) {
+    return "min_change_percent";
+  }
+  if (dataKey === "change_max" && Object.prototype.hasOwnProperty.call(data, "max_change_percent")) {
+    return "max_change_percent";
+  }
+  if (dataKey.endsWith("_min")) {
+    const legacyMinKey = `min_${dataKey.slice(0, -4)}`;
+    if (Object.prototype.hasOwnProperty.call(data, legacyMinKey)) return legacyMinKey;
+  }
+  if (dataKey.endsWith("_max")) {
+    const legacyMaxKey = `max_${dataKey.slice(0, -4)}`;
+    if (Object.prototype.hasOwnProperty.call(data, legacyMaxKey)) return legacyMaxKey;
+  }
+  return null;
+}
+
 // Mapping: enriched field name for each filter subKey (for enriched cache lookup)
 // Only filters that should be checked against enriched data (not event payload).
 const ENRICHED_FIELD_MAP = {
@@ -1667,6 +1710,12 @@ const ENRICHED_FIELD_MAP = {
   range120minPctMin: 'range_120min_pct', range120minPctMax: 'range_120min_pct',
   // Change 60 min
   chg60minMin: 'chg_60min', chg60minMax: 'chg_60min',
+  chg1minDollarsMin: 'chg_1min_dollars', chg1minDollarsMax: 'chg_1min_dollars',
+  chg5minDollarsMin: 'chg_5min_dollars', chg5minDollarsMax: 'chg_5min_dollars',
+  chg10minDollarsMin: 'chg_10min_dollars', chg10minDollarsMax: 'chg_10min_dollars',
+  chg15minDollarsMin: 'chg_15min_dollars', chg15minDollarsMax: 'chg_15min_dollars',
+  chg30minDollarsMin: 'chg_30min_dollars', chg30minDollarsMax: 'chg_30min_dollars',
+  chg60minDollarsMin: 'chg_60min_dollars', chg60minDollarsMax: 'chg_60min_dollars',
   // Quote
   bidMin: 'bid', bidMax: 'bid',
   askMin: 'ask', askMax: 'ask',
@@ -1782,6 +1831,8 @@ const ENRICHED_FIELD_MAP = {
   bbPosition60mMin: 'bb_position_60m', bbPosition60mMax: 'bb_position_60m',
   chg2minMin: 'chg_2min', chg2minMax: 'chg_2min',
   chg120minMin: 'chg_120min', chg120minMax: 'chg_120min',
+  chg2minDollarsMin: 'chg_2min_dollars', chg2minDollarsMax: 'chg_2min_dollars',
+  chg120minDollarsMin: 'chg_120min_dollars', chg120minDollarsMax: 'chg_120min_dollars',
   // Extended Trade Ideas parity filters
   gapDollarsMin: 'gap_dollars', gapDollarsMax: 'gap_dollars',
   gapRatioMin: 'gap_ratio', gapRatioMax: 'gap_ratio',
@@ -1903,12 +1954,18 @@ function buildEventSubscription(data) {
 
   // Parse all numeric filters
   for (const [subKey, dataKey, parser] of NUMERIC_FILTER_DEFS) {
-    sub[subKey] = parser(data, dataKey);
+    const wireKey = pickWireKey(data, dataKey, subKey);
+    if (!wireKey || data[wireKey] === null) {
+      sub[subKey] = null;
+    } else {
+      sub[subKey] = parser(data, wireKey);
+    }
   }
 
   // Parse string filters
   for (const [subKey, dataKey] of STRING_FILTER_DEFS) {
-    sub[subKey] = ps(data, dataKey);
+    const wireKey = pickWireKey(data, dataKey, subKey);
+    sub[subKey] = wireKey ? ps(data, wireKey) : null;
   }
 
   if (data.symbols_include && Array.isArray(data.symbols_include)) {
@@ -1956,8 +2013,8 @@ function eventPassesSubscription(evt, sub) {
   function chkEvt(v, minKey, maxKey) {
     const lo = sub[minKey], hi = sub[maxKey];
     if (lo === null && hi === null) return true;
-    // Match EventTableContent.passesFilters + queryHistoricalEvents JSONB: missing field does not exclude.
-    if (v == null) return true;
+    // Strict mode: active filter + missing value => fail.
+    if (v == null) return false;
     if (lo !== null && hi !== null && lo > hi) return v >= lo || v <= hi;
     if (lo !== null && v < lo) return false;
     if (hi !== null && v > hi) return false;
@@ -2009,11 +2066,17 @@ function eventPassesSubscription(evt, sub) {
 
   // Change windows
   if (!chkEvt(val('chg_1min', 'chg_1min'), 'chg1minMin', 'chg1minMax')) return false;
+  if (!chkEvt(enriched.chg_1min_dollars, 'chg1minDollarsMin', 'chg1minDollarsMax')) return false;
   if (!chkEvt(val('chg_5min', 'chg_5min'), 'chg5minMin', 'chg5minMax')) return false;
+  if (!chkEvt(enriched.chg_5min_dollars, 'chg5minDollarsMin', 'chg5minDollarsMax')) return false;
   if (!chkEvt(val('chg_10min', 'chg_10min'), 'chg10minMin', 'chg10minMax')) return false;
+  if (!chkEvt(enriched.chg_10min_dollars, 'chg10minDollarsMin', 'chg10minDollarsMax')) return false;
   if (!chkEvt(val('chg_15min', 'chg_15min'), 'chg15minMin', 'chg15minMax')) return false;
+  if (!chkEvt(enriched.chg_15min_dollars, 'chg15minDollarsMin', 'chg15minDollarsMax')) return false;
   if (!chkEvt(val('chg_30min', 'chg_30min'), 'chg30minMin', 'chg30minMax')) return false;
+  if (!chkEvt(enriched.chg_30min_dollars, 'chg30minDollarsMin', 'chg30minDollarsMax')) return false;
   if (!chkEvt(enriched.chg_60min, 'chg60minMin', 'chg60minMax')) return false;
+  if (!chkEvt(enriched.chg_60min_dollars, 'chg60minDollarsMin', 'chg60minDollarsMax')) return false;
 
   // Quote
   if (!chkEvt(enriched.bid, 'bidMin', 'bidMax')) return false;
@@ -2154,6 +2217,8 @@ function eventPassesSubscription(evt, sub) {
   // Change 2min / 120min
   if (!chkEvt(enriched.chg_2min, 'chg2minMin', 'chg2minMax')) return false;
   if (!chkEvt(enriched.chg_120min, 'chg120minMin', 'chg120minMax')) return false;
+  if (!chkEvt(enriched.chg_2min_dollars, 'chg2minDollarsMin', 'chg2minDollarsMax')) return false;
+  if (!chkEvt(enriched.chg_120min_dollars, 'chg120minDollarsMin', 'chg120minDollarsMax')) return false;
 
   // Extended Trade Ideas parity filters
   if (!chkEvt(enriched.gap_dollars, 'gapDollarsMin', 'gapDollarsMax')) return false;
@@ -2288,13 +2353,15 @@ function eventPassesSubscription(evt, sub) {
 // ── Helper: Apply partial filter updates to an existing sub ──
 function applyNumericFilterUpdates(sub, data) {
   for (const [subKey, dataKey, parser] of NUMERIC_FILTER_DEFS) {
-    if (data[dataKey] !== undefined) {
-      sub[subKey] = data[dataKey] !== null ? parser(data, dataKey) : null;
+    const wireKey = pickWireKey(data, dataKey, subKey);
+    if (wireKey) {
+      sub[subKey] = data[wireKey] !== null ? parser(data, wireKey) : null;
     }
   }
   for (const [subKey, dataKey] of STRING_FILTER_DEFS) {
-    if (data[dataKey] !== undefined) {
-      sub[subKey] = ps(data, dataKey);
+    const wireKey = pickWireKey(data, dataKey, subKey);
+    if (wireKey) {
+      sub[subKey] = ps(data, wireKey);
     }
   }
   // Per-alert quality thresholds
