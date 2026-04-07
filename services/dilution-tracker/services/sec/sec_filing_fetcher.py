@@ -46,40 +46,34 @@ class SECFilingFetcher:
             Tuple (cik, company_name)
         """
         try:
-            # Primero intentar desde nuestra BD (ticker_metadata)
-            if self.db:
-                query = """
-                SELECT cik, company_name
-                FROM ticker_metadata
-                WHERE symbol = $1
-                """
-                result = await self.db.fetchrow(query, ticker)
-                
-                if result and result['cik']:
-                    return result['cik'], result['company_name']
-            
-            # Si no está en BD, usar SEC EDGAR API
-            url = f"{self.SEC_EDGAR_BASE_URL}/submissions/CIK{ticker}.json"
-            
-            content = await http_clients.sec_gov.get_filing_content(url)
-            if content:
-                try:
-                    data = json.loads(content)
-                    cik = data.get('cik')
-                    company_name = data.get('name')
-                    return str(cik).zfill(10), company_name
-                except json.JSONDecodeError:
-                    pass
-            
-            # Fallback: usar SEC company tickers JSON
+            # dilutiontracker v2 does not store CIK — look up directly from SEC EDGAR.
+
+            # 1. Try SEC company tickers JSON (domestic issuers)
             data = await http_clients.sec_gov.get_company_tickers()
             if data:
-                for key, company in data.items():
+                for _key, company in data.items():
                     if company.get('ticker') == ticker:
                         cik = str(company.get('cik_str')).zfill(10)
                         company_name = company.get('title')
                         return cik, company_name
-            
+
+            # 2. Try submissions API directly with zero-padded CIK search via EDGAR full-text
+            #    (works when ticker is known but not in domestic tickers list, e.g. 20-F filers)
+            search_url = f"https://efts.sec.gov/LATEST/search-index?q=%22{ticker}%22&forms=20-F,10-K&dateRange=custom&startdt=2020-01-01"
+            try:
+                content = await http_clients.sec_gov.get_filing_content(search_url)
+                if content:
+                    search_data = json.loads(content)
+                    hits = search_data.get("hits", {}).get("hits", [])
+                    if hits:
+                        entity_id = hits[0].get("_source", {}).get("entity_id", "")
+                        if entity_id:
+                            cik = str(entity_id).zfill(10)
+                            company_name = hits[0].get("_source", {}).get("display_names", [ticker])[0]
+                            return cik, company_name
+            except Exception:
+                pass
+
             return None, None
             
         except Exception as e:

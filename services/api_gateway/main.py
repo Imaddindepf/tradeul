@@ -51,6 +51,7 @@ from routes.alert_strategies import router as alert_strategies_router, set_times
 from routes.performance import router as performance_router, set_redis_client as set_performance_redis, set_timescale_client as set_performance_timescale
 from routes.rrg import router as rrg_router, set_redis_client as set_rrg_redis, set_timescale_client as set_rrg_timescale
 from routes.analyst_ratings import router as analyst_ratings_router
+from routes.perplexity_financials import router as perplexity_financials_router
 from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
@@ -250,6 +251,7 @@ app.include_router(alert_strategies_router)  # User alert strategies (CRUD)
 app.include_router(performance_router)  # Market performance aggregation (sectors, industries, themes)
 app.include_router(rrg_router)  # RRG (Relative Rotation Graph) with historical trails
 app.include_router(analyst_ratings_router)  # Analyst ratings & price targets (Perplexity proxy)
+app.include_router(perplexity_financials_router)  # Balance Sheet + Cash Flow (Perplexity proxy)
 
 
 # ============================================================================
@@ -481,6 +483,169 @@ async def _get_fundamentals_for_fan(symbol: str, current_price: float, cik: str 
     return {}
 
 
+async def _get_polygon_ratios_for_fan(symbol: str) -> dict:
+    """
+    Obtener ratios financieros TTM desde Polygon.
+    Incluye dividend_yield, ROE, ROA, current_ratio, quick_ratio, cash_ratio,
+    EV/EBITDA, EV/Sales, free_cash_flow, y ratios de precio.
+    Cache: 24 horas (se actualiza diario en Polygon).
+    """
+    cache_key = f"fan:polygon_ratios:{symbol.upper()}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached and isinstance(cached, dict):
+            return cached
+    except Exception:
+        pass
+
+    try:
+        data = await http_clients.polygon.get_financial_ratios(symbol)
+        results = data.get("results", [])
+        if not results:
+            return {}
+
+        r = results[0]
+        result = {
+            "dividend_yield": r.get("dividend_yield"),
+            "return_on_equity": r.get("return_on_equity"),
+            "return_on_assets": r.get("return_on_assets"),
+            "current_ratio": r.get("current"),
+            "quick_ratio": r.get("quick"),
+            "cash_ratio": r.get("cash"),
+            "debt_to_equity": r.get("debt_to_equity"),
+            "price_to_earnings": r.get("price_to_earnings"),
+            "price_to_book": r.get("price_to_book"),
+            "price_to_sales": r.get("price_to_sales"),
+            "price_to_cash_flow": r.get("price_to_cash_flow"),
+            "price_to_free_cash_flow": r.get("price_to_free_cash_flow"),
+            "ev_to_ebitda": r.get("ev_to_ebitda"),
+            "ev_to_sales": r.get("ev_to_sales"),
+            "enterprise_value": r.get("enterprise_value"),
+            "free_cash_flow": r.get("free_cash_flow"),
+            "earnings_per_share": r.get("earnings_per_share"),
+            "market_cap": r.get("market_cap"),
+            "date": r.get("date"),
+        }
+        # Quitar nulos para no ensuciar el payload
+        result = {k: v for k, v in result.items() if v is not None}
+
+        try:
+            await redis_client.set(cache_key, result, ttl=86400)  # 24h
+        except Exception:
+            pass
+
+        return result
+    except Exception as e:
+        logger.warning("fan_polygon_ratios_error", symbol=symbol, error=str(e))
+    return {}
+
+
+async def _get_short_interest_for_fan(symbol: str) -> dict:
+    """
+    Obtener short interest bi-mensual desde Polygon (fuente: FINRA).
+    Incluye short_interest, days_to_cover, avg_daily_volume.
+    Cache: 12 horas (se publica cada 2 semanas, pero cambia poco intradía).
+    """
+    cache_key = f"fan:short_interest:{symbol.upper()}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached and isinstance(cached, dict):
+            return cached
+    except Exception:
+        pass
+
+    try:
+        data = await http_clients.polygon.get_short_interest(symbol)
+        results = data.get("results", [])
+        if not results:
+            return {}
+
+        r = results[0]
+        result = {
+            "short_interest": r.get("short_interest"),
+            "days_to_cover": r.get("days_to_cover"),
+            "avg_daily_volume": r.get("avg_daily_volume"),
+            "settlement_date": r.get("settlement_date"),
+        }
+        result = {k: v for k, v in result.items() if v is not None}
+
+        try:
+            await redis_client.set(cache_key, result, ttl=43200)  # 12h
+        except Exception:
+            pass
+
+        return result
+    except Exception as e:
+        logger.warning("fan_short_interest_error", symbol=symbol, error=str(e))
+    return {}
+
+
+async def _get_analyst_ratings_for_fan(symbol: str) -> dict:
+    """
+    Obtener ratings de analistas desde Perplexity Finance.
+    Reutiliza _fetch_ratings del módulo analyst_ratings (misma sesión curl_cffi).
+    Cache: 1 hora.
+    """
+    cache_key = f"fan:analyst_ratings:{symbol.upper()}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached and isinstance(cached, dict):
+            return cached
+    except Exception:
+        pass
+
+    try:
+        from routes.analyst_ratings import _fetch_ratings
+        data = await asyncio.to_thread(_fetch_ratings, symbol.upper())
+        if data:
+            try:
+                await redis_client.set(cache_key, data, ttl=3600)
+            except Exception:
+                pass
+            return data
+    except Exception as e:
+        logger.warning("fan_analyst_ratings_error", symbol=symbol, error=str(e))
+    return {}
+
+
+async def _get_news_for_fan(symbol: str, limit: int = 5) -> list:
+    """
+    Obtener las últimas noticias del ticker desde Polygon.
+    Devuelve lista de {title, published_utc, publisher, article_url}.
+    Cache: 30 minutos.
+    """
+    cache_key = f"fan:news:{symbol.upper()}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if isinstance(cached, list):
+            return cached
+    except Exception:
+        pass
+
+    try:
+        data = await http_clients.polygon.get_news(symbol, limit=limit)
+        results = data.get("results", [])
+        news = [
+            {
+                "title": r.get("title"),
+                "published_utc": r.get("published_utc"),
+                "publisher": r.get("publisher", {}).get("name"),
+                "article_url": r.get("article_url"),
+                "description": (r.get("description") or "")[:200],
+            }
+            for r in results
+            if r.get("title")
+        ]
+        try:
+            await redis_client.set(cache_key, news, ttl=1800)  # 30 min
+        except Exception:
+            pass
+        return news
+    except Exception as e:
+        logger.warning("fan_news_error", symbol=symbol, error=str(e))
+    return []
+
+
 @app.get("/api/report/{ticker}/instant")
 async def get_instant_report(ticker: str):
     """Endpoint RÁPIDO: Solo datos internos sin Gemini (~1-2s).
@@ -645,12 +810,17 @@ async def proxy_financial_analyst_report(ticker: str, lang: str = Query("en")):
         technical_task = _get_technical_indicators_for_fan(ticker)
         insider_task = _get_insider_summary_for_fan(ticker)
         fundamentals_task = _get_fundamentals_for_fan(ticker, current_price, cik) if current_price else asyncio.sleep(0)
-        
-        technical, insider, fundamentals = await asyncio.gather(
+        polygon_ratios_task = _get_polygon_ratios_for_fan(ticker)
+        short_interest_task = _get_short_interest_for_fan(ticker)
+        analyst_ratings_task = _get_analyst_ratings_for_fan(ticker)
+        news_task = _get_news_for_fan(ticker, limit=5)
+
+        technical, insider, fundamentals, polygon_ratios, short_interest, analyst_ratings, news = await asyncio.gather(
             technical_task, insider_task, fundamentals_task,
+            polygon_ratios_task, short_interest_task, analyst_ratings_task, news_task,
             return_exceptions=True
         )
-        
+
         # Manejar excepciones individuales
         if isinstance(technical, Exception):
             logger.warning("fan_technical_exception", error=str(technical))
@@ -662,25 +832,45 @@ async def proxy_financial_analyst_report(ticker: str, lang: str = Query("en")):
             if isinstance(fundamentals, Exception):
                 logger.warning("fan_fundamentals_exception", error=str(fundamentals))
             fundamentals = {}
-        
+        if isinstance(polygon_ratios, Exception):
+            logger.warning("fan_polygon_ratios_exception", error=str(polygon_ratios))
+            polygon_ratios = {}
+        if isinstance(short_interest, Exception):
+            logger.warning("fan_short_interest_exception", error=str(short_interest))
+            short_interest = {}
+        if isinstance(analyst_ratings, Exception):
+            logger.warning("fan_analyst_ratings_exception", error=str(analyst_ratings))
+            analyst_ratings = {}
+        if isinstance(news, Exception):
+            logger.warning("fan_news_exception", error=str(news))
+            news = []
+
         # 3. Combinar todos los datos
         enriched_metadata = {
             **db_metadata,
-            "technical_daily": technical,      # RSI, MA, 52W - DIARIOS
-            "insider_summary": insider,        # Resumen + CEO/CFO
-            "price_snapshot": price,           # Precio actual
-            "fundamentals_xbrl": fundamentals  # P/E, P/B, P/S desde SEC (NUEVO)
+            "technical_daily": technical,        # RSI, MA, 52W - DIARIOS
+            "insider_summary": insider,          # Resumen + CEO/CFO
+            "price_snapshot": price,             # Precio actual
+            "fundamentals_xbrl": fundamentals,   # P/E, P/B, P/S desde SEC XBRL
+            "polygon_ratios": polygon_ratios,    # Ratios TTM de Polygon (div yield, ROE, ROA, etc.)
+            "short_interest": short_interest,    # Short interest FINRA via Polygon
+            "analyst_ratings": analyst_ratings,  # Ratings de analistas via Perplexity
+            "recent_news": news,                 # Últimas noticias via Polygon
         }
-        
+
         local_time = round((time.time() - start_time) * 1000)
-        logger.info("fan_local_data_collected", 
-                   ticker=ticker, 
+        logger.info("fan_local_data_collected",
+                   ticker=ticker,
                    local_time_ms=local_time,
                    has_metadata=bool(db_metadata),
                    has_technical=bool(technical),
                    has_insider=bool(insider),
                    has_price=bool(price),
-                   has_fundamentals=bool(fundamentals))
+                   has_fundamentals=bool(fundamentals),
+                   has_polygon_ratios=bool(polygon_ratios),
+                   has_short_interest=bool(short_interest),
+                   has_analyst_ratings=bool(analyst_ratings),
+                   has_news=bool(news))
         
         # 3. Llamar a financial-analyst con TODOS los datos
         async with httpx.AsyncClient(timeout=120.0) as client:

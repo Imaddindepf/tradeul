@@ -84,7 +84,9 @@ class SearchTracker:
         user_id: Optional[UUID],
         session_id: Optional[str]
     ):
-        """Guardar búsqueda en BD"""
+        """Guardar búsqueda en BD (no-op cuando la tabla no existe o db es None)"""
+        if not self.db:
+            return
         query = """
         INSERT INTO dilution_searches (ticker, user_id, session_id, searched_at)
         VALUES ($1, $2, $3, NOW())
@@ -93,15 +95,9 @@ class SearchTracker:
     
     async def _add_to_recent(self, ticker: str):
         """Agregar a lista de búsquedas recientes (últimos 100)"""
-        # Usar lista con timestamp
-        data = {
-            'ticker': ticker,
-            'timestamp': datetime.now().isoformat()
-        }
-        
+        import json as _json
+        data = _json.dumps({'ticker': ticker, 'timestamp': datetime.now().isoformat()})
         await self.redis.lpush(self.RECENT_SEARCHES_KEY, data)
-        
-        # Mantener solo últimos 100
         await self.redis.ltrim(self.RECENT_SEARCHES_KEY, 0, 99)
     
     async def get_trending_tickers(

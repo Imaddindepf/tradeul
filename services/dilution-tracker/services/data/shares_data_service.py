@@ -59,39 +59,97 @@ class SharesDataService:
     
     async def get_shares_history(self, ticker: str, cik: Optional[str] = None) -> Dict[str, Any]:
         """
-        Get historical shares outstanding from SEC-API.io /float endpoint.
-        Falls back to SEC EDGAR XBRL if SEC-API fails.
-        
+        Get historical shares outstanding.
+
+        Source priority:
+          1. shares_outstanding table (DilutionTracker data, already split-adjusted)
+          2. SEC-API.io /float
+          3. SEC EDGAR XBRL
+
         Returns:
             Dict with shares history, dilution metrics, and all records.
         """
         try:
             ticker = ticker.upper()
-            
+
             # Check Redis cache first
             cache_key = f"sec_dilution:shares_history:{ticker}"
             cached = await self.redis.get(cache_key, deserialize=True)
             if cached:
                 logger.info("shares_history_from_cache", ticker=ticker)
                 return cached
-            
-            # PRIMARY: SEC-API.io /float
-            result = await self._fetch_shares_from_sec_api(ticker)
-            
+
+            # PRIMARY: shares_outstanding table (DT data)
+            result = await self._fetch_shares_from_db(ticker)
+
+            # FALLBACK: SEC-API.io /float
+            if not result or "error" in result:
+                logger.info("shares_db_miss_falling_back_to_sec_api", ticker=ticker)
+                result = await self._fetch_shares_from_sec_api(ticker)
+
             # FALLBACK: SEC EDGAR XBRL
             if not result or "error" in result:
                 logger.info("falling_back_to_sec_edgar", ticker=ticker)
                 result = await self._fetch_shares_from_sec_edgar(ticker, cik)
-            
+
             # Cache for 6 hours
             if result and "error" not in result:
                 await self.redis.set(cache_key, result, ttl=21600, serialize=True)
-            
+
             return result
-            
+
         except Exception as e:
             logger.error("get_shares_history_failed", ticker=ticker, error=str(e))
             return {"error": str(e)}
+
+    async def _fetch_shares_from_db(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch shares history from the local shares_outstanding table.
+        Data comes from DilutionTracker's getSharesOS endpoint — already split-adjusted.
+        Values are stored in millions and converted here to whole shares.
+        Rows with shares_outstanding = 0 are excluded (DT placeholder for missing quarters).
+        """
+        try:
+            from shared.utils.timescale_client import TimescaleClient
+
+            db = TimescaleClient()
+            await db.connect(min_size=1, max_size=3)
+            try:
+                rows = await db.pool.fetch(
+                    """
+                    SELECT report_date, shares_outstanding
+                    FROM shares_outstanding
+                    WHERE ticker = $1
+                      AND shares_outstanding > 0
+                    ORDER BY report_date ASC
+                    """,
+                    ticker,
+                )
+            finally:
+                await db.disconnect()
+
+            if not rows:
+                logger.debug("shares_db_no_rows", ticker=ticker)
+                return None
+
+            records = [
+                {
+                    "date": row["report_date"].isoformat(),
+                    # Table stores millions → convert to whole shares
+                    "shares": int(float(row["shares_outstanding"]) * 1_000_000),
+                    "form": "DT-DB",
+                    "filed": row["report_date"].isoformat(),
+                    "split_adjusted": True,
+                }
+                for row in rows
+            ]
+
+            logger.info("shares_from_db", ticker=ticker, records=len(records))
+            return await self._build_shares_result(records, "shares_outstanding (DT)", ticker)
+
+        except Exception as e:
+            logger.warning("shares_db_fetch_failed", ticker=ticker, error=str(e))
+            return None
     
     async def _fetch_shares_from_sec_api(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
@@ -350,8 +408,9 @@ class SharesDataService:
                 
                 data = response.json().get('results', {})
                 
-                # Prefer weighted_shares_outstanding (more accurate for multi-class)
-                shares = data.get('weighted_shares_outstanding') or data.get('share_class_shares_outstanding')
+                # share_class_shares_outstanding = acciones emitidas actuales (correcto para O/S)
+                # weighted_shares_outstanding = media ponderada del año para EPS (incorrecto aquí)
+                shares = data.get('share_class_shares_outstanding') or data.get('weighted_shares_outstanding')
                 
                 if shares and shares > 0:
                     logger.debug("polygon_current_shares", ticker=ticker, shares=shares)

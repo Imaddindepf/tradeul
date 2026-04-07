@@ -6,7 +6,7 @@ Endpoints para análisis de dilución basado en SEC filings
 import sys
 sys.path.append('/app')
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from typing import Optional, AsyncGenerator
 from datetime import datetime, date
@@ -308,40 +308,101 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
         
         # For Historical rating, use SEC-reported current (not profile's fully diluted)
         shares_for_historical = shares_current_sec if shares_current_sec > 0 else shares_outstanding
+
+        # For Overhead Supply: if profile.shares_outstanding is missing (tickers table null),
+        # use SEC-reported current shares as the best available substitute.
+        if shares_outstanding <= 0 and shares_current_sec > 0:
+            shares_outstanding = shares_current_sec
+            logger.debug("overhead_supply_using_sec_shares",
+                         ticker=ticker, shares=shares_outstanding)
         
-        # ===== CASH NEED: Get runway months =====
+        # ===== CASH NEED: DT formula via Perplexity + recent_raises from our data =====
         runway_months = None
         has_positive_cf = False
-        cash_data = None
+        estimated_current_cash_val = None
+        annual_burn = None
+
         try:
-            from services.sec.sec_cash_history import SECCashHistoryService
-            
-            cash_service = SECCashHistoryService(redis)
-            cash_data = await cash_service.get_full_cash_history(ticker, max_quarters=20)
-            
-            if cash_data and not cash_data.get("error"):
-                runway_days = cash_data.get("runway_days")
-                if runway_days is not None:
-                    runway_months = runway_days / 30
-                
-                # CORRECCIÓN: Usar annual_operating_cf para determinar has_positive_cf
-                # Cuando annual_ocf >= 0 (positivo O sin datos de burn), es "positivo"
-                # Esto alinea con la lógica del cash service que dice "low" cuando annual_ocf >= 0
-                annual_ocf = cash_data.get("annual_operating_cf", 0) or 0
-                quarterly_cf = cash_data.get("quarterly_operating_cf", 0) or 0
-                
-                # Si no hay datos de OCF (annual_ocf == 0) o es positivo, la empresa
-                # no está claramente quemando dinero → low risk
-                # Solo es "quemando dinero" si annual_ocf < 0
-                has_positive_cf = annual_ocf >= 0
-                
-                logger.debug("cash_runway_found", ticker=ticker, 
-                           runway_months=runway_months, 
-                           annual_ocf=annual_ocf,
-                           has_positive_cf=has_positive_cf,
-                           cash_risk_level=cash_data.get("runway_risk_level"))
+            from services.sec.perplexity_cash_service import PerplexityCashService
+
+            # ── recent_raises from completed_offerings table (source of truth) ─
+            # Same data shown in "Completed Offerings" section of dilution window.
+            recent_raises = 0.0
+            try:
+                px_pre = PerplexityCashService(redis)
+                cash_summary = await px_pre.get_cash_summary(ticker)
+                last_cash_date_str = None
+                if cash_summary:
+                    for q in cash_summary.get("quarters", []):
+                        if q.get("cash") and q["cash"] > 0:
+                            last_cash_date_str = q["date"]
+                            break
+
+                if last_cash_date_str:
+                    from shared.utils.timescale_client import TimescaleClient as _TC_rr
+                    from datetime import date as _date_rr
+                    _lcd_rr = _date_rr.fromisoformat(last_cash_date_str)
+                    _db_rr = _TC_rr()
+                    _db_rr_ok = False
+                    try:
+                        await _db_rr.connect(min_size=1, max_size=2)
+                        _db_rr_ok = True
+                        _row = await _db_rr.pool.fetchrow(
+                            """SELECT COALESCE(SUM(amount), 0) AS total,
+                                      COUNT(*) AS cnt
+                               FROM completed_offerings
+                               WHERE ticker=$1 AND offering_date > $2""",
+                            ticker, _lcd_rr,
+                        )
+                        recent_raises = float(_row["total"] or 0)
+                        logger.debug("recent_raises_from_completed_offerings",
+                                     ticker=ticker,
+                                     count=_row["cnt"],
+                                     recent_raises=recent_raises,
+                                     since=last_cash_date_str)
+                    finally:
+                        if _db_rr_ok:
+                            await _db_rr.disconnect()
+            except Exception as _rr:
+                logger.debug("recent_raises_completed_offerings_failed",
+                             ticker=ticker, error=str(_rr))
+
+            px_service = PerplexityCashService(redis)
+            px_inputs = await px_service.compute_cash_need_inputs(
+                ticker, recent_raises=recent_raises
+            )
+
+            if px_inputs and px_inputs.get("source") == "perplexity":
+                runway_months            = px_inputs.get("runway_months")
+                has_positive_cf          = px_inputs.get("has_positive_operating_cf", False)
+                estimated_current_cash_val = px_inputs.get("estimated_current_cash")
+                annual_burn              = px_inputs.get("annual_burn_rate")
+                logger.debug("cash_from_perplexity_dt_formula", ticker=ticker,
+                             runway_months=runway_months,
+                             estimated_cash=estimated_current_cash_val,
+                             recent_raises=recent_raises,
+                             latest_date=px_inputs.get("latest_date"),
+                             days_since=px_inputs.get("days_since_report"))
+            else:
+                raise ValueError("perplexity_no_data")
+
         except Exception as e:
-            logger.debug("cash_history_fetch_failed", ticker=ticker, error=str(e))
+            logger.debug("perplexity_cash_failed_using_sec_fallback",
+                         ticker=ticker, error=str(e))
+            try:
+                from services.sec.sec_cash_history import SECCashHistoryService
+                cash_service = SECCashHistoryService(redis)
+                cash_data = await cash_service.get_full_cash_history(ticker, max_quarters=20)
+                if cash_data and not cash_data.get("error"):
+                    runway_days = cash_data.get("runway_days")
+                    if runway_days is not None:
+                        runway_months = runway_days / 30
+                    annual_ocf = cash_data.get("annual_operating_cf", 0) or 0
+                    has_positive_cf = annual_ocf >= 0
+                    estimated_current_cash_val = cash_data.get("estimated_current_cash")
+                    annual_burn = cash_data.get("annual_operating_cf")
+            except Exception as e2:
+                logger.debug("cash_history_fetch_failed", ticker=ticker, error=str(e2))
         
         # ===== CONTEXT: Detect recent offerings =====
         has_recent_offering = False
@@ -377,15 +438,7 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
                     except:
                         pass
         
-        # Get estimated current cash and annual burn from cash data
-        estimated_current_cash_val = None
-        annual_burn = None
-        try:
-            if cash_data and not cash_data.get("error"):
-                estimated_current_cash_val = cash_data.get("estimated_current_cash")
-                annual_burn = cash_data.get("annual_operating_cf")
-        except:
-            pass
+        # estimated_current_cash_val and annual_burn already set in CASH NEED block above
         
         # Calculate ratings
         ratings = risk_scorer.calculate_all_ratings(
@@ -421,7 +474,13 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
             current_price=float(profile.current_price or 0)
         )
         
-        return ratings.to_dict()
+        result = ratings.to_dict()
+
+        # Persist to Redis for enrichment pipeline
+        from calculators.dilution_tracker_risk_scorer import write_dilution_scores_to_redis
+        await write_dilution_scores_to_redis(redis, profile.ticker, result)
+
+        return result
         
     except Exception as e:
         logger.warning("risk_assessment_calculation_failed", error=str(e))
@@ -436,6 +495,66 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
 
 
 router = APIRouter(prefix="/api/sec-dilution", tags=["sec-dilution"])
+
+
+@router.get("/bulk-score/status")
+async def bulk_score_status(request: Request):
+    """Returns the current status of the background bulk scoring service."""
+    from services.pipeline.bulk_scoring_service import get_bulk_scoring_service
+    return get_bulk_scoring_service().status()
+
+
+@router.post("/bulk-score/start")
+async def bulk_score_start(request: Request):
+    """Manually starts (or restarts) the bulk scoring background service."""
+    from services.pipeline.bulk_scoring_service import get_bulk_scoring_service
+    svc = get_bulk_scoring_service()
+    svc.start()
+    return {"ok": True, "status": svc.status()}
+
+
+@router.post("/bulk-score/stop")
+async def bulk_score_stop(request: Request):
+    """Stops the bulk scoring background service."""
+    from services.pipeline.bulk_scoring_service import get_bulk_scoring_service
+    svc = get_bulk_scoring_service()
+    await svc.stop()
+    return {"ok": True, "status": svc.status()}
+
+
+@router.get("/scores/export")
+async def export_all_dilution_scores():
+    """
+    Returns all risk ratings from the tickers table in the dilutiontracker DB.
+    Used by data_maintenance SyncDilutionScoresTask to bulk-populate Redis.
+    """
+    try:
+        db = TimescaleClient()
+        await db.connect(min_size=1, max_size=2)
+        try:
+            rows = await db.pool.fetch(
+                """
+                SELECT ticker,
+                       overall_risk,
+                       offering_ability_risk,
+                       overhead_supply_risk,
+                       historical_risk,
+                       cash_need_risk
+                FROM tickers
+                WHERE overall_risk IS NOT NULL
+                  AND overall_risk NOT IN ('Unknown', 'unknown')
+                ORDER BY ticker
+                """
+            )
+            scores = [dict(r) for r in rows]
+        finally:
+            await db.disconnect()
+
+        return {"count": len(scores), "scores": scores}
+
+    except Exception as e:
+        logger.error("export_dilution_scores_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{ticker}/check")
@@ -1275,102 +1394,182 @@ async def get_risk_ratings(ticker: str):
         try:
             from calculators.dilution_tracker_risk_scorer import get_dt_risk_scorer
             from services.sec.sec_cash_history import SECCashHistoryService
-            
+            from repositories.instrument_context_repository import InstrumentContextRepository
+            from models.instrument_models_v2 import (
+                OfferingType, WarrantDetails, ShelfDetails, ATMDetails,
+                EquityLineDetails, ConvertibleNoteDetails, ConvertiblePreferredDetails,
+                S1OfferingDetails,
+            )
+
             scorer = get_dt_risk_scorer()
-            
-            # 1. Get dilution profile from cache
-            cache_key = f"sec_dilution:profile:{ticker}"
-            profile = await redis.get(cache_key, deserialize=True)
-            
-            # 2. Get cash data
-            cash_service = SECCashHistoryService(redis)
-            cash_data = await cash_service.get_full_cash_history(ticker, max_quarters=40)
-            
-            # 3. Extract inputs for risk calculation
-            warrants = profile.get("warrants", []) if profile else []
-            atm_offerings = profile.get("atm_offerings", []) if profile else []
-            shelf_registrations = profile.get("shelf_registrations", []) if profile else []
-            convertible_notes = profile.get("convertible_notes", []) if profile else []
-            s1_offerings = profile.get("s1_offerings", []) if profile else []
-            equity_lines = profile.get("equity_lines", []) if profile else []
-            shares_outstanding = profile.get("shares_outstanding", 0) if profile else 0
-            
-            # Calculate warrant shares - ENHANCED: Full fallback chain + status filtering
-            total_warrant_shares = sum(
-                int(
-                    w.get("potential_new_shares", 0) or 
-                    w.get("outstanding", 0) or 
-                    w.get("remaining_warrants", 0) or 
-                    w.get("total_issued", 0) or 
-                    w.get("remaining", 0) or 0
-                )
-                for w in warrants
-                if not w.get("exclude_from_dilution") and w.get("status", "Active") in ["Active", None, ""]
+
+            # 1. Load dilution instruments from dilutiontracker v2 DB (source of truth)
+            db = TimescaleClient()
+            await db.connect(min_size=1, max_size=2)
+            try:
+                context_repo = InstrumentContextRepository(db)
+                context = await context_repo.get_ticker_context(ticker, include_completed_offerings=True)
+            finally:
+                await db.disconnect()
+
+            if not context:
+                raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found")
+
+            ti = context.ticker_info
+            current_price = float(ti.last_price or 1)
+            shares_outstanding = int(ti.shares_outstanding or 0)
+
+            # Status values that mean the instrument is active/open
+            ACTIVE_STATUSES = {"registered", "not registered", "active", "effective"}
+            INACTIVE_STATUSES = {"terminated", "expired", "priced", "withdrawn"}
+
+            def is_active(inst) -> bool:
+                if inst.reg_status.lower() in INACTIVE_STATUSES:
+                    return False
+                # Instrumentos con fecha de vencimiento pasada no pueden diluir
+                today = date.today()
+                if inst.offering_type == OfferingType.WARRANT:
+                    exp = getattr(inst.details, "expiration_date", None)
+                    if exp and exp < today:
+                        return False
+                elif inst.offering_type in (OfferingType.CONVERTIBLE_NOTE, OfferingType.CONVERTIBLE_PREFERRED):
+                    mat = getattr(inst.details, "maturity_date", None)
+                    if mat and mat < today:
+                        return False
+                return True
+
+            # 2. Compute dilution inputs from v2 instruments
+            total_warrant_shares = 0
+            total_atm_shares = 0
+            total_convertible_shares = 0
+            total_equity_line_shares = 0
+            total_shelf_capacity = 0
+            has_active_shelf = False
+            has_filed_shelf = False
+            filed_shelf_capacity = 0
+            has_pending_s1 = False
+
+            # Each element is a typed InstrumentUnion subclass with .details built-in
+            for inst in context.instruments:
+                if inst.offering_type == OfferingType.WARRANT and is_active(inst):
+                    total_warrant_shares += int(inst.details.remaining_warrants or 0)
+
+                elif inst.offering_type == OfferingType.ATM and is_active(inst):
+                    cap = float(inst.details.remaining_atm_capacity or 0)
+                    total_atm_shares += int(cap / max(current_price, 0.01))
+
+                elif inst.offering_type == OfferingType.EQUITY_LINE and is_active(inst):
+                    cap = float(inst.details.remaining_el_capacity or 0)
+                    total_equity_line_shares += int(cap / max(current_price, 0.01))
+
+                elif inst.offering_type == OfferingType.CONVERTIBLE_NOTE and is_active(inst):
+                    total_convertible_shares += int(inst.details.remaining_shares_converted or 0)
+
+                elif inst.offering_type == OfferingType.CONVERTIBLE_PREFERRED and is_active(inst):
+                    total_convertible_shares += int(inst.details.remaining_shares_converted or 0)
+
+                elif inst.offering_type == OfferingType.SHELF:
+                    if is_active(inst):
+                        has_active_shelf = True
+                        total_shelf_capacity += float(inst.details.current_raisable_amount or 0)
+                    elif inst.reg_status.lower() in {"filed", "pending"}:
+                        has_filed_shelf = True
+                        filed_shelf_capacity += float(
+                            inst.details.current_raisable_amount or inst.details.total_shelf_capacity or 0
+                        )
+
+                elif inst.offering_type == OfferingType.S1_OFFERING and is_active(inst):
+                    has_pending_s1 = True
+
+            logger.debug(
+                "risk_inputs_from_v2",
+                ticker=ticker,
+                warrant_shares=total_warrant_shares,
+                atm_shares=total_atm_shares,
+                el_shares=total_equity_line_shares,
+                conv_shares=total_convertible_shares,
+                shelf_capacity=total_shelf_capacity,
+                has_active_shelf=has_active_shelf,
+                has_pending_s1=has_pending_s1,
+                current_price=current_price,
             )
-            
-            # Calculate ATM shares (estimate from remaining capacity / current price)
-            current_price = profile.get("current_price", 1) if profile else 1
-            total_atm_shares = sum(
-                int((a.get("remaining_capacity", 0) or 0) / max(float(current_price), 0.01))
-                for a in atm_offerings
-                if a.get("status", "Active") in ["Active", None, ""]
-            )
-            
-            # Calculate convertible shares - ENHANCED: Better fallback chain
-            total_convertible_shares = sum(
-                int(
-                    c.get("remaining_shares_when_converted", 0) or 
-                    c.get("total_shares_when_converted", 0) or 
-                    c.get("shares_if_converted", 0) or 
-                    c.get("remaining_shares_to_be_issued", 0) or 0
-                )
-                for c in convertible_notes
-            )
-            
-            # Calculate equity line shares
-            total_equity_line_shares = sum(
-                int((el.get("remaining_capacity", 0) or 0) / max(float(current_price), 0.01))
-                for el in equity_lines
-            )
-            
-            # Get shelf capacity - ENHANCED: Active + Filed shelves
-            active_statuses = ["active", "effective", "registered"]
-            filed_statuses = ["filed", "pending"]
-            
-            active_shelves = [s for s in shelf_registrations 
-                            if s.get("status", "").lower() in active_statuses or s.get("status") is None]
-            filed_shelves = [s for s in shelf_registrations 
-                           if s.get("status", "").lower() in filed_statuses]
-            
-            total_shelf_capacity = sum(
-                s.get("remaining_capacity", 0) or s.get("current_raisable_amount", 0) or s.get("total_capacity", 0) or 0
-                for s in active_shelves
-            )
-            has_active_shelf = len(active_shelves) > 0
-            
-            has_filed_shelf = len(filed_shelves) > 0
-            filed_shelf_capacity = sum(
-                s.get("remaining_capacity", 0) or s.get("total_capacity", 0) or 0
-                for s in filed_shelves
-            )
-            
-            # Detect pending S-1/F-1 offerings
-            has_pending_s1 = len(s1_offerings) > 0
-            
-            # Get runway from cash data
+
+            # 3. Get cash data — DT formula via Perplexity Finance
+            #    estimated_cash = historical_cash + prorated_cf + recent_raises
+            #    recent_raises  = sum(completed_offerings.amount since last_cash_date)
             runway_months = None
             has_positive_cf = False
             estimated_current_cash = None
             annual_burn = None
-            if cash_data and not cash_data.get("error"):
-                runway_days = cash_data.get("runway_days")
-                if runway_days is not None:
-                    runway_months = runway_days / 30
-                
-                annual_ocf = cash_data.get("annual_operating_cf", 0) or 0
-                has_positive_cf = annual_ocf >= 0
-                estimated_current_cash = cash_data.get("estimated_current_cash")
-                annual_burn = cash_data.get("annual_operating_cf")
+
+            try:
+                from services.sec.perplexity_cash_service import PerplexityCashService
+
+                # ── recent_raises from our own completed_offerings table ────────
+                # This is our source of truth: the same data shown in the
+                # "Completed Offerings" section of the dilution window.
+                recent_raises = 0.0
+                try:
+                    px_service_pre = PerplexityCashService(redis)
+                    cash_summary = await px_service_pre.get_cash_summary(ticker)
+                    last_cash_date_str = None
+                    if cash_summary:
+                        for q in cash_summary.get("quarters", []):
+                            if q.get("cash") and q["cash"] > 0:
+                                last_cash_date_str = q["date"]
+                                break
+
+                    if last_cash_date_str and context.completed_offerings:
+                        from datetime import date as _date
+                        last_cash_date_obj = _date.fromisoformat(last_cash_date_str)
+                        recent_raises = sum(
+                            float(o.amount or 0)
+                            for o in context.completed_offerings
+                            if o.offering_date and o.offering_date > last_cash_date_obj
+                        )
+                        logger.debug("recent_raises_from_completed_offerings",
+                                     ticker=ticker,
+                                     count=sum(1 for o in context.completed_offerings
+                                               if o.offering_date and o.offering_date > last_cash_date_obj),
+                                     recent_raises=recent_raises,
+                                     since=last_cash_date_str)
+                except Exception as _rr_err:
+                    logger.debug("recent_raises_completed_offerings_failed",
+                                 ticker=ticker, error=str(_rr_err))
+
+                # ── Apply DT formula ───────────────────────────────────────────
+                px_service = PerplexityCashService(redis)
+                px_inputs = await px_service.compute_cash_need_inputs(
+                    ticker, recent_raises=recent_raises
+                )
+
+                if px_inputs and px_inputs.get("source") == "perplexity":
+                    runway_months = px_inputs.get("runway_months")
+                    has_positive_cf = px_inputs.get("has_positive_operating_cf", False)
+                    estimated_current_cash = px_inputs.get("estimated_current_cash")
+                    annual_burn = px_inputs.get("annual_burn_rate")
+                    logger.debug("cash_from_perplexity_dt_formula", ticker=ticker,
+                                 runway_months=runway_months,
+                                 estimated_cash=estimated_current_cash,
+                                 recent_raises=recent_raises,
+                                 latest_date=px_inputs.get("latest_date"),
+                                 days_since=px_inputs.get("days_since_report"))
+                else:
+                    raise ValueError("perplexity_no_data")
+
+            except Exception as _px_err:
+                logger.debug("perplexity_cash_failed_fallback_sec",
+                             ticker=ticker, error=str(_px_err))
+                cash_service = SECCashHistoryService(redis)
+                cash_data = await cash_service.get_full_cash_history(ticker, max_quarters=40)
+                if cash_data and not cash_data.get("error"):
+                    runway_days = cash_data.get("runway_days")
+                    if runway_days is not None:
+                        runway_months = runway_days / 30
+                    annual_ocf = cash_data.get("annual_operating_cf", 0) or 0
+                    has_positive_cf = annual_ocf >= 0
+                    estimated_current_cash = cash_data.get("estimated_current_cash")
+                    annual_burn = cash_data.get("annual_operating_cf")
             
             # Get historical O/S (3 years ago) from shares history
             # ENHANCED: Also detect reverse splits and history span
@@ -1379,7 +1578,8 @@ async def get_risk_ratings(ticker: str):
             reverse_split_factor = 1.0
             shares_history_span_years = 3.0
             has_recent_offering = has_pending_s1  # S-1 filed = recent offering intent
-            
+            sorted_hist: list = []
+
             try:
                 from services.data.shares_data_service import SharesDataService
                 from datetime import timedelta
@@ -1425,9 +1625,45 @@ async def get_risk_ratings(ticker: str):
                     if shares_3yr_ago == 0 and hist:
                         earliest = min(hist, key=lambda x: x.get("date", "9999"))
                         shares_3yr_ago = earliest.get("shares", 0)
+
+                    # If shares_outstanding is still missing, use most recent SEC-reported value
+                    if not shares_outstanding and sorted_hist:
+                        shares_outstanding = sorted_hist[0].get("shares", 0) or 0
+                        if shares_outstanding:
+                            logger.debug("overhead_supply_using_sec_shares_in_ratings",
+                                         ticker=ticker, shares=shares_outstanding)
+
             except Exception as e:
                 logger.warning("shares_history_fetch_for_risk_failed", ticker=ticker, error=str(e))
-            
+
+            # Último recurso: Polygon /vX/reference/tickers/{ticker}
+            # Se usa SOLO cuando shares_outstanding sigue siendo 0 después de BD + SEC EDGAR.
+            # Polygon actualiza shares_outstanding diariamente desde SEC filings — suficiente
+            # para calcular el ratio cualitativo Low/Medium/High.
+            if not shares_outstanding:
+                try:
+                    import httpx as _httpx
+                    from shared.config.settings import settings as _settings
+                    _poly_key = _settings.POLYGON_API_KEY
+                    _poly_url = f"https://api.polygon.io/vX/reference/tickers/{ticker}?apiKey={_poly_key}"
+                    async with _httpx.AsyncClient(timeout=5.0) as _client:
+                        _resp = await _client.get(_poly_url)
+                        if _resp.status_code == 200:
+                            _data = _resp.json().get("results", {})
+                            _ws = (
+                                _data.get("share_class_shares_outstanding")
+                                or _data.get("weighted_shares_outstanding")
+                            )
+                            if _ws and int(_ws) > 0:
+                                shares_outstanding = int(_ws)
+                                logger.info(
+                                    "shares_outstanding_polygon_fallback",
+                                    ticker=ticker,
+                                    shares=shares_outstanding,
+                                )
+                except Exception as _e:
+                    logger.warning("polygon_shares_fallback_failed", ticker=ticker, error=str(_e))
+
             # Calculate ratings with ALL enhanced parameters
             ratings = scorer.calculate_all_ratings(
                 # Offering Ability
@@ -1459,13 +1695,20 @@ async def get_risk_ratings(ticker: str):
             
             result = ratings.to_dict()
             result["ticker"] = ticker
-            result["data_available"] = profile is not None
-            
+            result["data_available"] = True  # always true: data comes from v2 DB
+            result["shares_outstanding"] = shares_outstanding or None
+
+            # Persist scores to Redis so the enrichment pipeline enriches every ticker
+            from calculators.dilution_tracker_risk_scorer import write_dilution_scores_to_redis
+            await write_dilution_scores_to_redis(redis, ticker, result)
+
             return result
-            
+
         finally:
             await redis.disconnect()
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("get_risk_ratings_failed", ticker=ticker, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))

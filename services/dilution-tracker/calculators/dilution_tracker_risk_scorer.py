@@ -348,32 +348,10 @@ class DilutionTrackerRiskScorer:
         }
         
         # ============================================================
-        # REVERSE SPLIT OVERRIDE
-        # A reverse split of 10x+ is a definitive indicator of massive 
-        # past dilution. The company had to consolidate shares because
-        # the stock price dropped below $1 (usually from dilution).
-        # This should be HIGH regardless of the computed increase%.
-        # ============================================================
-        if has_recent_reverse_split and reverse_split_factor >= 10:
-            details["reverse_split_override"] = True
-            details["reasoning"] = (
-                f"Reverse split 1:{int(reverse_split_factor)} detected. "
-                f"Pre-split the company had {int(shares_outstanding_current * reverse_split_factor):,} shares. "
-                f"Reverse splits of 10x+ indicate massive prior dilution."
-            )
-            score = min(95, 80 + int(reverse_split_factor / 5))
-            return RiskLevel.HIGH, score, details
-        
-        if has_recent_reverse_split and reverse_split_factor >= 2:
-            # Moderate reverse split (2x-10x) - at least MEDIUM, likely HIGH
-            details["reverse_split_boost"] = True
-            if reverse_split_factor >= 5:
-                return RiskLevel.HIGH, 75, details
-            else:
-                return RiskLevel.MEDIUM, 60, details
-        
-        # ============================================================
         # STANDARD CALCULATION
+        # The shares history is already split-adjusted by SharesDataService.
+        # We use the standard DilutionTracker methodology directly:
+        # Low: <30%, Medium: 30-100%, High: >100% increase over 3 years.
         # ============================================================
         if shares_outstanding_3yr_ago <= 0 or shares_outstanding_current <= 0:
             # No data - if reverse split happened, that's still informative
@@ -386,15 +364,9 @@ class DilutionTrackerRiskScorer:
                        shares_outstanding_3yr_ago) * 100
         details["increase_pct"] = round(increase_pct, 2)
         
-        # If history span is short (< 2 years), extrapolate to 3 years
-        if shares_history_span_years < 2.0 and shares_history_span_years > 0:
-            annualized_pct = increase_pct / shares_history_span_years
-            extrapolated_3yr = annualized_pct * 3
-            details["annualized_increase_pct"] = round(annualized_pct, 2)
-            details["extrapolated_3yr_pct"] = round(extrapolated_3yr, 2)
-            # Use the higher of actual and extrapolated
-            increase_pct = max(increase_pct, extrapolated_3yr)
-            details["effective_increase_pct"] = round(increase_pct, 2)
+        # Si el historial es corto (< 2 años, empresa nueva o post-split),
+        # usar el incremento real sin extrapolar — igual que DilutionTracker.com.
+        # La extrapolación inflaba artificialmente el rating en tickers recientes.
         
         # Handle negative (reverse split or buyback scenarios)
         if increase_pct < 0:
@@ -453,22 +425,6 @@ class DilutionTrackerRiskScorer:
             elif estimated_current_cash is not None and estimated_current_cash < 5_000_000:
                 return RiskLevel.HIGH, 80, details
         
-        # ============================================================
-        # ABSOLUTE CASH LEVEL OVERRIDE
-        # If estimated cash < $1M and company is burning money, 
-        # the situation is critical regardless of computed runway.
-        # ============================================================
-        if estimated_current_cash is not None and not has_positive_operating_cf:
-            if estimated_current_cash < 1_000_000:
-                details["low_absolute_cash_override"] = True
-                details["reasoning"] = f"Estimated cash ${estimated_current_cash:,.0f} is critically low"
-                return RiskLevel.HIGH, 90, details
-            elif estimated_current_cash < 3_000_000 and annual_burn_rate and annual_burn_rate < 0:
-                # Very low cash with active burn
-                if abs(annual_burn_rate) > estimated_current_cash * 0.5:
-                    details["low_cash_high_burn_override"] = True
-                    return RiskLevel.HIGH, 80, details
-        
         # Positive operating CF = Low risk
         if has_positive_operating_cf:
             return RiskLevel.LOW, 10, details
@@ -476,19 +432,15 @@ class DilutionTrackerRiskScorer:
         if runway_months is None:
             return RiskLevel.UNKNOWN, 0, details
         
-        if runway_months > 24:  # >24 months
+        # Standard DilutionTracker methodology:
+        # Low: positive CF or >24 months, Medium: 6-24 months, High: <6 months
+        if runway_months > 24:
             return RiskLevel.LOW, 15, details
-        elif runway_months >= 6:  # 6-24 months
-            # ENHANCED: Borderline cases (6-9 months) with very low cash = HIGH
-            if runway_months < 9 and estimated_current_cash is not None and estimated_current_cash < 2_000_000:
-                details["borderline_high_override"] = True
-                score = int(80 - (runway_months - 6) * 3)
-                return RiskLevel.HIGH, max(70, score), details
-            
-            # Scale: 6mo = 60, 24mo = 30
+        elif runway_months >= 6:
+            # Scale: 6mo = 70, 24mo = 30
             score = int(70 - (runway_months - 6) * 2)
-            return RiskLevel.MEDIUM, score, details
-        else:  # <6 months
+            return RiskLevel.MEDIUM, max(30, score), details
+        else:
             # Scale: 0mo = 100, 6mo = 70
             score = int(100 - runway_months * 5)
             return RiskLevel.HIGH, max(70, score), details
@@ -505,53 +457,31 @@ class DilutionTrackerRiskScorer:
         cash_score: int
     ) -> tuple[RiskLevel, int]:
         """
-        Overall Risk Rating
-        
-        DilutionTracker Definition:
-        Higher the dilution risk, higher the probability that share count 
-        will increase in the near future due to dilution.
-        
-        - High rating indicates short bias
-        - Low rating indicates long bias
-        
-        Derived from the four sub ratings with weighted average.
+        Overall Risk Rating — algoritmo exacto de DilutionTracker.com
+
+        Cada sub-rating se convierte: High=2, Medium=1, Low=0
+        Suma y = historical + overhead_supply + offering_ability + cash_need
+          y >= 6 → High
+          y >= 3 → Medium
+          y <  3 → Low
+
+        Fuente: código interno DT (función jl / totalDilutionRatingStr)
         """
-        # Weights for each factor
-        # Cash Need and Offering Ability are most important (immediate threats)
-        weights = {
-            "offering_ability": 0.30,  # Can they offer?
-            "overhead_supply": 0.25,   # How much potential dilution?
-            "historical": 0.15,        # Track record
-            "cash_need": 0.30          # Do they NEED to offer?
-        }
-        
-        # Calculate weighted score
-        overall_score = int(
-            offering_score * weights["offering_ability"] +
-            overhead_score * weights["overhead_supply"] +
-            historical_score * weights["historical"] +
-            cash_score * weights["cash_need"]
-        )
-        
-        # Alternative: Count High ratings
-        high_count = sum([
-            1 for r in [offering_ability, overhead_supply, historical, cash_need]
-            if r == RiskLevel.HIGH
-        ])
-        
-        # Boost score if multiple HIGH ratings
-        if high_count >= 3:
-            overall_score = max(overall_score, 85)
-        elif high_count >= 2:
-            overall_score = max(overall_score, 70)
-        
-        # Determine level
-        if overall_score >= 70:
-            return RiskLevel.HIGH, overall_score
-        elif overall_score >= 40:
-            return RiskLevel.MEDIUM, overall_score
+        def to_num(r: RiskLevel) -> int:
+            if r == RiskLevel.HIGH:
+                return 2
+            elif r == RiskLevel.MEDIUM:
+                return 1
+            return 0
+
+        total = to_num(historical) + to_num(overhead_supply) + to_num(offering_ability) + to_num(cash_need)
+
+        if total >= 6:
+            return RiskLevel.HIGH, total
+        elif total >= 3:
+            return RiskLevel.MEDIUM, total
         else:
-            return RiskLevel.LOW, overall_score
+            return RiskLevel.LOW, total
     
     def get_rating_explanation(self, rating_name: str) -> str:
         """Get explanation text for a rating"""
@@ -589,4 +519,109 @@ def get_dt_risk_scorer() -> DilutionTrackerRiskScorer:
     if _dt_risk_scorer is None:
         _dt_risk_scorer = DilutionTrackerRiskScorer()
     return _dt_risk_scorer
+
+
+# ── Redis helpers ─────────────────────────────────────────────────────────────
+
+DILUTION_SCORES_KEY = "dilution:scores:latest"
+
+def _risk_label_to_int(label: str | None) -> Optional[int]:
+    """Converts Low/Medium/High to 1/2/3 for numeric filtering."""
+    return {"Low": 1, "Medium": 2, "High": 3}.get(label) if label else None
+
+
+async def write_dilution_scores_to_redis(redis, ticker: str, ratings_dict: dict) -> None:
+    """
+    Writes dilution risk scores to:
+      1. Redis hash dilution:scores:latest  (for real-time enrichment pipeline)
+      2. tickers table in dilutiontracker DB  (for SyncDilutionScoresTask batch sync)
+
+    Args:
+        redis: RedisClient instance (must be connected)
+        ticker: uppercase ticker symbol
+        ratings_dict: dict from DilutionRiskRatings.to_dict()
+    """
+    from datetime import datetime
+    import orjson
+
+    _log = None
+
+    overall = ratings_dict.get("overall_risk")
+    offering = ratings_dict.get("offering_ability")
+    overhead = ratings_dict.get("overhead_supply")
+    historical = ratings_dict.get("historical")
+    cash_need = ratings_dict.get("cash_need")
+
+    payload = {
+        "overall_risk": overall,
+        "overall_risk_score": _risk_label_to_int(overall),
+        "offering_ability": offering,
+        "offering_ability_score": _risk_label_to_int(offering),
+        "overhead_supply": overhead,
+        "overhead_supply_score": _risk_label_to_int(overhead),
+        "historical_dilution": historical,
+        "historical_dilution_score": _risk_label_to_int(historical),
+        "cash_need": cash_need,
+        "cash_need_score": _risk_label_to_int(cash_need),
+        "updated_at": datetime.now().isoformat(),
+    }
+
+    # 1. Write to Redis hash
+    try:
+        await redis.client.hset(DILUTION_SCORES_KEY, ticker, orjson.dumps(payload))
+    except Exception as exc:
+        from shared.utils.logger import get_logger
+        _log = get_logger(__name__)
+        _log.warning("dilution_scores_redis_write_failed", ticker=ticker, error=str(exc))
+
+    # 2. Persist to local dilution_scores table (so SyncDilutionScoresTask can batch-sync)
+    # Uses POSTGRES_HOST/POSTGRES_DB env vars (timescaledb:5432, db=tradeul) — local DB
+    # accessible by both dilution-tracker and data_maintenance.
+    try:
+        import os
+        import asyncpg
+        _local_conn = await asyncpg.connect(
+            host=os.getenv("POSTGRES_HOST", "timescaledb"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            user=os.getenv("POSTGRES_USER", "tradeul_user"),
+            password=os.getenv("POSTGRES_PASSWORD", ""),
+            database=os.getenv("POSTGRES_DB", "tradeul"),
+        )
+        try:
+            await _local_conn.execute(
+                """
+                INSERT INTO dilution_scores
+                    (ticker, overall_risk, overall_risk_score,
+                     offering_ability, offering_ability_score,
+                     overhead_supply, overhead_supply_score,
+                     historical_dilution, historical_dilution_score,
+                     cash_need, cash_need_score, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+                ON CONFLICT (ticker) DO UPDATE SET
+                    overall_risk              = EXCLUDED.overall_risk,
+                    overall_risk_score        = EXCLUDED.overall_risk_score,
+                    offering_ability          = EXCLUDED.offering_ability,
+                    offering_ability_score    = EXCLUDED.offering_ability_score,
+                    overhead_supply           = EXCLUDED.overhead_supply,
+                    overhead_supply_score     = EXCLUDED.overhead_supply_score,
+                    historical_dilution       = EXCLUDED.historical_dilution,
+                    historical_dilution_score = EXCLUDED.historical_dilution_score,
+                    cash_need                 = EXCLUDED.cash_need,
+                    cash_need_score           = EXCLUDED.cash_need_score,
+                    updated_at                = NOW()
+                """,
+                ticker,
+                overall,   _risk_label_to_int(overall),
+                offering,  _risk_label_to_int(offering),
+                overhead,  _risk_label_to_int(overhead),
+                historical, _risk_label_to_int(historical),
+                cash_need, _risk_label_to_int(cash_need),
+            )
+        finally:
+            await _local_conn.close()
+    except Exception as exc:
+        if _log is None:
+            from shared.utils.logger import get_logger
+            _log = get_logger(__name__)
+        _log.debug("dilution_scores_localdb_write_failed", ticker=ticker, error=str(exc))
 

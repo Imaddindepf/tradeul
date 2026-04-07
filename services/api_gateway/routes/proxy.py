@@ -23,6 +23,19 @@ _logo_cache: dict[str, bytes] = {}
 MARKET_SESSION_URL = "http://market_session:8002"
 SEC_FILINGS_URL = "http://sec-filings:8012"
 DILUTION_TRACKER_URL = "http://dilution_tracker:8000"
+ALLOWED_DILUTION_ADMIN_EMAIL = "peertopeerhack@gmail.com"
+
+
+def _require_dilution_admin(user: AuthenticatedUser) -> None:
+    email = (user.email or "").strip().lower()
+    if email != ALLOWED_DILUTION_ADMIN_EMAIL:
+        logger.warning(
+            "dilution_admin_access_denied",
+            user_id=user.id,
+            user_email=user.email,
+            required_email=ALLOWED_DILUTION_ADMIN_EMAIL,
+        )
+        raise HTTPException(status_code=403, detail="Only the dilution admin can modify dilution data")
 
 
 # ============================================================================
@@ -190,6 +203,125 @@ async def proxy_dilution_sec_profile(
             )
     except httpx.RequestError as e:
         logger.error("dilution_sec_profile_proxy_error", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=503, detail="Dilution tracker service unavailable")
+
+
+# ============================================================================
+# DILUTION V2 REVIEW PROXY (ADMIN ONLY)
+# ============================================================================
+
+@router.get("/api/v1/dilution-v2/review/ambiguous")
+async def proxy_dilution_v2_ambiguous_list(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    _require_dilution_admin(user)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/ambiguous",
+                params=dict(request.query_params),
+                headers={"x-user-email": user.email or ""},
+            )
+            return JSONResponse(content=response.json(), status_code=response.status_code)
+    except httpx.RequestError as e:
+        logger.error("dilution_v2_ambiguous_list_proxy_error", error=str(e))
+        raise HTTPException(status_code=503, detail="Dilution tracker service unavailable")
+
+
+@router.get("/api/v1/dilution-v2/review/reviewed")
+async def proxy_dilution_v2_reviewed_list(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    _require_dilution_admin(user)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/reviewed",
+                params=dict(request.query_params),
+                headers={"x-user-email": user.email or ""},
+            )
+            return JSONResponse(content=response.json(), status_code=response.status_code)
+    except httpx.RequestError as e:
+        logger.error("dilution_v2_reviewed_list_proxy_error", error=str(e))
+        raise HTTPException(status_code=503, detail="Dilution tracker service unavailable")
+
+
+@router.get("/api/v1/dilution-v2/review/metrics")
+async def proxy_dilution_v2_review_metrics(
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    _require_dilution_admin(user)
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(
+                f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/metrics",
+                headers={"x-user-email": user.email or ""},
+            )
+            return JSONResponse(content=response.json(), status_code=response.status_code)
+    except httpx.RequestError as e:
+        logger.error("dilution_v2_review_metrics_proxy_error", error=str(e))
+        raise HTTPException(status_code=503, detail="Dilution tracker service unavailable")
+
+
+@router.post("/api/v1/dilution-v2/review/ambiguous/requeue")
+async def proxy_dilution_v2_ambiguous_requeue(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    _require_dilution_admin(user)
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/ambiguous/requeue",
+                json=body,
+                headers={"x-user-email": user.email or ""},
+            )
+            return JSONResponse(content=response.json(), status_code=response.status_code)
+    except httpx.RequestError as e:
+        logger.error("dilution_v2_ambiguous_requeue_proxy_error", error=str(e))
+        raise HTTPException(status_code=503, detail="Dilution tracker service unavailable")
+
+
+@router.post("/api/v1/dilution-v2/review/ambiguous/resolve")
+async def proxy_dilution_v2_ambiguous_resolve(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    _require_dilution_admin(user)
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/ambiguous/resolve",
+                json=body,
+                headers={"x-user-email": user.email or ""},
+            )
+            return JSONResponse(content=response.json(), status_code=response.status_code)
+    except httpx.RequestError as e:
+        logger.error("dilution_v2_ambiguous_resolve_proxy_error", error=str(e))
+        raise HTTPException(status_code=503, detail="Dilution tracker service unavailable")
+
+
+@router.post("/api/v1/dilution-v2/review/ambiguous/apply")
+async def proxy_dilution_v2_ambiguous_apply(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    _require_dilution_admin(user)
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/ambiguous/apply",
+                json=body,
+                headers={"x-user-email": user.email or ""},
+            )
+            return JSONResponse(content=response.json(), status_code=response.status_code)
+    except httpx.RequestError as e:
+        logger.error("dilution_v2_ambiguous_apply_proxy_error", error=str(e))
         raise HTTPException(status_code=503, detail="Dilution tracker service unavailable")
 
 

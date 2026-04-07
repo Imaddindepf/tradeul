@@ -156,6 +156,66 @@ class PolygonClient:
         response.raise_for_status()
         return response.json()
     
+    async def get_financial_ratios(self, symbol: str) -> Dict[str, Any]:
+        """Obtiene ratios financieros TTM desde Polygon.
+        
+        Endpoint: GET /stocks/financials/v1/ratios
+        Incluye: P/E, P/B, P/S, dividend_yield, ROE, ROA, D/E, current_ratio, quick_ratio, etc.
+        Actualizado diariamente con TTM financials.
+        """
+        url = "/stocks/financials/v1/ratios"
+        params = {"ticker": symbol.upper(), "apiKey": self.api_key, "limit": 1}
+        response = await self._client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_short_interest(self, symbol: str) -> Dict[str, Any]:
+        """Obtiene datos de short interest bi-mensuales desde Polygon (FINRA).
+        
+        Endpoint: GET /stocks/v1/short-interest
+        Incluye: short_interest, days_to_cover, avg_daily_volume, settlement_date.
+        Historial disponible desde 2017. Sort desc para obtener el más reciente.
+        """
+        url = "/stocks/v1/short-interest"
+        params = {
+            "ticker": symbol.upper(),
+            "apiKey": self.api_key,
+            "limit": 1,
+            "sort": "settlement_date.desc",
+        }
+        response = await self._client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_ticker_details(self, symbol: str) -> Dict[str, Any]:
+        """Obtiene detalles de referencia de un ticker (V3).
+        
+        Incluye: description, homepage_url, total_employees, sic_code, market, etc.
+        """
+        url = f"/v3/reference/tickers/{symbol.upper()}"
+        params = {"apiKey": self.api_key}
+        response = await self._client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_news(self, symbol: str, limit: int = 5) -> Dict[str, Any]:
+        """Obtiene noticias recientes de un ticker desde Polygon.
+        
+        Endpoint: GET /v2/reference/news
+        Ordenadas por fecha descendente.
+        """
+        url = "/v2/reference/news"
+        params = {
+            "ticker": symbol.upper(),
+            "order": "desc",
+            "limit": limit,
+            "sort": "published_utc",
+            "apiKey": self.api_key,
+        }
+        response = await self._client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
     async def proxy_logo(self, logo_url: str) -> httpx.Response:
         """Proxy para obtener logos con API key"""
         separator = "&" if "?" in logo_url else "?"

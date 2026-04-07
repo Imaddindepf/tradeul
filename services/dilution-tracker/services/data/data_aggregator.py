@@ -174,14 +174,12 @@ class DataAggregator:
             return None
     
     async def _validate_ticker(self, ticker: str) -> bool:
-        """Verificar que ticker existe en ticker_metadata"""
+        """Verificar que ticker existe en la base dilutiontracker (tickers v2)"""
         try:
-            query = """
-            SELECT 1 FROM ticker_metadata
-            WHERE symbol = $1 AND is_actively_trading = TRUE
-            LIMIT 1
-            """
-            result = await self.db.fetchval(query, ticker)
+            result = await self.db.fetchval(
+                "SELECT 1 FROM tickers WHERE ticker = $1 LIMIT 1",
+                ticker
+            )
             return result is not None
         except Exception as e:
             logger.error("validate_ticker_failed", ticker=ticker, error=str(e))
@@ -219,49 +217,37 @@ class DataAggregator:
         return obj
     
     async def _get_or_fetch_summary(self, ticker: str) -> Optional[Dict]:
-        """Obtener summary desde ticker_metadata (ya existe)"""
+        """Obtener summary desde la tabla tickers (dilutiontracker v2)"""
         try:
             query = """
-            SELECT 
-                symbol as ticker,
-                company_name,
-                sector,
-                industry,
+            SELECT
+                ticker,
+                company AS company_name,
+                NULL::text  AS sector,
+                NULL::text  AS industry,
                 market_cap,
-                free_float,
+                float_shares AS free_float,
                 shares_outstanding,
-                description,
-                homepage_url,
-                exchange,
-                total_employees,
-                list_date
-            FROM ticker_metadata
-            WHERE symbol = $1
+                NULL::text  AS description,
+                NULL::text  AS homepage_url,
+                NULL::text  AS exchange,
+                NULL::integer AS total_employees,
+                NULL::date  AS list_date,
+                inst_ownership
+            FROM tickers
+            WHERE ticker = $1
             """
-            
             result = await self.db.fetchrow(query, ticker)
             if not result:
                 return None
-            
-            # Calcular institutional ownership desde holders
-            inst_ownership_query = """
-            SELECT SUM(ownership_percent) as total
-            FROM institutional_holders
-            WHERE ticker = $1
-            AND report_date = (
-                SELECT MAX(report_date)
-                FROM institutional_holders
-                WHERE ticker = $1
-            )
-            """
-            inst_result = await self.db.fetchrow(inst_ownership_query, ticker)
-            institutional_ownership = inst_result['total'] if inst_result else None
-            
+
             return {
                 **dict(result),
-                "institutional_ownership": institutional_ownership
+                "institutional_ownership": (
+                    float(result["inst_ownership"]) if result["inst_ownership"] else None
+                ),
             }
-            
+
         except Exception as e:
             logger.error("get_summary_failed", ticker=ticker, error=str(e))
             return None
@@ -429,12 +415,13 @@ class DataAggregator:
             return []
     
     async def _get_shares_outstanding(self, ticker: str) -> Optional[int]:
-        """Obtener shares outstanding desde ticker_metadata"""
+        """Obtener shares outstanding desde la tabla tickers (dilutiontracker v2)"""
         try:
-            query = "SELECT shares_outstanding FROM ticker_metadata WHERE symbol = $1"
-            result = await self.db.fetchval(query, ticker)
-            return result
-        except:
+            return await self.db.fetchval(
+                "SELECT shares_outstanding FROM tickers WHERE ticker = $1",
+                ticker,
+            )
+        except Exception:
             return None
     
     def _calculate_risk_scores(self, financials: List[Dict], filings: List[Dict]) -> Dict:

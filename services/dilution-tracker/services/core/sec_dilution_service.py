@@ -2113,35 +2113,35 @@ class SECDilutionService:
     
     async def _get_current_market_data(self, ticker: str) -> tuple[Optional[Decimal], Optional[int], Optional[int]]:
         """
-        Obtener precio actual y shares outstanding
-        
+        Obtener precio actual y shares outstanding.
+
         Estrategia:
-        1. Shares outstanding y float desde ticker_metadata (siempre están)
+        1. Shares outstanding y float desde la tabla tickers (dilutiontracker v2)
         2. Precio desde Polygon API (snapshot actual)
-        
+
         Returns:
             Tuple (current_price, shares_outstanding, free_float)
         """
         try:
             logger.debug("get_current_market_data_starting", ticker=ticker)
-            
-            # 1. Obtener shares outstanding y float de ticker_metadata
+
+            # 1. Obtener shares outstanding y float desde tickers v2
             query = """
-            SELECT shares_outstanding, free_float
-            FROM ticker_metadata
-            WHERE symbol = $1
+            SELECT shares_outstanding, float_shares AS free_float
+            FROM tickers
+            WHERE ticker = $1
             """
-            
+
             result = await self.db.fetchrow(query, ticker)
-            
+
             if not result:
-                logger.warning("ticker_metadata_not_found", ticker=ticker)
+                logger.warning("tickers_not_found", ticker=ticker)
                 return None, None, None
-            
+
             shares_outstanding = result['shares_outstanding']
             free_float = result['free_float']
-            
-            logger.debug("ticker_metadata_found", ticker=ticker, shares=shares_outstanding, float=free_float)
+
+            logger.debug("tickers_found", ticker=ticker, shares=shares_outstanding, float=free_float)
             
             # 2. Obtener precio actual desde Polygon API (snapshot)
             current_price = await self._get_price_from_polygon(ticker)
