@@ -3,14 +3,16 @@ Alert Strategies Router - CRUD for user alert strategies (Trade Ideas style)
 """
 
 import json
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any, Literal
+from pydantic import BaseModel, Field, field_validator
 from fastapi import APIRouter, HTTPException, Depends
 import structlog
 from auth import get_current_user, AuthenticatedUser
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/alert-strategies", tags=["alert-strategies"])
+
+VALID_CATEGORIES = {"custom", "bullish", "bearish", "neutral"}
 
 class StrategyCreate(BaseModel):
     name: str = Field(..., max_length=100)
@@ -20,6 +22,14 @@ class StrategyCreate(BaseModel):
     filters: Dict[str, Any] = Field(default_factory=dict)
     is_favorite: bool = False
 
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: str) -> str:
+        normalized = v.lower().strip()
+        if normalized not in VALID_CATEGORIES:
+            return "custom"
+        return normalized
+
 class StrategyUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
@@ -27,6 +37,16 @@ class StrategyUpdate(BaseModel):
     event_types: Optional[List[str]] = None
     filters: Optional[Dict[str, Any]] = None
     is_favorite: Optional[bool] = None
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        normalized = v.lower().strip()
+        if normalized not in VALID_CATEGORIES:
+            return "custom"
+        return normalized
 
 class StrategyResponse(BaseModel):
     id: int
