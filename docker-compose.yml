@@ -170,6 +170,7 @@ services:
         reservations:
           memory: 256M
 
+
   dilution_tracker:
     build:
       context: .
@@ -180,18 +181,26 @@ services:
     environment:
       - SERVICE_NAME=dilution-tracker
       - SERVICE_PORT=8009
+      - DB_HOST=127.0.0.1
+      - DB_PORT=55433
+      - DB_NAME=dilutiontracker
+      - DB_USER=dilution_admin
+      - DB_PASSWORD=DilTracker2026
+      - REDIS_HOST=127.0.0.1
+      - REDIS_PORT=6379
+      - POSTGRES_HOST=172.18.0.2
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=tradeul
     depends_on:
       redis:
         condition: service_healthy
       timescaledb:
         condition: service_healthy
+    network_mode: host
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8009"]
     restart: unless-stopped
-    networks:
-      - tradeul_network
-    ports:
-      - "127.0.0.1:8009:8000" # Solo accesible via Caddy
     healthcheck:
-      test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5.0)" ]
+      test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8009/health', timeout=5.0)" ]
       interval: 60s
       timeout: 30s
       retries: 10
@@ -204,32 +213,6 @@ services:
         reservations:
           memory: 512M
 
-  # ARQ Worker para jobs de scraping SEC en background
-  dilution_worker:
-    build:
-      context: .
-      dockerfile: services/dilution-tracker/Dockerfile
-    container_name: tradeul_dilution_worker
-    env_file:
-      - .env
-    environment:
-      - SERVICE_NAME=dilution-worker
-    command: [ "arq", "workers.arq_worker.WorkerSettings" ]
-    depends_on:
-      redis:
-        condition: service_healthy
-      timescaledb:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - tradeul_network
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 2048M
-        reservations:
-          memory: 512M
 
   scanner:
     build:
@@ -493,6 +476,8 @@ services:
     environment:
       - TIMEZONE=America/New_York
       - MAINTENANCE_SCHEDULE=MARKET_CLOSE
+      - DILUTION_TRACKER_HOST=172.18.0.1
+      - DILUTION_TRACKER_PORT=8009
     deploy:
       resources:
         limits:

@@ -37,6 +37,7 @@ sys.path.append('/app')
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger
+from tasks.sync_dilution_scores import SyncDilutionScoresTask
 
 logger = get_logger(__name__)
 
@@ -96,6 +97,7 @@ class MaintenanceOrchestrator:
                 ("sync_ticker_universe", self._task_sync_ticker_universe),
                 # enrich_metadata ELIMINADO - ahora se hace a las 1:00 AM
                 ("export_screener_metadata", self._task_export_screener_metadata),
+                ("sync_dilution_scores", self._task_sync_dilution_scores),
             ]
             logger.info("📦 data_only_mode - skipping cache clear and notifications")
         else:
@@ -112,6 +114,7 @@ class MaintenanceOrchestrator:
                 ("sync_ticker_universe", self._task_sync_ticker_universe),
                 # enrich_metadata ELIMINADO - ahora se hace a las 1:00 AM
                 ("export_screener_metadata", self._task_export_screener_metadata),
+                ("sync_dilution_scores", self._task_sync_dilution_scores),
                 ("sync_redis", self._task_sync_redis),
                 ("notify_services", self._task_notify_services),
             ]
@@ -484,6 +487,18 @@ class MaintenanceOrchestrator:
         except Exception as e:
             return {"success": False, "error": str(e)}
     
+    async def _task_sync_dilution_scores(self, target_date: date) -> Dict:
+        """
+        Tarea: Vuelca ratings dilutivos (BD) → Redis hash dilution:scores:latest
+        para que el enrichment pipeline los inyecte en cada ticker enriquecido.
+        """
+        try:
+            task = SyncDilutionScoresTask(self.redis, self.db)
+            return await task.execute(target_date)
+        except Exception as e:
+            logger.error("task_sync_dilution_scores_failed", error=str(e))
+            return {"success": False, "error": str(e)}
+
     async def _task_notify_services(self, target_date: date) -> Dict:
         """
         Tarea 9: Notificar a otros servicios que el mantenimiento completó

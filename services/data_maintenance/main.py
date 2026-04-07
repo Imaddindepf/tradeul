@@ -45,7 +45,7 @@ from daily_maintenance_scheduler import DailyMaintenanceScheduler
 from maintenance_orchestrator import MaintenanceOrchestrator
 from realtime_ticker_monitor import RealtimeTickerMonitor
 from tasks.sync_flat_files import SyncFlatFilesTask, FlatFilesWatcher
-from fan_batch_monitor import FANBatchMonitor
+from tasks.sync_dilution_scores import SyncDilutionScoresTask
 
 logger = get_logger(__name__)
 
@@ -54,13 +54,12 @@ redis_client: RedisClient = None
 timescale_client: TimescaleClient = None
 daily_scheduler: DailyMaintenanceScheduler = None
 flat_files_watcher: FlatFilesWatcher = None
-fan_batch_monitor: FANBatchMonitor = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida del servicio"""
-    global redis_client, timescale_client, daily_scheduler, flat_files_watcher, fan_batch_monitor
+    global redis_client, timescale_client, daily_scheduler, flat_files_watcher
     
     logger.info("🚀 Starting Data Maintenance Service v2.2")
     
@@ -75,6 +74,14 @@ async def lifespan(app: FastAPI):
     
     # Verificar salud inicial
     await _check_initial_health()
+
+    # Populate dilution scores cache on startup (no-op if DB columns not ready)
+    try:
+        dilution_sync = SyncDilutionScoresTask(redis_client, timescale_client)
+        result = await dilution_sync.execute()
+        logger.info("startup_dilution_scores_sync", result=result)
+    except Exception as _e:
+        logger.warning("startup_dilution_scores_sync_failed", error=str(_e))
     
     # Inicializar scheduler
     daily_scheduler = DailyMaintenanceScheduler(redis_client, timescale_client)
@@ -89,26 +96,18 @@ async def lifespan(app: FastAPI):
     flat_files_watcher = FlatFilesWatcher(redis_client, daily_scheduler)
     watcher_task = asyncio.create_task(flat_files_watcher.run())
     
-    # Iniciar FAN Batch Monitor (genera FAN reports para tickers nuevos)
-    fan_batch_monitor = FANBatchMonitor(redis_client)
-    fan_monitor_task = asyncio.create_task(fan_batch_monitor.start())
-    
     logger.info("=" * 60)
     logger.info("📅 Schedule: Daily maintenance at 3:00 AM ET")
     logger.info("   (1 hour before pre-market opens at 4:00 AM ET)")
     logger.info("📁 FlatFilesWatcher: Monitors Polygon S3 every 30min after close")
     logger.info("📊 Pattern Matching: Dedicated server 37.27.183.194:8025")
-    logger.info("🤖 FAN Batch Monitor: Every 15min, generates FAN for new tickers")
+    logger.info("📋 FAN reports: on-demand only (no batch pre-generation)")
     logger.info("=" * 60)
     
     yield
     
     # Shutdown
     logger.info("🛑 Shutting down Data Maintenance Service")
-    
-    # Detener FAN Batch Monitor
-    await fan_batch_monitor.stop()
-    fan_monitor_task.cancel()
     
     # Detener FlatFilesWatcher
     flat_files_watcher.stop()
@@ -119,11 +118,6 @@ async def lifespan(app: FastAPI):
     
     daily_scheduler.stop()
     scheduler_task.cancel()
-    
-    try:
-        await fan_monitor_task
-    except asyncio.CancelledError:
-        pass
     
     try:
         await watcher_task

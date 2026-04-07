@@ -173,6 +173,31 @@ class BuildTickerChainTask:
         
         return all_tickers
     
+    @staticmethod
+    def _instrument_suffix(ticker: str) -> str:
+        """
+        Return the instrument-type suffix of a ticker, or '' for common stock.
+
+        Polygon uses the trailing letter(s) to distinguish related instruments
+        issued by the same company:
+          W  → warrants   (SOUNW, IPODW …)
+          R  → rights     (AACGR …)
+          U  → units      (OACCU …)
+          p  → preferred  (TFINp, LOBpA …)
+
+        A chain between two tickers is only valid when both have the SAME suffix
+        (i.e. both are common stock, or both are warrants, etc.).
+        Mixing types — e.g. SOUN (common) ↔ SOUNW (warrant) — produces false
+        chains that redirect the common-stock chart to warrant price data.
+        """
+        import re
+        # Preferred: trailing lowercase 'p' optionally followed by a class letter
+        if re.search(r'p[A-Z]?$', ticker):
+            return 'p'
+        # Warrants, rights, units: single uppercase suffix letter
+        m = re.search(r'[WRU]$', ticker)
+        return m.group(0) if m else ''
+
     async def _scan_all_events(
         self, client: httpx.AsyncClient, tickers: List[str]
     ) -> Dict[str, List[str]]:
@@ -199,21 +224,29 @@ class BuildTickerChainTask:
                     if not events:
                         return
                     
-                    # Build chain from events
-                    # Events contain ticker_change with old/new ticker
+                    # Build chain from events.
+                    # Only include tickers of the SAME instrument type as the
+                    # current ticker (common↔common, warrant↔warrant, etc.).
+                    # Polygon sometimes emits ticker_change events between a
+                    # common stock and its derivative instruments (warrants,
+                    # units, rights) which must NOT be chained together.
+                    current_suffix = self._instrument_suffix(ticker)
                     chain_set = set()
                     chain_set.add(ticker)
                     
                     for event in events:
                         tc = event.get("ticker_change", {})
                         old = tc.get("ticker", "")
-                        if old:
+                        if old and self._instrument_suffix(old) == current_suffix:
                             chain_set.add(old)
                     
                     if len(chain_set) > 1:
                         # Order by event dates (oldest first)
                         ordered = self._order_chain(ticker, events)
-                        chains[ticker] = ordered
+                        # Re-filter ordered chain to same instrument type
+                        ordered = [t for t in ordered if self._instrument_suffix(t) == current_suffix]
+                        if len(ordered) > 1:
+                            chains[ticker] = ordered
                         
                 except Exception:
                     errors += 1

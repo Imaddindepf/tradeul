@@ -414,192 +414,200 @@ for sector, industries in GICS_TAXONOMY.items():
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # THEMATIC TAGS CATALOG
-# Based on Global X Thematic Framework + 2025-2026 trading themes
+# Each tag has a one-line description + key examples sent directly to Gemini.
+# Format: { category: { tag: "description (e.g. TICK1, TICK2)" } }
 # ═══════════════════════════════════════════════════════════════════════════════
 
-THEMATIC_CATALOG: Dict[str, List[str]] = {
+THEMATIC_CATALOG: Dict[str, Dict[str, str]] = {
     # ── SEMICONDUCTORS ──────────────────────────────────────────────────────
-    "semiconductors": [
-        "semiconductors",               # broad: any chip company
-        "semiconductor_equipment",       # ASML, LRCX, KLAC, AMAT
-        "memory_chips",                  # MU, SNDK, WDC — DRAM, NAND, SSD
-        "gpu_accelerators",              # NVDA, AMD — GPUs, AI accelerators
-        "cpu_processors",                # INTC, AMD — x86/ARM processors
-        "analog_mixed_signal",           # TXN, ADI, MCHP, ON — analog/power ICs
-        "networking_chips",              # AVGO, MRVL — ethernet, switching ASICs
-        "rf_wireless_chips",             # QCOM, SWKS, QRVO — RF, modem, 5G chips
-        "chip_foundry",                  # TSM, GFS, UMC — contract fabrication
-        "power_semiconductors",          # ON, WOLF, DIOD — SiC, GaN, IGBT
-        "eda_chip_design",               # SNPS, CDNS, ARM — EDA tools, IP cores
-    ],
+    "semiconductors": {
+        "semiconductors":           "Broad chip company — designer, fab, or IP licensor. Use when no specific sub-tag fits. (e.g. NVDA, AMD, TSM, QCOM, TXN, AVGO)",
+        "semiconductor_equipment":  "Equipment to fabricate chips: lithography, etch, CVD, inspection. (e.g. ASML, LRCX, KLAC, AMAT, ONTO)",
+        "memory_chips":             "DRAM, NAND flash, or HBM high-bandwidth memory. (e.g. MU, WDC, SNDK)",
+        "gpu_accelerators":         "GPU and AI accelerator chips for ML training/inference. Includes custom AI ASIC silicon for hyperscalers. (e.g. NVDA H100/Blackwell, AMD Instinct MI300X, MRVL custom, CRWV)",
+        "cpu_processors":           "General-purpose CPUs: x86, ARM, RISC-V. (e.g. INTC, AMD EPYC/Ryzen, ARM Holdings, QCOM Snapdragon, MRVL Octeon)",
+        "analog_mixed_signal":      "Analog, mixed-signal, and power management ICs for industrial/auto/consumer. (e.g. TXN, ADI, MCHP, ON, SWKS)",
+        "networking_chips":         "Ethernet, switching, routing ASICs and network connectivity silicon. (e.g. AVGO, MRVL, CSCO silicon)",
+        "rf_wireless_chips":        "RF front-end modules, modem, 5G baseband chips. (e.g. QCOM, SWKS, QRVO, MTSI)",
+        "chip_foundry":             "Contract semiconductor fabrication. (e.g. TSM, GFS, UMC, Intel Foundry)",
+        "power_semiconductors":     "SiC, GaN, IGBT, power MOSFETs for EVs, renewables, and industrial. (e.g. ON, WOLF, STM, DIOD)",
+        "eda_chip_design":          "EDA software and semiconductor IP cores used to design chips. (e.g. SNPS, CDNS, ARM, ANSYS)",
+    },
     # ── AI & SOFTWARE ───────────────────────────────────────────────────────
-    "ai_software": [
-        "artificial_intelligence",       # broad AI play
-        "generative_ai",                 # LLM, image gen — NVDA, MSFT, GOOG, META
-        "machine_learning",              # ML infrastructure
-        "data_infrastructure",           # SNOW, MDB, DDOG, PLTR — data platforms
-        "cloud_computing",               # AWS/Azure/GCP infra plays
-        "edge_computing",                # FSLY, NET — edge compute / CDN
-        "saas",                          # broad SaaS
-        "enterprise_software",           # SAP, ORCL, WDAY — ERP, HCM
-        "crm_marketing_tech",            # CRM, HUBS, BRZE — customer platforms
-        "developer_tools",               # GTLB, ESTC, DDOG — devops, CI/CD
-        "big_data_analytics",            # analytics & BI
-        "cybersecurity",                 # broad cybersec
-        "identity_zero_trust",           # OKTA, CYBR, ZS — IAM, zero-trust
-        "endpoint_network_security",     # CRWD, PANW, FTNT — endpoint/firewall
-        "ar_vr",                         # META, AAPL, U — augmented/virtual reality
-    ],
+    "ai_software": {
+        "artificial_intelligence":      "Broad AI — company derives meaningful revenue or product value from AI. (e.g. NVDA, MSFT, GOOGL, META, PLTR)",
+        "generative_ai":                "Building or deploying LLMs, image-gen, or multimodal foundation models. (e.g. NVDA, MSFT/OpenAI, GOOGL Gemini, META Llama, ADBE Firefly)",
+        "machine_learning":             "ML infrastructure: model training pipelines, MLOps, feature stores. (e.g. DDOG, SNOW, SAMSARA)",
+        "data_infrastructure":          "Data platforms, data lakes, real-time analytics infrastructure. (e.g. SNOW, MDB, DDOG, PLTR, DBX)",
+        "cloud_computing":              "Public cloud IaaS/PaaS and cloud-native infrastructure. (e.g. AMZN AWS, MSFT Azure, GOOGL GCP, NET)",
+        "edge_computing":               "Computing at the network edge — CDN, edge nodes, IoT processing. (e.g. NET, FSLY, AKAM)",
+        "saas":                         "Software-as-a-Service: subscription cloud software. (e.g. CRM, NOW, WDAY, HUBS, ZM)",
+        "enterprise_software":          "ERP, HCM, finance and supply chain software for enterprises. (e.g. ORCL, SAP, WDAY, INTU, IBM)",
+        "crm_marketing_tech":           "CRM, marketing automation, customer data platforms. (e.g. CRM, HUBS, BRZE, KVYO)",
+        "developer_tools":              "DevOps, CI/CD, observability, code collaboration. (e.g. GTLB, ESTC, DDOG, TEAM)",
+        "big_data_analytics":           "Analytics, business intelligence, data warehousing. (e.g. SNOW, PLTR, MSTR, DOMO)",
+        "cybersecurity":                "Broad cybersecurity — security as primary or major revenue driver. (e.g. CRWD, PANW, ZS, FTNT, OKTA)",
+        "identity_zero_trust":          "Identity management, zero-trust network access, PAM. (e.g. OKTA, CYBR, ZS, SAIL)",
+        "endpoint_network_security":    "Endpoint protection, firewall, network security appliances. (e.g. CRWD, PANW, FTNT, S, CHKP)",
+        "ar_vr":                        "Augmented/virtual reality hardware and software. (e.g. META Quest, AAPL Vision Pro, SNAP, U)",
+        "ai_data_centers":              "Operators of high-performance compute (HPC) data centers for AI training/inference — NOT REITs. (e.g. IREN, CORZ, CRWV, HUT after pivot)",
+        "ai_agents_inference":          "Platforms deploying AI agents, copilots, or inference APIs as a commercial product. (e.g. BBAI, CRNC, AI, SOUN, PLTR AI Platform)",
+        "data_center_hardware":         "Servers, rack systems, and liquid cooling infrastructure purpose-built for AI data centers. (e.g. SMCI, DELL PowerEdge AI, HPE, VRT, NTAP)",
+    },
     # ── CONNECTIVITY & TELECOM ──────────────────────────────────────────────
-    "connectivity": [
-        "5g_iot",                        # 5G infra + IoT devices
-        "satellite_internet",            # ASTS, GSAT, IRDM — LEO/GEO broadband
-        "fiber_optics",                  # AAOI, LITE, COHR — optical components
-    ],
+    "connectivity": {
+        "5g_iot":           "5G infrastructure buildout and IoT connected device ecosystem. (e.g. ERIC, NOK, QCOM, CSCO, KEYS)",
+        "satellite_internet": "LEO or GEO broadband satellite internet services. (e.g. ASTS, GSAT, IRDM, VSAT)",
+        "fiber_optics":     "Fiber optic transceivers, components, and optical networking equipment. (e.g. AAOI, LITE, COHR, VIAV)",
+    },
     # ── ROBOTICS & AUTOMATION ───────────────────────────────────────────────
-    "robotics_automation": [
-        "robotics",                      # broad robotics
-        "surgical_robotics",             # ISRG, MBOT — robotic surgery
-        "industrial_automation",         # ROK, EMR, ABB — factory automation, PLCs
-        "autonomous_vehicles",           # TSLA, GOOGL Waymo, GM Cruise
-        "lidar",                         # LAZR, INVZ, OUST — lidar sensors
-        "drones",                        # AVAV, JOBY, ACHR — UAV, eVTOL
-        "3d_printing",                   # DDD, SSYS, DM — additive manufacturing
-    ],
+    "robotics_automation": {
+        "robotics":                 "Broad industrial, service, or collaborative robotics. (e.g. ROK, ISRG, ABB, Fanuc ADRs)",
+        "surgical_robotics":        "Robotic-assisted surgical systems and instruments. (e.g. ISRG, MBOT, CMR)",
+        "industrial_automation":    "Factory automation, PLCs, SCADA, motor drives, industrial sensors. (e.g. ROK, EMR, HON, ABB)",
+        "autonomous_vehicles":      "Self-driving cars, AV software, and enabling sensors/compute. (e.g. TSLA FSD, GOOGL Waymo, MBLY)",
+        "lidar":                    "LiDAR sensors for automotive, industrial, or geospatial use. (e.g. LAZR, INVZ, OUST, AEYE)",
+        "drones":                   "Commercial UAVs, eVTOL aircraft, drone delivery platforms. (e.g. AVAV, JOBY, ACHR, RCAT)",
+        "3d_printing":              "Additive manufacturing hardware, software, and materials. (e.g. DDD, SSYS, DM, NNDM)",
+        "humanoid_robotics":        "Humanoid robot development and enabling components. (e.g. TSLA Optimus, ISRG, ABB, FANUY)",
+    },
     # ── QUANTUM & FRONTIER ──────────────────────────────────────────────────
-    "frontier_tech": [
-        "quantum_computing",             # IONQ, RGTI, QBTS — quantum hardware/SW
-        "blockchain_crypto",             # broad blockchain
-        "crypto_exchange",               # COIN, HOOD crypto — trading platforms
-        "space_technology",              # RKLB, SPCE, BA space — launch, satellites
-    ],
+    "frontier_tech": {
+        "quantum_computing":    "Quantum computing hardware, software, and error correction. (e.g. IONQ, RGTI, QBTS, QUBT)",
+        "blockchain_crypto":    "Broad blockchain infrastructure, crypto exchanges, DeFi — NOT bitcoin mining specifically. (e.g. COIN, HOOD, MSTR Bitcoin treasury, PYPL crypto)",
+        "bitcoin_mining":       "Companies that mine Bitcoin or other PoW cryptocurrency as their primary business — high power consumption, ASICs. (e.g. MARA, RIOT, CLSK, HUT, BITF, WULF, CIFR, IREN, CORZ)",
+        "crypto_exchange":      "Platforms where users buy, sell, or trade crypto assets. (e.g. COIN, HOOD crypto, Kraken)",
+        "space_technology":     "Rocket launch services, satellite manufacturing, space exploration. (e.g. RKLB, SPCE, BA Space, ASTS)",
+    },
     # ── FINTECH & FINANCIAL ─────────────────────────────────────────────────
-    "fintech_financial": [
-        "fintech",                       # broad fintech
-        "digital_payments",              # V, MA, PYPL, SQ — payments processing
-        "buy_now_pay_later",             # AFRM, SHOP — BNPL consumer credit
-        "neobanking",                    # SOFI, NU — digital-first banks
-        "insurtech",                     # LMND, ROOT, OSCR — digital insurance
-        "lending_platforms",             # UPST, LC — AI/online lending
-        "wealthtech",                    # robo-advisors, digital wealth
-        "payroll_hr_tech",               # PAYC, PCTY, ADP — payroll, HCM
-        "online_gambling",               # DKNG, FLUT, MGM — sports betting, iGaming
-    ],
+    "fintech_financial": {
+        "fintech":              "Broad fintech — technology-enabled financial services disrupting traditional banking/finance. (e.g. SQ, PYPL, SOFI, NU, AFRM)",
+        "digital_payments":     "Payment processing networks, merchant acquiring, digital wallets. (e.g. V, MA, PYPL, SQ, ADYEY)",
+        "buy_now_pay_later":    "BNPL consumer credit embedded at checkout. (e.g. AFRM, SEZL, LPRO)",
+        "neobanking":           "Digital-first banks without physical branches. (e.g. SOFI, NU, DAVE)",
+        "insurtech":            "Technology-driven insurance underwriting and distribution. (e.g. LMND, ROOT, OSCR)",
+        "lending_platforms":    "AI/online loan origination: personal, student, small business. (e.g. UPST, LC, SLM)",
+        "wealthtech":           "Digital wealth management, robo-advisors, retail investing platforms. (e.g. HOOD, SCHW digital, SOFI invest)",
+        "payroll_hr_tech":      "Cloud payroll, HRIS, workforce management software. (e.g. PAYC, PCTY, ADP, PAYX)",
+        "online_gambling":      "Sports betting, iGaming, daily fantasy sports. (e.g. DKNG, FLUT, PENN, MGM online)",
+    },
     # ── BIOTECH & PHARMA ────────────────────────────────────────────────────
-    "biotech_pharma": [
-        "biotech",                       # broad biotech
-        "genomics",                      # ILMN, PACB — sequencing, genomic tools
-        "gene_editing_crispr",           # CRSP, BEAM, NTLA — CRISPR, base editing
-        "mrna_therapeutics",             # MRNA, BNTX — mRNA platform
-        "cell_gene_therapy",             # BLUE, KRTX, ALNY — cell therapy, gene tx
-        "immunotherapy",                 # BMY (Opdivo), MRK (Keytruda) — checkpoint, CAR-T
-        "oncology",                      # broad cancer therapeutics
-        "glp1_weight_loss",              # LLY, NVO, VKTX — GLP-1 agonists
-        "diabetes",                      # DXCM, PODD, TNDM — diabetes devices/drugs
-        "neuroscience",                  # BIIB, SAVA, AXSM — CNS, neuro disorders
-        "cardiovascular",                # heart disease therapeutics
-        "rare_disease",                  # orphan drugs
-        "vaccines",                      # PFE, MRNA, NVAX — vaccine platforms
-        "psychedelics",                  # CMPS, MNMD — psilocybin, MDMA therapy
-        "cannabis",                      # TLRY, CGC — cannabis operators
-    ],
+    "biotech_pharma": {
+        "biotech":              "Broad biotech — drug R&D company, typically pre-commercial or early revenue stage. (e.g. MRNA platform, VRTX, REGN, BLUE)",
+        "genomics":             "DNA sequencing instruments, genomic analysis tools and services. (e.g. ILMN, PACB, BRKR)",
+        "gene_editing_crispr":  "CRISPR, base editing, prime editing therapeutic platforms. (e.g. CRSP, BEAM, NTLA, EDIT)",
+        "mrna_therapeutics":    "mRNA drug delivery platforms beyond COVID vaccines. (e.g. MRNA, BNTX, ARCT)",
+        "cell_gene_therapy":    "CAR-T, TIL cell therapies and gene replacement therapies. (e.g. BLUE, KRTX, ALNY)",
+        "immunotherapy":        "Cancer immunotherapy: checkpoint inhibitors, CAR-T, bispecific antibodies. (e.g. MRK Keytruda, BMY Opdivo, GILD Yescarta)",
+        "oncology":             "Broad cancer therapeutics including chemo, targeted therapy. (e.g. MRK, BMY, ABBV, EXEL)",
+        "glp1_weight_loss":     "GLP-1 receptor agonists for obesity and type-2 diabetes treatment. (e.g. LLY Mounjaro/Zepbound, NVO Ozempic/Wegovy, VKTX, AMGN)",
+        "diabetes":             "Diabetes management: CGM devices, insulin pumps, diabetes drugs. (e.g. DXCM, PODD, TNDM, LLY, NVO)",
+        "neuroscience":         "CNS disorders: Alzheimer's, Parkinson's, depression, epilepsy. (e.g. BIIB, SAVA, AXSM, ACAD)",
+        "cardiovascular":       "Heart disease therapeutics, cardiovascular devices and diagnostics. (e.g. ABT, MDT, BSX, ITCI)",
+        "rare_disease":         "Orphan drug development for rare or ultra-rare conditions. (e.g. ALNY, SRPT, BMRN, RARE)",
+        "vaccines":             "Vaccine platforms: mRNA, viral vector, protein subunit. (e.g. PFE, MRNA, NVAX, BNTX)",
+        "psychedelics":         "Psilocybin, MDMA, ketamine as mental health therapeutics. (e.g. CMPS, MNMD, ATAI)",
+        "cannabis":             "Cannabis cultivation, retail dispensaries, and derivative products. (e.g. TLRY, CGC, CRON, ACB)",
+    },
     # ── MEDTECH & HEALTH SERVICES ───────────────────────────────────────────
-    "medtech_health": [
-        "digital_health",                # broad digital health
-        "telehealth",                    # TDOC, AMWL — virtual care
-        "medical_devices",               # MDT, SYK, ABT, BSX — devices, implants
-        "diagnostics",                   # DGX, LH, EXAS — lab testing, liquid biopsy
-        "medical_imaging",               # HOLX, ISRG vision, NUVA — imaging equipment
-        "dental",                        # ALGN, XRAY, HSIC — dental tech & supplies
-        "animal_health",                 # ZTS, IDXX — veterinary pharma/diagnostics
-        "cro_cdmo",                      # ICLR, CRL, CTLT — contract research/manufacturing
-        "aging_population",              # senior care, geriatric products
-    ],
+    "medtech_health": {
+        "digital_health":   "Broad digital health — apps, platforms, remote patient monitoring. (e.g. TDOC, AMWL, HIMS, ACCD)",
+        "telehealth":       "Virtual care and telemedicine consultations. (e.g. TDOC, AMWL, DOCS)",
+        "medical_devices":  "Implantable and non-implantable medical devices and instruments. (e.g. MDT, SYK, ABT, BSX, ISRG)",
+        "diagnostics":      "Lab testing, in vitro diagnostics, liquid biopsy. (e.g. DGX, LH, EXAS, NTRA, GH)",
+        "medical_imaging":  "Imaging systems: MRI, CT, ultrasound, nuclear medicine. (e.g. HOLX, SIE-Healthineers, PHG)",
+        "dental":           "Dental technology, orthodontics, and dental supply distribution. (e.g. ALGN, XRAY, HSIC, PDCO)",
+        "animal_health":    "Veterinary pharmaceuticals, diagnostics, and animal health monitoring. (e.g. ZTS, IDXX, ELAN, PAHC)",
+        "cro_cdmo":         "Contract research organizations (CRO) and contract drug manufacturers (CDMO). (e.g. ICLR, CRL, CTLT, MEDP)",
+        "aging_population": "Products and services targeting elderly care: senior housing, geriatric drugs, home care. (e.g. VTR, WELL, BKD)",
+    },
     # ── ENERGY: OIL & GAS ───────────────────────────────────────────────────
-    "oil_gas": [
-        "oil_exploration",               # upstream — XOM, CVX, PXD, FANG
-        "oil_refining",                  # downstream — MPC, VLO, PSX
-        "oil_services",                  # SLB, HAL, BKR — oilfield services
-        "midstream_pipelines",           # KMI, WMB, ET, EPD — pipelines, MLPs
-        "natural_gas",                   # LNG, EQT, AR — gas producers, LNG export
-    ],
+    "oil_gas": {
+        "oil_exploration":      "Upstream oil & gas: exploration, drilling, and production (E&P). (e.g. XOM, CVX, PXD, FANG, OXY)",
+        "oil_refining":         "Downstream: crude oil refining and petroleum product marketing. (e.g. MPC, VLO, PSX, DK)",
+        "oil_services":         "Oilfield services: drilling, completion, well services, equipment rental. (e.g. SLB, HAL, BKR, RES)",
+        "midstream_pipelines":  "Oil & gas pipelines, storage terminals, processing plants, MLPs. (e.g. KMI, WMB, ET, EPD, MPLX)",
+        "natural_gas":          "Natural gas producers, LNG exporters, and gas utilities. (e.g. LNG, EQT, AR, RRC, CTRA)",
+    },
     # ── ENERGY: CLEAN & NUCLEAR ─────────────────────────────────────────────
-    "clean_energy": [
-        "clean_energy",                  # broad renewables
-        "solar",                         # FSLR, ENPH, SEDG, RUN — solar panels/inverters
-        "wind",                          # NEE, CWEN, ORA — wind turbines/farms
-        "nuclear_energy",                # CEG, VST — nuclear power operators
-        "uranium",                       # CCJ, DNN, LEU — uranium miners/enrichment
-        "hydrogen_fuel_cells",           # PLUG, BE, FCEL — green hydrogen
-        "battery_storage",               # QS, MVST, AMPS — grid/EV batteries
-        "lithium",                       # ALB, SQM, LAC — lithium miners
-        "carbon_capture",                # AIRS, etc. — CCS technology
-        "smart_grid",                    # ITRI, GNRC — grid modernization, meters
-    ],
+    "clean_energy": {
+        "clean_energy":         "Broad renewables — any company generating meaningful revenue from non-fossil clean power. (e.g. NEE, CWEN, FSLR, ENPH, RUN)",
+        "solar":                "Solar panel manufacturing, inverters, residential/utility installation. (e.g. FSLR, ENPH, SEDG, RUN, ARRY)",
+        "wind":                 "Wind turbine manufacturing, offshore/onshore wind farms. (e.g. NEE wind, CWEN, VWSYF)",
+        "nuclear_energy":       "Nuclear power generation, SMR development, uranium enrichment. (e.g. CEG, VST nuclear, CCJ, NuScale)",
+        "nuclear_power_ai":     "Power generators with signed PPAs or contracts to supply AI hyperscalers or data centers with baseload electricity. (e.g. CEG, VST, NRG, ETR, DUK)",
+        "uranium":              "Uranium mining, milling, and fuel cycle services. (e.g. CCJ, DNN, UEC, LEU, NXE)",
+        "hydrogen_fuel_cells":  "Green hydrogen production, fuel cell systems, electrolyzer manufacturing. (e.g. PLUG, BE, FCEL)",
+        "battery_storage":      "Grid-scale and EV battery storage systems and cell manufacturing. (e.g. QS, MVST, AMPS, STEM)",
+        "lithium":              "Lithium mining, processing, and battery-grade chemical production. (e.g. ALB, SQM, LAC, LTHM)",
+        "carbon_capture":       "Carbon capture, utilization, and storage (CCUS) technology. (e.g. CTRA CCUS, XOM CCS)",
+        "smart_grid":           "Grid modernization: smart meters, demand response, grid software. (e.g. ITRI, GNRC, AMETEK, REZI)",
+    },
     # ── TRANSPORTATION & EVs ────────────────────────────────────────────────
-    "transportation": [
-        "electric_vehicles",             # TSLA, RIVN, LCID — EV manufacturers
-        "ev_charging",                   # CHPT, BLNK, EVGO — charging networks
-        "ride_sharing",                  # UBER, LYFT — mobility-as-a-service
-        "shipping",                      # ZIM, SBLK, DAC — ocean freight, tankers
-        "rails_freight",                 # UNP, CSX, NSC — rail operators
-        "airlines",                      # DAL, UAL, LUV — passenger airlines
-    ],
+    "transportation": {
+        "electric_vehicles":    "Battery electric vehicle manufacturers and EV-focused startups. (e.g. TSLA, RIVN, LCID, NIO, LI)",
+        "ev_charging":          "EV charging network operators and charging equipment manufacturers. (e.g. CHPT, BLNK, EVGO)",
+        "ride_sharing":         "Ride-hailing and mobility-as-a-service platforms. (e.g. UBER, LYFT, DIDI)",
+        "shipping":             "Ocean freight, dry bulk, container shipping lines. (e.g. ZIM, SBLK, DAC, MATX)",
+        "rails_freight":        "Rail freight carriers and railroad operators. (e.g. UNP, CSX, NSC, CP, CN)",
+        "airlines":             "Passenger airline carriers, both legacy and low-cost. (e.g. DAL, UAL, LUV, AAL, JBLU)",
+    },
     # ── MINING & MATERIALS ──────────────────────────────────────────────────
-    "mining_materials": [
-        "gold_mining",                   # NEM, GOLD, AEM — gold miners
-        "silver_mining",                 # PAAS, HL, AG — silver miners
-        "copper",                        # FCX, SCCO — copper producers
-        "rare_earths",                   # MP, UUUU — rare-earth elements
-        "steel",                         # NUE, STLD, CLF — steel producers
-        "aluminum",                      # AA, CENX — aluminum smelters
-        "agriculture_agtech",            # DE, AGCO, FMC — ag equipment, precision ag
-    ],
+    "mining_materials": {
+        "gold_mining":          "Gold mining and royalty/streaming companies. (e.g. NEM, GOLD, AEM, KGC, WPM)",
+        "silver_mining":        "Primary silver miners and silver streaming companies. (e.g. PAAS, HL, AG, WPM)",
+        "copper":               "Copper mining and smelting — key metal for EVs and grid infrastructure. (e.g. FCX, SCCO, TECK)",
+        "rare_earths":          "Rare earth element mining, separation, and magnet production. (e.g. MP, UUUU, NMP)",
+        "steel":                "Steel production, mini-mills, flat-rolled and structural steel. (e.g. NUE, STLD, CLF, X)",
+        "aluminum":             "Primary aluminum smelting and downstream aluminum products. (e.g. AA, CENX, CSTM)",
+        "agriculture_agtech":   "Agricultural equipment, precision farming, crop inputs, ag-biotech. (e.g. DE, AGCO, FMC, CTVA)",
+    },
     # ── CONSUMER DIGITAL ────────────────────────────────────────────────────
-    "consumer_digital": [
-        "e_commerce",                    # AMZN, SHOP, MELI — online retail
-        "social_media",                  # META, SNAP, PINS — social platforms
-        "streaming",                     # NFLX, DIS+, ROKU — video/audio streaming
-        "esports_gaming",                # RBLX, EA, TTWO, U — gaming publishers/platforms
-        "food_delivery",                 # DASH, UBER Eats — delivery platforms
-        "education_tech",                # DUOL, CHGG, COUR — edtech
-    ],
+    "consumer_digital": {
+        "e_commerce":           "Online retail marketplaces and direct-to-consumer e-commerce platforms. (e.g. AMZN, SHOP, MELI, ETSY, PDD)",
+        "social_media":         "Social networking platforms monetized via advertising or subscriptions. (e.g. META, SNAP, PINS, RDDT)",
+        "streaming":            "Video and audio streaming services. (e.g. NFLX, DIS+, ROKU, SPOT, PARA+)",
+        "esports_gaming":       "Video game publishers, gaming platforms, and esports leagues. (e.g. RBLX, EA, TTWO, U, ATVI)",
+        "food_delivery":        "On-demand food and grocery delivery platforms. (e.g. DASH, UBER Eats, TKWY)",
+        "education_tech":       "Online learning platforms and education technology. (e.g. DUOL, CHGG, COUR, UDMY)",
+        "digital_advertising":  "Digital and programmatic advertising platforms generating ad revenue at scale. (e.g. GOOGL Ads, META Ads, TTD, AMZN Ads, PUBM, MGNI, IAS)",
+    },
     # ── CONSUMER LIFESTYLE ──────────────────────────────────────────────────
-    "consumer_lifestyle": [
-        "travel_tech",                   # BKNG, ABNB, EXPE — online travel
-        "gig_economy",                   # FVRR, UPWK — freelance platforms
-        "luxury_brands",                 # TPR, CPRI, RH — luxury goods
-        "restaurant_tech",               # TOST, PAR — restaurant POS/platforms
-        "pet_economy",                   # CHWY, WOOF, ZTS — pet products/services
-        "athleisure_wellness",           # LULU, PTON, NKE — fitness/wellness
-    ],
+    "consumer_lifestyle": {
+        "travel_tech":          "Online travel agencies, booking platforms, vacation rental. (e.g. BKNG, ABNB, EXPE, TRIP)",
+        "gig_economy":          "Online marketplaces connecting freelance workers with clients. (e.g. FVRR, UPWK)",
+        "luxury_brands":        "Premium and luxury consumer goods: fashion, accessories, jewelry. (e.g. TPR, CPRI, RH)",
+        "restaurant_tech":      "Restaurant management software, POS systems, ordering platforms. (e.g. TOST, PAR, YELP)",
+        "pet_economy":          "Pet food, veterinary services, pet accessories and insurance. (e.g. CHWY, WOOF, ZTS, TRUP)",
+        "athleisure_wellness":  "Athletic apparel, fitness equipment, wellness apps. (e.g. LULU, PTON, NKE, UA)",
+    },
     # ── DEFENSE & AEROSPACE ─────────────────────────────────────────────────
-    "defense_aerospace": [
-        "defense_contractors",           # LMT, RTX, NOC, GD — prime defense
-        "defense_tech",                  # PLTR, BWXT — defense software/tech
-        "commercial_aerospace",          # BA, AIR, SPR — commercial aviation
-        "hypersonics_missiles",          # LMT, RTX — hypersonic, missile systems
-        "border_surveillance",           # FLIR, DRS — border/surveillance tech
-    ],
+    "defense_aerospace": {
+        "defense_contractors":  "Prime defense contractors: weapons systems, aircraft, naval vessels. (e.g. LMT, RTX, NOC, GD, BA defense)",
+        "defense_tech":         "Defense software, analytics, AI for military and government. (e.g. PLTR, BWXT, LDOS, SAIC, CACI)",
+        "commercial_aerospace": "Commercial aircraft manufacturing, aerostructures, MRO services. (e.g. BA, SPR, HXL, TDG, HEICO)",
+        "hypersonics_missiles": "Hypersonic weapons, directed energy, advanced missile systems. (e.g. LMT, RTX, NOC)",
+        "border_surveillance":  "Border security, surveillance technology, biometrics. (e.g. AXON, FLIR/TTEC, DRS)",
+    },
     # ── INFRASTRUCTURE & INDUSTRIAL ─────────────────────────────────────────
-    "industrial_infra": [
-        "construction_engineering",      # CAT, DE, VMC, MLM — heavy equipment, materials
-        "water_treatment",               # XYL, WMS, WTRG — water infrastructure
-        "waste_management",              # WM, RSG, CLH — waste/recycling
-    ],
+    "industrial_infra": {
+        "construction_engineering": "Heavy construction, engineering services, building materials. (e.g. CAT, VMC, MLM, PWR, FLR)",
+        "water_treatment":          "Water utilities, industrial water treatment, filtration systems. (e.g. XYL, WMS, WTRG, ERII)",
+        "waste_management":         "Waste collection, recycling, and environmental services. (e.g. WM, RSG, CLH, SRCL)",
+    },
     # ── REAL ESTATE VERTICALS ───────────────────────────────────────────────
-    "real_estate_verticals": [
-        "data_center_reits",             # EQIX, DLR — data center REITs
-        "cell_tower_reits",              # AMT, CCI, SBAC — cell tower REITs
-        "healthcare_reits",              # VTR, WELL, OHI — healthcare REITs
-    ],
+    "real_estate_verticals": {
+        "data_center_reits":    "REITs that own and lease data center facilities. (e.g. EQIX, DLR, VNET, IRM digital, QTS)",
+        "cell_tower_reits":     "REITs that own wireless tower infrastructure. (e.g. AMT, CCI, SBAC, UNIT)",
+        "healthcare_reits":     "REITs focused on senior housing, medical offices, hospitals. (e.g. VTR, WELL, OHI, NHI)",
+    },
 }
 
 ALL_THEMES: Set[str] = set()
 THEME_TO_CATEGORY: Dict[str, str] = {}
-for category, themes in THEMATIC_CATALOG.items():
-    ALL_THEMES.update(themes)
-    for t in themes:
+for category, theme_dict in THEMATIC_CATALOG.items():
+    ALL_THEMES.update(theme_dict.keys())
+    for t in theme_dict.keys():
         THEME_TO_CATEGORY[t] = category
 
 
@@ -608,7 +616,7 @@ for category, themes in THEMATIC_CATALOG.items():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 CLASSIFICATION_PROMPT = """\
-You are a senior financial data analyst at MSCI. Classify each company below using EXACTLY the GICS taxonomy provided and assign thematic investment tags.
+You are a senior financial data analyst specializing in equity classification for a professional trading platform. Today's date is {today}. Classify each company below using EXACTLY the GICS taxonomy provided and assign thematic investment tags.
 
 ## CLASSIFICATION RULES (GICS methodology)
 1. PRIMARY: Classify by the business activity generating >60% of revenue.
@@ -619,11 +627,12 @@ You are a senior financial data analyst at MSCI. Classify each company below usi
 6. company_name_clean: Remove suffixes like "Inc.", "Corp.", "Ltd.", "Common Stock", "Class A", etc. Keep the essential brand name.
 
 ## THEMATIC TAGS RULES
-1. Assign 0-8 thematic tags per company. ONLY from the CANONICAL list below.
-2. A tag applies ONLY if the company derives meaningful revenue from that area OR is widely recognized by investors as part of that theme.
-3. For each tag, assign a relevance score (0.50-1.00): 1.00 = core business, 0.70 = significant segment, 0.50 = emerging/minor exposure.
-4. Do NOT over-tag. If unsure, skip the tag. Precision > recall.
-5. Funds/SPACs/shells: assign zero thematic tags (empty array).
+1. Assign 0-12 thematic tags per company. ONLY from the CANONICAL list below.
+2. A tag applies if the company derives revenue from that area, OR if investors widely trade it as part of that theme.
+3. For each tag, assign a relevance score (0.50-1.00): 1.00 = core business, 0.70 = significant segment, 0.50 = notable exposure or thematic association.
+4. Be thorough: a company can belong to multiple themes. Assign all that apply with score ≥ 0.50.
+5. If a company pivoted its business model recently (e.g. miners becoming AI data center operators), classify based on its CURRENT business as described, not only its original business.
+6. Funds/SPACs/shells: assign zero thematic tags (empty array).
 
 ## GICS SECTORS (pick ONE)
 {sectors}
@@ -631,7 +640,8 @@ You are a senior financial data analyst at MSCI. Classify each company below usi
 ## GICS TAXONOMY (sector → industry → sub_industry)
 {taxonomy}
 
-## THEMATIC TAGS CATALOG (category: tags)
+## THEMATIC TAGS CATALOG
+Each tag includes a description and examples. Assign any tag that fits the company.
 {themes}
 
 ## COMPANIES TO CLASSIFY
@@ -648,7 +658,7 @@ You are a senior financial data analyst at MSCI. Classify each company below usi
     "is_operating": true,
     "themes": [
       {{"tag": "semiconductors", "relevance": 0.60}},
-      {{"tag": "artificial_intelligence", "relevance": 0.70}}
+      {{"tag": "artificial_intelligence", "relevance": 0.80}}
     ]
   }}
 ]
@@ -668,15 +678,17 @@ def _build_taxonomy_text() -> str:
 
 def _build_themes_text() -> str:
     lines = []
-    for category, themes in THEMATIC_CATALOG.items():
-        lines.append(f"  {category}: {', '.join(themes)}")
+    for category, theme_dict in THEMATIC_CATALOG.items():
+        lines.append(f"\n[{category.upper()}]")
+        for tag, description in theme_dict.items():
+            lines.append(f"  {tag} — {description}")
     return "\n".join(lines)
 
 
 def _build_company_block(companies: List[Dict]) -> str:
     lines = []
     for c in companies:
-        desc = (c.get("description") or "")[:400]
+        desc = (c.get("description") or "")[:700]
         lines.append(
             f"- {c['symbol']}: {c.get('company_name', 'N/A')} | "
             f"SIC Industry: {c.get('industry', 'N/A')} | "
@@ -744,6 +756,7 @@ async def _classify_batch(companies: List[Dict], genai_client) -> List[Dict]:
     from google.genai import types
 
     prompt = CLASSIFICATION_PROMPT.format(
+        today=datetime.utcnow().strftime("%B %Y"),
         sectors=SECTORS_TEXT,
         taxonomy=TAXONOMY_TEXT,
         themes=THEMES_TEXT,
