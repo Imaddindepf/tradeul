@@ -65,6 +65,7 @@ class EnrichmentPipeline:
     # Refresh intervals for slow-changing caches (seconds)
     _METADATA_REFRESH_INTERVAL = 300   # 5 minutes
     _SCREENER_DAILY_REFRESH_INTERVAL = 300  # 5 minutes
+    _DILUTION_SCORES_REFRESH_INTERVAL = 300  # 5 minutes
     
     def __init__(
         self,
@@ -100,6 +101,10 @@ class EnrichmentPipeline:
         # Daily indicators cache — from screener:daily_indicators:latest (refreshed every 5 min)
         self._screener_daily_cache: Dict[str, dict] = {}
         self._screener_daily_last_refresh: float = 0.0
+
+        # Dilution scores cache — from dilution:scores:latest (refreshed every 5 min)
+        self._dilution_scores_cache: Dict[str, dict] = {}
+        self._dilution_scores_last_refresh: float = 0.0
         
         # State
         self._last_processed_timestamp = None
@@ -285,7 +290,7 @@ class EnrichmentPipeline:
             total_count = len(enriched_tickers)
             logger.info("first_cycle_full_write", total=total_count)
         else:
-            changed, total_count, changed_count = self._change_detector.detect_changes(enriched_tickers)
+            changed, total_count, changed_count, _removed_symbols = self._change_detector.detect_changes(enriched_tickers)
         
         # Write to Redis Hash (only changed tickers)
         if changed:
@@ -444,6 +449,12 @@ class EnrichmentPipeline:
                 ticker_data['chg_10min'] = price_windows.chg_10min
                 ticker_data['chg_15min'] = price_windows.chg_15min
                 ticker_data['chg_30min'] = price_windows.chg_30min
+                ticker_data['chg_1min_dollars'] = price_windows.chg_1min_dollars
+                ticker_data['chg_2min_dollars'] = price_windows.chg_2min_dollars
+                ticker_data['chg_5min_dollars'] = price_windows.chg_5min_dollars
+                ticker_data['chg_10min_dollars'] = price_windows.chg_10min_dollars
+                ticker_data['chg_15min_dollars'] = price_windows.chg_15min_dollars
+                ticker_data['chg_30min_dollars'] = price_windows.chg_30min_dollars
         
         if not has_per_second_chg:
             if self.bar_engine and self.bar_engine.has_data(symbol):
@@ -454,6 +465,12 @@ class EnrichmentPipeline:
                 ticker_data['chg_10min'] = self.bar_engine.get_price_change(symbol, 10)
                 ticker_data['chg_15min'] = self.bar_engine.get_price_change(symbol, 15)
                 ticker_data['chg_30min'] = self.bar_engine.get_price_change(symbol, 30)
+                ticker_data['chg_1min_dollars'] = self.bar_engine.get_price_change_dollars(symbol, 1)
+                ticker_data['chg_2min_dollars'] = self.bar_engine.get_price_change_dollars(symbol, 2)
+                ticker_data['chg_5min_dollars'] = self.bar_engine.get_price_change_dollars(symbol, 5)
+                ticker_data['chg_10min_dollars'] = self.bar_engine.get_price_change_dollars(symbol, 10)
+                ticker_data['chg_15min_dollars'] = self.bar_engine.get_price_change_dollars(symbol, 15)
+                ticker_data['chg_30min_dollars'] = self.bar_engine.get_price_change_dollars(symbol, 30)
             else:
                 ticker_data.setdefault('chg_1min', None)
                 ticker_data.setdefault('chg_2min', None)
@@ -461,6 +478,12 @@ class EnrichmentPipeline:
                 ticker_data.setdefault('chg_10min', None)
                 ticker_data.setdefault('chg_15min', None)
                 ticker_data.setdefault('chg_30min', None)
+                ticker_data.setdefault('chg_1min_dollars', None)
+                ticker_data.setdefault('chg_2min_dollars', None)
+                ticker_data.setdefault('chg_5min_dollars', None)
+                ticker_data.setdefault('chg_10min_dollars', None)
+                ticker_data.setdefault('chg_15min_dollars', None)
+                ticker_data.setdefault('chg_30min_dollars', None)
         
         # ================================================================
         # Price range windows: Range2..Range120 ($) and Range2P..Range120P (% of ATR)
@@ -519,6 +542,8 @@ class EnrichmentPipeline:
                 ticker_data['stoch_d'] = indicators.stoch_d
                 ticker_data['chg_60min'] = indicators.chg_60m
                 ticker_data['chg_120min'] = indicators.chg_120m if hasattr(indicators, 'chg_120m') else self.bar_engine.get_price_change(symbol, 120)
+                ticker_data['chg_60min_dollars'] = self.bar_engine.get_price_change_dollars(symbol, 60)
+                ticker_data['chg_120min_dollars'] = self.bar_engine.get_price_change_dollars(symbol, 120)
                 ticker_data['vol_60min'] = indicators.vol_60m
                 ticker_data['consecutive_candles'] = self.bar_engine.get_consecutive_candles(symbol)
 
@@ -538,6 +563,16 @@ class EnrichmentPipeline:
             # No BarEngine data - set all to None for consistent schema
             for key in _indicator_keys:
                 ticker_data.setdefault(key, None)
+
+        # Ensure dollar change windows are always present in schema
+        ticker_data.setdefault('chg_1min_dollars', None)
+        ticker_data.setdefault('chg_2min_dollars', None)
+        ticker_data.setdefault('chg_5min_dollars', None)
+        ticker_data.setdefault('chg_10min_dollars', None)
+        ticker_data.setdefault('chg_15min_dollars', None)
+        ticker_data.setdefault('chg_30min_dollars', None)
+        ticker_data.setdefault('chg_60min_dollars', None)
+        ticker_data.setdefault('chg_120min_dollars', None)
         
         # Trades anomaly detection
         trades_today = 0
@@ -929,6 +964,22 @@ class EnrichmentPipeline:
                 ticker_data['postmarket_volume'] = None
         else:
             ticker_data['postmarket_volume'] = None
+
+        # ================================================================
+        # Dilution risk scores (from dilution:scores:latest, refreshed every 5 min)
+        # Null for tickers not in the dilution tracker DB (e.g. AAPL, MSFT).
+        # ================================================================
+        dil = self._dilution_scores_cache.get(symbol, {})
+        ticker_data['dilution_overall_risk'] = dil.get('overall_risk')
+        ticker_data['dilution_overall_risk_score'] = dil.get('overall_risk_score')
+        ticker_data['dilution_offering_ability'] = dil.get('offering_ability')
+        ticker_data['dilution_offering_ability_score'] = dil.get('offering_ability_score')
+        ticker_data['dilution_overhead_supply'] = dil.get('overhead_supply')
+        ticker_data['dilution_overhead_supply_score'] = dil.get('overhead_supply_score')
+        ticker_data['dilution_historical'] = dil.get('historical_dilution')
+        ticker_data['dilution_historical_score'] = dil.get('historical_dilution_score')
+        ticker_data['dilution_cash_need'] = dil.get('cash_need')
+        ticker_data['dilution_cash_need_score'] = dil.get('cash_need_score')
 
         # Strip noisy/unused fields to reduce serialization and false changes
         self._strip_noisy_fields(ticker_data)
@@ -1425,6 +1476,10 @@ class EnrichmentPipeline:
         if now - self._screener_daily_last_refresh > self._SCREENER_DAILY_REFRESH_INTERVAL:
             await self._refresh_screener_daily_cache()
             self._screener_daily_last_refresh = now
+
+        if now - self._dilution_scores_last_refresh > self._DILUTION_SCORES_REFRESH_INTERVAL:
+            await self._refresh_dilution_scores_cache()
+            self._dilution_scores_last_refresh = now
     
     async def _refresh_metadata_cache(self) -> None:
         """
@@ -1598,6 +1653,32 @@ class EnrichmentPipeline:
         except Exception as e:
             logger.error("screener_daily_cache_refresh_error", error=str(e))
     
+    async def _refresh_dilution_scores_cache(self) -> None:
+        """
+        Load dilution risk scores from dilution:scores:latest Redis hash into memory.
+        Refreshed every 5 minutes (same cadence as screener daily cache).
+        Tickers absent from the hash will have dilution_* fields as None.
+        """
+        try:
+            raw = await self.redis.client.hgetall("dilution:scores:latest")
+            if not raw:
+                logger.debug("dilution_scores_cache_empty")
+                return
+
+            new_cache: Dict[str, dict] = {}
+            for ticker_bytes, payload_bytes in raw.items():
+                try:
+                    ticker = ticker_bytes.decode() if isinstance(ticker_bytes, bytes) else ticker_bytes
+                    payload = orjson.loads(payload_bytes)
+                    new_cache[ticker] = payload
+                except Exception:
+                    continue
+
+            self._dilution_scores_cache = new_cache
+            logger.debug("dilution_scores_cache_refreshed", tickers=len(new_cache))
+        except Exception as e:
+            logger.error("dilution_scores_cache_refresh_error", error=str(e))
+
     @staticmethod
     def _safe_float(val) -> Optional[float]:
         """Convert value to float safely, return None if not possible."""

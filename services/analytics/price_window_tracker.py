@@ -47,6 +47,12 @@ class PriceChangeResult(NamedTuple):
     chg_10min: Optional[float]
     chg_15min: Optional[float]
     chg_30min: Optional[float]
+    chg_1min_dollars: Optional[float]
+    chg_2min_dollars: Optional[float]
+    chg_5min_dollars: Optional[float]
+    chg_10min_dollars: Optional[float]
+    chg_15min_dollars: Optional[float]
+    chg_30min_dollars: Optional[float]
     price_5min_ago: Optional[float]
 
 
@@ -67,6 +73,8 @@ RANGE_WINDOWS_SEC = {2: 120, 5: 300, 15: 900, 30: 1800, 60: 3600, 120: 7200}
 class PriceTrackerConfig:
     """Configuration for PriceWindowTracker"""
     max_symbols: int = 10000
+    grow_by: int = 2500
+    max_symbols_limit: Optional[int] = 30000
     window_size: int = 7201       # 2h + 1s to support 120-min range lookback
     min_data_points: int = 2
 
@@ -99,7 +107,7 @@ class PriceWindowTracker:
     __slots__ = (
         'config', 'symbol_index', 'next_index',
         'timestamps', 'prices', 'heads', 'counts',
-        '_last_update_second'
+        '_last_update_second', '_capacity'
     )
     
     def __init__(self, config: Optional[PriceTrackerConfig] = None):
@@ -110,6 +118,7 @@ class PriceWindowTracker:
             config: Optional configuration. Uses defaults if not provided.
         """
         self.config = config or PriceTrackerConfig()
+        self._capacity: int = self.config.max_symbols
         
         # Symbol → array index mapping
         self.symbol_index: Dict[str, int] = {}
@@ -118,20 +127,20 @@ class PriceWindowTracker:
         # Pre-allocated numpy arrays (contiguous memory)
         # Using int64 for timestamps, float64 for prices (need decimals!)
         self.timestamps = np.zeros(
-            (self.config.max_symbols, self.config.window_size),
+            (self._capacity, self.config.window_size),
             dtype=np.int64
         )
         self.prices = np.zeros(
-            (self.config.max_symbols, self.config.window_size),
+            (self._capacity, self.config.window_size),
             dtype=np.float64  # float64 for price precision
         )
         
         # Head pointers and counts (int32 sufficient)
-        self.heads = np.zeros(self.config.max_symbols, dtype=np.int32)
-        self.counts = np.zeros(self.config.max_symbols, dtype=np.int32)
+        self.heads = np.zeros(self._capacity, dtype=np.int32)
+        self.counts = np.zeros(self._capacity, dtype=np.int32)
         
         # Track last update second per symbol to avoid duplicate updates
-        self._last_update_second = np.zeros(self.config.max_symbols, dtype=np.int64)
+        self._last_update_second = np.zeros(self._capacity, dtype=np.int64)
         
         # Calculate memory usage
         memory_bytes = (
@@ -144,9 +153,53 @@ class PriceWindowTracker:
         
         logger.info(
             "price_window_tracker_initialized",
-            max_symbols=self.config.max_symbols,
+            max_symbols=self._capacity,
             window_size=self.config.window_size,
             memory_mb=round(memory_bytes / 1024 / 1024, 2)
+        )
+
+    def _expand_capacity(self, symbol: str) -> None:
+        """Expand internal arrays when tracked symbol capacity is reached."""
+        grow_by = max(1, self.config.grow_by)
+        old_capacity = self._capacity
+        new_capacity = old_capacity + grow_by
+
+        if self.config.max_symbols_limit is not None:
+            new_capacity = min(new_capacity, self.config.max_symbols_limit)
+
+        if new_capacity <= old_capacity:
+            logger.warning(
+                "max_symbols_reached",
+                max=old_capacity,
+                symbol=symbol,
+                max_symbols_limit=self.config.max_symbols_limit,
+            )
+            raise RuntimeError(
+                f"Max symbols ({old_capacity}) exceeded and cannot grow further"
+            )
+
+        rows_to_add = new_capacity - old_capacity
+        self.timestamps = np.pad(self.timestamps, ((0, rows_to_add), (0, 0)), mode="constant")
+        self.prices = np.pad(self.prices, ((0, rows_to_add), (0, 0)), mode="constant")
+        self.heads = np.pad(self.heads, (0, rows_to_add), mode="constant")
+        self.counts = np.pad(self.counts, (0, rows_to_add), mode="constant")
+        self._last_update_second = np.pad(self._last_update_second, (0, rows_to_add), mode="constant")
+        self._capacity = new_capacity
+
+        memory_bytes = (
+            self.timestamps.nbytes
+            + self.prices.nbytes
+            + self.heads.nbytes
+            + self.counts.nbytes
+            + self._last_update_second.nbytes
+        )
+        logger.info(
+            "price_window_tracker_capacity_expanded",
+            old_capacity=old_capacity,
+            new_capacity=new_capacity,
+            grow_by=rows_to_add,
+            symbol=symbol,
+            memory_mb=round(memory_bytes / 1024 / 1024, 2),
         )
     
     def _get_or_create_index(self, symbol: str) -> int:
@@ -165,13 +218,8 @@ class PriceWindowTracker:
         if symbol in self.symbol_index:
             return self.symbol_index[symbol]
         
-        if self.next_index >= self.config.max_symbols:
-            logger.warning(
-                "max_symbols_reached",
-                max=self.config.max_symbols,
-                symbol=symbol
-            )
-            raise RuntimeError(f"Max symbols ({self.config.max_symbols}) exceeded")
+        if self.next_index >= self._capacity:
+            self._expand_capacity(symbol)
         
         idx = self.next_index
         self.symbol_index[symbol] = idx
@@ -352,20 +400,20 @@ class PriceWindowTracker:
             PriceChangeResult with chg_1min, chg_5min, chg_10min, chg_15min, chg_30min
         """
         if symbol not in self.symbol_index:
-            return PriceChangeResult(None, None, None, None, None, None, None)
+            return PriceChangeResult(None, None, None, None, None, None, None, None, None, None, None, None, None)
         
         idx = self.symbol_index[symbol]
         count = self.counts[idx]
         
         if count < self.config.min_data_points:
-            return PriceChangeResult(None, None, None, None, None, None, None)
+            return PriceChangeResult(None, None, None, None, None, None, None, None, None, None, None, None, None)
         
         head = self.heads[idx]
         price_now = self.prices[idx, head]
         ts_now = self.timestamps[idx, head]  # This is our reference point
         
         if price_now <= 0:
-            return PriceChangeResult(None, None, None, None, None, None, None)
+            return PriceChangeResult(None, None, None, None, None, None, None, None, None, None, None, None, None)
         
         # Target timestamps for each window (in seconds from ts_now)
         targets = {
@@ -407,6 +455,12 @@ class PriceWindowTracker:
             chg_10min=results[10],
             chg_15min=results[15],
             chg_30min=results[30],
+            chg_1min_dollars=round(price_now - prices_past[1], 4) if prices_past[1] is not None else None,
+            chg_2min_dollars=round(price_now - prices_past[2], 4) if prices_past[2] is not None else None,
+            chg_5min_dollars=round(price_now - prices_past[5], 4) if prices_past[5] is not None else None,
+            chg_10min_dollars=round(price_now - prices_past[10], 4) if prices_past[10] is not None else None,
+            chg_15min_dollars=round(price_now - prices_past[15], 4) if prices_past[15] is not None else None,
+            chg_30min_dollars=round(price_now - prices_past[30], 4) if prices_past[30] is not None else None,
             price_5min_ago=prices_past[5]
         )
     
@@ -508,10 +562,11 @@ class PriceWindowTracker:
         return {
             "symbols_registered": len(self.symbol_index),
             "symbols_active": active_symbols,
-            "max_symbols": self.config.max_symbols,
+            "max_symbols": self._capacity,
+            "max_symbols_limit": self.config.max_symbols_limit,
             "window_size_seconds": self.config.window_size,
             "memory_mb": round(memory_bytes / 1024 / 1024, 2),
-            "utilization_pct": round(len(self.symbol_index) / self.config.max_symbols * 100, 1)
+            "utilization_pct": round(len(self.symbol_index) / self._capacity * 100, 1)
         }
     
     def clear_symbol(self, symbol: str) -> bool:

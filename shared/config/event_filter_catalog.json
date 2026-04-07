@@ -1,0 +1,2333 @@
+{
+  "version": 1,
+  "numeric": [
+    {
+      "subKey": "priceMin",
+      "dataKey": "price_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "priceMax",
+      "dataKey": "price_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rvolMin",
+      "dataKey": "rvol_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rvolMax",
+      "dataKey": "rvol_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeMin",
+      "dataKey": "change_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeMax",
+      "dataKey": "change_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "volumeMin",
+      "dataKey": "volume_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "volumeMax",
+      "dataKey": "volume_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "gapPercentMin",
+      "dataKey": "gap_percent_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "gapPercentMax",
+      "dataKey": "gap_percent_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromOpenMin",
+      "dataKey": "change_from_open_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromOpenMax",
+      "dataKey": "change_from_open_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "atrPercentMin",
+      "dataKey": "atr_percent_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "atrPercentMax",
+      "dataKey": "atr_percent_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsiMin",
+      "dataKey": "rsi_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsiMax",
+      "dataKey": "rsi_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "marketCapMin",
+      "dataKey": "market_cap_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "marketCapMax",
+      "dataKey": "market_cap_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "floatSharesMin",
+      "dataKey": "float_shares_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "floatSharesMax",
+      "dataKey": "float_shares_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sharesOutstandingMin",
+      "dataKey": "shares_outstanding_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sharesOutstandingMax",
+      "dataKey": "shares_outstanding_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol1minMin",
+      "dataKey": "vol_1min_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol1minMax",
+      "dataKey": "vol_1min_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol5minMin",
+      "dataKey": "vol_5min_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol5minMax",
+      "dataKey": "vol_5min_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol10minMin",
+      "dataKey": "vol_10min_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol10minMax",
+      "dataKey": "vol_10min_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol15minMin",
+      "dataKey": "vol_15min_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol15minMax",
+      "dataKey": "vol_15min_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol30minMin",
+      "dataKey": "vol_30min_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol30minMax",
+      "dataKey": "vol_30min_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "vol1minPctMin",
+      "dataKey": "vol_1min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol1minPctMax",
+      "dataKey": "vol_1min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol5minPctMin",
+      "dataKey": "vol_5min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol5minPctMax",
+      "dataKey": "vol_5min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol10minPctMin",
+      "dataKey": "vol_10min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol10minPctMax",
+      "dataKey": "vol_10min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol15minPctMin",
+      "dataKey": "vol_15min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol15minPctMax",
+      "dataKey": "vol_15min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol30minPctMin",
+      "dataKey": "vol_30min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vol30minPctMax",
+      "dataKey": "vol_30min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range2minMin",
+      "dataKey": "range_2min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range2minMax",
+      "dataKey": "range_2min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range5minMin",
+      "dataKey": "range_5min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range5minMax",
+      "dataKey": "range_5min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range15minMin",
+      "dataKey": "range_15min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range15minMax",
+      "dataKey": "range_15min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range30minMin",
+      "dataKey": "range_30min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range30minMax",
+      "dataKey": "range_30min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range60minMin",
+      "dataKey": "range_60min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range60minMax",
+      "dataKey": "range_60min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range120minMin",
+      "dataKey": "range_120min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range120minMax",
+      "dataKey": "range_120min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range2minPctMin",
+      "dataKey": "range_2min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range2minPctMax",
+      "dataKey": "range_2min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range5minPctMin",
+      "dataKey": "range_5min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range5minPctMax",
+      "dataKey": "range_5min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range15minPctMin",
+      "dataKey": "range_15min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range15minPctMax",
+      "dataKey": "range_15min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range30minPctMin",
+      "dataKey": "range_30min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range30minPctMax",
+      "dataKey": "range_30min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range60minPctMin",
+      "dataKey": "range_60min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range60minPctMax",
+      "dataKey": "range_60min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range120minPctMin",
+      "dataKey": "range_120min_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range120minPctMax",
+      "dataKey": "range_120min_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg1minMin",
+      "dataKey": "chg_1min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg1minMax",
+      "dataKey": "chg_1min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg1minDollarsMin",
+      "dataKey": "chg_1min_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg1minDollarsMax",
+      "dataKey": "chg_1min_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg5minMin",
+      "dataKey": "chg_5min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg5minMax",
+      "dataKey": "chg_5min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg5minDollarsMin",
+      "dataKey": "chg_5min_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg5minDollarsMax",
+      "dataKey": "chg_5min_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg10minMin",
+      "dataKey": "chg_10min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg10minMax",
+      "dataKey": "chg_10min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg10minDollarsMin",
+      "dataKey": "chg_10min_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg10minDollarsMax",
+      "dataKey": "chg_10min_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg15minMin",
+      "dataKey": "chg_15min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg15minMax",
+      "dataKey": "chg_15min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg15minDollarsMin",
+      "dataKey": "chg_15min_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg15minDollarsMax",
+      "dataKey": "chg_15min_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg30minMin",
+      "dataKey": "chg_30min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg30minMax",
+      "dataKey": "chg_30min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg30minDollarsMin",
+      "dataKey": "chg_30min_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg30minDollarsMax",
+      "dataKey": "chg_30min_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg60minMin",
+      "dataKey": "chg_60min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg60minMax",
+      "dataKey": "chg_60min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg60minDollarsMin",
+      "dataKey": "chg_60min_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg60minDollarsMax",
+      "dataKey": "chg_60min_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bidMin",
+      "dataKey": "bid_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bidMax",
+      "dataKey": "bid_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "askMin",
+      "dataKey": "ask_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "askMax",
+      "dataKey": "ask_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bidSizeMin",
+      "dataKey": "bid_size_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "bidSizeMax",
+      "dataKey": "bid_size_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "askSizeMin",
+      "dataKey": "ask_size_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "askSizeMax",
+      "dataKey": "ask_size_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "spreadMin",
+      "dataKey": "spread_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spreadMax",
+      "dataKey": "spread_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma5Min",
+      "dataKey": "sma_5_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma5Max",
+      "dataKey": "sma_5_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8Min",
+      "dataKey": "sma_8_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8Max",
+      "dataKey": "sma_8_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20Min",
+      "dataKey": "sma_20_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20Max",
+      "dataKey": "sma_20_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma50Min",
+      "dataKey": "sma_50_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma50Max",
+      "dataKey": "sma_50_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma200Min",
+      "dataKey": "sma_200_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma200Max",
+      "dataKey": "sma_200_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "ema20Min",
+      "dataKey": "ema_20_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "ema20Max",
+      "dataKey": "ema_20_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "ema50Min",
+      "dataKey": "ema_50_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "ema50Max",
+      "dataKey": "ema_50_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "macdLineMin",
+      "dataKey": "macd_line_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "macdLineMax",
+      "dataKey": "macd_line_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "macdHistMin",
+      "dataKey": "macd_hist_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "macdHistMax",
+      "dataKey": "macd_hist_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "stochKMin",
+      "dataKey": "stoch_k_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "stochKMax",
+      "dataKey": "stoch_k_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "stochDMin",
+      "dataKey": "stoch_d_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "stochDMax",
+      "dataKey": "stoch_d_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "adx14Min",
+      "dataKey": "adx_14_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "adx14Max",
+      "dataKey": "adx_14_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbUpperMin",
+      "dataKey": "bb_upper_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbUpperMax",
+      "dataKey": "bb_upper_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbLowerMin",
+      "dataKey": "bb_lower_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbLowerMax",
+      "dataKey": "bb_lower_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma5Min",
+      "dataKey": "daily_sma_5_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma5Max",
+      "dataKey": "daily_sma_5_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma8Min",
+      "dataKey": "daily_sma_8_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma8Max",
+      "dataKey": "daily_sma_8_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma10Min",
+      "dataKey": "daily_sma_10_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma10Max",
+      "dataKey": "daily_sma_10_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma20Min",
+      "dataKey": "daily_sma_20_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma20Max",
+      "dataKey": "daily_sma_20_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma50Min",
+      "dataKey": "daily_sma_50_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma50Max",
+      "dataKey": "daily_sma_50_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma200Min",
+      "dataKey": "daily_sma_200_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailySma200Max",
+      "dataKey": "daily_sma_200_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailyRsiMin",
+      "dataKey": "daily_rsi_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailyRsiMax",
+      "dataKey": "daily_rsi_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "high52wMin",
+      "dataKey": "high_52w_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "high52wMax",
+      "dataKey": "high_52w_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "low52wMin",
+      "dataKey": "low_52w_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "low52wMax",
+      "dataKey": "low_52w_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "tradesTodayMin",
+      "dataKey": "trades_today_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "tradesTodayMax",
+      "dataKey": "trades_today_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "tradesZScoreMin",
+      "dataKey": "trades_z_score_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "tradesZScoreMax",
+      "dataKey": "trades_z_score_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vwapMin",
+      "dataKey": "vwap_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "vwapMax",
+      "dataKey": "vwap_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dollarVolumeMin",
+      "dataKey": "dollar_volume_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dollarVolumeMax",
+      "dataKey": "dollar_volume_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "todaysRangeMin",
+      "dataKey": "todays_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "todaysRangeMax",
+      "dataKey": "todays_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "todaysRangePctMin",
+      "dataKey": "todays_range_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "todaysRangePctMax",
+      "dataKey": "todays_range_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bidAskRatioMin",
+      "dataKey": "bid_ask_ratio_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bidAskRatioMax",
+      "dataKey": "bid_ask_ratio_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "floatTurnoverMin",
+      "dataKey": "float_turnover_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "floatTurnoverMax",
+      "dataKey": "float_turnover_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distFromVwapMin",
+      "dataKey": "dist_from_vwap_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distFromVwapMax",
+      "dataKey": "dist_from_vwap_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5Min",
+      "dataKey": "dist_sma_5_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5Max",
+      "dataKey": "dist_sma_5_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8Min",
+      "dataKey": "dist_sma_8_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8Max",
+      "dataKey": "dist_sma_8_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20Min",
+      "dataKey": "dist_sma_20_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20Max",
+      "dataKey": "dist_sma_20_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma50Min",
+      "dataKey": "dist_sma_50_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma50Max",
+      "dataKey": "dist_sma_50_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200Min",
+      "dataKey": "dist_sma_200_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200Max",
+      "dataKey": "dist_sma_200_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInRangeMin",
+      "dataKey": "pos_in_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInRangeMax",
+      "dataKey": "pos_in_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "belowHighMin",
+      "dataKey": "below_high_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "belowHighMax",
+      "dataKey": "below_high_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "aboveLowMin",
+      "dataKey": "above_low_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "aboveLowMax",
+      "dataKey": "above_low_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posOfOpenMin",
+      "dataKey": "pos_of_open_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posOfOpenMax",
+      "dataKey": "pos_of_open_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "prevDayVolumeMin",
+      "dataKey": "prev_day_volume_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "prevDayVolumeMax",
+      "dataKey": "prev_day_volume_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "change1dMin",
+      "dataKey": "change_1d_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change1dMax",
+      "dataKey": "change_1d_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change3dMin",
+      "dataKey": "change_3d_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change3dMax",
+      "dataKey": "change_3d_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change5dMin",
+      "dataKey": "change_5d_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change5dMax",
+      "dataKey": "change_5d_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change10dMin",
+      "dataKey": "change_10d_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change10dMax",
+      "dataKey": "change_10d_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change20dMin",
+      "dataKey": "change_20d_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change20dMax",
+      "dataKey": "change_20d_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "avgVolume5dMin",
+      "dataKey": "avg_volume_5d_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "avgVolume5dMax",
+      "dataKey": "avg_volume_5d_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "avgVolume10dMin",
+      "dataKey": "avg_volume_10d_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "avgVolume10dMax",
+      "dataKey": "avg_volume_10d_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "avgVolume20dMin",
+      "dataKey": "avg_volume_20d_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "avgVolume20dMax",
+      "dataKey": "avg_volume_20d_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "distDailySma20Min",
+      "dataKey": "dist_daily_sma_20_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma20Max",
+      "dataKey": "dist_daily_sma_20_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma50Min",
+      "dataKey": "dist_daily_sma_50_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma50Max",
+      "dataKey": "dist_daily_sma_50_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "from52wHighMin",
+      "dataKey": "from_52w_high_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "from52wHighMax",
+      "dataKey": "from_52w_high_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "from52wLowMin",
+      "dataKey": "from_52w_low_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "from52wLowMax",
+      "dataKey": "from_52w_low_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailyAdx14Min",
+      "dataKey": "daily_adx_14_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailyAdx14Max",
+      "dataKey": "daily_adx_14_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailyAtrPercentMin",
+      "dataKey": "daily_atr_percent_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailyAtrPercentMax",
+      "dataKey": "daily_atr_percent_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailyBbPositionMin",
+      "dataKey": "daily_bb_position_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "dailyBbPositionMax",
+      "dataKey": "daily_bb_position_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "volumeTodayPctMin",
+      "dataKey": "volume_today_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "volumeTodayPctMax",
+      "dataKey": "volume_today_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "minuteVolumeMin",
+      "dataKey": "minute_volume_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "minuteVolumeMax",
+      "dataKey": "minute_volume_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "priceFromHighMin",
+      "dataKey": "price_from_high_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "priceFromHighMax",
+      "dataKey": "price_from_high_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "priceFromLowMin",
+      "dataKey": "price_from_low_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "priceFromLowMax",
+      "dataKey": "price_from_low_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "priceFromIntradayHighMin",
+      "dataKey": "price_from_intraday_high_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "priceFromIntradayHighMax",
+      "dataKey": "price_from_intraday_high_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "priceFromIntradayLowMin",
+      "dataKey": "price_from_intraday_low_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "priceFromIntradayLowMax",
+      "dataKey": "price_from_intraday_low_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "volumeYesterdayPctMin",
+      "dataKey": "volume_yesterday_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "volumeYesterdayPctMax",
+      "dataKey": "volume_yesterday_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromOpenDollarsMin",
+      "dataKey": "change_from_open_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromOpenDollarsMax",
+      "dataKey": "change_from_open_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distanceFromNbboMin",
+      "dataKey": "distance_from_nbbo_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distanceFromNbboMax",
+      "dataKey": "distance_from_nbbo_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "premarketChangePctMin",
+      "dataKey": "premarket_change_percent_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "premarketChangePctMax",
+      "dataKey": "premarket_change_percent_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "postmarketChangePctMin",
+      "dataKey": "postmarket_change_percent_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "postmarketChangePctMax",
+      "dataKey": "postmarket_change_percent_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "postmarketVolumeMin",
+      "dataKey": "postmarket_volume_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "postmarketVolumeMax",
+      "dataKey": "postmarket_volume_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "avgVolume3mMin",
+      "dataKey": "avg_volume_3m_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "avgVolume3mMax",
+      "dataKey": "avg_volume_3m_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "atrMin",
+      "dataKey": "atr_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "atrMax",
+      "dataKey": "atr_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotMin",
+      "dataKey": "dist_pivot_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotMax",
+      "dataKey": "dist_pivot_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotR1Min",
+      "dataKey": "dist_pivot_r1_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotR1Max",
+      "dataKey": "dist_pivot_r1_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotS1Min",
+      "dataKey": "dist_pivot_s1_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotS1Max",
+      "dataKey": "dist_pivot_s1_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotR2Min",
+      "dataKey": "dist_pivot_r2_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotR2Max",
+      "dataKey": "dist_pivot_r2_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotS2Min",
+      "dataKey": "dist_pivot_s2_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distPivotS2Max",
+      "dataKey": "dist_pivot_s2_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "consecutiveCandlesMin",
+      "dataKey": "consecutive_candles_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandlesMax",
+      "dataKey": "consecutive_candles_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles2mMin",
+      "dataKey": "consecutive_candles_2m_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles2mMax",
+      "dataKey": "consecutive_candles_2m_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles5mMin",
+      "dataKey": "consecutive_candles_5m_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles5mMax",
+      "dataKey": "consecutive_candles_5m_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles10mMin",
+      "dataKey": "consecutive_candles_10m_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles10mMax",
+      "dataKey": "consecutive_candles_10m_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles15mMin",
+      "dataKey": "consecutive_candles_15m_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles15mMax",
+      "dataKey": "consecutive_candles_15m_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles30mMin",
+      "dataKey": "consecutive_candles_30m_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles30mMax",
+      "dataKey": "consecutive_candles_30m_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles60mMin",
+      "dataKey": "consecutive_candles_60m_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveCandles60mMax",
+      "dataKey": "consecutive_candles_60m_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "posInRange5mMin",
+      "dataKey": "pos_in_range_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInRange5mMax",
+      "dataKey": "pos_in_range_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInRange15mMin",
+      "dataKey": "pos_in_range_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInRange15mMax",
+      "dataKey": "pos_in_range_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInRange30mMin",
+      "dataKey": "pos_in_range_30m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInRange30mMax",
+      "dataKey": "pos_in_range_30m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInRange60mMin",
+      "dataKey": "pos_in_range_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInRange60mMax",
+      "dataKey": "pos_in_range_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsi2mMin",
+      "dataKey": "rsi_2m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsi2mMax",
+      "dataKey": "rsi_2m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsi5mMin",
+      "dataKey": "rsi_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsi5mMax",
+      "dataKey": "rsi_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsi15mMin",
+      "dataKey": "rsi_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsi15mMax",
+      "dataKey": "rsi_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsi60mMin",
+      "dataKey": "rsi_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rsi60mMax",
+      "dataKey": "rsi_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbPosition1mMin",
+      "dataKey": "bb_position_1m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbPosition1mMax",
+      "dataKey": "bb_position_1m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbPosition5mMin",
+      "dataKey": "bb_position_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbPosition5mMax",
+      "dataKey": "bb_position_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbPosition15mMin",
+      "dataKey": "bb_position_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbPosition15mMax",
+      "dataKey": "bb_position_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbPosition60mMin",
+      "dataKey": "bb_position_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbPosition60mMax",
+      "dataKey": "bb_position_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg2minMin",
+      "dataKey": "chg_2min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg2minMax",
+      "dataKey": "chg_2min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg120minMin",
+      "dataKey": "chg_120min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg120minMax",
+      "dataKey": "chg_120min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg2minDollarsMin",
+      "dataKey": "chg_2min_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg2minDollarsMax",
+      "dataKey": "chg_2min_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg120minDollarsMin",
+      "dataKey": "chg_120min_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "chg120minDollarsMax",
+      "dataKey": "chg_120min_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "gapDollarsMin",
+      "dataKey": "gap_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "gapDollarsMax",
+      "dataKey": "gap_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "gapRatioMin",
+      "dataKey": "gap_ratio_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "gapRatioMax",
+      "dataKey": "gap_ratio_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromCloseDollarsMin",
+      "dataKey": "change_from_close_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromCloseDollarsMax",
+      "dataKey": "change_from_close_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromCloseRatioMin",
+      "dataKey": "change_from_close_ratio_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromCloseRatioMax",
+      "dataKey": "change_from_close_ratio_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromOpenRatioMin",
+      "dataKey": "change_from_open_ratio_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromOpenRatioMax",
+      "dataKey": "change_from_open_ratio_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "postmarketChangeDollarsMin",
+      "dataKey": "postmarket_change_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "postmarketChangeDollarsMax",
+      "dataKey": "postmarket_change_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "decimalMin",
+      "dataKey": "decimal_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "decimalMax",
+      "dataKey": "decimal_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInPrevDayRangeMin",
+      "dataKey": "pos_in_prev_day_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInPrevDayRangeMax",
+      "dataKey": "pos_in_prev_day_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "plusDiMinusDiMin",
+      "dataKey": "plus_di_minus_di_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "plusDiMinusDiMax",
+      "dataKey": "plus_di_minus_di_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbStdDevMin",
+      "dataKey": "bb_std_dev_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "bbStdDevMax",
+      "dataKey": "bb_std_dev_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5_2mMin",
+      "dataKey": "dist_sma_5_2m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5_2mMax",
+      "dataKey": "dist_sma_5_2m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5_5mMin",
+      "dataKey": "dist_sma_5_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5_5mMax",
+      "dataKey": "dist_sma_5_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5_15mMin",
+      "dataKey": "dist_sma_5_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5_15mMax",
+      "dataKey": "dist_sma_5_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8_2mMin",
+      "dataKey": "dist_sma_8_2m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8_2mMax",
+      "dataKey": "dist_sma_8_2m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8_5mMin",
+      "dataKey": "dist_sma_8_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8_5mMax",
+      "dataKey": "dist_sma_8_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8_15mMin",
+      "dataKey": "dist_sma_8_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8_15mMax",
+      "dataKey": "dist_sma_8_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8_60mMin",
+      "dataKey": "dist_sma_8_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma8_60mMax",
+      "dataKey": "dist_sma_8_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20_2mMin",
+      "dataKey": "dist_sma_20_2m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20_2mMax",
+      "dataKey": "dist_sma_20_2m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20_5mMin",
+      "dataKey": "dist_sma_20_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20_5mMax",
+      "dataKey": "dist_sma_20_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20_15mMin",
+      "dataKey": "dist_sma_20_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20_15mMax",
+      "dataKey": "dist_sma_20_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20_60mMin",
+      "dataKey": "dist_sma_20_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma20_60mMax",
+      "dataKey": "dist_sma_20_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8vs20_2mMin",
+      "dataKey": "sma_8_vs_20_2m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8vs20_2mMax",
+      "dataKey": "sma_8_vs_20_2m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8vs20_5mMin",
+      "dataKey": "sma_8_vs_20_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8vs20_5mMax",
+      "dataKey": "sma_8_vs_20_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8vs20_15mMin",
+      "dataKey": "sma_8_vs_20_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8vs20_15mMax",
+      "dataKey": "sma_8_vs_20_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8vs20_60mMin",
+      "dataKey": "sma_8_vs_20_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma8vs20_60mMax",
+      "dataKey": "sma_8_vs_20_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma200Min",
+      "dataKey": "dist_daily_sma_200_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma200Max",
+      "dataKey": "dist_daily_sma_200_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range5dMin",
+      "dataKey": "range_5d_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range5dMax",
+      "dataKey": "range_5d_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range10dMin",
+      "dataKey": "range_10d_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range10dMax",
+      "dataKey": "range_10d_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range20dMin",
+      "dataKey": "range_20d_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range20dMax",
+      "dataKey": "range_20d_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn5dRangeMin",
+      "dataKey": "pos_in_5d_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn5dRangeMax",
+      "dataKey": "pos_in_5d_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn10dRangeMin",
+      "dataKey": "pos_in_10d_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn10dRangeMax",
+      "dataKey": "pos_in_10d_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn20dRangeMin",
+      "dataKey": "pos_in_20d_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn20dRangeMax",
+      "dataKey": "pos_in_20d_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn52wRangeMin",
+      "dataKey": "pos_in_52w_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn52wRangeMax",
+      "dataKey": "pos_in_52w_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range5dPctMin",
+      "dataKey": "range_5d_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range5dPctMax",
+      "dataKey": "range_5d_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range10dPctMin",
+      "dataKey": "range_10d_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range10dPctMax",
+      "dataKey": "range_10d_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range20dPctMin",
+      "dataKey": "range_20d_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "range20dPctMax",
+      "dataKey": "range_20d_pct_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change5dDollarsMin",
+      "dataKey": "change_5d_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change5dDollarsMax",
+      "dataKey": "change_5d_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change10dDollarsMin",
+      "dataKey": "change_10d_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change10dDollarsMax",
+      "dataKey": "change_10d_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change20dDollarsMin",
+      "dataKey": "change_20d_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change20dDollarsMax",
+      "dataKey": "change_20d_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromOpenWeightedMin",
+      "dataKey": "change_from_open_weighted_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeFromOpenWeightedMax",
+      "dataKey": "change_from_open_weighted_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma5DollarsMin",
+      "dataKey": "dist_daily_sma_5_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma5DollarsMax",
+      "dataKey": "dist_daily_sma_5_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma8DollarsMin",
+      "dataKey": "dist_daily_sma_8_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma8DollarsMax",
+      "dataKey": "dist_daily_sma_8_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma10DollarsMin",
+      "dataKey": "dist_daily_sma_10_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma10DollarsMax",
+      "dataKey": "dist_daily_sma_10_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma20DollarsMin",
+      "dataKey": "dist_daily_sma_20_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma20DollarsMax",
+      "dataKey": "dist_daily_sma_20_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma50DollarsMin",
+      "dataKey": "dist_daily_sma_50_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma50DollarsMax",
+      "dataKey": "dist_daily_sma_50_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma200DollarsMin",
+      "dataKey": "dist_daily_sma_200_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma200DollarsMax",
+      "dataKey": "dist_daily_sma_200_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma5Min",
+      "dataKey": "dist_daily_sma_5_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma5Max",
+      "dataKey": "dist_daily_sma_5_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma8Min",
+      "dataKey": "dist_daily_sma_8_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma8Max",
+      "dataKey": "dist_daily_sma_8_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma10Min",
+      "dataKey": "dist_daily_sma_10_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distDailySma10Max",
+      "dataKey": "dist_daily_sma_10_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20vs200_2mMin",
+      "dataKey": "sma_20_vs_200_2m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20vs200_2mMax",
+      "dataKey": "sma_20_vs_200_2m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20vs200_5mMin",
+      "dataKey": "sma_20_vs_200_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20vs200_5mMax",
+      "dataKey": "sma_20_vs_200_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20vs200_15mMin",
+      "dataKey": "sma_20_vs_200_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20vs200_15mMax",
+      "dataKey": "sma_20_vs_200_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20vs200_60mMin",
+      "dataKey": "sma_20_vs_200_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "sma20vs200_60mMax",
+      "dataKey": "sma_20_vs_200_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change1yMin",
+      "dataKey": "change_1y_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change1yMax",
+      "dataKey": "change_1y_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change1yDollarsMin",
+      "dataKey": "change_1y_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "change1yDollarsMax",
+      "dataKey": "change_1y_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeYtdMin",
+      "dataKey": "change_ytd_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeYtdMax",
+      "dataKey": "change_ytd_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeYtdDollarsMin",
+      "dataKey": "change_ytd_dollars_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changeYtdDollarsMax",
+      "dataKey": "change_ytd_dollars_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "yearlyStdDevMin",
+      "dataKey": "yearly_std_dev_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "yearlyStdDevMax",
+      "dataKey": "yearly_std_dev_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "consecutiveDaysUpMin",
+      "dataKey": "consecutive_days_up_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consecutiveDaysUpMax",
+      "dataKey": "consecutive_days_up_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "distSma10_2mMin",
+      "dataKey": "dist_sma_10_2m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma10_2mMax",
+      "dataKey": "dist_sma_10_2m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma10_5mMin",
+      "dataKey": "dist_sma_10_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma10_5mMax",
+      "dataKey": "dist_sma_10_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma10_15mMin",
+      "dataKey": "dist_sma_10_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma10_15mMax",
+      "dataKey": "dist_sma_10_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma10_60mMin",
+      "dataKey": "dist_sma_10_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma10_60mMax",
+      "dataKey": "dist_sma_10_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma130_15mMin",
+      "dataKey": "dist_sma_130_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma130_15mMax",
+      "dataKey": "dist_sma_130_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200_2mMin",
+      "dataKey": "dist_sma_200_2m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200_2mMax",
+      "dataKey": "dist_sma_200_2m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200_5mMin",
+      "dataKey": "dist_sma_200_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200_5mMax",
+      "dataKey": "dist_sma_200_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200_15mMin",
+      "dataKey": "dist_sma_200_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200_15mMax",
+      "dataKey": "dist_sma_200_15m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200_60mMin",
+      "dataKey": "dist_sma_200_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma200_60mMax",
+      "dataKey": "dist_sma_200_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5_60mMin",
+      "dataKey": "dist_sma_5_60m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distSma5_60mMax",
+      "dataKey": "dist_sma_5_60m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn3mRangeMin",
+      "dataKey": "pos_in_3m_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn3mRangeMax",
+      "dataKey": "pos_in_3m_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn6mRangeMin",
+      "dataKey": "pos_in_6m_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn6mRangeMax",
+      "dataKey": "pos_in_6m_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn9mRangeMin",
+      "dataKey": "pos_in_9m_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn9mRangeMax",
+      "dataKey": "pos_in_9m_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn2yRangeMin",
+      "dataKey": "pos_in_2y_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posIn2yRangeMax",
+      "dataKey": "pos_in_2y_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInLifetimeRangeMin",
+      "dataKey": "pos_in_lifetime_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInLifetimeRangeMax",
+      "dataKey": "pos_in_lifetime_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "belowPremarketHighMin",
+      "dataKey": "below_premarket_high_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "belowPremarketHighMax",
+      "dataKey": "below_premarket_high_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "abovePremarketLowMin",
+      "dataKey": "above_premarket_low_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "abovePremarketLowMax",
+      "dataKey": "above_premarket_low_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInPremarketRangeMin",
+      "dataKey": "pos_in_premarket_range_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInPremarketRangeMax",
+      "dataKey": "pos_in_premarket_range_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "consolidationDaysMin",
+      "dataKey": "consolidation_days_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "consolidationDaysMax",
+      "dataKey": "consolidation_days_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "posInConsolidationMin",
+      "dataKey": "pos_in_consolidation_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "posInConsolidationMax",
+      "dataKey": "pos_in_consolidation_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rangeContractionMin",
+      "dataKey": "range_contraction_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "rangeContractionMax",
+      "dataKey": "range_contraction_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "lrDivergence130Min",
+      "dataKey": "lr_divergence_130_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "lrDivergence130Max",
+      "dataKey": "lr_divergence_130_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changePrevDayPctMin",
+      "dataKey": "change_prev_day_pct_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "changePrevDayPctMax",
+      "dataKey": "change_prev_day_pct_max",
+      "parser": "pf"
+    }
+  ],
+  "string": [
+    {
+      "subKey": "securityType",
+      "dataKey": "security_type"
+    },
+    {
+      "subKey": "sector",
+      "dataKey": "sector"
+    },
+    {
+      "subKey": "industry",
+      "dataKey": "industry"
+    }
+  ],
+  "aliases": {
+    "change_min": "min_change_percent",
+    "change_max": "max_change_percent"
+  }
+}

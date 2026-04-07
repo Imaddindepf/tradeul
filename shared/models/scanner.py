@@ -102,10 +102,15 @@ class ScannerTicker(BaseModel):
     
     # Price change window metrics (% change in last N minutes - per-second precision)
     chg_1min: Optional[float] = Field(None, description="Price change % in last 1 minute")
+    chg_1min_dollars: Optional[float] = Field(None, description="Price change $ in last 1 minute")
     chg_5min: Optional[float] = Field(None, description="Price change % in last 5 minutes")
+    chg_5min_dollars: Optional[float] = Field(None, description="Price change $ in last 5 minutes")
     chg_10min: Optional[float] = Field(None, description="Price change % in last 10 minutes")
+    chg_10min_dollars: Optional[float] = Field(None, description="Price change $ in last 10 minutes")
     chg_15min: Optional[float] = Field(None, description="Price change % in last 15 minutes")
+    chg_15min_dollars: Optional[float] = Field(None, description="Price change $ in last 15 minutes")
     chg_30min: Optional[float] = Field(None, description="Price change % in last 30 minutes")
+    chg_30min_dollars: Optional[float] = Field(None, description="Price change $ in last 30 minutes")
     
     free_float: Optional[int] = Field(None, description="Free float (shares available for public trading)")
     free_float_percent: Optional[float] = Field(None, description="Free float percentage from Polygon")
@@ -166,6 +171,7 @@ class ScannerTicker(BaseModel):
     stoch_k: Optional[float] = Field(None, description="Stochastic %K(14,3,3)")
     stoch_d: Optional[float] = Field(None, description="Stochastic %D(14,3,3)")
     chg_60min: Optional[float] = Field(None, description="Price change % in last 60 minutes")
+    chg_60min_dollars: Optional[float] = Field(None, description="Price change $ in last 60 minutes")
     vol_60min: Optional[int] = Field(None, description="Volume traded in last 60 minutes")
     
     # Daily Indicators (from screener / enriched cache)
@@ -344,6 +350,8 @@ class ScannerTicker(BaseModel):
     # Multi-TF consecutive candles
     chg_2min: Optional[float] = Field(None, description="Price change % in last 2 minutes")
     chg_120min: Optional[float] = Field(None, description="Price change % in last 120 minutes")
+    chg_2min_dollars: Optional[float] = Field(None, description="Price change $ in last 2 minutes")
+    chg_120min_dollars: Optional[float] = Field(None, description="Price change $ in last 120 minutes")
     consecutive_candles: Optional[int] = Field(None, description="Consecutive candles (1min)")
     consecutive_candles_2m: Optional[int] = Field(None, description="Consecutive candles (2min)")
     consecutive_candles_5m: Optional[int] = Field(None, description="Consecutive candles (5min)")
@@ -359,6 +367,21 @@ class ScannerTicker(BaseModel):
     dist_pivot_r2: Optional[float] = Field(None, description="% dist from R2")
     dist_pivot_s2: Optional[float] = Field(None, description="% dist from S2")
     
+    # ================================================================
+    # Dilution Risk Ratings (null for tickers not in dilution DB)
+    # Low=1 / Medium=2 / High=3 (null = no data, excluded from filters)
+    # ================================================================
+    dilution_overall_risk: Optional[str] = Field(None, description="Dilution overall risk: Low/Medium/High")
+    dilution_overall_risk_score: Optional[int] = Field(None, description="Dilution overall risk score: 1=Low 2=Medium 3=High")
+    dilution_offering_ability: Optional[str] = Field(None, description="Offering ability: Low/Medium/High")
+    dilution_offering_ability_score: Optional[int] = Field(None, description="Offering ability score: 1-3")
+    dilution_overhead_supply: Optional[str] = Field(None, description="Overhead supply: Low/Medium/High")
+    dilution_overhead_supply_score: Optional[int] = Field(None, description="Overhead supply score: 1-3")
+    dilution_historical: Optional[str] = Field(None, description="Historical dilution: Low/Medium/High")
+    dilution_historical_score: Optional[int] = Field(None, description="Historical dilution score: 1-3")
+    dilution_cash_need: Optional[str] = Field(None, description="Cash need: Low/Medium/High")
+    dilution_cash_need_score: Optional[int] = Field(None, description="Cash need score: 1-3")
+
     # Session context
     session: MarketSession = Field(..., description="Current market session")
     
@@ -573,14 +596,24 @@ class FilterParameters(BaseModel):
     # Price change window filters (% change in last N minutes)
     min_chg_1min: Optional[float] = Field(None, description="Min % change in last 1 minute")
     max_chg_1min: Optional[float] = Field(None, description="Max % change in last 1 minute")
+    min_chg_1min_dollars: Optional[float] = Field(None, description="Min $ change in last 1 minute")
+    max_chg_1min_dollars: Optional[float] = Field(None, description="Max $ change in last 1 minute")
     min_chg_5min: Optional[float] = Field(None, description="Min % change in last 5 minutes")
     max_chg_5min: Optional[float] = Field(None, description="Max % change in last 5 minutes")
+    min_chg_5min_dollars: Optional[float] = Field(None, description="Min $ change in last 5 minutes")
+    max_chg_5min_dollars: Optional[float] = Field(None, description="Max $ change in last 5 minutes")
     min_chg_10min: Optional[float] = Field(None, description="Min % change in last 10 minutes")
     max_chg_10min: Optional[float] = Field(None, description="Max % change in last 10 minutes")
+    min_chg_10min_dollars: Optional[float] = Field(None, description="Min $ change in last 10 minutes")
+    max_chg_10min_dollars: Optional[float] = Field(None, description="Max $ change in last 10 minutes")
     min_chg_15min: Optional[float] = Field(None, description="Min % change in last 15 minutes")
     max_chg_15min: Optional[float] = Field(None, description="Max % change in last 15 minutes")
+    min_chg_15min_dollars: Optional[float] = Field(None, description="Min $ change in last 15 minutes")
+    max_chg_15min_dollars: Optional[float] = Field(None, description="Max $ change in last 15 minutes")
     min_chg_30min: Optional[float] = Field(None, description="Min % change in last 30 minutes")
     max_chg_30min: Optional[float] = Field(None, description="Max % change in last 30 minutes")
+    min_chg_30min_dollars: Optional[float] = Field(None, description="Min $ change in last 30 minutes")
+    max_chg_30min_dollars: Optional[float] = Field(None, description="Max $ change in last 30 minutes")
     
     # Data freshness filters
     max_data_age_seconds: Optional[int] = Field(None, ge=0, description="Max age of last trade in seconds")
@@ -853,6 +886,10 @@ class FilterParameters(BaseModel):
     max_chg_2min: Optional[float] = Field(None, description="Max % change 2min")
     min_chg_120min: Optional[float] = Field(None, description="Min % change 120min")
     max_chg_120min: Optional[float] = Field(None, description="Max % change 120min")
+    min_chg_2min_dollars: Optional[float] = Field(None, description="Min $ change 2min")
+    max_chg_2min_dollars: Optional[float] = Field(None, description="Max $ change 2min")
+    min_chg_120min_dollars: Optional[float] = Field(None, description="Min $ change 120min")
+    max_chg_120min_dollars: Optional[float] = Field(None, description="Max $ change 120min")
     
     # Consecutive candles
     min_consecutive_candles: Optional[int] = Field(None, description="Min consecutive candles (1min)")
@@ -961,6 +998,8 @@ class FilterParameters(BaseModel):
     max_change_20d: Optional[float] = Field(None, description="Max 20-day change pct")
     min_chg_60min: Optional[float] = Field(None, description="Min 60min change pct")
     max_chg_60min: Optional[float] = Field(None, description="Max 60min change pct")
+    min_chg_60min_dollars: Optional[float] = Field(None, description="Min 60min change dollars")
+    max_chg_60min_dollars: Optional[float] = Field(None, description="Max 60min change dollars")
     min_dist_daily_sma_20: Optional[float] = Field(None, description="Min dist daily SMA 20 pct")
     max_dist_daily_sma_20: Optional[float] = Field(None, description="Max dist daily SMA 20 pct")
     min_dist_daily_sma_50: Optional[float] = Field(None, description="Min dist daily SMA 50 pct")
@@ -1033,6 +1072,20 @@ class FilterParameters(BaseModel):
     
     # Custom expression (for advanced users)
     custom_expression: Optional[str] = Field(None, description="Python expression for custom filter")
+    
+    # ================================================================
+    # Dilution Risk filters (1=Low, 2=Medium, 3=High; null = excluded)
+    # ================================================================
+    min_dilution_overall_risk_score: Optional[int] = Field(None, ge=1, le=3, description="Min overall risk (1=Low,2=Med,3=High)")
+    max_dilution_overall_risk_score: Optional[int] = Field(None, ge=1, le=3, description="Max overall risk")
+    min_dilution_offering_ability_score: Optional[int] = Field(None, ge=1, le=3, description="Min offering ability score")
+    max_dilution_offering_ability_score: Optional[int] = Field(None, ge=1, le=3, description="Max offering ability score")
+    min_dilution_overhead_supply_score: Optional[int] = Field(None, ge=1, le=3, description="Min overhead supply score")
+    max_dilution_overhead_supply_score: Optional[int] = Field(None, ge=1, le=3, description="Max overhead supply score")
+    min_dilution_historical_score: Optional[int] = Field(None, ge=1, le=3, description="Min historical dilution score")
+    max_dilution_historical_score: Optional[int] = Field(None, ge=1, le=3, description="Max historical dilution score")
+    min_dilution_cash_need_score: Optional[int] = Field(None, ge=1, le=3, description="Min cash need score")
+    max_dilution_cash_need_score: Optional[int] = Field(None, ge=1, le=3, description="Max cash need score")
     
     class Config:
         extra = "allow"

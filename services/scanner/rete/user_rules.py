@@ -70,11 +70,17 @@ FILTER_FIELD_MAPPING = [
     #
     # === Time Window Changes ===
     ("min_chg_1min", "max_chg_1min", "chg_1min"),
+    ("min_chg_1min_dollars", "max_chg_1min_dollars", "chg_1min_dollars"),
     ("min_chg_5min", "max_chg_5min", "chg_5min"),
+    ("min_chg_5min_dollars", "max_chg_5min_dollars", "chg_5min_dollars"),
     ("min_chg_10min", "max_chg_10min", "chg_10min"),
+    ("min_chg_10min_dollars", "max_chg_10min_dollars", "chg_10min_dollars"),
     ("min_chg_15min", "max_chg_15min", "chg_15min"),
+    ("min_chg_15min_dollars", "max_chg_15min_dollars", "chg_15min_dollars"),
     ("min_chg_30min", "max_chg_30min", "chg_30min"),
+    ("min_chg_30min_dollars", "max_chg_30min_dollars", "chg_30min_dollars"),
     ("min_chg_60min", "max_chg_60min", "chg_60min"),
+    ("min_chg_60min_dollars", "max_chg_60min_dollars", "chg_60min_dollars"),
     #
     # === Quote ===
     ("min_bid", "max_bid", "bid"),
@@ -280,6 +286,8 @@ FILTER_FIELD_MAPPING = [
     # === Extended Time Window Changes ===
     ("min_chg_2min", "max_chg_2min", "chg_2min"),
     ("min_chg_120min", "max_chg_120min", "chg_120min"),
+    ("min_chg_2min_dollars", "max_chg_2min_dollars", "chg_2min_dollars"),
+    ("min_chg_120min_dollars", "max_chg_120min_dollars", "chg_120min_dollars"),
     #
     # === Consecutive Candles ===
     ("min_consecutive_candles", "max_consecutive_candles", "consecutive_candles"),
@@ -318,6 +326,13 @@ FILTER_FIELD_MAPPING = [
     ("min_dist_pivot_s1", "max_dist_pivot_s1", "dist_pivot_s1"),
     ("min_dist_pivot_r2", "max_dist_pivot_r2", "dist_pivot_r2"),
     ("min_dist_pivot_s2", "max_dist_pivot_s2", "dist_pivot_s2"),
+    #
+    # === Dilution Risk (1=Low, 2=Medium, 3=High; null → excluded) ===
+    ("min_dilution_overall_risk_score",    "max_dilution_overall_risk_score",    "dilution_overall_risk_score"),
+    ("min_dilution_offering_ability_score","max_dilution_offering_ability_score","dilution_offering_ability_score"),
+    ("min_dilution_overhead_supply_score", "max_dilution_overhead_supply_score", "dilution_overhead_supply_score"),
+    ("min_dilution_historical_score",      "max_dilution_historical_score",      "dilution_historical_score"),
+    ("min_dilution_cash_need_score",       "max_dilution_cash_need_score",       "dilution_cash_need_score"),
 ]
 
 

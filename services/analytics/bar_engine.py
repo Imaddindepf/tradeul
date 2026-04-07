@@ -190,6 +190,7 @@ class TimeframeState:
     __slots__ = (
         'period', 'builder', 'bar_count',
         'current_group', 'closes',
+        'consecutive_candles',
         'sma_5', 'sma_8', 'sma_10', 'sma_20', 'sma_130', 'sma_200',
         'macd', 'stoch', 'rsi', 'bb',
         'tf_high', 'tf_low',
@@ -202,6 +203,7 @@ class TimeframeState:
         self.bar_count: int = 0
         self.current_group: int = 0
         self.closes: deque = deque(maxlen=DEFAULT_RING_SIZE)
+        self.consecutive_candles: int = 0
 
         # Intraday extremes for this timeframe's bars
         self.tf_high: float = 0.0
@@ -253,6 +255,8 @@ class TickerBarState:
     """
     __slots__ = (
         'closes', 'volumes', 'acc_volumes', 'highs', 'lows',
+        'consecutive_candles',
+        'prev_bar_high', 'prev_bar_low',
         'high_intraday', 'low_intraday',
         'current_s', 'current_bar', 'bar_count',
         'last_close',
@@ -269,6 +273,9 @@ class TickerBarState:
         self.acc_volumes: deque = deque(maxlen=ring_size)
         self.highs: deque = deque(maxlen=ring_size)
         self.lows: deque = deque(maxlen=ring_size)
+        self.consecutive_candles: int = 0
+        self.prev_bar_high: float = 0.0
+        self.prev_bar_low: float = 0.0
 
         # Intraday extremes
         self.high_intraday: float = 0.0
@@ -461,6 +468,23 @@ class BarEngine:
         state.acc_volumes.append(bar.av)
         state.highs.append(bar.h)
         state.lows.append(bar.l)
+        # Trade Ideas-style consecutive candles:
+        # up = higher high + higher low, down = lower high + lower low.
+        if state.prev_bar_high > 0 and state.prev_bar_low > 0:
+            direction = self._classify_candle_direction(
+                prev_high=state.prev_bar_high,
+                prev_low=state.prev_bar_low,
+                cur_high=bar.h,
+                cur_low=bar.l,
+            )
+            state.consecutive_candles = self._advance_consecutive_count(
+                state.consecutive_candles,
+                direction,
+            )
+        else:
+            state.consecutive_candles = 0
+        state.prev_bar_high = bar.h
+        state.prev_bar_low = bar.l
 
         # ---- Intraday extremes ----
         if bar.h > state.high_intraday:
@@ -546,6 +570,20 @@ class BarEngine:
         tf_state.closes.append(c)
 
         # Store this bar's high/low as "previous" for IDH/IDL comparison
+        # and update Trade Ideas-style consecutive candles on closed bars.
+        if tf_state.prev_bar_high > 0 and tf_state.prev_bar_low > 0:
+            direction = BarEngine._classify_candle_direction(
+                prev_high=tf_state.prev_bar_high,
+                prev_low=tf_state.prev_bar_low,
+                cur_high=h,
+                cur_low=l_val,
+            )
+            tf_state.consecutive_candles = BarEngine._advance_consecutive_count(
+                tf_state.consecutive_candles,
+                direction,
+            )
+        else:
+            tf_state.consecutive_candles = 0
         tf_state.prev_bar_high = h
         tf_state.prev_bar_low = l_val
 
@@ -741,9 +779,8 @@ class BarEngine:
                 tf_ind['cur_bar_high'] = max(b['h'] for b in tf_state.builder)
                 tf_ind['cur_bar_low'] = min(b['l'] for b in tf_state.builder)
 
-            # Consecutive candles for this timeframe
-            if len(tf_state.closes) >= 2:
-                tf_ind['consecutive_candles'] = self._count_consecutive(tf_state.closes)
+            # Consecutive candles for this timeframe (TI HH/HL vs LH/LL)
+            tf_ind['consecutive_candles'] = tf_state.consecutive_candles
 
             tf_data[tf_period] = tf_ind
 
@@ -779,26 +816,40 @@ class BarEngine:
             return None
         return self._calc_change(state.closes, minutes)
 
+    def get_price_change_dollars(self, symbol: str, minutes: int) -> Optional[float]:
+        """Get absolute price change $ in the last N minutes."""
+        state = self._states.get(symbol)
+        if state is None:
+            return None
+        return self._calc_change_dollars(state.closes, minutes)
+
 
     @staticmethod
-    def _count_consecutive(closes) -> int:
-        """Count consecutive up (>0) or down (<0) candles from the end of a closes sequence."""
-        n = len(closes)
-        if n < 2:
+    def _classify_candle_direction(
+        prev_high: float,
+        prev_low: float,
+        cur_high: float,
+        cur_low: float,
+    ) -> int:
+        """Classify candle direction using Trade Ideas HH/HL vs LH/LL rules."""
+        if cur_high > prev_high and cur_low > prev_low:
+            return 1
+        if cur_high < prev_high and cur_low < prev_low:
+            return -1
+        return 0
+
+    @staticmethod
+    def _advance_consecutive_count(current_count: int, direction: int) -> int:
+        """Advance signed consecutive counter given current direction."""
+        if direction == 0:
             return 0
-        cnt = 0
-        for i in range(n - 1, 0, -1):
-            if closes[i] > closes[i - 1]:
-                if cnt < 0:
-                    break
-                cnt += 1
-            elif closes[i] < closes[i - 1]:
-                if cnt > 0:
-                    break
-                cnt -= 1
-            else:
-                break
-        return cnt
+        if current_count == 0:
+            return direction
+        if current_count > 0 and direction > 0:
+            return current_count + 1
+        if current_count < 0 and direction < 0:
+            return current_count - 1
+        return direction
 
     def get_consecutive_candles(self, symbol: str, timeframe_minutes: Optional[int] = None) -> int:
         """
@@ -812,11 +863,11 @@ class BarEngine:
         if state is None:
             return 0
         if timeframe_minutes is None:
-            return self._count_consecutive(state.closes)
+            return state.consecutive_candles
         tf_state = state.tf_states.get(timeframe_minutes)
         if tf_state is None:
             return 0
-        return self._count_consecutive(tf_state.closes)
+        return tf_state.consecutive_candles
 
     # ========================================================================
     # Warmup: load historical bars (from TimescaleDB on startup)
@@ -986,6 +1037,17 @@ class BarEngine:
             return None
         current_price = closes[-1]
         return round(((current_price - old_price) / old_price) * 100, 4)
+
+    @staticmethod
+    def _calc_change_dollars(closes: deque, minutes: int) -> Optional[float]:
+        """Calculate absolute price change $ over the last N minutes."""
+        if len(closes) < minutes + 1:
+            return None
+        old_price = closes[-(minutes + 1)]
+        if old_price <= 0:
+            return None
+        current_price = closes[-1]
+        return round(current_price - old_price, 4)
 
     @staticmethod
     def _calc_volume(volumes: deque, minutes: int) -> Optional[int]:

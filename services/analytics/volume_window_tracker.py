@@ -52,6 +52,8 @@ class VolumeWindowResult(NamedTuple):
 class TrackerConfig:
     """Configuration for VolumeWindowTracker"""
     max_symbols: int = 10000      # Maximum symbols to track
+    grow_by: int = 2500
+    max_symbols_limit: Optional[int] = 30000
     window_size: int = 1801       # Seconds of history (1801 to support 30 min = 1800 sec lookback)
     min_data_points: int = 2      # Minimum points needed for calculation
 
@@ -84,7 +86,7 @@ class VolumeWindowTracker:
     __slots__ = (
         'config', 'symbol_index', 'next_index',
         'timestamps', 'volumes', 'heads', 'counts',
-        '_last_update_second'
+        '_last_update_second', '_capacity'
     )
     
     def __init__(self, config: Optional[TrackerConfig] = None):
@@ -95,6 +97,7 @@ class VolumeWindowTracker:
             config: Optional configuration. Uses defaults if not provided.
         """
         self.config = config or TrackerConfig()
+        self._capacity: int = self.config.max_symbols
         
         # Symbol → array index mapping
         self.symbol_index: Dict[str, int] = {}
@@ -103,20 +106,20 @@ class VolumeWindowTracker:
         # Pre-allocated numpy arrays (contiguous memory)
         # Using int64 for timestamps (unix seconds) and volumes
         self.timestamps = np.zeros(
-            (self.config.max_symbols, self.config.window_size),
+            (self._capacity, self.config.window_size),
             dtype=np.int64
         )
         self.volumes = np.zeros(
-            (self.config.max_symbols, self.config.window_size),
+            (self._capacity, self.config.window_size),
             dtype=np.int64
         )
         
         # Head pointers and counts (int32 sufficient)
-        self.heads = np.zeros(self.config.max_symbols, dtype=np.int32)
-        self.counts = np.zeros(self.config.max_symbols, dtype=np.int32)
+        self.heads = np.zeros(self._capacity, dtype=np.int32)
+        self.counts = np.zeros(self._capacity, dtype=np.int32)
         
         # Track last update minute per symbol to avoid duplicate updates
-        self._last_update_second = np.zeros(self.config.max_symbols, dtype=np.int64)
+        self._last_update_second = np.zeros(self._capacity, dtype=np.int64)
         
         # Calculate memory usage
         memory_bytes = (
@@ -129,9 +132,53 @@ class VolumeWindowTracker:
         
         logger.info(
             "volume_window_tracker_initialized",
-            max_symbols=self.config.max_symbols,
+            max_symbols=self._capacity,
             window_size=self.config.window_size,
             memory_mb=round(memory_bytes / 1024 / 1024, 2)
+        )
+
+    def _expand_capacity(self, symbol: str) -> None:
+        """Expand internal arrays when tracked symbol capacity is reached."""
+        grow_by = max(1, self.config.grow_by)
+        old_capacity = self._capacity
+        new_capacity = old_capacity + grow_by
+
+        if self.config.max_symbols_limit is not None:
+            new_capacity = min(new_capacity, self.config.max_symbols_limit)
+
+        if new_capacity <= old_capacity:
+            logger.warning(
+                "max_symbols_reached",
+                max=old_capacity,
+                symbol=symbol,
+                max_symbols_limit=self.config.max_symbols_limit,
+            )
+            raise RuntimeError(
+                f"Max symbols ({old_capacity}) exceeded and cannot grow further"
+            )
+
+        rows_to_add = new_capacity - old_capacity
+        self.timestamps = np.pad(self.timestamps, ((0, rows_to_add), (0, 0)), mode="constant")
+        self.volumes = np.pad(self.volumes, ((0, rows_to_add), (0, 0)), mode="constant")
+        self.heads = np.pad(self.heads, (0, rows_to_add), mode="constant")
+        self.counts = np.pad(self.counts, (0, rows_to_add), mode="constant")
+        self._last_update_second = np.pad(self._last_update_second, (0, rows_to_add), mode="constant")
+        self._capacity = new_capacity
+
+        memory_bytes = (
+            self.timestamps.nbytes
+            + self.volumes.nbytes
+            + self.heads.nbytes
+            + self.counts.nbytes
+            + self._last_update_second.nbytes
+        )
+        logger.info(
+            "volume_window_tracker_capacity_expanded",
+            old_capacity=old_capacity,
+            new_capacity=new_capacity,
+            grow_by=rows_to_add,
+            symbol=symbol,
+            memory_mb=round(memory_bytes / 1024 / 1024, 2),
         )
     
     def _get_or_create_index(self, symbol: str) -> int:
@@ -150,14 +197,8 @@ class VolumeWindowTracker:
         if symbol in self.symbol_index:
             return self.symbol_index[symbol]
         
-        if self.next_index >= self.config.max_symbols:
-            # In production, could implement LRU eviction here
-            logger.warning(
-                "max_symbols_reached",
-                max=self.config.max_symbols,
-                symbol=symbol
-            )
-            raise RuntimeError(f"Max symbols ({self.config.max_symbols}) exceeded")
+        if self.next_index >= self._capacity:
+            self._expand_capacity(symbol)
         
         idx = self.next_index
         self.symbol_index[symbol] = idx
@@ -406,10 +447,11 @@ class VolumeWindowTracker:
         return {
             "symbols_registered": len(self.symbol_index),
             "symbols_active": active_symbols,
-            "max_symbols": self.config.max_symbols,
+            "max_symbols": self._capacity,
+            "max_symbols_limit": self.config.max_symbols_limit,
             "window_size_minutes": self.config.window_size,
             "memory_mb": round(memory_bytes / 1024 / 1024, 2),
-            "utilization_pct": round(len(self.symbol_index) / self.config.max_symbols * 100, 1)
+            "utilization_pct": round(len(self.symbol_index) / self._capacity * 100, 1)
         }
     
     def clear_symbol(self, symbol: str) -> bool:
