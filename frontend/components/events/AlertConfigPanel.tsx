@@ -396,6 +396,42 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             <span className="w-4" />
           </div>
         </div>
+
+        {/* ====== DILUTION RISK ====== */}
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Dilution Risk</div>
+          <div className="px-3 pb-1 text-[9px] text-muted-foreground/50">1=Low · 2=Medium · 3=High. Null tickers excluded.</div>
+          {([
+            { label: 'Overall',   minK: 'min_dilution_overall_risk_score',    maxK: 'max_dilution_overall_risk_score' },
+            { label: 'Offering',  minK: 'min_dilution_offering_ability_score', maxK: 'max_dilution_offering_ability_score' },
+            { label: 'Overhead',  minK: 'min_dilution_overhead_supply_score',  maxK: 'max_dilution_overhead_supply_score' },
+            { label: 'Historical',minK: 'min_dilution_historical_score',       maxK: 'max_dilution_historical_score' },
+            { label: 'Cash Need', minK: 'min_dilution_cash_need_score',        maxK: 'max_dilution_cash_need_score' },
+          ] as { label: string; minK: string; maxK: string }[]).map(({ label, minK, maxK }) => (
+            <div key={minK} className="flex items-center gap-1.5 px-3 py-[3px]">
+              <span className="text-[11px] text-foreground/80 w-16 flex-shrink-0 font-medium truncate">{label}</span>
+              <select value={(currentFilters as Record<string,unknown>)[minK] !== undefined ? String((currentFilters as Record<string,unknown>)[minK]) : ''}
+                onChange={e => (update as (k: string, v: number | undefined) => void)(minK, e.target.value ? Number(e.target.value) : undefined)}
+                className="flex-1 px-1.5 py-[3px] text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface">
+                <option value="">Any</option>
+                <option value="1">Low</option>
+                <option value="2">Medium</option>
+                <option value="3">High</option>
+              </select>
+              <span className="text-[9px] text-muted-foreground/40 mx-0.5">–</span>
+              <select value={(currentFilters as Record<string,unknown>)[maxK] !== undefined ? String((currentFilters as Record<string,unknown>)[maxK]) : ''}
+                onChange={e => (update as (k: string, v: number | undefined) => void)(maxK, e.target.value ? Number(e.target.value) : undefined)}
+                className="flex-1 px-1.5 py-[3px] text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface">
+                <option value="">Any</option>
+                <option value="1">Low</option>
+                <option value="2">Medium</option>
+                <option value="3">High</option>
+              </select>
+              <span className="w-4" />
+            </div>
+          ))}
+        </div>
+
         <div>
           <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Quote</div>
           <FilterInput label="Bid" minValue={currentFilters.min_bid} maxValue={currentFilters.max_bid}
@@ -463,16 +499,36 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
           <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Time Windows</div>
           <FilterInput label="Change 1 Min" minValue={currentFilters.min_chg_1min} maxValue={currentFilters.max_chg_1min}
             onMinChange={v => update('min_chg_1min', v)} onMaxChange={v => update('max_chg_1min', v)} suffix="%" phMin="-2" phMax="5" />
+          <FilterInput label="Change 1 Min $" minValue={currentFilters.min_chg_1min_dollars} maxValue={currentFilters.max_chg_1min_dollars}
+            onMinChange={v => update('min_chg_1min_dollars', v)} onMaxChange={v => update('max_chg_1min_dollars', v)} suffix="$" phMin="-0.50" phMax="1.00" />
+          <FilterInput label="Change 2 Min" minValue={currentFilters.min_chg_2min} maxValue={currentFilters.max_chg_2min}
+            onMinChange={v => update('min_chg_2min', v)} onMaxChange={v => update('max_chg_2min', v)} suffix="%" phMin="-3" phMax="7" />
+          <FilterInput label="Change 2 Min $" minValue={currentFilters.min_chg_2min_dollars} maxValue={currentFilters.max_chg_2min_dollars}
+            onMinChange={v => update('min_chg_2min_dollars', v)} onMaxChange={v => update('max_chg_2min_dollars', v)} suffix="$" phMin="-0.75" phMax="1.50" />
           <FilterInput label="Change 5 Min" minValue={currentFilters.min_chg_5min} maxValue={currentFilters.max_chg_5min}
             onMinChange={v => update('min_chg_5min', v)} onMaxChange={v => update('max_chg_5min', v)} suffix="%" phMin="-5" phMax="10" />
+          <FilterInput label="Change 5 Min $" minValue={currentFilters.min_chg_5min_dollars} maxValue={currentFilters.max_chg_5min_dollars}
+            onMinChange={v => update('min_chg_5min_dollars', v)} onMaxChange={v => update('max_chg_5min_dollars', v)} suffix="$" phMin="-1.00" phMax="2.50" />
           <FilterInput label="Change 10 Min" minValue={currentFilters.min_chg_10min} maxValue={currentFilters.max_chg_10min}
             onMinChange={v => update('min_chg_10min', v)} onMaxChange={v => update('max_chg_10min', v)} suffix="%" phMin="-5" phMax="15" />
+          <FilterInput label="Change 10 Min $" minValue={currentFilters.min_chg_10min_dollars} maxValue={currentFilters.max_chg_10min_dollars}
+            onMinChange={v => update('min_chg_10min_dollars', v)} onMaxChange={v => update('max_chg_10min_dollars', v)} suffix="$" phMin="-1.50" phMax="4.00" />
           <FilterInput label="Change 15 Min" minValue={currentFilters.min_chg_15min} maxValue={currentFilters.max_chg_15min}
             onMinChange={v => update('min_chg_15min', v)} onMaxChange={v => update('max_chg_15min', v)} suffix="%" phMin="-8" phMax="20" />
+          <FilterInput label="Change 15 Min $" minValue={currentFilters.min_chg_15min_dollars} maxValue={currentFilters.max_chg_15min_dollars}
+            onMinChange={v => update('min_chg_15min_dollars', v)} onMaxChange={v => update('max_chg_15min_dollars', v)} suffix="$" phMin="-2.00" phMax="5.00" />
           <FilterInput label="Change 30 Min" minValue={currentFilters.min_chg_30min} maxValue={currentFilters.max_chg_30min}
             onMinChange={v => update('min_chg_30min', v)} onMaxChange={v => update('max_chg_30min', v)} suffix="%" phMin="-10" phMax="25" />
+          <FilterInput label="Change 30 Min $" minValue={currentFilters.min_chg_30min_dollars} maxValue={currentFilters.max_chg_30min_dollars}
+            onMinChange={v => update('min_chg_30min_dollars', v)} onMaxChange={v => update('max_chg_30min_dollars', v)} suffix="$" phMin="-3.00" phMax="7.00" />
           <FilterInput label="Change 60 Min" minValue={currentFilters.min_chg_60min} maxValue={currentFilters.max_chg_60min}
             onMinChange={v => update('min_chg_60min', v)} onMaxChange={v => update('max_chg_60min', v)} suffix="%" phMin="-15" phMax="30" />
+          <FilterInput label="Change 60 Min $" minValue={currentFilters.min_chg_60min_dollars} maxValue={currentFilters.max_chg_60min_dollars}
+            onMinChange={v => update('min_chg_60min_dollars', v)} onMaxChange={v => update('max_chg_60min_dollars', v)} suffix="$" phMin="-5.00" phMax="10.00" />
+          <FilterInput label="Change 120 Min" minValue={currentFilters.min_chg_120min} maxValue={currentFilters.max_chg_120min}
+            onMinChange={v => update('min_chg_120min', v)} onMaxChange={v => update('max_chg_120min', v)} suffix="%" phMin="-20" phMax="40" />
+          <FilterInput label="Change 120 Min $" minValue={currentFilters.min_chg_120min_dollars} maxValue={currentFilters.max_chg_120min_dollars}
+            onMinChange={v => update('min_chg_120min_dollars', v)} onMaxChange={v => update('max_chg_120min_dollars', v)} suffix="$" phMin="-8.00" phMax="15.00" />
         </div>
         <div>
           <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Trades Anomaly</div>

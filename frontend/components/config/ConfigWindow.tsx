@@ -34,6 +34,8 @@ export interface AlertWindowConfig {
   filters: ActiveEventFilters;
   symbolsInclude: string[];
   symbolsExclude: string[];
+  /** ID de la estrategia de usuario de origen, para sincronización al restaurar workspace */
+  strategyId?: number;
 }
 
 export interface BacktestFromConfigData {
@@ -130,13 +132,21 @@ const FILTER_META: Record<string, { label: string; suf: string }> = {
   'max_change_ytd': { label: 'Change Since January 1 % <', suf: '%' },
   'max_change_ytd_dollars': { label: 'Change Since January 1 $ <', suf: '$' },
   'max_chg_10min': { label: 'Change 10 Minute <', suf: '%' },
+  'max_chg_10min_dollars': { label: 'Change 10 Minute <', suf: '$' },
   'max_chg_120min': { label: 'Change 120 Minute <', suf: '%' },
+  'max_chg_120min_dollars': { label: 'Change 120 Minute <', suf: '$' },
   'max_chg_15min': { label: 'Change 15 Minute <', suf: '%' },
+  'max_chg_15min_dollars': { label: 'Change 15 Minute <', suf: '$' },
   'max_chg_1min': { label: 'Change 1 Minute <', suf: '%' },
+  'max_chg_1min_dollars': { label: 'Change 1 Minute <', suf: '$' },
   'max_chg_2min': { label: 'Change 2 Minute <', suf: '%' },
+  'max_chg_2min_dollars': { label: 'Change 2 Minute <', suf: '$' },
   'max_chg_30min': { label: 'Change 30 Minute <', suf: '%' },
+  'max_chg_30min_dollars': { label: 'Change 30 Minute <', suf: '$' },
   'max_chg_5min': { label: 'Change 5 Minute <', suf: '%' },
+  'max_chg_5min_dollars': { label: 'Change 5 Minute <', suf: '$' },
   'max_chg_60min': { label: 'Change 60 Minute <', suf: '%' },
+  'max_chg_60min_dollars': { label: 'Change 60 Minute <', suf: '$' },
   'max_consecutive_candles': { label: 'Consecutive Candles (1m) <', suf: '' },
   'max_consecutive_candles_10m': { label: 'Consecutive Candles (10m) <', suf: '' },
   'max_consecutive_candles_15m': { label: 'Consecutive Candles (15m) <', suf: '' },
@@ -348,13 +358,21 @@ const FILTER_META: Record<string, { label: string; suf: string }> = {
   'min_change_ytd': { label: 'Change Since January 1 % >', suf: '%' },
   'min_change_ytd_dollars': { label: 'Change Since January 1 $ >', suf: '$' },
   'min_chg_10min': { label: 'Change 10 Minute >', suf: '%' },
+  'min_chg_10min_dollars': { label: 'Change 10 Minute >', suf: '$' },
   'min_chg_120min': { label: 'Change 120 Minute >', suf: '%' },
+  'min_chg_120min_dollars': { label: 'Change 120 Minute >', suf: '$' },
   'min_chg_15min': { label: 'Change 15 Minute >', suf: '%' },
+  'min_chg_15min_dollars': { label: 'Change 15 Minute >', suf: '$' },
   'min_chg_1min': { label: 'Change 1 Minute >', suf: '%' },
+  'min_chg_1min_dollars': { label: 'Change 1 Minute >', suf: '$' },
   'min_chg_2min': { label: 'Change 2 Minute >', suf: '%' },
+  'min_chg_2min_dollars': { label: 'Change 2 Minute >', suf: '$' },
   'min_chg_30min': { label: 'Change 30 Minute >', suf: '%' },
+  'min_chg_30min_dollars': { label: 'Change 30 Minute >', suf: '$' },
   'min_chg_5min': { label: 'Change 5 Minute >', suf: '%' },
+  'min_chg_5min_dollars': { label: 'Change 5 Minute >', suf: '$' },
   'min_chg_60min': { label: 'Change 60 Minute >', suf: '%' },
+  'min_chg_60min_dollars': { label: 'Change 60 Minute >', suf: '$' },
   'min_consecutive_candles': { label: 'Consecutive Candles (1m) >', suf: '' },
   'min_consecutive_candles_10m': { label: 'Consecutive Candles (10m) >', suf: '' },
   'min_consecutive_candles_15m': { label: 'Consecutive Candles (15m) >', suf: '' },
@@ -781,6 +799,7 @@ export function ConfigWindow({
       filters: ef,
       symbolsInclude: inc,
       symbolsExclude: exc,
+      strategyId: loadedStrategyId ? Number(loadedStrategyId) : undefined,
     };
   }, [selectedAlerts, filters, symbolsInclude, symbolsExclude, strategyName]);
 
@@ -1504,13 +1523,21 @@ export function ConfigWindow({
             {
               id: 'chgminute', group: 'Change by Minute', filters: [
                 { label: 'Change 1 Minute', minK: 'min_chg_1min', maxK: 'max_chg_1min', suf: '%', phMin: '-2', phMax: '5' },
+                { label: 'Change 1 Minute', minK: 'min_chg_1min_dollars', maxK: 'max_chg_1min_dollars', suf: '$', phMin: '-0.50', phMax: '1.00' },
                 { label: 'Change 2 Minute', minK: 'min_chg_2min', maxK: 'max_chg_2min', suf: '%', phMin: '-3', phMax: '7' },
+                { label: 'Change 2 Minute', minK: 'min_chg_2min_dollars', maxK: 'max_chg_2min_dollars', suf: '$', phMin: '-0.75', phMax: '1.50' },
                 { label: 'Change 5 Minute', minK: 'min_chg_5min', maxK: 'max_chg_5min', suf: '%', phMin: '-5', phMax: '10' },
+                { label: 'Change 5 Minute', minK: 'min_chg_5min_dollars', maxK: 'max_chg_5min_dollars', suf: '$', phMin: '-1.00', phMax: '2.50' },
                 { label: 'Change 10 Minute', minK: 'min_chg_10min', maxK: 'max_chg_10min', suf: '%', phMin: '-5', phMax: '15' },
+                { label: 'Change 10 Minute', minK: 'min_chg_10min_dollars', maxK: 'max_chg_10min_dollars', suf: '$', phMin: '-1.50', phMax: '4.00' },
                 { label: 'Change 15 Minute', minK: 'min_chg_15min', maxK: 'max_chg_15min', suf: '%', phMin: '-8', phMax: '20' },
+                { label: 'Change 15 Minute', minK: 'min_chg_15min_dollars', maxK: 'max_chg_15min_dollars', suf: '$', phMin: '-2.00', phMax: '5.00' },
                 { label: 'Change 30 Minute', minK: 'min_chg_30min', maxK: 'max_chg_30min', suf: '%', phMin: '-10', phMax: '25' },
+                { label: 'Change 30 Minute', minK: 'min_chg_30min_dollars', maxK: 'max_chg_30min_dollars', suf: '$', phMin: '-3.00', phMax: '7.00' },
                 { label: 'Change 60 Minute', minK: 'min_chg_60min', maxK: 'max_chg_60min', suf: '%', phMin: '-15', phMax: '30' },
+                { label: 'Change 60 Minute', minK: 'min_chg_60min_dollars', maxK: 'max_chg_60min_dollars', suf: '$', phMin: '-5.00', phMax: '10.00' },
                 { label: 'Change 120 Minute', minK: 'min_chg_120min', maxK: 'max_chg_120min', suf: '%', phMin: '-20', phMax: '40' },
+                { label: 'Change 120 Minute', minK: 'min_chg_120min_dollars', maxK: 'max_chg_120min_dollars', suf: '$', phMin: '-8.00', phMax: '15.00' },
               ]
             },
             // ═══════════════════════════════════════════════════════════
@@ -1949,7 +1976,66 @@ export function ConfigWindow({
                     </div>
                   )}
                 </div>
+
+                {/* Dilution Risk filters - collapsible like the rest */}
+                {(() => {
+                  const dilutionFields = [
+                    { label: 'Overall Risk',     minK: 'min_dilution_overall_risk_score',    maxK: 'max_dilution_overall_risk_score' },
+                    { label: 'Offering Ability', minK: 'min_dilution_offering_ability_score', maxK: 'max_dilution_offering_ability_score' },
+                    { label: 'Overhead Supply',  minK: 'min_dilution_overhead_supply_score',  maxK: 'max_dilution_overhead_supply_score' },
+                    { label: 'Historical',       minK: 'min_dilution_historical_score',       maxK: 'max_dilution_historical_score' },
+                    { label: 'Cash Need',        minK: 'min_dilution_cash_need_score',        maxK: 'max_dilution_cash_need_score' },
+                  ] as { label: string; minK: string; maxK: string }[];
+                  const visibleDilutionFields = q
+                    ? dilutionFields.filter(f => f.label.toLowerCase().includes(q))
+                    : dilutionFields;
+                  if (q && visibleDilutionFields.length === 0) return null;
+                  const activeDilution = dilutionFields.filter(f => filters[f.minK] !== undefined || filters[f.maxK] !== undefined).length;
+                  const expDilution = expandedFilterGroups.has('dilution') || !!q;
+                  return (
+                    <div>
+                      <button onClick={() => toggleFilterGroup('dilution')}
+                        className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-surface-hover transition-colors border-b border-border-subtle">
+                        <span className="text-[9px] text-muted-fg/50 w-3">{expDilution ? '\u25BC' : '\u25B6'}</span>
+                        <span className="text-[11px] font-medium text-foreground/80 flex-1">Dilution Risk</span>
+                        {activeDilution > 0 && <span className="text-[9px] text-primary font-semibold tabular-nums">{activeDilution}</span>}
+                      </button>
+                      {expDilution && (
+                        <div className="px-2 py-1 space-y-[3px]">
+                          <p className="text-[9px] text-muted-fg/50 pb-0.5">1=Low · 2=Medium · 3=High</p>
+                          {visibleDilutionFields.map(({ label, minK, maxK }) => (
+                            <div key={minK} className="flex items-center gap-1">
+                              <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">{label}</span>
+                              <select
+                                value={filters[minK] !== undefined ? String(filters[minK]) : ''}
+                                onChange={e => setFilter(minK, e.target.value ? Number(e.target.value) : undefined)}
+                                className="flex-1 px-1.5 py-[2px] text-[10px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)]"
+                              >
+                                <option value="">Any</option>
+                                <option value="1">Low</option>
+                                <option value="2">Medium</option>
+                                <option value="3">High</option>
+                              </select>
+                              <span className="text-[9px] text-muted-fg/50 w-2 text-center">-</span>
+                              <select
+                                value={filters[maxK] !== undefined ? String(filters[maxK]) : ''}
+                                onChange={e => setFilter(maxK, e.target.value ? Number(e.target.value) : undefined)}
+                                className="flex-1 px-1.5 py-[2px] text-[10px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)]"
+                              >
+                                <option value="">Any</option>
+                                <option value="1">Low</option>
+                                <option value="2">Medium</option>
+                                <option value="3">High</option>
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
+
             </div>
           );
         })()}

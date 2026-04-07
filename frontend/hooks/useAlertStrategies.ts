@@ -92,6 +92,15 @@ export function useAlertStrategies() {
     return response.json();
   }, [getToken]);
 
+  // Fetch a single strategy by ID (para sincronización puntual, sin mutar el estado global)
+  const fetchStrategy = useCallback(async (id: number): Promise<AlertStrategy | null> => {
+    try {
+      return await fetchWithAuth(`/${id}`) as AlertStrategy;
+    } catch {
+      return null;
+    }
+  }, [fetchWithAuth]);
+
   // List all strategies
   const listStrategies = useCallback(async () => {
     setLoading(true);
@@ -229,6 +238,7 @@ export function useAlertStrategies() {
     strategies,
     loading,
     error,
+    fetchStrategy,
     listStrategies,
     createStrategy,
     updateStrategy,

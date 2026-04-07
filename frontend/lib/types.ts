@@ -122,6 +122,18 @@ export interface Ticker {
   sector?: string;
   industry?: string;
 
+  // Dilution risk scores (null for tickers not in dilution DB)
+  dilution_overall_risk?: string | null;
+  dilution_overall_risk_score?: number | null;
+  dilution_offering_ability?: string | null;
+  dilution_offering_ability_score?: number | null;
+  dilution_overhead_supply?: string | null;
+  dilution_overhead_supply_score?: number | null;
+  dilution_historical?: string | null;
+  dilution_historical_score?: number | null;
+  dilution_cash_need?: string | null;
+  dilution_cash_need_score?: number | null;
+
   // Metadata
   timestamp?: string;
 

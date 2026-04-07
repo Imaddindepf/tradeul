@@ -249,18 +249,33 @@ export interface SECDilutionProfileResponse {
 // API FUNCTIONS
 // ============================================================================
 
-export async function validateTicker(symbol: string): Promise<boolean> {
+/**
+ * Validates whether a ticker exists in the dilution tracker DB.
+ *
+ * Returns:
+ *  - 'valid'     → ticker exists (200 + valid:true)
+ *  - 'not_found' → ticker explicitly not in DB (200 + valid:false)
+ *  - 'error'     → backend/network error (don't block the user, proceed optimistically)
+ */
+export async function validateTicker(symbol: string): Promise<'valid' | 'not_found' | 'error'> {
   try {
-    // Endpoint REAL: /api/analysis/validate/{ticker} - Validación rápida
-    const response = await fetch(`${DILUTION_SERVICE_URL}/api/analysis/validate/${symbol}`);
-    if (!response.ok) {
-      return false;
+    const response = await fetch(`${DILUTION_SERVICE_URL}/api/analysis/validate/${symbol}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    // Only treat an explicit 200+valid:false as "not found".
+    // Any server error (5xx, timeout) is returned as 'error' so the caller
+    // can proceed optimistically rather than blocking with a misleading message.
+    if (response.status === 200) {
+      const data = await response.json();
+      return data.valid === true ? 'valid' : 'not_found';
     }
-    const data = await response.json();
-    return data.valid === true;
+    // 4xx (other than 404) or 5xx → backend problem, not ticker problem
+    if (response.status === 404) return 'not_found';
+    console.warn(`validateTicker ${symbol}: backend returned ${response.status}`);
+    return 'error';
   } catch (error) {
-    console.error(`Error validating ticker ${symbol}:`, error);
-    return false;
+    console.warn(`validateTicker ${symbol}: network/timeout error`, error);
+    return 'error';
   }
 }
 
@@ -268,7 +283,9 @@ export async function getTickerAnalysis(symbol: string): Promise<TickerAnalysis>
   try {
     // Endpoint REAL: /api/analysis/{ticker} - Devuelve análisis COMPLETO
     // Incluye: summary, cash_runway, dilution_history, holders, filings, financials, dilution (SEC)
-    const response = await fetch(`${DILUTION_SERVICE_URL}/api/analysis/${symbol}`);
+    const response = await fetch(`${DILUTION_SERVICE_URL}/api/analysis/${symbol}`, {
+      signal: AbortSignal.timeout(25000),
+    });
 
     if (!response.ok) {
       throw new Error(`Failed to fetch analysis for ${symbol}`);
@@ -517,7 +534,9 @@ export interface CashRunwayData {
 export async function getCashPosition(symbol: string): Promise<CashRunwayData | null> {
   try {
     // Use SEC-API.io endpoint ONLY (DilutionTracker methodology)
-    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/cash-position?max_quarters=40`);
+    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/cash-position?max_quarters=40`, {
+      signal: AbortSignal.timeout(20000),
+    });
 
     if (!response.ok) {
       console.warn(`Cash position not available for ${symbol}`);

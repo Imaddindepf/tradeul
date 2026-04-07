@@ -1,8 +1,8 @@
 "use client";
 
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend, ReferenceLine } from "recharts";
+import { useRef, useState, useEffect, useMemo, memo } from "react";
 
-interface CashRunwayData {
+export interface CashRunwayData {
   ticker?: string;
   historical_cash: number;
   historical_cash_date: string;
@@ -13,358 +13,200 @@ interface CashRunwayData {
   capital_raises?: {
     total: number;
     count: number;
-    details: Array<{
-      filing_date: string;
-      gross_proceeds: number;
-      instrument_type: string;
-      description: string;
-    }>;
+    details: Array<{ filing_date: string; gross_proceeds: number; instrument_type: string; description: string }>;
   };
   estimated_current_cash: number;
   runway_days: number | null;
   runway_months: number | null;
   runway_risk_level: string;
   data_source: string;
-  cash_history?: Array<{
-    date: string;
-    cash: number;
-    total_assets?: number;
-    total_liabilities?: number;
-  }>;
-  cf_history?: Array<{
-    date: string;
-    operating_cf: number;
-    investing_cf?: number;
-    financing_cf?: number;
-  }>;
+  cash_history?: Array<{ date: string; cash: number }>;
+  cf_history?: Array<{ date: string; operating_cf: number }>;
 }
 
-interface CashRunwayChartProps {
+interface Props {
   data: CashRunwayData | null;
   loading?: boolean;
+  fontClass?: string;
+  downColor?: string;
+  upColor?: string;
 }
 
-// Colors matching DilutionTracker style
-const COLORS = {
-  historical: '#3b82f6',      // Blue - historical cash
-  reported: '#60a5fa',        // Light blue - reported cash
-  burn: '#ef4444',            // Red - cash burn (prorated)
-  raise: '#22c55e',           // Green - capital raises
-  estimate: '#f59e0b',        // Amber - current estimate
-};
+function fmtCash(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000)     return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000)         return `$${(v / 1_000).toFixed(0)}K`;
+  return `$${v.toLocaleString()}`;
+}
+function fmtDate(d: string): string {
+  if (!d) return d;
+  try {
+    const dt = new Date(d);
+    return `${dt.toLocaleString("en-US", { month: "short" })} '${String(dt.getFullYear()).slice(2)}`;
+  } catch { return d; }
+}
 
-export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps) {
-  // Format functions
-  const formatCash = (value: number) => {
-    if (!value && value !== 0) return 'N/A';
-    const absValue = Math.abs(value);
-    if (absValue >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
-    if (absValue >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-    if (absValue >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-    return `$${value.toLocaleString()}`;
-  };
+export const CashRunwayChart = memo(function CashRunwayChart({
+  data, loading = false, fontClass = "", downColor = "#ef4444", upColor = "#22c55e",
+}: Props) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [chartW, setChartW] = useState(400);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; label: string; value: number } | null>(null);
 
-  const formatCashFull = (value: number) => {
-    if (!value && value !== 0) return 'N/A';
-    return `$${Math.abs(value).toLocaleString()}`;
-  };
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(es => setChartW(es[0].contentRect.width));
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return dateStr;
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
-    } catch {
-      return dateStr;
+  const runway = useMemo(() => {
+    if (!data) return { text: "N/A", color: "text-muted-foreground" };
+    if (data.runway_months == null) {
+      return data.quarterly_operating_cf >= 0
+        ? { text: "Cash Positive", color: "" }
+        : { text: "N/A", color: "text-muted-foreground" };
     }
-  };
+    const m = data.runway_months;
+    const style = m < 3 ? downColor : m < 6 ? "#f97316" : m < 12 ? "#f59e0b" : upColor;
+    return { text: `${m.toFixed(1)} mo`, style };
+  }, [data, downColor, upColor]);
 
-  // Loading state
+  // Build bar series from cash_history + summary points
+  const bars = useMemo(() => {
+    if (!data) return [];
+    const result: Array<{ label: string; value: number; positive: boolean; dim?: boolean }> = [];
+
+    const hist = [...(data.cash_history || [])].sort((a, b) => a.date.localeCompare(b.date)).slice(-8);
+    hist.forEach(h => result.push({ label: fmtDate(h.date), value: h.cash, positive: h.cash >= 0, dim: true }));
+
+    result.push({ label: "Reported",    value: data.historical_cash,          positive: true });
+    result.push({ label: "Op CF",       value: data.prorated_cf,              positive: data.prorated_cf >= 0 });
+    if (data.capital_raises?.total) {
+      result.push({ label: "Raised",    value: data.capital_raises.total,     positive: true });
+    }
+    result.push({ label: "Est.",        value: data.estimated_current_cash,   positive: data.estimated_current_cash >= 0 });
+
+    return result;
+  }, [data]);
+
   if (loading) {
     return (
-      <div className="border border-border rounded-lg p-4">
-        <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-muted rounded w-1/3"></div>
-          <div className="h-48 bg-surface-inset rounded"></div>
-        </div>
+      <div className={`${fontClass} animate-pulse px-2 py-2`}>
+        <div className="h-2 bg-muted rounded w-1/3 mb-2" />
+        <div className="h-16 bg-muted/40 rounded" />
       </div>
     );
   }
+  if (!data) return null;
 
-  // No data
-  if (!data) {
-    return null;
-  }
+  // chart geometry
+  const svgH = 72;
+  const pad  = { t: 4, r: 4, b: 16, l: 36 };
+  const plotW = Math.max(chartW - pad.l - pad.r, 10);
+  const plotH = svgH - pad.t - pad.b;
+  const maxAbs = Math.max(...bars.map(b => Math.abs(b.value)), 0.001);
+  const posMax = Math.max(...bars.map(b => (b.value > 0 ? b.value : 0)), 0.001);
+  const negMax = Math.max(...bars.map(b => (b.value < 0 ? Math.abs(b.value) : 0)), 0);
+  const totalRange = posMax + negMax;
+  const zeroY = pad.t + (posMax / totalRange) * plotH;
 
-  // Build chart data - Historical bars + 4 separate estimate bars
-  const buildChartData = () => {
-    const chartData: Array<{
-      label: string;
-      value: number;
-      type: 'historical' | 'reported' | 'burn' | 'raise' | 'estimate';
-      fullDate?: string;
-    }> = [];
-
-    // Historical cash bars - show ALL available history
-    if (data.cash_history && data.cash_history.length > 0) {
-      const sorted = [...data.cash_history].sort((a, b) => a.date.localeCompare(b.date));
-      // Show all historical data (no limit)
-
-      sorted.forEach((item) => {
-        chartData.push({
-          label: formatDate(item.date),
-          value: item.cash,
-          type: 'historical',
-          fullDate: item.date
-        });
-      });
-    }
-
-    // Add the 4 estimate component bars
-    // 1. Reported Cash (last balance sheet)
-    chartData.push({
-      label: 'Reported',
-      value: data.historical_cash,
-      type: 'reported'
-    });
-
-    // 2. Prorated Operating CF (burn since report - negative if burning)
-    const proratedValue = data.quarterly_operating_cf < 0
-      ? -Math.abs(data.prorated_cf)  // Negative (burning)
-      : data.prorated_cf;             // Positive (generating)
-
-    chartData.push({
-      label: 'Prorated CF',
-      value: proratedValue,
-      type: 'burn'
-    });
-
-    // 3. Capital Raises
-    chartData.push({
-      label: 'Cap. Raise',
-      value: data.capital_raises?.total || 0,
-      type: 'raise'
-    });
-
-    // 4. Current Estimate
-    chartData.push({
-      label: 'Current Est.',
-      value: data.estimated_current_cash,
-      type: 'estimate'
-    });
-
-    return chartData;
-  };
-
-  const chartData = buildChartData();
-
-  // Calculate runway display
-  const runwayDisplay = () => {
-    if (data.runway_months === null || data.runway_months === undefined) {
-      if (data.quarterly_operating_cf >= 0) {
-        return { text: 'Cash Positive', color: 'text-green-600' };
-      }
-      return { text: 'N/A', color: 'text-muted-fg' };
-    }
-
-    const months = data.runway_months;
-    let color = 'text-green-600';
-
-    if (months < 3) color = 'text-red-600';
-    else if (months < 6) color = 'text-orange-500';
-    else if (months < 12) color = 'text-yellow-600';
-
-    return { text: `${months.toFixed(1)} months`, color };
-  };
-
-  const runway = runwayDisplay();
-
-  // Risk badge
-  const getRiskBadge = (level: string) => {
-    const badges: Record<string, { bg: string; text: string; label: string }> = {
-      critical: { bg: 'bg-red-500/15', text: 'text-red-700 dark:text-red-400', label: 'Critical' },
-      high: { bg: 'bg-orange-500/15', text: 'text-orange-700 dark:text-orange-400', label: 'High Risk' },
-      medium: { bg: 'bg-yellow-500/15', text: 'text-yellow-700 dark:text-yellow-400', label: 'Moderate' },
-      moderate: { bg: 'bg-yellow-500/15', text: 'text-yellow-700 dark:text-yellow-400', label: 'Moderate' },
-      low: { bg: 'bg-green-500/15', text: 'text-green-700 dark:text-green-400', label: 'Low Risk' },
-      healthy: { bg: 'bg-emerald-500/15', text: 'text-emerald-700 dark:text-emerald-400', label: 'Healthy' },
-    };
-    return badges[level] || badges.low;
-  };
-
-  const riskBadge = getRiskBadge(data.runway_risk_level);
-
-  // Get bar color based on type
-  const getBarColor = (type: string) => {
-    switch (type) {
-      case 'historical': return COLORS.historical;
-      case 'reported': return COLORS.reported;
-      case 'burn': return COLORS.burn;
-      case 'raise': return COLORS.raise;
-      case 'estimate': return COLORS.estimate;
-      default: return COLORS.historical;
-    }
-  };
-
-  // Custom tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload || !payload.length) return null;
-
-    const item = payload[0]?.payload;
-    if (!item) return null;
-
-    const typeLabels: Record<string, string> = {
-      historical: 'Historical Cash',
-      reported: 'Last Reported Cash',
-      burn: 'Prorated Operating CF',
-      raise: 'Capital Raised',
-      estimate: 'Current Estimate'
-    };
-
-    return (
-      <div className="bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">
-        <p className="font-semibold mb-1">{typeLabels[item.type] || label}</p>
-        {item.fullDate && <p className="text-muted-fg text-[10px] mb-1">{item.fullDate}</p>}
-        <p className={item.value < 0 ? 'text-red-300' : 'text-green-300'}>
-          {item.value < 0 ? '-' : ''}{formatCashFull(item.value)}
-        </p>
-      </div>
-    );
-  };
+  const barW = Math.max(Math.floor(plotW / bars.length * 0.64), 3);
+  const gap  = plotW / bars.length;
+  const barX = (i: number) => pad.l + i * gap + (gap - barW) / 2;
 
   return (
-    <div className="border border-border rounded-lg p-4">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h4 className="text-sm font-medium text-foreground">
-            Cash Position & Runway
-          </h4>
-          <p className="text-xs text-muted-fg mt-0.5">
-            SEC XBRL data • Last report: {formatDate(data.historical_cash_date)} • {data.days_since_report} days ago
-          </p>
-        </div>
-
-        {/* Runway & Risk */}
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <span className="text-xs text-muted-fg">Runway:</span>
-            <span className={`ml-1 text-sm font-semibold ${runway.color}`}>
-              {runway.text}
-            </span>
-          </div>
-          <span className={`px-2 py-0.5 rounded text-xs font-medium ${riskBadge.bg} ${riskBadge.text}`}>
-            {riskBadge.label}
-          </span>
-        </div>
+    <div className={`${fontClass}`}>
+      {/* header row */}
+      <div className="flex items-center justify-between px-2 pb-1 text-[10px]">
+        <span className="text-muted-foreground">
+          Last report: <span className="text-foreground/70">{fmtDate(data.historical_cash_date)}</span>
+          {" · "}{data.days_since_report}d ago
+        </span>
+        <span className="font-medium" style={{ color: (runway as any).style || undefined }}>
+          {runway.text}
+        </span>
       </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3 mb-3 text-[10px]">
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.historical }}></div>
-          <span className="text-muted-fg">Historical</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.reported }}></div>
-          <span className="text-muted-fg">Reported</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.burn }}></div>
-          <span className="text-muted-fg">Prorated CF</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.raise }}></div>
-          <span className="text-muted-fg">Cap. Raise</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.estimate }}></div>
-          <span className="text-muted-fg">Estimate</span>
-        </div>
+      {/* SVG */}
+      <div ref={wrapRef} className="w-full relative">
+        <svg
+          width={chartW} height={svgH}
+          className="block overflow-visible"
+          onMouseLeave={() => setTooltip(null)}
+        >
+          {/* zero line */}
+          {negMax > 0 && (
+            <line x1={pad.l} x2={pad.l + plotW} y1={zeroY} y2={zeroY}
+              stroke="currentColor" strokeOpacity={0.15} strokeWidth={1} strokeDasharray="3 3" />
+          )}
+
+          {/* subtle grid */}
+          {[0.5, 1].map(f => {
+            const yy = pad.t + (1 - f) * (posMax / totalRange) * plotH;
+            return (
+              <g key={f}>
+                <line x1={pad.l} x2={pad.l + plotW} y1={yy} y2={yy}
+                  stroke="currentColor" strokeOpacity={0.05} strokeWidth={1} />
+                <text x={pad.l - 3} y={yy + 3} textAnchor="end" fontSize={7} fill="currentColor" fillOpacity={0.30}>
+                  {fmtCash(posMax * f)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* bars */}
+          {bars.map((bar, i) => {
+            const x = barX(i);
+            const absH = Math.max((Math.abs(bar.value) / totalRange) * plotH, 1);
+            const barY = bar.value >= 0 ? zeroY - absH : zeroY;
+            const color = bar.positive ? "#3b82f6" : downColor;
+            const opacity = bar.dim ? 0.45 : 0.75;
+
+            return (
+              <g key={i}
+                onMouseEnter={e => {
+                  const rect = wrapRef.current?.getBoundingClientRect();
+                  if (!rect) return;
+                  setTooltip({ x: x + barW / 2, y: barY, label: bar.label, value: bar.value });
+                }}
+              >
+                <rect x={x} y={barY} width={barW} height={absH} fill={color} opacity={opacity} />
+                <text x={x + barW / 2} y={svgH - 2} textAnchor="middle" fontSize={7} fill="currentColor" fillOpacity={0.35}>
+                  {bar.label}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* tooltip */}
+          {tooltip && (
+            <g>
+              <rect
+                x={Math.min(tooltip.x + 6, chartW - 70)} y={Math.max(tooltip.y - 24, pad.t)}
+                width={65} height={20} rx={2}
+                fill="var(--color-background, #18181b)" stroke="currentColor" strokeOpacity={0.15}
+              />
+              <text
+                x={Math.min(tooltip.x + 39, chartW - 35)} y={Math.max(tooltip.y - 10, pad.t + 14)}
+                textAnchor="middle" fontSize={8} fill="currentColor" fillOpacity={0.7}
+              >
+                {tooltip.label}: {fmtCash(tooltip.value)}
+              </text>
+            </g>
+          )}
+        </svg>
       </div>
 
-      {/* Chart - taller to show more history */}
-      <div className="h-64 overflow-x-auto">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 40 }}>
-            <XAxis
-              dataKey="label"
-              tick={{ fontSize: 9, fill: '#94a3b8' }}
-              tickLine={false}
-              axisLine={{ stroke: '#e2e8f0' }}
-              angle={-45}
-              textAnchor="end"
-              height={50}
-            />
-            <YAxis
-              tick={{ fontSize: 9, fill: '#94a3b8' }}
-              tickFormatter={(val) => formatCash(val)}
-              tickLine={false}
-              axisLine={false}
-              width={55}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="3 3" />
-
-            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-              {chartData.map((entry, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={getBarColor(entry.type)}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      {/* summary row */}
+      <div className="flex gap-4 px-2 pt-1 text-[10px] text-muted-foreground">
+        <span>Reported: <span className="text-foreground/80 font-medium">{fmtCash(data.historical_cash)}</span></span>
+        <span>Op CF: <span className="font-medium" style={{ color: data.prorated_cf < 0 ? downColor : upColor }}>{data.prorated_cf < 0 ? "" : "+"}{fmtCash(data.prorated_cf)}</span></span>
+        {data.capital_raises?.total ? <span>Raised: <span className="text-foreground/80 font-medium">+{fmtCash(data.capital_raises.total)}</span></span> : null}
+        <span>Est: <span className="text-foreground/80 font-medium">{fmtCash(data.estimated_current_cash)}</span></span>
       </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-2 mt-4 text-xs">
-        <div className="bg-blue-500/10 rounded p-2 text-center">
-          <p className="text-muted-fg text-[10px]">Reported</p>
-          <p className="font-semibold text-blue-700">{formatCash(data.historical_cash)}</p>
-        </div>
-        <div className={`rounded p-2 text-center ${data.quarterly_operating_cf < 0 ? 'bg-red-500/10' : 'bg-green-500/10'}`}>
-          <p className="text-muted-fg text-[10px]">Prorated CF</p>
-          <p className={`font-semibold ${data.quarterly_operating_cf < 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
-            {data.quarterly_operating_cf < 0 ? '-' : '+'}{formatCash(Math.abs(data.prorated_cf))}
-          </p>
-        </div>
-        <div className="bg-green-500/10 rounded p-2 text-center">
-          <p className="text-muted-fg text-[10px]">Cap. Raise</p>
-          <p className="font-semibold text-green-700">
-            {data.capital_raises?.total ? `+${formatCash(data.capital_raises.total)}` : '-'}
-          </p>
-        </div>
-        <div className="bg-amber-500/10 rounded p-2 text-center">
-          <p className="text-muted-fg text-[10px]">Current Est.</p>
-          <p className="font-semibold text-amber-700 dark:text-amber-400">{formatCash(data.estimated_current_cash)}</p>
-        </div>
-      </div>
-
-      {/* Formula */}
-      <div className="mt-3 pt-3 border-t border-border-subtle text-[10px] text-muted-fg">
-        <p>
-          <span className="text-foreground/80">Current Est.</span> = Reported Cash + Prorated Operating CF + Capital Raises
-        </p>
-        <p className="mt-0.5">Cash includes cash equivalents, short-term investments, and restricted cash (DilutionTracker methodology)</p>
-      </div>
-
-      {/* Capital Raise Details */}
-      {data.capital_raises?.details && data.capital_raises.details.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-border-subtle">
-          <p className="text-xs font-medium text-foreground/80 mb-2">Recent Capital Raises</p>
-          <div className="space-y-1">
-            {data.capital_raises.details.slice(0, 3).map((raise, idx) => (
-              <div key={idx} className="flex items-center justify-between text-xs">
-                <span className="text-muted-fg">{formatDate(raise.filing_date)}</span>
-                <span className="text-foreground/80 truncate max-w-[120px]">{raise.instrument_type}</span>
-                <span className="font-medium text-green-600">+{formatCash(raise.gross_proceeds)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
-}
+});

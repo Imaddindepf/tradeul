@@ -40,9 +40,9 @@ interface UseUserFiltersReturn {
 // ============================================================================
 
 export function useUserFilters(): UseUserFiltersReturn {
-  const { getToken } = useAuth();
+  const { getToken, isLoaded, isSignedIn } = useAuth();
   const [filters, setFilters] = useState<UserFilter[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   // ======================================================================
@@ -50,6 +50,15 @@ export function useUserFilters(): UseUserFiltersReturn {
   // ======================================================================
 
   const loadFilters = useCallback(async () => {
+    // Esperar a que Clerk termine de hidratar y solo cargar si hay sesión.
+    if (!isLoaded) return;
+    if (!isSignedIn) {
+      setLoading(false);
+      setError(null);
+      setFilters([]);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -63,7 +72,7 @@ export function useUserFilters(): UseUserFiltersReturn {
     } finally {
       setLoading(false);
     }
-  }, [getToken]);
+  }, [getToken, isLoaded, isSignedIn]);
 
   // ======================================================================
   // Create Filter

@@ -61,14 +61,24 @@ interface EventFilterParameters {
   // Time-window change filters
   min_chg_1min?: number;
   max_chg_1min?: number;
+  min_chg_1min_dollars?: number;
+  max_chg_1min_dollars?: number;
   min_chg_5min?: number;
   max_chg_5min?: number;
+  min_chg_5min_dollars?: number;
+  max_chg_5min_dollars?: number;
   min_chg_10min?: number;
   max_chg_10min?: number;
+  min_chg_10min_dollars?: number;
+  max_chg_10min_dollars?: number;
   min_chg_15min?: number;
   max_chg_15min?: number;
+  min_chg_15min_dollars?: number;
+  max_chg_15min_dollars?: number;
   min_chg_30min?: number;
   max_chg_30min?: number;
+  min_chg_30min_dollars?: number;
+  max_chg_30min_dollars?: number;
 
   // Time-window volume filters
   min_vol_1min?: number;
@@ -123,6 +133,8 @@ interface EventFilterParameters {
   // Change 60 min
   min_chg_60min?: number;
   max_chg_60min?: number;
+  min_chg_60min_dollars?: number;
+  max_chg_60min_dollars?: number;
 
   // Float & Shares
   min_float_shares?: number;
@@ -188,6 +200,12 @@ interface EventFilterParameters {
   max_bb_lower?: number;
 
   // Daily indicators (from screener)
+  min_daily_sma_5?: number;
+  max_daily_sma_5?: number;
+  min_daily_sma_8?: number;
+  max_daily_sma_8?: number;
+  min_daily_sma_10?: number;
+  max_daily_sma_10?: number;
   min_daily_sma_20?: number;
   max_daily_sma_20?: number;
   min_daily_sma_50?: number;
@@ -396,6 +414,10 @@ interface EventFilterParameters {
   max_chg_2min?: number;
   min_chg_120min?: number;
   max_chg_120min?: number;
+  min_chg_2min_dollars?: number;
+  max_chg_2min_dollars?: number;
+  min_chg_120min_dollars?: number;
+  max_chg_120min_dollars?: number;
 
   // === Extended Trade Ideas parity filters ===
   // Gap $ [GUD]

@@ -262,8 +262,10 @@ export default function ScannerPage() {
           const categoryId = componentState.categoryId as string;
           const categoryName = componentState.categoryName as string;
           const eventTypes = componentState.eventTypes as string[] || [];
+          const strategyId = componentState.strategyId as number | undefined;
 
-          // Restaurar filtros en el store si los hay (strategies)
+          // Aplicar los filtros del snapshot del workspace como punto de partida.
+          // Si hay strategyId, EventTableContent sincronizará desde la API al montar.
           if (componentState.filters && categoryId) {
             useEventFiltersStore.getState().setAllFilters(categoryId, componentState.filters as ActiveEventFilters);
           }
@@ -273,6 +275,7 @@ export default function ScannerPage() {
               categoryId={categoryId}
               categoryName={categoryName}
               eventTypes={eventTypes}
+              strategyId={strategyId}
               defaultFilters={componentState.defaultFilters as any}
             />
           );

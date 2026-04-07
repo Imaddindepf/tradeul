@@ -114,6 +114,9 @@ const ALL_HIDEABLE_COLUMNS = [
   'chg_60min', 'vol_60min', 'change_1d', 'change_5d', 'change_10d', 'change_20d',
   'dist_from_vwap', 'dist_sma_20', 'dist_sma_50', 'dist_sma_200',
   'todays_range_pct', 'float_turnover', 'pos_in_range',
+  // Dilution Risk columns
+  'dilution_overall_risk', 'dilution_offering_ability', 'dilution_overhead_supply',
+  'dilution_historical', 'dilution_cash_need',
 ];
 
 function getDefaultColumnVisibility(listName: string): Record<string, boolean> {
@@ -962,43 +965,6 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
             if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
             const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
             return <div className={`font-mono ${cls}`}>{value.toFixed(1)}%</div>;
-          },
-        });
-      }),
-      // Range window $ columns (Trade Ideas: Range2..Range120 in dollars)
-      ...(['range_2min', 'range_5min', 'range_15min', 'range_30min', 'range_60min', 'range_120min'] as const).map(key => {
-        const labels: Record<string, string> = { range_2min: 'R2m$', range_5min: 'R5m$', range_15min: 'R15m$', range_30min: 'R30m$', range_60min: 'R60m$', range_120min: 'R120m$' };
-        return columnHelper.accessor(key, {
-          header: labels[key],
-          size: 75,
-          minSize: 55,
-          maxSize: 95,
-          enableResizing: true,
-          enableSorting: true,
-          enableHiding: true,
-          cell: (info) => {
-            const value = info.getValue();
-            if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
-            return <div className="font-mono text-foreground/80">${value.toFixed(2)}</div>;
-          },
-        });
-      }),
-      // Range window % columns (Trade Ideas style)
-      ...(['range_2min_pct', 'range_5min_pct', 'range_15min_pct', 'range_30min_pct', 'range_60min_pct', 'range_120min_pct'] as const).map(key => {
-        const labels: Record<string, string> = { range_2min_pct: 'R2m%', range_5min_pct: 'R5m%', range_15min_pct: 'R15m%', range_30min_pct: 'R30m%', range_60min_pct: 'R60m%', range_120min_pct: 'R120m%' };
-        return columnHelper.accessor(key, {
-          header: labels[key],
-          size: 75,
-          minSize: 55,
-          maxSize: 95,
-          enableResizing: true,
-          enableSorting: true,
-          enableHiding: true,
-          cell: (info) => {
-            const value = info.getValue();
-            if (value === null || value === undefined) return <div className="text-muted-fg">-</div>;
-            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-foreground/80' : 'text-red-500';
-            return <div className={'font-mono ' + cls}>{value.toFixed(1)}%</div>;
           },
         });
       }),
@@ -2196,6 +2162,37 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           const colorClass = value > 75 ? 'text-green-600' : value < 25 ? 'text-red-600' : 'text-foreground/80';
           return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(0)}%</div>;
         },
+      }),
+
+      // ── Dilution Risk ──
+      ...(['dilution_overall_risk', 'dilution_offering_ability', 'dilution_overhead_supply', 'dilution_historical', 'dilution_cash_need'] as const).map((field) => {
+        const headers: Record<string, string> = {
+          dilution_overall_risk: 'D.Risk',
+          dilution_offering_ability: 'D.Offering',
+          dilution_overhead_supply: 'D.Overhead',
+          dilution_historical: 'D.Historical',
+          dilution_cash_need: 'D.Cash',
+        };
+        return columnHelper.accessor((row: Ticker) => row[field] as string | null | undefined, {
+          id: field,
+          header: headers[field],
+          size: 78,
+          minSize: 60,
+          maxSize: 100,
+          enableResizing: true,
+          enableSorting: true,
+          enableHiding: true,
+          cell: (info) => {
+            const value = info.getValue() as string | null | undefined;
+            if (!value) return <div className="text-muted-fg">-</div>;
+            const colorClass =
+              value === 'Low' ? 'text-emerald-600' :
+              value === 'Medium' ? 'text-amber-500' :
+              value === 'High' ? 'text-rose-600 font-semibold' :
+              'text-foreground/70';
+            return <div className={`text-xs ${colorClass}`}>{value}</div>;
+          },
+        });
       }),
     ],
     [] // Columns static - link group accessed via refs

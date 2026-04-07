@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check:event-filter-parity": "python3 ../scripts/check_event_filter_parity.py"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.35.5",

@@ -11,8 +11,9 @@
  *   MSFT NEWS  → Noticias de Microsoft
  */
 
-// Regex para validar tickers (1-5 letras mayúsculas)
-const TICKER_REGEX = /^[A-Z]{1,5}$/;
+// US-style symbols: 1–5 letters, optional class suffix (.B / -A) for names like BRK.B
+const TICKER_REGEX = /^[A-Z]{1,5}([.-][A-Z]{1,2})?$/;
+export const TICKER_LIKE_REGEX = TICKER_REGEX;
 
 // Comandos disponibles que pueden aplicarse a un ticker
 // Nota: Las descripciones son claves de traducción

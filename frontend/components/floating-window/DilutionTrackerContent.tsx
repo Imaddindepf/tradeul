@@ -1,286 +1,186 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useTranslation } from 'react-i18next';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "next/navigation";
-import { TickerSearch } from '@/components/common/TickerSearch';
+import { useUser } from "@clerk/nextjs";
+import { cn } from "@/lib/utils";
+import { TickerSearch } from "@/components/common/TickerSearch";
+import { useWindowState } from "@/contexts/FloatingWindowContext";
+import { useUserPreferencesStore, selectFont, selectColors } from "@/stores/useUserPreferencesStore";
 import { HoldersTable } from "@/app/(dashboard)/dilution-tracker/_components/HoldersTable";
 import { FilingsTable } from "@/app/(dashboard)/dilution-tracker/_components/FilingsTable";
 import { CashRunwayChart } from "@/app/(dashboard)/dilution-tracker/_components/CashRunwayChart";
 import { DilutionHistoryChart } from "@/app/(dashboard)/dilution-tracker/_components/DilutionHistoryChart";
 import { FinancialsTable } from "@/app/(dashboard)/dilution-tracker/_components/FinancialsTable";
-import { SECDilutionSection } from "@/app/(dashboard)/dilution-tracker/_components/SECDilutionSection";
-import { AITerminalWindow } from "@/components/floating-window/AITerminalWindow";
-import { useFloatingWindow, useWindowState } from "@/contexts/FloatingWindowContext";
-import { useDilutionJobNotifications } from "@/hooks/useDilutionJobNotifications";
+import { InstrumentContextSection } from "@/app/(dashboard)/dilution-tracker/_components/InstrumentContextSection";
+import { AmbiguousQueueSection } from "@/app/(dashboard)/dilution-tracker/_components/AmbiguousQueueSection";
+import {
+  getCashPosition,
+  getRiskRatings,
+  getSharesHistory,
+  getTickerAnalysis,
+  validateTicker,
+  type CashRunwayData,
+  type DilutionRiskRatings,
+  type TickerAnalysis,
+} from "@/lib/dilution-api";
+import {
+  getInstrumentContext,
+  type InstrumentContextResponse,
+} from "@/lib/dilution-v2-api";
+
+// ─── types ────────────────────────────────────────────────────────────────────
+type TabType = "dilution" | "review" | "holders" | "filings" | "financials";
+const DILUTION_ADMIN_EMAIL = "peertopeerhack@gmail.com";
 
 interface DilutionWindowState {
   ticker?: string;
   tab?: TabType;
   [key: string]: unknown;
 }
-import {
-  getTickerAnalysis,
-  validateTicker,
-  getCashPosition,
-  checkSECCache,
-  getSharesHistory,
-  type TickerAnalysis,
-  type CashRunwayData,
-  type SECDilutionProfileResponse,
-  type SECCacheCheckResult,
-  type SharesHistoryData
-} from "@/lib/dilution-api";
-
-type TabType = "overview" | "dilution" | "holders" | "filings" | "financials";
 
 interface DilutionTrackerContentProps {
   initialTicker?: string;
 }
 
-interface DilutionTrackerContentProps {
-  initialTicker?: string;
+// ─── font map ─────────────────────────────────────────────────────────────────
+const FONT_CLASS_MAP: Record<string, string> = {
+  "oxygen-mono":    "font-oxygen-mono",
+  "ibm-plex-mono":  "font-ibm-plex-mono",
+  "jetbrains-mono": "font-jetbrains-mono",
+  "fira-code":      "font-fira-code",
+};
+
+// ─── risk colour ──────────────────────────────────────────────────────────────
+function riskColor(level?: string): string {
+  if (level === "High")   return "text-red-500 dark:text-red-400";
+  if (level === "Medium") return "text-amber-500 dark:text-amber-400";
+  if (level === "Low")    return "text-green-500 dark:text-green-400";
+  return "text-muted-foreground";
+}
+function riskLabel(level?: string): string {
+  if (!level || level === "Unknown") return "N/A";
+  return level;
 }
 
+// ─── component ────────────────────────────────────────────────────────────────
 export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContentProps = {}) {
   const { t } = useTranslation();
+  const { user, isLoaded: isUserLoaded } = useUser();
   const searchParams = useSearchParams();
-  const { openWindow, closeWindow } = useFloatingWindow();
   const { state: windowState, updateState: updateWindowState } = useWindowState<DilutionWindowState>();
 
-  // Use persisted state
-  const savedTicker = windowState.ticker || initialTicker || '';
+  // preferences
+  const font   = useUserPreferencesStore(selectFont);
+  const colors = useUserPreferencesStore(selectColors);
+  const fontClass = FONT_CLASS_MAP[font] || "font-jetbrains-mono";
+  const upColor   = colors?.tickUp   || "#22c55e";
+  const downColor = colors?.tickDown || "#ef4444";
 
-  // Estados separados: input vs ticker seleccionado
-  const [inputValue, setInputValue] = useState(savedTicker);
+  // ticker state
+  const savedTicker = windowState.ticker || initialTicker || "";
+  const [inputValue, setInputValue]     = useState(savedTicker);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(savedTicker || null);
-  const [activeTab, setActiveTab] = useState<TabType>(windowState.tab || "dilution");
-
-  // Track if auto-load has been done
+  const [activeTab, setActiveTab]       = useState<TabType>(windowState.tab || "dilution");
   const autoLoadedRef = useRef(false);
 
-  // Persist state changes (including when ticker is cleared)
-  useEffect(() => {
-    // Always persist to ensure clearing ticker also clears persisted state
-    updateWindowState({ ticker: selectedTicker || '', tab: activeTab });
-  }, [selectedTicker, activeTab, updateWindowState]);
-
-  const [loading, setLoading] = useState(false);
-  const [tickerData, setTickerData] = useState<TickerAnalysis | null>(null);
+  // data state
+  const [loading, setLoading]               = useState(false);
+  const [error, setError]                   = useState<string | null>(null);
+  const [tickerData, setTickerData]         = useState<TickerAnalysis | null>(null);
   const [cashRunwayData, setCashRunwayData] = useState<CashRunwayData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
-  const [jobNotification, setJobNotification] = useState<{ ticker: string; message: string } | null>(null);
-  const [pendingJobs, setPendingJobs] = useState<Set<string>>(new Set());
+  const [sharesHistory, setSharesHistory]   = useState<any>(null);
+  const [instrumentContext, setInstrumentContext] = useState<InstrumentContextResponse | null>(null);
+  const [riskRatings, setRiskRatings]       = useState<DilutionRiskRatings | null>(null);
+  const [contextError, setContextError]     = useState<string | null>(null);
 
-  // Estado para datos SEC (separado del tickerData general)
-  const [secCacheData, setSecCacheData] = useState<SECDilutionProfileResponse | null>(null);
-  const [secJobStatus, setSecJobStatus] = useState<'queued' | 'processing' | 'none' | 'unknown'>('none');
+  const isDilutionAdmin = (user?.primaryEmailAddress?.emailAddress || "").toLowerCase() === DILUTION_ADMIN_EMAIL;
+  const allowedTabs: TabType[] = isDilutionAdmin
+    ? ["dilution", "review", "holders", "filings", "financials"]
+    : ["dilution", "holders", "filings", "financials"];
 
-  // Historical shares desde SEC EDGAR
-  const [sharesHistory, setSharesHistory] = useState<any>(null);
+  const normalizeTab = useCallback((tab: TabType | null | undefined): TabType => {
+    if (!tab) return "dilution";
+    return allowedTabs.includes(tab) ? tab : "dilution";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDilutionAdmin]);
 
-  // ID de la ventana de terminal AI (para poder cerrarla cuando lleguen datos)
-  const [terminalWindowId, setTerminalWindowId] = useState<string | null>(null);
+  const appendError = useCallback((msg: string) => {
+    setError(prev => prev ? `${prev} · ${msg}` : msg);
+  }, []);
 
-  // Función para abrir la terminal AI en una ventana flotante independiente
-  const openAITerminal = useCallback((ticker: string, companyName?: string) => {
-    const windowId = openWindow({
-      title: `AI Analysis: ${ticker}`,
-      content: (
-        <AITerminalWindow
-          ticker={ticker}
-          companyName={companyName}
-          onComplete={(success) => {
-          }}
-        />
-      ),
-      width: 600,
-      height: 500,
-      x: Math.max(50, window.innerWidth - 650),
-      y: 100,
-      minWidth: 400,
-      minHeight: 300,
-    });
-    setTerminalWindowId(windowId);
-    return windowId;
-  }, [openWindow]);
-
-  // Callback cuando un job de scraping completa
-  const handleJobComplete = useCallback(async (ticker: string) => {
-
-    // Remover de pending
-    setPendingJobs(prev => {
-      const next = new Set(prev);
-      next.delete(ticker);
-      return next;
-    });
-
-    // Si el ticker completado es el que estamos viendo
-    if (ticker.toUpperCase() === selectedTicker?.toUpperCase()) {
-
-      // Re-chequear caché (ahora debería tener datos)
-      try {
-        const cacheResult = await checkSECCache(ticker, false);
-
-        if (cacheResult.status === 'cached' && cacheResult.data) {
-          setSecCacheData(cacheResult.data);
-          setSecJobStatus('none');
-          // La terminal AI sigue corriendo independientemente - no la cerramos
-        } else {
-          setSecJobStatus('none');
-        }
-      } catch (err) {
-        setSecJobStatus('none');
-      }
-
-    } else {
-      // Si es otro ticker, mostrar notificación
-      setJobNotification({
-        ticker,
-        message: `${ticker} analysis ready!`
-      });
-      setTimeout(() => setJobNotification(null), 5000);
-    }
-  }, [selectedTicker]);
-
-  // Hook para notificaciones de jobs via WebSocket
-  const {
-    isConnected: wsConnected,
-    enqueueJob,
-    getJobStatus
-  } = useDilutionJobNotifications({
-    tickers: selectedTicker ? [selectedTicker] : [],
-    onJobComplete: handleJobComplete,
-    onJobFailed: (ticker, error) => {
-      setPendingJobs(prev => {
-        const next = new Set(prev);
-        next.delete(ticker);
-        return next;
-      });
-    },
-    enabled: true,
-  });
-
-  // Cargar ticker y tab desde URL o prop initialTicker al montar el componente
+  // persist state
   useEffect(() => {
-    // Prioridad: initialTicker > URL param
-    if (initialTicker && !selectedTicker) {
-      fetchTickerData(initialTicker);
-      return;
-    }
+    const safeTab = normalizeTab(activeTab);
+    if (safeTab !== activeTab) { setActiveTab(safeTab); return; }
+    updateWindowState({ ticker: selectedTicker || "", tab: safeTab });
+  }, [selectedTicker, activeTab, updateWindowState, normalizeTab]);
 
-    const tickerFromUrl = searchParams.get('ticker');
-    const tabFromUrl = searchParams.get('tab') as TabType;
+  // fetch
+  const fetchTickerData = useCallback(async (tickerInput: string) => {
+    const ticker = tickerInput.toUpperCase().trim();
+    const validResult = await validateTicker(ticker);
+    // 'not_found' = ticker explicitly absent from dilution DB → block
+    // 'error'     = backend temporarily unavailable → proceed optimistically
+    if (validResult === 'not_found') { setError(t("dilution.invalidTicker")); return; }
 
-    if (tickerFromUrl && !selectedTicker) {
-      const ticker = tickerFromUrl.toUpperCase();
-      setInputValue(ticker);
-      setSelectedTicker(ticker);
-      if (tabFromUrl && ["dilution", "holders", "filings", "financials"].includes(tabFromUrl)) {
-        setActiveTab(tabFromUrl);
-      }
-      fetchTickerData(ticker);
-    }
-  }, [searchParams, selectedTicker, initialTicker]);
-
-  const fetchTickerData = async (ticker: string, options?: { skipEnqueue?: boolean }) => {
-    if (!validateTicker(ticker)) {
-      setError(t('dilution.invalidTicker'));
-      return;
-    }
-
-    // Reset ALL state at the start of each search
     setLoading(true);
     setError(null);
-    setCashRunwayData(null);
-    setTickerData(null);
-    setSecCacheData(null);
-    setSharesHistory(null);
-    setSecJobStatus('none');
+    setContextError(null);
     setSelectedTicker(ticker);
-
-    // Cerrar terminal AI anterior si existe
-    if (terminalWindowId) {
-      closeWindow(terminalWindowId);
-      setTerminalWindowId(null);
-    }
-
-    // 🆕 PASO 1: Chequear caché SEC (NO BLOQUEA)
-    // Este es el cambio clave - primero chequeamos si hay datos cacheados
+    setTickerData(null);
+    setCashRunwayData(null);
+    setSharesHistory(null);
+    setInstrumentContext(null);
+    setRiskRatings(null);
 
     try {
-      const cacheResult = await checkSECCache(ticker, !options?.skipEnqueue);
+      const [analysisData, contextData, sharesData, cashData, riskData] = await Promise.allSettled([
+        getTickerAnalysis(ticker),
+        getInstrumentContext(ticker),
+        getSharesHistory(ticker),
+        getCashPosition(ticker),
+        getRiskRatings(ticker),
+      ]);
+      if (analysisData.status === "fulfilled") setTickerData(analysisData.value);
+      else appendError("Analysis unavailable");
 
-      if (cacheResult.status === 'cached' && cacheResult.data) {
-        // ✅ HAY DATOS EN CACHÉ - mostrar inmediatamente
-        setSecCacheData(cacheResult.data);
-        setSecJobStatus('none');
-      } else {
-        // ❌ NO HAY CACHÉ - abrir terminal AI en ventana flotante
-        setSecCacheData(null);
-        setSecJobStatus(cacheResult.job_status || 'none');
+      if (contextData.status === "fulfilled") setInstrumentContext(contextData.value);
+      else { setContextError("Instrument context unavailable."); appendError("Instrument context unavailable"); }
 
-        // Abrir terminal AI en ventana flotante independiente
-        if (!options?.skipEnqueue) {
-          openAITerminal(ticker);
-        }
+      if (sharesData.status === "fulfilled" && sharesData.value?.history) setSharesHistory(sharesData.value);
+      if (cashData.status === "fulfilled") setCashRunwayData(cashData.value);
+      else appendError("Cash runway unavailable");
 
-        // Marcar como pending para WebSocket
-        if (cacheResult.job_status === 'queued' || cacheResult.job_status === 'processing') {
-          setPendingJobs(prev => new Set(prev).add(ticker));
-        }
-      }
-    } catch (cacheErr) {
-      // Fallback: abrir terminal AI
-      if (!options?.skipEnqueue) {
-        openAITerminal(ticker);
-      }
-    }
-
-    // 🆕 PASO 2: Cargar datos generales (summary, holders, etc.)
-    // Esto es independiente del caché SEC
-    try {
-      const data = await getTickerAnalysis(ticker);
-      setTickerData(data);
-
-      // Try to get cash runway if not present
-      if (!data?.cash_runway) {
-        try {
-          const cashData = await getCashPosition(ticker);
-          setCashRunwayData(cashData);
-        } catch (cashErr) {
-          console.warn('Could not fetch cash position:', cashErr);
-        }
-      }
-
-      // Get historical shares from SEC EDGAR (gratuito)
-      try {
-        const sharesData = await getSharesHistory(ticker);
-        if (sharesData && sharesData.history) {
-          setSharesHistory(sharesData);
-        }
-      } catch (sharesErr) {
-        console.warn('Could not fetch SEC shares history:', sharesErr);
-      }
-
+      if (riskData.status === "fulfilled" && riskData.value) setRiskRatings(riskData.value);
     } catch (err) {
-      console.error('Dilution API error:', err);
-      setError(err instanceof Error ? err.message : t('dilution.errorLoading'));
-      setTickerData(null);
+      setError(err instanceof Error ? err.message : t("dilution.errorLoading"));
     } finally {
       setLoading(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t, appendError]);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inputValue.trim()) {
-      fetchTickerData(inputValue.trim().toUpperCase());
+  // auto-load from URL / saved state
+  useEffect(() => {
+    if (!isUserLoaded) return;
+    if (initialTicker && !selectedTicker) { fetchTickerData(initialTicker); return; }
+    const tickerFromUrl = searchParams.get("ticker");
+    const tabFromUrl = searchParams.get("tab") as TabType | null;
+    if (tickerFromUrl && !selectedTicker) {
+      const tk = tickerFromUrl.toUpperCase();
+      setInputValue(tk); setSelectedTicker(tk); setActiveTab(normalizeTab(tabFromUrl));
+      fetchTickerData(tk);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTicker, searchParams, selectedTicker, isUserLoaded]);
 
-  // Auto-load when windowState becomes available (after Zustand hydration)
+  useEffect(() => {
+    if (!isUserLoaded) return;
+    if (!isDilutionAdmin && activeTab === "review") setActiveTab("dilution");
+  }, [isDilutionAdmin, activeTab, isUserLoaded]);
+
   useEffect(() => {
     if (!autoLoadedRef.current && windowState.ticker && !selectedTicker) {
       autoLoadedRef.current = true;
@@ -290,234 +190,294 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
     }
   }, [windowState.ticker, selectedTicker]);
 
-  const tabs: { id: TabType; label: string }[] = [
-    { id: "dilution", label: "Dilution" },
-    { id: "holders", label: "Holders" },
-    { id: "filings", label: "Filings" },
-    { id: "financials", label: "Financieros" },
-  ];
+  // sec data for chart
+  const secData = useMemo(() => {
+    if (!instrumentContext) return null;
+    const currentPrice = Number(instrumentContext.ticker_info.last_price || 0);
+    return {
+      warrants: instrumentContext.instruments
+        .filter(i => i.offering_type === "Warrant")
+        .map(i => ({ outstanding: Number((i.details as any).remaining_warrants || 0) })),
+      atm_offerings: instrumentContext.instruments
+        .filter(i => i.offering_type === "ATM")
+        .map(i => ({
+          remaining_capacity: Number((i.details as any).remaining_atm_capacity || 0),
+          potential_shares_at_current_price:
+            currentPrice > 0
+              ? Math.floor(Number((i.details as any).remaining_atm_capacity || 0) / currentPrice)
+              : 0,
+        })),
+      equity_lines: instrumentContext.instruments
+        .filter(i => i.offering_type === "Equity Line")
+        .map(i => ({ potential_shares: Number((i.details as any).current_shares_equiv || 0) })),
+      convertible_notes: instrumentContext.instruments
+        .filter(i => i.offering_type === "Convertible Note")
+        .map(i => ({ potential_shares: Number((i.details as any).remaining_shares_converted || 0) })),
+      convertible_preferred: instrumentContext.instruments
+        .filter(i => i.offering_type === "Convertible Preferred")
+        .map(i => ({ potential_shares: Number((i.details as any).remaining_shares_converted || 0) })),
+      s1_offerings: instrumentContext.instruments
+        .filter(i => i.offering_type === "S-1 Offering")
+        .map(i => ({ potential_shares: Number((i.details as any).final_shares_offered || 0) })),
+      shares_outstanding: Number(instrumentContext.ticker_info.shares_outstanding || 0),
+      current_price: currentPrice,
+    };
+  }, [instrumentContext]);
 
+  const handleRefresh = useCallback(() => {
+    if (selectedTicker) fetchTickerData(selectedTicker);
+  }, [selectedTicker, fetchTickerData]);
+
+  const effectiveRisk = riskRatings || ((tickerData?.risk_assessment as DilutionRiskRatings | undefined) ?? null);
+
+  const displayCompanyName =
+    tickerData?.summary?.company_name ||
+    instrumentContext?.ticker_info?.company ||
+    selectedTicker || "-";
+  const displaySector   = tickerData?.summary?.sector || null;
+  const displayExchange = tickerData?.summary?.exchange || null;
+  const displayPrice    = instrumentContext?.ticker_info?.last_price || null;
+
+  const tabs: { id: TabType; label: string }[] = allowedTabs.map(id => ({
+    id,
+    label: id === "dilution" ? "DILUTION" : id === "review" ? "REVIEW"
+      : id === "holders" ? "HOLDERS" : id === "filings" ? "FILINGS" : "FINANCIALS",
+  }));
+
+  // ─── render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="h-full flex flex-col bg-surface">
-      {/* Job Completion Notification Toast - Minimalista */}
-      {jobNotification && (
-        <div
-          className="mx-2 mt-1 px-3 py-2 border-b border-border flex items-center justify-between gap-2 cursor-pointer hover:bg-surface-hover"
-          onClick={() => {
-            setInputValue(jobNotification.ticker);
-            fetchTickerData(jobNotification.ticker);
-            setJobNotification(null);
-          }}
-        >
-          <span className="text-sm text-foreground">{jobNotification.message}</span>
-          <button
-            className="text-xs text-muted-fg hover:text-foreground font-medium"
-            onClick={(e) => {
-              e.stopPropagation();
-              setInputValue(jobNotification.ticker);
-              fetchTickerData(jobNotification.ticker);
-              setJobNotification(null);
-            }}
-          >
-            View →
-          </button>
-        </div>
-      )}
+    <div className={cn("h-full flex flex-col bg-background text-foreground overflow-hidden", fontClass)}>
 
-      {/* Search Bar - Minimalista */}
-      <div className="px-3 py-2 border-b border-border">
-        <form onSubmit={handleSearch} className="flex items-center gap-2">
-          <TickerSearch
-            value={inputValue}
-            onChange={setInputValue}
-            onSelect={(ticker) => {
-              setInputValue(ticker.symbol);
-              fetchTickerData(ticker.symbol);
-            }}
-            placeholder="Enter ticker..."
-            className="flex-1"
-            autoFocus={false}
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-3 py-1 text-sm font-medium text-foreground/80 hover:text-foreground disabled:opacity-50"
-          >
-            {loading ? '...' : 'Go'}
-          </button>
-        </form>
+      {/* ── search bar ── */}
+      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border flex-shrink-0">
+        <TickerSearch
+          value={inputValue}
+          onChange={setInputValue}
+          onSelect={tk => { setInputValue(tk.symbol); fetchTickerData(tk.symbol); }}
+          placeholder="Ticker..."
+          className="flex-1"
+          autoFocus={false}
+        />
+        <button
+          onClick={() => { if (inputValue.trim()) fetchTickerData(inputValue); }}
+          disabled={loading}
+          className="px-2.5 py-1 text-[10px] font-medium border border-border rounded text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40"
+        >
+          {loading ? "..." : "GO"}
+        </button>
       </div>
 
-      {/* Error Message */}
+      {/* ── error banner ── */}
       {error && (
-        <div className="px-3 py-2 text-sm text-red-600 border-b border-border">
+        <div className="px-2 py-1 text-[10px] text-red-500 border-b border-border flex-shrink-0">
           {error}
         </div>
       )}
 
-      {/* Content - flex-1 para ocupar espacio restante */}
       {selectedTicker ? (
-        <div className="flex-1 overflow-auto min-h-0">
-          {/* Company Header */}
-          <div className="bg-surface border-b border-border p-4">
-            {/* Company Name */}
-            <h2 className="text-xl font-bold text-foreground mb-2">
-              {loading ? t('common.loading') : tickerData?.summary?.company_name || selectedTicker}
-            </h2>
-
-            {/* Info Lines */}
-            <div className="space-y-1 text-sm">
-              <div className="text-foreground/80">
-                <span className="font-medium">Sector:</span> {tickerData?.summary?.sector || "..."}
-                <span className="mx-2">•</span>
-                <span className="font-medium">Industry:</span> {tickerData?.summary?.industry || "..."}
-                {tickerData?.summary?.exchange && (
-                  <>
-                    <span className="mx-2">•</span>
-                    <span className="font-medium">Exchange:</span> {tickerData.summary.exchange}
-                  </>
-                )}
-              </div>
-
-              <div className="text-foreground font-medium">
-                <span className="text-muted-fg">Mkt Cap & EV:</span> {tickerData?.summary?.market_cap ? `$${(tickerData.summary.market_cap / 1_000_000_000).toFixed(2)}B` : '--'}
-                <span className="mx-3">•</span>
-                <span className="text-muted-fg">Float & OS:</span> {tickerData?.summary?.free_float && tickerData?.summary?.shares_outstanding ? `${(tickerData.summary.free_float / 1_000_000).toFixed(1)}M / ${(tickerData.summary.shares_outstanding / 1_000_000).toFixed(1)}M` : '--'}
-                <span className="mx-3">•</span>
-                <span className="text-muted-fg">Inst Own:</span> {tickerData?.summary?.institutional_ownership ? `${tickerData.summary.institutional_ownership.toFixed(1)}%` : '--'}
-              </div>
-            </div>
-
-            {/* Description */}
-            {tickerData?.summary?.description && (
-              <div className="mt-3 pt-3 border-t border-border">
-                <p className={`text-sm text-foreground/80 leading-relaxed ${!descriptionExpanded ? 'line-clamp-2' : ''
-                  }`}>
-                  {tickerData.summary.description}
-                </p>
-                <button
-                  onClick={() => setDescriptionExpanded(!descriptionExpanded)}
-                  className="mt-1 text-xs text-primary hover:text-primary-hover font-medium"
-                >
-                  {descriptionExpanded ? '(show less)' : '(show more)'}
-                </button>
-              </div>
-            )}
-
-            {/* Links */}
-            <div className="flex gap-4 mt-3">
-              <a href={`https://finviz.com/quote.ashx?t=${selectedTicker}`} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:text-primary-hover font-medium">
-                Finviz →
-              </a>
-              <a href={`https://finance.yahoo.com/quote/${selectedTicker}`} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:text-primary-hover font-medium">
-                Yahoo →
-              </a>
-              {tickerData?.summary?.homepage_url && (
-                <a href={tickerData.summary.homepage_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:text-primary-hover font-medium">
-                  Website →
-                </a>
+        <>
+          {/* ── company header ── */}
+          <div className="flex items-baseline justify-between px-2 py-[5px] border-b border-border flex-shrink-0">
+            <div className="flex items-baseline gap-1.5 min-w-0 overflow-hidden">
+              <span className="text-[12px] font-semibold truncate">
+                {loading ? "Loading…" : displayCompanyName}
+              </span>
+              {(displaySector || displayExchange) && (
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap truncate">
+                  {[displaySector, displayExchange].filter(Boolean).join(" · ")}
+                </span>
               )}
             </div>
-          </div>
-
-          {/* Tabs - Minimalista */}
-          <div className="border-b border-border bg-surface sticky top-0 z-10">
-            <div className="flex px-4">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`
-                    px-4 py-2 text-sm font-medium border-b-2 transition-colors
-                    ${activeTab === tab.id
-                      ? "border-primary text-primary"
-                      : "border-transparent text-muted-fg hover:text-foreground"
-                    }
-                  `}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+              {displayPrice && (
+                <span className="text-[11px] font-medium tabular-nums" style={{ color: upColor }}>
+                  ${Number(displayPrice).toFixed(2)}
+                </span>
+              )}
+              <span className="text-[9px] text-muted-foreground/60 border border-border rounded px-1.5 py-0.5 tracking-wider">
+                {selectedTicker}
+              </span>
             </div>
           </div>
 
-          {/* Tab Content */}
-          <div className="p-4">
-            {activeTab === "dilution" && (
-              <div className="space-y-6">
-                {/* SEC Dilution Section - Siempre visible (maneja sus propios estados) */}
-                {/* La terminal AI ahora se abre en ventana flotante independiente */}
-                <SECDilutionSection
-                  ticker={selectedTicker}
-                  cachedData={secCacheData}
-                  jobPending={pendingJobs.has(selectedTicker)}
-                  jobStatus={secJobStatus}
-                  onDataLoaded={() => {
-                    // Cerrar ventana de terminal si existe cuando llegan datos
-                    if (terminalWindowId) {
-                      closeWindow(terminalWindowId);
-                      setTerminalWindowId(null);
-                    }
-                  }}
-                  onRefreshRequest={() => {
-                    // Solicitar refresh forzando nuevo job
-                    enqueueJob(selectedTicker, { forceRefresh: true });
-                    setPendingJobs(prev => new Set(prev).add(selectedTicker));
-                    setSecJobStatus('queued');
-                    // Abrir terminal AI para el refresh
-                    openAITerminal(selectedTicker, tickerData?.summary?.company_name);
-                  }}
-                />
+          {/* ── risk strip (horizontal, 5 cells) ── */}
+          {effectiveRisk && (
+            <div className="flex border-b border-border flex-shrink-0">
+              {([
+                { key: "overall_risk",      label: "Overall Risk" },
+                { key: "offering_ability",  label: "Offering" },
+                { key: "overhead_supply",   label: "Overhead" },
+                { key: "historical",        label: "Historical" },
+                { key: "cash_need",         label: "Cash Need" },
+              ] as const).map((item, idx) => {
+                const val = effectiveRisk[item.key as keyof DilutionRiskRatings] as string | undefined;
+                return (
+                  <div
+                    key={item.key}
+                    className={cn(
+                      "flex-1 flex flex-col gap-0.5 px-2 py-[6px]",
+                      idx === 0 ? "flex-[1.3]" : "",
+                      idx < 4 ? "border-r border-border" : "",
+                    )}
+                  >
+                    <span className="text-[9px] text-muted-foreground/60 truncate">{item.label}</span>
+                    <span className={cn("text-[11px] font-semibold leading-none", riskColor(val))}>
+                      {riskLabel(val)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-                {/* Charts always visible below - Historical O/S from SEC EDGAR + Potential Dilution */}
-                <DilutionHistoryChart
-                  data={sharesHistory || (tickerData?.dilution_history as any) || null}
-                  secData={secCacheData ? {
-                    warrants: secCacheData.profile?.warrants?.map((w: any) => ({
-                      outstanding: w.outstanding_warrants || w.outstanding || 0,
-                      potential_new_shares: w.potential_new_shares || w.outstanding_warrants || 0
-                    })) || [],
-                    atm_offerings: secCacheData.profile?.atm_offerings?.map((a: any) => ({
-                      remaining_capacity: a.remaining_capacity,
-                      potential_shares_at_current_price: a.potential_shares_at_current_price
-                    })) || [],
-                    shares_outstanding: secCacheData.profile?.shares_outstanding,
-                    current_price: secCacheData.profile?.current_price,
-                    // Use dilution_analysis for pre-calculated totals
-                    equity_lines: secCacheData.dilution_analysis?.equity_line_shares ?
-                      [{ potential_shares: secCacheData.dilution_analysis.equity_line_shares }] : [],
-                    convertible_notes: secCacheData.dilution_analysis?.convertible_shares ?
-                      [{ potential_shares: secCacheData.dilution_analysis.convertible_shares }] : [],
-                    convertible_preferred: [],
-                    s1_offerings: [],
-                  } as any : null}
-                  loading={loading}
-                />
-                <CashRunwayChart data={cashRunwayData || (tickerData?.cash_runway as any) || null} loading={loading} />
-              </div>
+          {/* ── tabs ── */}
+          <div className="flex border-b border-border px-1 flex-shrink-0">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "px-2.5 py-[5px] text-[9px] font-medium tracking-wider border-b border-transparent",
+                  "transition-colors -mb-px",
+                  activeTab === tab.id
+                    ? "text-foreground border-foreground/50"
+                    : "text-muted-foreground/60 hover:text-muted-foreground",
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="ml-auto px-2 py-[5px] text-[9px] text-muted-foreground/40 hover:text-muted-foreground/70 disabled:opacity-30 transition-colors"
+            >
+              {loading ? "…" : "↻"}
+            </button>
+          </div>
+
+          {/* ── tab content ── */}
+          <div className="flex-1 overflow-y-auto min-h-0">
+
+            {/* DILUTION */}
+            {activeTab === "dilution" && (
+              <>
+                {/* O/S history chart */}
+                <div className="border-b border-border py-2">
+                  <div className="px-2 pb-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/50">
+                    Historical O/S &amp; Potential Dilution
+                  </div>
+                  <DilutionHistoryChart
+                    data={sharesHistory || (tickerData?.dilution_history as any) || null}
+                    secData={secData}
+                    loading={loading}
+                    fontClass={fontClass}
+                    downColor={downColor}
+                  />
+                </div>
+
+                {/* instruments table */}
+                <div className="border-b border-border">
+                  <div className="px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/50 border-b border-border">
+                    Instruments
+                  </div>
+                  <InstrumentContextSection
+                    context={instrumentContext}
+                    loading={loading}
+                    error={contextError}
+                    fontClass={fontClass}
+                  />
+                </div>
+
+                {/* completed offerings */}
+                {instrumentContext && instrumentContext.completed_offerings.length > 0 && (
+                  <div className="border-b border-border">
+                    <div className="px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/50 border-b border-border">
+                      Completed Offerings
+                    </div>
+                    <table className="w-full border-collapse">
+                      <tbody>
+                        {instrumentContext.completed_offerings.map(item => (
+                          <tr key={item.id} className="border-b border-border hover:bg-muted/5 transition-colors">
+                            <td className="px-2 py-[4px] text-[10px] font-medium w-[30%]">
+                              {item.offering_type || "-"}
+                            </td>
+                            <td className="px-2 py-[4px] text-[10px] text-muted-foreground">
+                              {item.offering_date ? new Date(item.offering_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "-"}
+                              {item.shares ? ` · ${(item.shares / 1000).toFixed(0)}K sh` : ""}
+                              {item.price ? ` @ $${Number(item.price).toFixed(2)}` : ""}
+                              {item.bank ? ` · ${item.bank}` : ""}
+                            </td>
+                            <td className="px-2 py-[4px] text-[10px] font-medium tabular-nums text-right">
+                              {item.amount != null
+                                ? item.amount >= 1_000_000
+                                  ? `$${(item.amount / 1_000_000).toFixed(2)}M`
+                                  : item.amount >= 1_000
+                                    ? `$${(item.amount / 1_000).toFixed(0)}K`
+                                    : `$${item.amount.toLocaleString()}`
+                                : "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* cash runway */}
+                <div className="border-b border-border">
+                  <div className="px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/50 border-b border-border">
+                    Cash Runway
+                  </div>
+                  <div className="py-2">
+                    <CashRunwayChart
+                      data={cashRunwayData || (tickerData?.cash_runway as any) || null}
+                      loading={loading}
+                      fontClass={fontClass}
+                      downColor={downColor}
+                      upColor={upColor}
+                    />
+                  </div>
+                </div>
+              </>
             )}
 
+            {/* HOLDERS */}
             {activeTab === "holders" && (
               <HoldersTable holders={tickerData?.holders || []} loading={loading} />
             )}
 
+            {/* REVIEW (admin only) */}
+            {activeTab === "review" && isDilutionAdmin && (
+              <AmbiguousQueueSection ticker={selectedTicker} />
+            )}
+
+            {/* FILINGS */}
             {activeTab === "filings" && (
               <FilingsTable filings={tickerData?.filings || []} loading={loading} />
             )}
 
+            {/* FINANCIALS */}
             {activeTab === "financials" && (
               <FinancialsTable financials={tickerData?.financials || []} loading={loading} />
             )}
+
           </div>
-        </div>
+
+          {/* ── footer ── */}
+          <div className="flex items-center justify-between px-2 py-[3px] border-t border-border text-[9px] text-muted-foreground/40 flex-shrink-0">
+            <span>
+              {selectedTicker}
+              {instrumentContext && ` · ${instrumentContext.stats.total} instruments`}
+            </span>
+            <span>tradeul.com</span>
+          </div>
+        </>
       ) : (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-muted-fg">Enter a ticker to begin</p>
-          </div>
+        <div className="flex-1 flex items-center justify-center text-[11px] text-muted-foreground/50">
+          Enter a ticker to begin
         </div>
       )}
     </div>
   );
 }
-

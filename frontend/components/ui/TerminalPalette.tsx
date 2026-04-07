@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { X, Loader2 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
-import { parseTerminalCommand, TICKER_COMMANDS, GLOBAL_COMMANDS } from '@/lib/terminal-parser';
+import { parseTerminalCommand, TICKER_COMMANDS, GLOBAL_COMMANDS, TICKER_LIKE_REGEX } from '@/lib/terminal-parser';
 import { useUserFilters } from '@/hooks/useUserFilters';
 import { useAlertStrategies, type AlertStrategy } from '@/hooks/useAlertStrategies';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
@@ -98,7 +98,7 @@ export function TerminalPalette({
 
     // Detectar si parece un ticker (letras mayúsculas sin espacios)
     // No tratar como ticker si es un comando exacto
-    const looksLikeTicker = /^[A-Z]{1,5}$/.test(searchUpper)
+    const looksLikeTicker = TICKER_LIKE_REGEX.test(searchUpper)
         && !hasScPrefix
         && !hasEvnPrefix
         && !['SC', 'EVN', 'IPO', 'SET', 'HELP', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER', 'ERN', 'PREDICT', 'HM', 'HDS', 'SB', 'AI', 'INS', 'FAN', 'WL', 'DT', 'FA', 'SEC', 'PULSE', 'RTN'].includes(searchUpper)

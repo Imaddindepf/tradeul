@@ -42,6 +42,7 @@ import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
 import type { ActiveEventFilters } from '@/stores/useEventFiltersStore';
+import { useAlertStrategies } from '@/hooks/useAlertStrategies';
 import { useEventsStore } from '@/stores/useEventsStore';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { getColumnConfig, formatValue } from '@/lib/table/shared-column-configs';
@@ -87,11 +88,21 @@ export interface MarketEvent {
   intraday_low?: number;
   // Time-window changes
   chg_1min?: number;
+  chg_1min_dollars?: number;
+  chg_2min?: number;
+  chg_2min_dollars?: number;
   chg_5min?: number;
+  chg_5min_dollars?: number;
   chg_10min?: number;
+  chg_10min_dollars?: number;
   chg_15min?: number;
+  chg_15min_dollars?: number;
   chg_30min?: number;
+  chg_30min_dollars?: number;
   chg_60min?: number;
+  chg_60min_dollars?: number;
+  chg_120min?: number;
+  chg_120min_dollars?: number;
   // Time-window volumes
   vol_1min?: number;
   vol_5min?: number;
@@ -231,9 +242,6 @@ export interface MarketEvent {
   bb_position_5m?: number;
   bb_position_15m?: number;
   bb_position_60m?: number;
-  // Change 2min / 120min
-  chg_2min?: number;
-  chg_120min?: number;
   metadata?: Record<string, unknown>;
   quality?: number;
   description?: string;
@@ -418,6 +426,12 @@ interface EventTableContentProps {
   categoryId: string;
   categoryName: string;
   eventTypes: string[]; // Filter to these event types (empty = all)
+  /**
+   * Cuando se restaura desde workspace con una estrategia de usuario,
+   * este ID se usa para re-sincronizar los filtros desde la API al montar,
+   * garantizando que el snapshot del workspace nunca quede desactualizado.
+   */
+  strategyId?: number;
   /** Default server-side filters applied when user hasn't customized */
   defaultFilters?: {
     min_price?: number;
@@ -588,7 +602,7 @@ function parseEvent(d: any): MarketEvent {
 function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore').ActiveEventFilters): boolean {
   const chk = (val: number | undefined, min: number | undefined, max: number | undefined): boolean => {
     if (min === undefined && max === undefined) return true;
-    if (val === undefined || val === null) return true;
+    if (val === undefined || val === null) return false;
     if (min !== undefined && max !== undefined && min > max) return val >= min || val <= max;
     if (min !== undefined && val < min) return false;
     if (max !== undefined && val > max) return false;
@@ -609,11 +623,21 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
 
   // Time-window changes
   if (!chk(e.chg_1min, f.min_chg_1min, f.max_chg_1min)) return false;
+  if (!chk(e.chg_1min_dollars, f.min_chg_1min_dollars, f.max_chg_1min_dollars)) return false;
+  if (!chk(e.chg_2min, f.min_chg_2min, f.max_chg_2min)) return false;
+  if (!chk(e.chg_2min_dollars, f.min_chg_2min_dollars, f.max_chg_2min_dollars)) return false;
   if (!chk(e.chg_5min, f.min_chg_5min, f.max_chg_5min)) return false;
+  if (!chk(e.chg_5min_dollars, f.min_chg_5min_dollars, f.max_chg_5min_dollars)) return false;
   if (!chk(e.chg_10min, f.min_chg_10min, f.max_chg_10min)) return false;
+  if (!chk(e.chg_10min_dollars, f.min_chg_10min_dollars, f.max_chg_10min_dollars)) return false;
   if (!chk(e.chg_15min, f.min_chg_15min, f.max_chg_15min)) return false;
+  if (!chk(e.chg_15min_dollars, f.min_chg_15min_dollars, f.max_chg_15min_dollars)) return false;
   if (!chk(e.chg_30min, f.min_chg_30min, f.max_chg_30min)) return false;
+  if (!chk(e.chg_30min_dollars, f.min_chg_30min_dollars, f.max_chg_30min_dollars)) return false;
   if (!chk(e.chg_60min, f.min_chg_60min, f.max_chg_60min)) return false;
+  if (!chk(e.chg_60min_dollars, f.min_chg_60min_dollars, f.max_chg_60min_dollars)) return false;
+  if (!chk(e.chg_120min, f.min_chg_120min, f.max_chg_120min)) return false;
+  if (!chk(e.chg_120min_dollars, f.min_chg_120min_dollars, f.max_chg_120min_dollars)) return false;
 
   // Time-window volumes
   if (!chk(e.vol_1min, f.min_vol_1min, f.max_vol_1min)) return false;
@@ -776,8 +800,6 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
   if (!chk(e.bb_position_15m, f.min_bb_position_15m, f.max_bb_position_15m)) return false;
   if (!chk(e.bb_position_60m, f.min_bb_position_60m, f.max_bb_position_60m)) return false;
   // Change 2min / 120min
-  if (!chk(e.chg_2min, f.min_chg_2min, f.max_chg_2min)) return false;
-  if (!chk(e.chg_120min, f.min_chg_120min, f.max_chg_120min)) return false;
 
   // String filters
   if (f.security_type && e.security_type?.toUpperCase() !== f.security_type.toUpperCase()) return false;
@@ -800,7 +822,7 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
 // COMPONENT
 // ============================================================================
 
-export function EventTableContent({ categoryId, categoryName, eventTypes: initialEventTypes, defaultFilters }: EventTableContentProps) {
+export function EventTableContent({ categoryId, categoryName, eventTypes: initialEventTypes, strategyId, defaultFilters }: EventTableContentProps) {
   const { t } = useTranslation();
   const { executeTickerCommand } = useCommandExecutor();
   const { publish: publishTicker, hasSubscribers, linkGroup } = useLinkGroupPublisher();
@@ -816,6 +838,21 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
   const currentWindowId = useCurrentWindowId();
   const updateWindowComponentState = useUserPreferencesStore((s) => s.updateWindowComponentState);
   const [customEventTypes, setCustomEventTypes] = useState<string[]>(initialEventTypes);
+
+  // ========================================================================
+  // SINCRONIZACIÓN DE FILTROS DESDE API (solo cuando viene de user_strategy)
+  // Garantiza que el workspace nunca use filtros desactualizados del snapshot.
+  // ========================================================================
+  const { fetchStrategy } = useAlertStrategies();
+  useEffect(() => {
+    if (!strategyId) return;
+    let cancelled = false;
+    fetchStrategy(strategyId).then((strategy) => {
+      if (cancelled || !strategy) return;
+      useEventFiltersStore.getState().setAllFilters(categoryId, strategy.filters as ActiveEventFilters);
+    });
+    return () => { cancelled = true; };
+  }, [strategyId, categoryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Refs to avoid stale closures in memoized column definitions
   const linkGroupRef = useRef(linkGroup);
@@ -1023,11 +1060,17 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('range_120min_pct_min', filters.min_range_120min_pct); setF('range_120min_pct_max', filters.max_range_120min_pct);
     // Change windows
     setF('chg_1min_min', filters.min_chg_1min); setF('chg_1min_max', filters.max_chg_1min);
+    setF('chg_1min_dollars_min', filters.min_chg_1min_dollars); setF('chg_1min_dollars_max', filters.max_chg_1min_dollars);
     setF('chg_5min_min', filters.min_chg_5min); setF('chg_5min_max', filters.max_chg_5min);
+    setF('chg_5min_dollars_min', filters.min_chg_5min_dollars); setF('chg_5min_dollars_max', filters.max_chg_5min_dollars);
     setF('chg_10min_min', filters.min_chg_10min); setF('chg_10min_max', filters.max_chg_10min);
+    setF('chg_10min_dollars_min', filters.min_chg_10min_dollars); setF('chg_10min_dollars_max', filters.max_chg_10min_dollars);
     setF('chg_15min_min', filters.min_chg_15min); setF('chg_15min_max', filters.max_chg_15min);
+    setF('chg_15min_dollars_min', filters.min_chg_15min_dollars); setF('chg_15min_dollars_max', filters.max_chg_15min_dollars);
     setF('chg_30min_min', filters.min_chg_30min); setF('chg_30min_max', filters.max_chg_30min);
+    setF('chg_30min_dollars_min', filters.min_chg_30min_dollars); setF('chg_30min_dollars_max', filters.max_chg_30min_dollars);
     setF('chg_60min_min', filters.min_chg_60min); setF('chg_60min_max', filters.max_chg_60min);
+    setF('chg_60min_dollars_min', filters.min_chg_60min_dollars); setF('chg_60min_dollars_max', filters.max_chg_60min_dollars);
     // Shares & quote
     setF('shares_outstanding_min', filters.min_shares_outstanding); setF('shares_outstanding_max', filters.max_shares_outstanding);
     setF('bid_min', filters.min_bid); setF('bid_max', filters.max_bid);
@@ -1049,6 +1092,9 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('bb_upper_min', filters.min_bb_upper); setF('bb_upper_max', filters.max_bb_upper);
     setF('bb_lower_min', filters.min_bb_lower); setF('bb_lower_max', filters.max_bb_lower);
     // Daily indicators
+    setF('daily_sma_5_min', filters.min_daily_sma_5); setF('daily_sma_5_max', filters.max_daily_sma_5);
+    setF('daily_sma_8_min', filters.min_daily_sma_8); setF('daily_sma_8_max', filters.max_daily_sma_8);
+    setF('daily_sma_10_min', filters.min_daily_sma_10); setF('daily_sma_10_max', filters.max_daily_sma_10);
     setF('daily_sma_20_min', filters.min_daily_sma_20); setF('daily_sma_20_max', filters.max_daily_sma_20);
     setF('daily_sma_50_min', filters.min_daily_sma_50); setF('daily_sma_50_max', filters.max_daily_sma_50);
     setF('daily_sma_200_min', filters.min_daily_sma_200); setF('daily_sma_200_max', filters.max_daily_sma_200);
@@ -1122,7 +1168,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     // Consecutive candles
     setF('consecutiveCandlesMin', filters.min_consecutive_candles); setF('consecutiveCandlesMax', filters.max_consecutive_candles);
     setF('consecutiveCandles2mMin', filters.min_consecutive_candles_2m); setF('consecutiveCandles2mMax', filters.max_consecutive_candles_2m);
-    setF('consecutiveCandles5mMin', filters.min_consecutive_candles_5m); setF('consecutiveCandles5mMax', filters.max_consecutive_candles_5m);
+    setF('consecutive_candles_5m_min', filters.min_consecutive_candles_5m); setF('consecutive_candles_5m_max', filters.max_consecutive_candles_5m);
     setF('consecutiveCandles10mMin', filters.min_consecutive_candles_10m); setF('consecutiveCandles10mMax', filters.max_consecutive_candles_10m);
     setF('consecutiveCandles15mMin', filters.min_consecutive_candles_15m); setF('consecutiveCandles15mMax', filters.max_consecutive_candles_15m);
     setF('consecutiveCandles30mMin', filters.min_consecutive_candles_30m); setF('consecutiveCandles30mMax', filters.max_consecutive_candles_30m);
@@ -1133,7 +1179,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('posInRange30mMin', filters.min_pos_in_range_30m); setF('posInRange30mMax', filters.max_pos_in_range_30m);
     setF('posInRange60mMin', filters.min_pos_in_range_60m); setF('posInRange60mMax', filters.max_pos_in_range_60m);
     // Multi-TF RSI
-    setF('rsi2mMin', filters.min_rsi_2m); setF('rsi2mMax', filters.max_rsi_2m);
+    setF('rsi_2m_min', filters.min_rsi_2m); setF('rsi_2m_max', filters.max_rsi_2m);
     setF('rsi5mMin', filters.min_rsi_5m); setF('rsi5mMax', filters.max_rsi_5m);
     setF('rsi15mMin', filters.min_rsi_15m); setF('rsi15mMax', filters.max_rsi_15m);
     setF('rsi60mMin', filters.min_rsi_60m); setF('rsi60mMax', filters.max_rsi_60m);
@@ -1143,8 +1189,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('bbPosition15mMin', filters.min_bb_position_15m); setF('bbPosition15mMax', filters.max_bb_position_15m);
     setF('bbPosition60mMin', filters.min_bb_position_60m); setF('bbPosition60mMax', filters.max_bb_position_60m);
     // Change 2min / 120min
-    setF('chg2minMin', filters.min_chg_2min); setF('chg2minMax', filters.max_chg_2min);
-    setF('chg120minMin', filters.min_chg_120min); setF('chg120minMax', filters.max_chg_120min);
+    setF('chg_2min_min', filters.min_chg_2min); setF('chg_2min_max', filters.max_chg_2min);
+    setF('chg_120min_min', filters.min_chg_120min); setF('chg_120min_max', filters.max_chg_120min);
+    setF('chg_2min_dollars_min', filters.min_chg_2min_dollars); setF('chg_2min_dollars_max', filters.max_chg_2min_dollars);
+    setF('chg_120min_dollars_min', filters.min_chg_120min_dollars); setF('chg_120min_dollars_max', filters.max_chg_120min_dollars);
     // Extended Trade Ideas parity filters
     setF('gapDollarsMin', filters.min_gap_dollars); setF('gapDollarsMax', filters.max_gap_dollars);
     setF('gapRatioMin', filters.min_gap_ratio); setF('gapRatioMax', filters.max_gap_ratio);
@@ -1441,11 +1489,21 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         ['range_60min_pct_min', f.min_range_60min_pct], ['range_60min_pct_max', f.max_range_60min_pct],
         ['range_120min_pct_min', f.min_range_120min_pct], ['range_120min_pct_max', f.max_range_120min_pct],
         ['chg_1min_min', f.min_chg_1min], ['chg_1min_max', f.max_chg_1min],
+        ['chg_1min_dollars_min', f.min_chg_1min_dollars], ['chg_1min_dollars_max', f.max_chg_1min_dollars],
         ['chg_5min_min', f.min_chg_5min], ['chg_5min_max', f.max_chg_5min],
+        ['chg_5min_dollars_min', f.min_chg_5min_dollars], ['chg_5min_dollars_max', f.max_chg_5min_dollars],
         ['chg_10min_min', f.min_chg_10min], ['chg_10min_max', f.max_chg_10min],
+        ['chg_10min_dollars_min', f.min_chg_10min_dollars], ['chg_10min_dollars_max', f.max_chg_10min_dollars],
         ['chg_15min_min', f.min_chg_15min], ['chg_15min_max', f.max_chg_15min],
+        ['chg_15min_dollars_min', f.min_chg_15min_dollars], ['chg_15min_dollars_max', f.max_chg_15min_dollars],
         ['chg_30min_min', f.min_chg_30min], ['chg_30min_max', f.max_chg_30min],
+        ['chg_30min_dollars_min', f.min_chg_30min_dollars], ['chg_30min_dollars_max', f.max_chg_30min_dollars],
         ['chg_60min_min', f.min_chg_60min], ['chg_60min_max', f.max_chg_60min],
+        ['chg_60min_dollars_min', f.min_chg_60min_dollars], ['chg_60min_dollars_max', f.max_chg_60min_dollars],
+        ['chg_2min_min', f.min_chg_2min], ['chg_2min_max', f.max_chg_2min],
+        ['chg_120min_min', f.min_chg_120min], ['chg_120min_max', f.max_chg_120min],
+        ['chg_2min_dollars_min', f.min_chg_2min_dollars], ['chg_2min_dollars_max', f.max_chg_2min_dollars],
+        ['chg_120min_dollars_min', f.min_chg_120min_dollars], ['chg_120min_dollars_max', f.max_chg_120min_dollars],
         ['shares_outstanding_min', f.min_shares_outstanding], ['shares_outstanding_max', f.max_shares_outstanding],
         ['bid_min', f.min_bid], ['bid_max', f.max_bid],
         ['ask_min', f.min_ask], ['ask_max', f.max_ask],
@@ -1464,6 +1522,9 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         ['adx_14_min', f.min_adx_14], ['adx_14_max', f.max_adx_14],
         ['bb_upper_min', f.min_bb_upper], ['bb_upper_max', f.max_bb_upper],
         ['bb_lower_min', f.min_bb_lower], ['bb_lower_max', f.max_bb_lower],
+        ['daily_sma_5_min', f.min_daily_sma_5], ['daily_sma_5_max', f.max_daily_sma_5],
+        ['daily_sma_8_min', f.min_daily_sma_8], ['daily_sma_8_max', f.max_daily_sma_8],
+        ['daily_sma_10_min', f.min_daily_sma_10], ['daily_sma_10_max', f.max_daily_sma_10],
         ['daily_sma_20_min', f.min_daily_sma_20], ['daily_sma_20_max', f.max_daily_sma_20],
         ['daily_sma_50_min', f.min_daily_sma_50], ['daily_sma_50_max', f.max_daily_sma_50],
         ['daily_sma_200_min', f.min_daily_sma_200], ['daily_sma_200_max', f.max_daily_sma_200],
@@ -1511,7 +1572,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         ['daily_bb_position_min', f.min_daily_bb_position], ['daily_bb_position_max', f.max_daily_bb_position],
         // Scanner-aligned filters
         ['volume_today_pct_min', f.min_volume_today_pct], ['volume_today_pct_max', f.max_volume_today_pct],
-        ['minute_volume_min', f.min_minute_volume],
+        ['minute_volume_min', f.min_minute_volume], ['minute_volume_max', f.max_minute_volume],
         ['price_from_high_min', f.min_price_from_high], ['price_from_high_max', f.max_price_from_high],
         ['price_from_low_min', f.min_price_from_low], ['price_from_low_max', f.max_price_from_low],
         ['price_from_intraday_high_min', f.min_price_from_intraday_high], ['price_from_intraday_high_max', f.max_price_from_intraday_high],
@@ -1522,10 +1583,24 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         ['postmarket_volume_min', f.min_postmarket_volume], ['postmarket_volume_max', f.max_postmarket_volume],
         ['avg_volume_3m_min', f.min_avg_volume_3m], ['avg_volume_3m_max', f.max_avg_volume_3m],
         ['atr_min', f.min_atr], ['atr_max', f.max_atr],
+        ['consecutive_candles_5m_min', f.min_consecutive_candles_5m], ['consecutive_candles_5m_max', f.max_consecutive_candles_5m],
+        ['rsi_2m_min', f.min_rsi_2m], ['rsi_2m_max', f.max_rsi_2m],
         ['ema_20_min', f.min_ema_20], ['ema_20_max', f.max_ema_20],
         ['ema_50_min', f.min_ema_50], ['ema_50_max', f.max_ema_50],
       ];
       for (const [k, v] of uPairs) uF(k, v);
+      // Safety net: send every min_/max_ filter from store so backend stays in sync
+      // even when new filters are added and explicit wire mapping lags behind.
+      for (const [k, v] of Object.entries(f)) {
+        if (!(k.startsWith('min_') || k.startsWith('max_'))) continue;
+        if (v === undefined) {
+          updateMsg[k] = null;
+          continue;
+        }
+        if (typeof v === 'number' && Number.isFinite(v)) {
+          updateMsg[k] = v;
+        }
+      }
       uS('security_type', f.security_type);
       uS('sector', f.sector);
       uS('industry', f.industry);
@@ -3254,14 +3329,16 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setCustomEventTypes(config.eventTypes);
     useEventFiltersStore.getState().setAllFilters(categoryId, config.filters);
 
-    // Persist to componentState so workspace restore picks up the latest config
+    // Persist to componentState: si viene de una estrategia de usuario guardamos el strategyId
+    // para que en el próximo restore se sincronicen los filtros frescos desde la API.
     if (currentWindowId) {
       updateWindowComponentState(currentWindowId, {
-        restoreType: 'event_table',
+        restoreType: config.strategyId ? 'user_strategy' : 'event_table',
         categoryId,
         categoryName: config.name || categoryName,
         eventTypes: config.eventTypes,
         filters: config.filters,
+        ...(config.strategyId && { strategyId: config.strategyId }),
       });
     }
   }, [categoryId, categoryName, currentWindowId, updateWindowComponentState]);

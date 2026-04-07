@@ -69,9 +69,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ClerkProvider>
-      <html lang="en" translate="no" suppressHydrationWarning className={`${inter.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable} notranslate`}>
-        <body className="font-sans antialiased">
+    <html lang="en" translate="no" suppressHydrationWarning className={`${inter.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable} notranslate`}>
+      <body className="font-sans antialiased">
+        <ClerkProvider>
           <ChunkLoadErrorHandler />
           <I18nProvider>
             <ClientThemeProvider>
@@ -80,9 +80,9 @@ export default function RootLayout({
               </BacktestFloatingProvider>
             </ClientThemeProvider>
           </I18nProvider>
-          <div id="portal-root" />
-        </body>
-      </html>
-    </ClerkProvider>
+        </ClerkProvider>
+        <div id="portal-root" />
+      </body>
+    </html>
   );
 }
