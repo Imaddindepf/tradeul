@@ -474,7 +474,7 @@ async def main():
         print("\n" + "="*60)
         print("✅ CARGA DE UNIVERSO COMPLETADA")
         print("="*60)
-        print(f"📊 Tickers obtenidos de Polygon:     {stats['fetched']:,}")
+        print(f" Tickers obtenidos de Polygon:     {stats['fetched']:,}")
         print(f"💾 Guardados en Redis:                {stats['saved_redis']:,}")
         print(f"🗄️  Guardados en TimescaleDB:         {stats['saved_timescaledb']:,}")
         print(f"📝 Metadata actualizada:              {stats['updated_metadata']:,}")

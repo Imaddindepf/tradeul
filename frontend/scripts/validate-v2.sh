@@ -103,7 +103,7 @@ echo ""
 # =============================================
 # 6. Bundle Size Analysis
 # =============================================
-echo "📊 Analyzing bundle size..."
+echo " Analyzing bundle size..."
 
 # Get Next.js build output
 BUILD_OUTPUT=$(npm run build 2>&1)

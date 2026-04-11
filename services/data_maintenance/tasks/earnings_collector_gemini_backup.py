@@ -246,7 +246,7 @@ Be thorough but accurate - only include companies actually scheduled for this sp
         """
         slot_filter = f" ({time_slot})" if time_slot else ""
         logger.info(
-            "📊 collecting_reported_earnings", 
+            " collecting_reported_earnings", 
             date=target_date.isoformat(),
             time_slot=time_slot or "all"
         )

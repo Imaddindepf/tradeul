@@ -382,6 +382,10 @@ class ScannerTicker(BaseModel):
     dilution_cash_need: Optional[str] = Field(None, description="Cash need: Low/Medium/High")
     dilution_cash_need_score: Optional[int] = Field(None, description="Cash need score: 1-3")
 
+    # Time of Day — minutes since NYSE market open (9:30 ET). Same for all tickers at any instant.
+    # Negative before open, >390 after close. Used as a Time of Day [TOD] filter.
+    minutes_since_open: Optional[float] = Field(None, description="Minutes since market open 9:30 ET")
+
     # Session context
     session: MarketSession = Field(..., description="Current market session")
     
@@ -1086,7 +1090,11 @@ class FilterParameters(BaseModel):
     max_dilution_historical_score: Optional[int] = Field(None, ge=1, le=3, description="Max historical dilution score")
     min_dilution_cash_need_score: Optional[int] = Field(None, ge=1, le=3, description="Min cash need score")
     max_dilution_cash_need_score: Optional[int] = Field(None, ge=1, le=3, description="Max cash need score")
-    
+
+    # Time of Day [TOD] — minutes since NYSE market open (9:30 ET)
+    min_minutes_since_open: Optional[float] = Field(None, description="Min minutes since market open 9:30 ET")
+    max_minutes_since_open: Optional[float] = Field(None, description="Max minutes since market open 9:30 ET")
+
     class Config:
         extra = "allow"
 

@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
     logger.info("📅 Schedule: Daily maintenance at 3:00 AM ET")
     logger.info("   (1 hour before pre-market opens at 4:00 AM ET)")
     logger.info("📁 FlatFilesWatcher: Monitors Polygon S3 every 30min after close")
-    logger.info("📊 Pattern Matching: Dedicated server 37.27.183.194:8025")
+    logger.info(" Pattern Matching: Dedicated server 37.27.183.194:8025")
     logger.info("📋 FAN reports: on-demand only (no batch pre-generation)")
     logger.info("=" * 60)
     
@@ -152,7 +152,7 @@ async def _check_initial_health():
         redis_count = await redis_client.client.scard("ticker:universe")
         
         logger.info(
-            "📊 Initial health check",
+            " Initial health check",
             db_tickers=ticker_count,
             redis_universe=redis_count
         )

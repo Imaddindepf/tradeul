@@ -1286,6 +1286,14 @@ class EnrichmentPipeline:
         else:
             ticker_data['bb_position_1m'] = None
 
+        # Minutes since NYSE market open (9:30 ET). Negative before open, >390 after close.
+        # Same value for all tickers at any instant — used as a Time of Day filter [TOD].
+        _now_et = datetime.now(ZoneInfo("America/New_York"))
+        _market_open = _now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        ticker_data['minutes_since_open'] = round(
+            (_now_et - _market_open).total_seconds() / 60, 2
+        )
+
     @staticmethod
     def _strip_noisy_fields(ticker_data: dict) -> None:
         """

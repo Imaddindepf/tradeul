@@ -674,7 +674,7 @@ Be concise but accurate.
 
 TERMINAL_STREAMING_PROMPT = """DILUTION FORENSICS: ULTRA-DEEP SCAN FOR {ticker} ({company_name})
 
-## 📊 CURRENT MARKET DATA (USE THIS - DO NOT SEARCH FOR PRICE!)
+##  CURRENT MARKET DATA (USE THIS - DO NOT SEARCH FOR PRICE!)
 **CURRENT STOCK PRICE: ${current_price}** (Real-time from Polygon API - includes pre-market/after-hours)
 **Data Timestamp: {price_timestamp}**
 ⚠️ USE THIS PRICE FOR ALL CALCULATIONS. Do NOT search Google for the stock price.

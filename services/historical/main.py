@@ -122,7 +122,7 @@ async def execute_warmup() -> Dict[str, Any]:
             logger.warning("no_symbols_found_skipping_warmup")
             return {"status": "skipped", "reason": "no_symbols"}
         
-        logger.info(f"📊 Warmup: {len(symbols)} tickers")
+        logger.info(f" Warmup: {len(symbols)} tickers")
         
         # 2. Cargar datos con paralelización
         loaded = await polygon_data_loader.load_all_ticker_data(

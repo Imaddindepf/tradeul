@@ -127,7 +127,7 @@ def main():
     else:
         tickers = get_cs_tickers_without_free_float(conn, args.limit)
     
-    print(f"\n📊 Found {len(tickers)} CS tickers to process")
+    print(f"\n Found {len(tickers)} CS tickers to process")
     
     if not tickers:
         print("Nothing to do!")

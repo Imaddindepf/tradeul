@@ -47,7 +47,7 @@ async def main():
     rows = await conn.fetch(query)
     symbols = [row["symbol"] for row in rows]
     
-    print(f"📊 Poblando CIK para {len(symbols)} tickers...")
+    print(f" Poblando CIK para {len(symbols)} tickers...")
     
     success = 0
     failed = 0

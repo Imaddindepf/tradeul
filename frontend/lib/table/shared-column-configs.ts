@@ -1047,6 +1047,16 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
     enableHiding: true,
     format: 'number',
   },
+  // Time of Day — minutes since NYSE market open (9:30 ET)
+  minutes_since_open: {
+    header: 'Min. Since Open',
+    size: 90,
+    minSize: 70,
+    maxSize: 110,
+    enableHiding: true,
+    format: 'number',
+    suffix: 'm',
+  },
 };
 
 /**

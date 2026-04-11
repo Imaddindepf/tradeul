@@ -309,6 +309,10 @@ interface EventFilterParameters {
   min_daily_bb_position?: number;
   max_daily_bb_position?: number;
 
+  // Time of Day — minutes since market open 9:30 ET [TOD]
+  min_minutes_since_open?: number;
+  max_minutes_since_open?: number;
+
   // String filters (fundamentals)
   security_type?: string;   // CS, ETF, PFD, WARRANT
   sector?: string;

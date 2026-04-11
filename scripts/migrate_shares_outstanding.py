@@ -132,7 +132,7 @@ async def main(dry_run: bool = False, limit: Optional[int] = None):
         tickers = tickers[:limit]
     
     total = len(tickers)
-    logger.info(f"📊 Found {total} CS tickers to check")
+    logger.info(f" Found {total} CS tickers to check")
     
     if dry_run:
         logger.info("Dry run - no changes will be made")

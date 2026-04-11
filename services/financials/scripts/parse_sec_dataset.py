@@ -351,7 +351,7 @@ class SECDatasetParser:
         with open(analysis_file, 'w') as f:
             json.dump(analysis, f, indent=2)
         
-        print(f"📊 Saved analysis to {analysis_file}")
+        print(f" Saved analysis to {analysis_file}")
         
         # 3. Imprimir resumen
         print(f"\n{'='*60}")

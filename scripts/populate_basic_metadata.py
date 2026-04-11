@@ -113,7 +113,7 @@ async def main():
     rows = await conn.fetch(symbols_query)
     symbols = [row["symbol"] for row in rows]
     
-    print(f"📊 Poblando metadata para {len(symbols)} tickers...")
+    print(f" Poblando metadata para {len(symbols)} tickers...")
     
     # Procesar símbolos
     success = 0

@@ -333,6 +333,8 @@ FILTER_FIELD_MAPPING = [
     ("min_dilution_overhead_supply_score", "max_dilution_overhead_supply_score", "dilution_overhead_supply_score"),
     ("min_dilution_historical_score",      "max_dilution_historical_score",      "dilution_historical_score"),
     ("min_dilution_cash_need_score",       "max_dilution_cash_need_score",       "dilution_cash_need_score"),
+    # Time of Day [TOD] — minutes since NYSE market open (9:30 ET)
+    ("min_minutes_since_open",             "max_minutes_since_open",             "minutes_since_open"),
 ]
 
 

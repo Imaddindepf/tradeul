@@ -178,9 +178,9 @@ function InstRow({
 
   return (
     <>
-      {/* summary row */}
+      {/* summary row — border-t marks the start of each instrument block */}
       <tr
-        className={`border-b border-border-subtle hover:bg-muted/[0.07] cursor-pointer transition-colors ${open ? "bg-muted/[0.06]" : ""} ${expired ? "opacity-40" : ""}`}
+        className={`border-t border-border cursor-pointer transition-colors ${open ? "bg-surface-hover" : "hover:bg-surface-hover/60"} ${expired ? "opacity-40" : ""}`}
         onClick={() => setOpen(o => !o)}
       >
         <td className="px-2 py-[5px] text-[10px] text-muted-foreground whitespace-nowrap w-20">
@@ -200,15 +200,15 @@ function InstRow({
         </td>
       </tr>
 
-      {/* expanded detail */}
+      {/* expanded detail — surface-inset bg + left accent + strong bottom border closes the block */}
       {open && (
-        <tr className="border-b border-border-subtle">
+        <tr className="border-b-2 border-border">
           <td colSpan={5} className="p-0">
-            <div className="grid grid-cols-2 border-t border-border-subtle bg-muted/[0.025]">
+            <div className={`grid grid-cols-2 bg-surface-inset border-l-2 border-primary/20 ${fontClass}`}>
               {pairs.map(([key, val]) => (
                 <div
                   key={key}
-                  className={`flex justify-between gap-2 px-3 py-[4px] text-[10px] border-b border-r border-border-subtle last:border-b-0 ${fontClass}`}
+                  className="flex justify-between gap-2 px-3 py-[4px] text-[10px] border-b border-r border-border-subtle last:border-b-0"
                 >
                   <span className="text-muted-foreground shrink-0">
                     {DETAIL_LABELS[key] || prettify(key)}
@@ -248,7 +248,7 @@ export function InstrumentContextSection({ context, loading, error, fontClass = 
   return (
     <table className={`w-full border-collapse ${fontClass}`}>
       <thead>
-        <tr className="border-b border-border bg-background sticky top-0 z-10">
+        <tr className="border-b border-border bg-surface sticky top-0 z-10">
           <th className="px-2 py-[4px] text-left text-[9px] font-medium uppercase tracking-wider text-muted-foreground/60 w-20">Type</th>
           <th className="px-2 py-[4px] text-left text-[9px] font-medium uppercase tracking-wider text-muted-foreground/60">Name</th>
           <th className="px-2 py-[4px] text-right text-[9px] font-medium uppercase tracking-wider text-muted-foreground/60">Key Figure</th>
@@ -265,10 +265,10 @@ export function InstrumentContextSection({ context, loading, error, fontClass = 
         {expired.length > 0 && (
           <>
             <tr
-              className="border-b border-border-subtle cursor-pointer hover:bg-muted/5"
+              className="border-t-2 border-border cursor-pointer hover:bg-surface-hover/60 transition-colors"
               onClick={() => setShowExpired(o => !o)}
             >
-              <td colSpan={5} className="px-2 py-[4px] text-[9px] uppercase tracking-wider text-muted-foreground/40 select-none">
+              <td colSpan={5} className="px-2 py-[5px] text-[9px] uppercase tracking-wider text-muted-foreground/50 select-none">
                 Inactive / Expired ({expired.length}) {showExpired ? "−" : "+"}
               </td>
             </tr>

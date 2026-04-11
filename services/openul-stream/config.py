@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     service_port: int = Field(default=8070, description="Service port")
     log_level: str = Field(default="INFO", description="Log level")
 
+    # Ingest API (for external sources like OOC bot)
+    ingest_secret: Optional[str] = Field(default=None, description="Secret key for POST /api/v1/ingest")
+
     # Reconnect
     initial_backoff: float = Field(default=0.5, description="Initial reconnect backoff seconds")
     max_backoff: float = Field(default=30.0, description="Max reconnect backoff seconds")

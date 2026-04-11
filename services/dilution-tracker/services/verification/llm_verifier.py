@@ -609,7 +609,7 @@ BUSCA EN INTERNET (SEC EDGAR, comunicados de prensa, news financieras) y VERIFIC
         if missing:
             summary_parts.append(f"🔴 {len(missing)} warrants faltantes detectados")
         if reverse_split:
-            summary_parts.append(f"📊 Split {reverse_split.get('ratio')} en {reverse_split.get('date')}")
+            summary_parts.append(f" Split {reverse_split.get('ratio')} en {reverse_split.get('date')}")
         
         summary = " | ".join(summary_parts) if summary_parts else "Verificación completada"
         

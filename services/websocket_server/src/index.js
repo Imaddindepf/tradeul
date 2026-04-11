@@ -345,6 +345,33 @@ const CONTEXT_TO_EVENT_MAP = [
   ['consecutive_candles_15m', 'consecutive_candles_15m'],
   ['consecutive_candles_30m', 'consecutive_candles_30m'],
   ['consecutive_candles_60m', 'consecutive_candles_60m'],
+  // Multi-TF RSI (point-in-time — must precede enrichEventFromCache to preserve historical values)
+  ['rsi_14_2m', 'rsi_14_2m'],
+  ['rsi_14_5m', 'rsi_14_5m'],
+  ['rsi_14_15m', 'rsi_14_15m'],
+  ['rsi_14_60m', 'rsi_14_60m'],
+  // Multi-TF Bollinger position (point-in-time)
+  ['bb_position_1m', 'bb_position_1m'],
+  ['bb_position_5m', 'bb_position_5m'],
+  ['bb_position_15m', 'bb_position_15m'],
+  ['bb_position_60m', 'bb_position_60m'],
+  // Dollar change windows (point-in-time — not native columns)
+  ['chg_1min_dollars', 'chg_1min_dollars'],
+  ['chg_2min_dollars', 'chg_2min_dollars'],
+  ['chg_5min_dollars', 'chg_5min_dollars'],
+  ['chg_10min_dollars', 'chg_10min_dollars'],
+  ['chg_15min_dollars', 'chg_15min_dollars'],
+  ['chg_30min_dollars', 'chg_30min_dollars'],
+  ['chg_60min_dollars', 'chg_60min_dollars'],
+  ['chg_120min_dollars', 'chg_120min_dollars'],
+  // 2-min / 120-min change (point-in-time)
+  ['chg_2min', 'chg_2min'],
+  ['chg_120min', 'chg_120min'],
+  // Position in TF ranges (point-in-time)
+  ['pos_in_range_5m', 'pos_in_range_5m'],
+  ['pos_in_range_15m', 'pos_in_range_15m'],
+  ['pos_in_range_30m', 'pos_in_range_30m'],
+  ['pos_in_range_60m', 'pos_in_range_60m'],
 ];
 const CONTEXT_STRING_KEYS = ['industry', 'sector', 'security_type'];
 
@@ -638,6 +665,8 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['rangeContractionMin','rangeContractionMax',null,'range_contraction'],
     ['lrDivergence130Min','lrDivergence130Max',null,'lr_divergence_130'],
     ['changePrevDayPctMin','changePrevDayPctMax',null,'change_prev_day_pct'],
+    // Time of Day [TOD] — persisted to context by alert engine
+    ['minutesSinceOpenMin','minutesSinceOpenMax',null,'minutes_since_open'],
   ];
 
   for (const [minKey, maxKey, nativeCol, ctxKey] of FILTER_MAP) {
@@ -1655,6 +1684,9 @@ const NUMERIC_FILTER_DEFS = [
   // Change Previous Day [FCDP]
   ['changePrevDayPctMin', 'change_prev_day_pct_min', pf],
   ['changePrevDayPctMax', 'change_prev_day_pct_max', pf],
+  // Time of Day — minutes since market open 9:30 ET [TOD]
+  ['minutesSinceOpenMin', 'minutes_since_open_min', pf],
+  ['minutesSinceOpenMax', 'minutes_since_open_max', pf],
 ];
 
 // String filter definitions: [subKey, dataKey]
@@ -1989,6 +2021,23 @@ function buildEventSubscription(data) {
 
 // ── Helper: Check if an event passes a subscription's filters ──
 // Uses event payload (evt) for point-in-time fields, enriched cache for current state fields.
+// Returns minutes elapsed since NYSE market open (9:30 AM ET) for a given timestamp.
+// Handles DST automatically via Intl API. Returns null if timestamp is invalid.
+function minutesSinceMarketOpen(ts) {
+  if (!ts) return null;
+  const d = typeof ts === 'number' ? new Date(ts) : new Date(ts);
+  if (isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const h = +parts.find(p => p.type === 'hour').value;
+  const m = +parts.find(p => p.type === 'minute').value;
+  return (h * 60 + m) - (9 * 60 + 30);
+}
+
 function eventPassesSubscription(evt, sub) {
   // Type + symbol filters (from event)
   if (!sub.allTypes && sub.eventTypes.size > 0 && !sub.eventTypes.has(evt.event_type)) return false;
@@ -2323,6 +2372,10 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.range_contraction, 'rangeContractionMin', 'rangeContractionMax')) return false;
   if (!chkEvt(enriched.lr_divergence_130, 'lrDivergence130Min', 'lrDivergence130Max')) return false;
   if (!chkEvt(enriched.change_prev_day_pct, 'changePrevDayPctMin', 'changePrevDayPctMax')) return false;
+  // Time of Day — computed from event timestamp (not from enriched cache)
+  if (sub.minutesSinceOpenMin !== null || sub.minutesSinceOpenMax !== null) {
+    if (!chkEvt(minutesSinceMarketOpen(evt.timestamp), 'minutesSinceOpenMin', 'minutesSinceOpenMax')) return false;
+  }
 
   // ── String filters ──
   if (sub.securityType !== null) {
@@ -2638,7 +2691,7 @@ function flushAggregateBuffer() {
         symbols: toSend.size,
         lists: messagesByList.size,
       },
-      "📊 Flushed aggregate buffer"
+      " Flushed aggregate buffer"
     );
   }
 }
@@ -2672,7 +2725,7 @@ setInterval(() => {
       bufferSize: aggregateBuffer.size,
       samplers: aggregateSamplers.size,
     },
-    "📊 Aggregate stats (last 60s)"
+    " Aggregate stats (last 60s)"
   );
 
   // Reset stats
@@ -2973,7 +3026,7 @@ function updateSymbolToListsIndex(listName, deltas) {
         symbolToLists.set(symbol, new Set());
         logger.info(
           { symbol, listName, action: delta.action },
-          "📊 Added missing symbol to index"
+          " Added missing symbol to index"
         );
       }
       symbolToLists.get(symbol).add(listName);
@@ -3338,7 +3391,7 @@ async function subscribeClientToQuote(connectionId, symbol) {
         "action", "subscribe",
         "symbol", symbolUpper
       );
-      logger.info({ symbol: symbolUpper }, "📊 First subscriber - notified polygon_ws to subscribe quote");
+      logger.info({ symbol: symbolUpper }, " First subscriber - notified polygon_ws to subscribe quote");
     } catch (err) {
       logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for quote subscription");
     }
@@ -3349,7 +3402,7 @@ async function subscribeClientToQuote(connectionId, symbol) {
     symbol: symbolUpper,
     totalSubscribers: quoteSubscribers.get(symbolUpper).size,
     refCount: quoteRefCount.get(symbolUpper)
-  }, "📊 Client subscribed to quote");
+  }, " Client subscribed to quote");
   
   return true;
 }
@@ -3384,7 +3437,7 @@ async function unsubscribeClientFromQuote(connectionId, symbol) {
         "action", "unsubscribe",
         "symbol", symbolUpper
       );
-      logger.info({ symbol: symbolUpper }, "📊 Last subscriber gone - notified polygon_ws to unsubscribe quote");
+      logger.info({ symbol: symbolUpper }, " Last subscriber gone - notified polygon_ws to unsubscribe quote");
     } catch (err) {
       logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for quote unsubscription");
     }
@@ -3395,7 +3448,7 @@ async function unsubscribeClientFromQuote(connectionId, symbol) {
     symbol: symbolUpper,
     remainingSubscribers: subscribers?.size || 0,
     refCount: newCount
-  }, "📊 Client unsubscribed from quote");
+  }, " Client unsubscribed from quote");
 }
 
 /**
@@ -3457,7 +3510,7 @@ async function subscribeClientToChart(connectionId, symbol) {
         "symbol", symbolUpper
       );
       tradeSubscribedSymbols.add(symbolUpper);
-      logger.info({ symbol: symbolUpper }, "📊 Chart: First subscriber - notified polygon_ws (A.* + T.*)");
+      logger.info({ symbol: symbolUpper }, " Chart: First subscriber - notified polygon_ws (A.* + T.*)");
     } catch (err) {
       logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for chart");
     }
@@ -3511,7 +3564,7 @@ async function unsubscribeClientFromChart(connectionId, symbol) {
           "symbol", symbolUpper
         );
         tradeSubscribedSymbols.delete(symbolUpper);
-        logger.info({ symbol: symbolUpper }, "📊 Chart: Last subscriber gone - notified polygon_ws (A.* + T.*)");
+        logger.info({ symbol: symbolUpper }, " Chart: Last subscriber gone - notified polygon_ws (A.* + T.*)");
       } catch (err) {
         logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for chart unsubscription");
       }
@@ -3656,7 +3709,7 @@ function broadcastQuote(symbol, quoteData) {
       sentTo: sentCount,
       bid: message.data.bidPrice,
       ask: message.data.askPrice
-    }, "📊 Broadcasted quote");
+    }, " Broadcasted quote");
   }
 }
 
@@ -3815,7 +3868,7 @@ async function processAggregatesStream() {
   const consumerGroup = "websocket_server_aggregates";
   const consumerName = "ws_server_1";
 
-  logger.info({ streamName }, "📊 Starting aggregates stream consumer");
+  logger.info({ streamName }, " Starting aggregates stream consumer");
 
   // Crear consumer group
   try {
@@ -4380,7 +4433,7 @@ async function processQuotesStream() {
   const consumerGroup = "websocket_server_quotes";
   const consumerName = "ws_server_1";
 
-  logger.info({ streamName }, "📊 Starting quotes stream consumer");
+  logger.info({ streamName }, " Starting quotes stream consumer");
 
   // Crear consumer group
   try {
@@ -4434,7 +4487,7 @@ async function processQuotesStream() {
                   subscribers: subscriberCount,
                   bid: data.bid_price,
                   ask: data.ask_price
-                }, "📊 Broadcasting quote to subscribers");
+                }, " Broadcasting quote to subscribers");
                 broadcastQuote(symbolUpper, data);
               }
             }

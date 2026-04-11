@@ -224,6 +224,6 @@ if __name__ == "__main__":
     else:
         downloader.download_last_n_days(args.days, force=args.force)
     
-    print("\n📊 Download Stats:")
+    print("\n Download Stats:")
     print(downloader.get_download_stats())
 

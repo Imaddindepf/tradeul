@@ -127,7 +127,11 @@ class PerplexityCashService:
             d = row.get("date")
             if not d:
                 continue
-            cash = row.get("cashAndCashEquivalents")
+            # DilutionTracker.com methodology: cashAndShortTermInvestments primary,
+            # cashAndCashEquivalents as fallback
+            cash_st = row.get("cashAndShortTermInvestments")
+            cash_eq = row.get("cashAndCashEquivalents")
+            cash = cash_st if cash_st is not None else cash_eq
             if cash is None:
                 continue
             cf_row = cf_by_date.get(d, {})
@@ -136,6 +140,7 @@ class PerplexityCashService:
                 "period": row.get("period"),
                 "year": row.get("calendarYear"),
                 "cash": int(cash),
+                "cash_and_equivalents": int(cash_eq) if cash_eq is not None else None,
                 "operating_cf": int(cf_row["netCashProvidedByOperatingActivities"])
                     if cf_row.get("netCashProvidedByOperatingActivities") is not None
                     else None,
@@ -162,6 +167,7 @@ class PerplexityCashService:
         self,
         ticker: str,
         recent_raises: float = 0.0,
+        _skip_dt_tables: bool = False,
     ) -> Dict[str, Any]:
         """
         Implementa la fórmula EXACTA de DilutionTracker (bundle JS):
@@ -180,6 +186,32 @@ class PerplexityCashService:
 
         Returns dict with all inputs for DilutionTrackerRiskScorer._calculate_cash_need().
         """
+        # ── Primary: analyst tables dt_cash_position + dt_cash_meta ──────────
+        if not _skip_dt_tables:
+            try:
+                from services.sec.dt_cash_service import get_dt_cash_need_inputs
+                dt_inputs = await get_dt_cash_need_inputs(ticker)
+                if dt_inputs:
+                    # Override recent_raises with caller-provided value only if larger
+                    # (caller may have fresher data from completed_offerings table)
+                    if recent_raises > dt_inputs.get("recent_raises", 0):
+                        dt_inputs["recent_raises"] = recent_raises
+                        prorated_cf = dt_inputs.get("prorated_cf", 0)
+                        hist = dt_inputs.get("historical_cash", 0)
+                        est = hist + prorated_cf + recent_raises
+                        dt_inputs["estimated_current_cash"] = round(est, 2)
+                        ocf = dt_inputs.get("quarterly_ocf", 0)
+                        if ocf < 0 and est > 0:
+                            dt_inputs["runway_months"] = round((est / -ocf) * 3, 2)
+                    logger.debug("cash_need_from_dt_tables", ticker=ticker,
+                                 source=dt_inputs.get("source"),
+                                 runway_months=dt_inputs.get("runway_months"))
+                    return dt_inputs
+            except Exception as dt_err:
+                logger.debug("dt_cash_tables_failed_fallback_perplexity",
+                             ticker=ticker, error=str(dt_err))
+
+        # ── Fallback: Perplexity API ──────────────────────────────────────────
         summary = await self.get_cash_summary(ticker)
 
         _empty = {

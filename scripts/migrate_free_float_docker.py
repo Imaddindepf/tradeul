@@ -116,7 +116,7 @@ async def main():
     else:
         tickers = await get_cs_tickers_to_update(db, args.limit)
     
-    print(f"\n📊 Found {len(tickers)} CS tickers to process")
+    print(f"\n Found {len(tickers)} CS tickers to process")
     
     if not tickers:
         print("Nothing to do!")

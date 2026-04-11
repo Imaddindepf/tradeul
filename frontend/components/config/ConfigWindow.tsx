@@ -229,6 +229,7 @@ const FILTER_META: Record<string, { label: string; suf: string }> = {
   'max_macd_line': { label: 'MACD Line <', suf: '' },
   'max_market_cap': { label: 'Market Cap <', suf: '$' },
   'max_minute_volume': { label: 'Minute Volume <', suf: '' },
+  'max_minutes_since_open': { label: 'Minutes Since Open <', suf: 'min' },
   'max_plus_di_minus_di': { label: 'Directional Indicator (+DI - -DI) <', suf: '' },
   'max_pos_in_10d_range': { label: 'Position in 10 Day Range <', suf: '%' },
   'max_pos_in_20d_range': { label: 'Position in 20 Day Range <', suf: '%' },
@@ -455,6 +456,7 @@ const FILTER_META: Record<string, { label: string; suf: string }> = {
   'min_macd_line': { label: 'MACD Line >', suf: '' },
   'min_market_cap': { label: 'Market Cap >', suf: '$' },
   'min_minute_volume': { label: 'Minute Volume >', suf: '' },
+  'min_minutes_since_open': { label: 'Minutes Since Open >', suf: 'min' },
   'min_plus_di_minus_di': { label: 'Directional Indicator (+DI - -DI) >', suf: '' },
   'min_pos_in_10d_range': { label: 'Position in 10 Day Range >', suf: '%' },
   'min_pos_in_20d_range': { label: 'Position in 20 Day Range >', suf: '%' },
@@ -1841,6 +1843,14 @@ export function ConfigWindow({
                 { label: 'Range Contraction', minK: 'min_range_contraction', maxK: 'max_range_contraction', suf: '', phMin: '0.2', phMax: '1' },
                 { label: 'Linear Regression Divergence', minK: 'min_lr_divergence_130', maxK: 'max_lr_divergence_130', suf: '%', phMin: '-10', phMax: '10' },
                 { label: 'Change Previous Day %', minK: 'min_change_prev_day_pct', maxK: 'max_change_prev_day_pct', suf: '%', phMin: '-10', phMax: '10' },
+              ]
+            },
+            // ═══════════════════════════════════════════════════════════
+            // TIME OF DAY (minutes since 9:30 ET market open)
+            // ═══════════════════════════════════════════════════════════
+            {
+              id: 'tod', group: 'Time of Day', filters: [
+                { label: 'Minutes Since Open', minK: 'min_minutes_since_open', maxK: 'max_minutes_since_open', suf: 'min', phMin: '0', phMax: '390' },
               ]
             },
             // ═══════════════════════════════════════════════════════════

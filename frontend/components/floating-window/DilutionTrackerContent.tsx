@@ -88,6 +88,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
   // data state
   const [loading, setLoading]               = useState(false);
   const [error, setError]                   = useState<string | null>(null);
+  const [notFoundMsg, setNotFoundMsg]       = useState<string | null>(null);
   const [tickerData, setTickerData]         = useState<TickerAnalysis | null>(null);
   const [cashRunwayData, setCashRunwayData] = useState<CashRunwayData | null>(null);
   const [sharesHistory, setSharesHistory]   = useState<any>(null);
@@ -123,10 +124,11 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
     const validResult = await validateTicker(ticker);
     // 'not_found' = ticker explicitly absent from dilution DB → block
     // 'error'     = backend temporarily unavailable → proceed optimistically
-    if (validResult === 'not_found') { setError(t("dilution.invalidTicker")); return; }
+    if (validResult === 'not_found') { setNotFoundMsg(t("dilution.invalidTicker")); return; }
 
     setLoading(true);
     setError(null);
+    setNotFoundMsg(null);
     setContextError(null);
     setSelectedTicker(ticker);
     setTickerData(null);
@@ -246,7 +248,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
 
   // ─── render ─────────────────────────────────────────────────────────────────
   return (
-    <div className={cn("h-full flex flex-col bg-background text-foreground overflow-hidden", fontClass)}>
+    <div className={cn("h-full flex flex-col bg-surface text-foreground overflow-hidden", fontClass)}>
 
       {/* ── search bar ── */}
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border flex-shrink-0">
@@ -266,6 +268,13 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
           {loading ? "..." : "GO"}
         </button>
       </div>
+
+      {/* ── not-found info banner ── */}
+      {notFoundMsg && !error && (
+        <div className="px-3 py-2 text-[10px] text-amber-600 bg-amber-500/8 border-b border-amber-500/20 flex-shrink-0 leading-relaxed">
+          {notFoundMsg}
+        </div>
+      )}
 
       {/* ── error banner ── */}
       {error && (

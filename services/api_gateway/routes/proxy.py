@@ -24,11 +24,15 @@ MARKET_SESSION_URL = "http://market_session:8002"
 SEC_FILINGS_URL = "http://sec-filings:8012"
 DILUTION_TRACKER_URL = "http://dilution_tracker:8000"
 ALLOWED_DILUTION_ADMIN_EMAIL = "peertopeerhack@gmail.com"
+ALLOWED_DILUTION_ADMIN_USER_ID = "user_35yNHnXvRwQw22DDb0M5zEKcWsX"
 
 
 def _require_dilution_admin(user: AuthenticatedUser) -> None:
-    email = (user.email or "").strip().lower()
-    if email != ALLOWED_DILUTION_ADMIN_EMAIL:
+    # Primary check: Clerk user ID (always present in JWT)
+    # Fallback check: email claim (requires Clerk JWT template to include it)
+    user_id_match = user.id == ALLOWED_DILUTION_ADMIN_USER_ID
+    email_match = (user.email or "").strip().lower() == ALLOWED_DILUTION_ADMIN_EMAIL
+    if not user_id_match and not email_match:
         logger.warning(
             "dilution_admin_access_denied",
             user_id=user.id,
@@ -210,6 +214,10 @@ async def proxy_dilution_sec_profile(
 # DILUTION V2 REVIEW PROXY (ADMIN ONLY)
 # ============================================================================
 
+def _dilution_admin_headers(user: AuthenticatedUser) -> dict:
+    return {"x-user-email": user.email or "", "x-user-id": user.id or ""}
+
+
 @router.get("/api/v1/dilution-v2/review/ambiguous")
 async def proxy_dilution_v2_ambiguous_list(
     request: Request,
@@ -221,7 +229,7 @@ async def proxy_dilution_v2_ambiguous_list(
             response = await client.get(
                 f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/ambiguous",
                 params=dict(request.query_params),
-                headers={"x-user-email": user.email or ""},
+                headers=_dilution_admin_headers(user),
             )
             return JSONResponse(content=response.json(), status_code=response.status_code)
     except httpx.RequestError as e:
@@ -240,7 +248,7 @@ async def proxy_dilution_v2_reviewed_list(
             response = await client.get(
                 f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/reviewed",
                 params=dict(request.query_params),
-                headers={"x-user-email": user.email or ""},
+                headers=_dilution_admin_headers(user),
             )
             return JSONResponse(content=response.json(), status_code=response.status_code)
     except httpx.RequestError as e:
@@ -257,7 +265,7 @@ async def proxy_dilution_v2_review_metrics(
         async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.get(
                 f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/metrics",
-                headers={"x-user-email": user.email or ""},
+                headers=_dilution_admin_headers(user),
             )
             return JSONResponse(content=response.json(), status_code=response.status_code)
     except httpx.RequestError as e:
@@ -277,7 +285,7 @@ async def proxy_dilution_v2_ambiguous_requeue(
             response = await client.post(
                 f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/ambiguous/requeue",
                 json=body,
-                headers={"x-user-email": user.email or ""},
+                headers=_dilution_admin_headers(user),
             )
             return JSONResponse(content=response.json(), status_code=response.status_code)
     except httpx.RequestError as e:
@@ -297,7 +305,7 @@ async def proxy_dilution_v2_ambiguous_resolve(
             response = await client.post(
                 f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/ambiguous/resolve",
                 json=body,
-                headers={"x-user-email": user.email or ""},
+                headers=_dilution_admin_headers(user),
             )
             return JSONResponse(content=response.json(), status_code=response.status_code)
     except httpx.RequestError as e:
@@ -317,7 +325,7 @@ async def proxy_dilution_v2_ambiguous_apply(
             response = await client.post(
                 f"{DILUTION_TRACKER_URL}/api/dilution-v2/review/ambiguous/apply",
                 json=body,
-                headers={"x-user-email": user.email or ""},
+                headers=_dilution_admin_headers(user),
             )
             return JSONResponse(content=response.json(), status_code=response.status_code)
     except httpx.RequestError as e:

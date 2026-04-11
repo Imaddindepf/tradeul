@@ -15,8 +15,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional, List
 
-from fastapi import FastAPI, Query as QueryParam, HTTPException, Request
+from fastapi import FastAPI, Query as QueryParam, HTTPException, Request, Header
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 import structlog
 import redis.asyncio as aioredis
 
@@ -186,6 +187,68 @@ async def get_news(
     except Exception as e:
         logger.error("get_news_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Ingest: External news sources (e.g. OOC bot) ──────────────────────
+
+class IngestItem(BaseModel):
+    text: str
+    source: str = "external"
+    source_id: Optional[str] = None
+
+
+@app.post("/api/v1/ingest", status_code=202)
+async def ingest_news(
+    item: IngestItem,
+    x_ingest_key: Optional[str] = Header(default=None, alias="x-ingest-key"),
+):
+    """
+    Ingest a breaking news item from an external source (e.g. OOC Telegram bot).
+    Publishes directly to Redis so it appears in the SSE stream and history.
+    Requires header: x-ingest-key matching INGEST_SECRET env var.
+    """
+    if settings.ingest_secret and x_ingest_key != settings.ingest_secret:
+        raise HTTPException(status_code=401, detail="Invalid ingest key")
+
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    text = item.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    now_utc = datetime.now(timezone.utc)
+    ticker_re = __import__("re").compile(r'\$([A-Z]{1,5})\b')
+    tickers = list(dict.fromkeys(ticker_re.findall(text)))
+
+    source_id = item.source_id or f"{item.source}_{int(now_utc.timestamp() * 1000)}"
+
+    news_item = {
+        "id": f"trd_{source_id}",
+        "text": text,
+        "tickers": tickers,
+        "source": "tradeul",
+        "created_at": now_utc.isoformat(),
+        "received_at": now_utc.isoformat(),
+        "received_ts": now_utc.timestamp(),
+    }
+
+    try:
+        payload = json.dumps(news_item)
+        pipe = redis_client.pipeline()
+        pipe.xadd(settings.redis_stream_key, {"data": payload},
+                  maxlen=settings.redis_stream_maxlen, approximate=True)
+        pipe.zadd(settings.redis_latest_key, {payload: now_utc.timestamp()})
+        pipe.zremrangebyrank(settings.redis_latest_key, 0, -(settings.redis_latest_maxlen + 1))
+        pipe.publish("openul:live", payload)
+        await pipe.execute()
+    except Exception as e:
+        logger.error("ingest_redis_error", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to publish news")
+
+    logger.info("ingest_published", id=news_item["id"], source=item.source,
+                text_preview=text[:80])
+    return {"status": "ok", "id": news_item["id"]}
 
 
 # ── REST: Stream history (Redis Stream XRANGE) ─────────────────────────

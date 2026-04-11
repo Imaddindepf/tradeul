@@ -348,7 +348,7 @@ async def get_filings_live(
         date_to=date_to,
     )
     
-    print(f"📊 SEC Query: {lucene_query}")
+    print(f" SEC Query: {lucene_query}")
     
     try:
         # Query directo a SEC API con paginación

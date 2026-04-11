@@ -124,7 +124,7 @@ async function subscribeToSessionChangeEvents(redisSubscriber, onSessionChange =
             trading_date: event.trading_date,
             is_new_day: event.is_new_day,
           },
-          "📊 Market session changed"
+          " Market session changed"
         );
         
         // Update market session state (for enriched cache key selection)

@@ -20,6 +20,11 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional, Tuple
+from zoneinfo import ZoneInfo
+
+_ET = ZoneInfo('America/New_York')
+_MARKET_OPEN_HOUR = 9
+_MARKET_OPEN_MINUTE = 30
 
 logger = logging.getLogger("alert-engine.persistence")
 
@@ -268,6 +273,17 @@ class AlertWriter:
             ts = _parse_ts(mapped.get("ts"))
             if not ts or not mapped.get("id") or not mapped.get("symbol"):
                 continue
+
+            # Persist minutes_since_open so historical SQL filters can use it
+            if 'minutes_since_open' not in context:
+                ts_et = ts.astimezone(_ET)
+                market_open = ts_et.replace(
+                    hour=_MARKET_OPEN_HOUR, minute=_MARKET_OPEN_MINUTE,
+                    second=0, microsecond=0,
+                )
+                context['minutes_since_open'] = round(
+                    (ts_et - market_open).total_seconds() / 60, 2
+                )
 
             details_raw = mapped.get("details")
             if isinstance(details_raw, dict):

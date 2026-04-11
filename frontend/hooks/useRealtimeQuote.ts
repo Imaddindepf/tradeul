@@ -219,7 +219,7 @@ class QuoteManager {
       return quote;
     } catch (e) {
       if (this.debug) {
-        console.error(`📊 [QuoteManager] Error fetching snapshot for ${symbol}:`, e);
+        console.error(` [QuoteManager] Error fetching snapshot for ${symbol}:`, e);
       }
       return null;
     } finally {
@@ -272,7 +272,7 @@ class QuoteManager {
             this.handleQuote(message as QuoteMessage);
           }
         } catch (err) {
-          if (this.debug) console.error('📊 [QuoteManager] Parse error:', err);
+          if (this.debug) console.error(' [QuoteManager] Parse error:', err);
         }
       };
 
@@ -283,10 +283,10 @@ class QuoteManager {
       };
 
       this.ws.onerror = (err) => {
-        if (this.debug) console.error('📊 [QuoteManager] Error:', err);
+        if (this.debug) console.error(' [QuoteManager] Error:', err);
       };
     } catch (err) {
-      if (this.debug) console.error('📊 [QuoteManager] Connection failed:', err);
+      if (this.debug) console.error(' [QuoteManager] Connection failed:', err);
       this.scheduleReconnect();
     }
   }

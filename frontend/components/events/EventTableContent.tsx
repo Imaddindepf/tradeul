@@ -801,6 +801,24 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
   if (!chk(e.bb_position_60m, f.min_bb_position_60m, f.max_bb_position_60m)) return false;
   // Change 2min / 120min
 
+  // Time of Day — minutes since market open 9:30 ET
+  if (f.min_minutes_since_open !== undefined || f.max_minutes_since_open !== undefined) {
+    let mso: number | undefined;
+    if (e.timestamp) {
+      const d = new Date(e.timestamp);
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).formatToParts(d);
+      const h = +parts.find(p => p.type === 'hour')!.value;
+      const m = +parts.find(p => p.type === 'minute')!.value;
+      mso = (h * 60 + m) - (9 * 60 + 30);
+    }
+    if (!chk(mso, f.min_minutes_since_open, f.max_minutes_since_open)) return false;
+  }
+
   // String filters
   if (f.security_type && e.security_type?.toUpperCase() !== f.security_type.toUpperCase()) return false;
   if (f.sector && (!e.sector || !e.sector.toUpperCase().includes(f.sector.toUpperCase()))) return false;
@@ -1296,6 +1314,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('rangeContractionMin', filters.min_range_contraction); setF('rangeContractionMax', filters.max_range_contraction);
     setF('lrDivergence130Min', filters.min_lr_divergence_130); setF('lrDivergence130Max', filters.max_lr_divergence_130);
     setF('changePrevDayPctMin', filters.min_change_prev_day_pct); setF('changePrevDayPctMax', filters.max_change_prev_day_pct);
+    // Time of Day [TOD]
+    setF('minutes_since_open_min', filters.min_minutes_since_open); setF('minutes_since_open_max', filters.max_minutes_since_open);
     // String filters
     setS('security_type', filters.security_type);
     setS('sector', filters.sector);
@@ -1587,6 +1607,8 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         ['rsi_2m_min', f.min_rsi_2m], ['rsi_2m_max', f.max_rsi_2m],
         ['ema_20_min', f.min_ema_20], ['ema_20_max', f.max_ema_20],
         ['ema_50_min', f.min_ema_50], ['ema_50_max', f.max_ema_50],
+        // Time of Day [TOD]
+        ['minutes_since_open_min', f.min_minutes_since_open], ['minutes_since_open_max', f.max_minutes_since_open],
       ];
       for (const [k, v] of uPairs) uF(k, v);
       // Safety net: send every min_/max_ filter from store so backend stays in sync

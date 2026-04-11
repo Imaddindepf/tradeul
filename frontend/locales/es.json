@@ -395,7 +395,7 @@
   },
   "dilution": {
     "title": "Dilution Tracker",
-    "invalidTicker": "Ticker inválido",
+    "invalidTicker": "Solo hacemos seguimiento de acciones por debajo de $500M de market cap — este ticker no está en nuestra base de datos.",
     "errorLoading": "Error al cargar datos",
     "enterSymbol": "Ingresa un símbolo de acción para ver su análisis de dilución",
     "llmEngine": "Motor LLM + ML",

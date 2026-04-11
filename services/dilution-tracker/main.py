@@ -24,6 +24,8 @@ from http_clients import http_clients
 from services.pipeline.reactive_filing_consumer_v2 import ReactiveFilingConsumerV2
 from services.pipeline.reactive_filing_orchestrator_v2 import ReactiveFilingOrchestratorV2
 from services.pipeline.bulk_scoring_service import get_bulk_scoring_service
+from services.pipeline.cash_history_scraper import get_cash_history_scraper
+from services.pipeline.direct_batch_scorer import get_direct_batch_scorer
 
 logger = get_logger(__name__)
 
@@ -65,7 +67,18 @@ async def lifespan(app: FastAPI):
     bulk_scorer.start()
     app.state.bulk_scorer = bulk_scorer
     logger.info("bulk_scoring_service_initialized")
-    
+
+    # Cash History Scraper: disabled — data now comes from dt_cash_position / dt_cash_meta
+    app.state.cash_scraper = None
+
+    # Direct Batch Scorer: escucha el canal Redis `dilution:batch:trigger`.
+    # Se activa cuando data_maintenance (SyncDilutionScoresTask) publica el trigger.
+    from shared.utils.redis_client import RedisClient as _RedisClient2
+    _redis_batch = _RedisClient2()
+    batch_scorer = get_direct_batch_scorer(_redis_batch)
+    batch_scorer.start()   # arranca el listener Redis (no timer, no auto-run)
+    app.state.batch_scorer = batch_scorer
+
     yield
     
     # Shutdown
@@ -88,6 +101,16 @@ async def lifespan(app: FastAPI):
     bulk_scorer = getattr(app.state, "bulk_scorer", None)
     if bulk_scorer:
         await bulk_scorer.stop()
+
+    # Stop cash history scraper
+    cash_scraper = getattr(app.state, "cash_scraper", None)
+    if cash_scraper:
+        await cash_scraper.stop()
+
+    # Detener el listener Redis del batch scorer
+    batch_scorer = getattr(app.state, "batch_scorer", None)
+    if batch_scorer:
+        await batch_scorer.stop()
 
     # Cerrar clientes HTTP
     await http_clients.close()

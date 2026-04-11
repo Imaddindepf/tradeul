@@ -210,7 +210,7 @@ export function useMarketPulse({
       if (e.name === 'AbortError') return;
       setError(e.message || 'Failed to fetch');
     } finally {
-      setLoading(false);
+      if (!ac.signal.aborted) setLoading(false);
     }
   }, [tab, minMarketCap, sectorFilter]);
 
@@ -376,7 +376,7 @@ export function useDrilldown() {
       setData([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (!ac.signal.aborted) setLoading(false);
     }
   }, []);
 

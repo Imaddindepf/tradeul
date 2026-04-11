@@ -103,7 +103,7 @@ def cmd_build(args):
         print(f"Processing {len(files)} files...")
         vectors, metadata = processor.process_multiple_files(files)
     
-    print(f"\n📊 Building index with {len(vectors):,} vectors...")
+    print(f"\n Building index with {len(vectors):,} vectors...")
     
     indexer = PatternIndexer()
     indexer.build_index(vectors, metadata)
@@ -165,7 +165,7 @@ def cmd_stats(args):
     from pattern_indexer import PatternIndexer
     from flat_files_downloader import FlatFilesDownloader
     
-    print("📊 Service Statistics\n")
+    print(" Service Statistics\n")
     
     # Index stats
     indexer = PatternIndexer()

@@ -395,7 +395,7 @@
   },
   "dilution": {
     "title": "Dilution Tracker",
-    "invalidTicker": "Invalid ticker",
+    "invalidTicker": "We only track stocks under $500M market cap — this ticker isn't in our database.",
     "errorLoading": "Error loading data",
     "enterSymbol": "Enter a stock symbol to view its dilution analysis",
     "llmEngine": "LLM + ML Engine",

@@ -2310,6 +2310,16 @@
       "subKey": "changePrevDayPctMax",
       "dataKey": "change_prev_day_pct_max",
       "parser": "pf"
+    },
+    {
+      "subKey": "minutesSinceOpenMin",
+      "dataKey": "minutes_since_open_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "minutesSinceOpenMax",
+      "dataKey": "minutes_since_open_max",
+      "parser": "pf"
     }
   ],
   "string": [

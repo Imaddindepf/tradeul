@@ -531,6 +531,6 @@ if __name__ == "__main__":
         new_indexer = PatternIndexer(dimension=dimension)
         new_indexer.load("test")
         
-        print(f"\n📊 Index stats:")
+        print(f"\n Index stats:")
         print(new_indexer.get_stats())
 

@@ -40,7 +40,7 @@ async def main():
     
     tickers = [r['symbol'] for r in rows]
     total = len(tickers)
-    print(f"📊 Procesando {total} tickers CS activos...")
+    print(f" Procesando {total} tickers CS activos...")
     
     updated = 0
     errors = 0

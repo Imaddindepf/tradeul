@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import {
   applyAmbiguousActions,
   getReviewMetrics,
@@ -19,6 +20,7 @@ interface AmbiguousQueueSectionProps {
 }
 
 export function AmbiguousQueueSection({ ticker }: AmbiguousQueueSectionProps) {
+  const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<AmbiguousFilingItem[]>([]);
@@ -41,10 +43,8 @@ export function AmbiguousQueueSection({ ticker }: AmbiguousQueueSectionProps) {
     setLoading(true);
     setError(null);
     try {
-      const data = await listAmbiguousFilings({
-        limit: 100,
-        ticker: ticker || undefined,
-      });
+      const token = await getToken();
+      const data = await listAmbiguousFilings({ limit: 100, ticker: ticker || undefined }, token);
       setItems(data.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load queue");
@@ -57,10 +57,8 @@ export function AmbiguousQueueSection({ ticker }: AmbiguousQueueSectionProps) {
     setReviewedLoading(true);
     setReviewedError(null);
     try {
-      const data = await listReviewedFilings({
-        limit: 50,
-        ticker: ticker || undefined,
-      });
+      const token = await getToken();
+      const data = await listReviewedFilings({ limit: 50, ticker: ticker || undefined }, token);
       setReviewedItems(data.items);
     } catch (err) {
       setReviewedError(err instanceof Error ? err.message : "Failed to load reviewed history");
@@ -77,7 +75,8 @@ export function AmbiguousQueueSection({ ticker }: AmbiguousQueueSectionProps) {
     setMetricsLoading(true);
     setMetricsError(null);
     try {
-      const data = await getReviewMetrics();
+      const token = await getToken();
+      const data = await getReviewMetrics(token);
       setMetrics(data);
     } catch (err) {
       setMetricsError(err instanceof Error ? err.message : "Failed to load metrics");
@@ -104,7 +103,8 @@ export function AmbiguousQueueSection({ ticker }: AmbiguousQueueSectionProps) {
     if (!accessionNumber) return;
     setBusyAccession(accessionNumber);
     try {
-      await requeueAmbiguousFiling(accessionNumber);
+      const token = await getToken();
+      await requeueAmbiguousFiling(accessionNumber, "manual_requeue", token);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to requeue filing");
@@ -117,7 +117,8 @@ export function AmbiguousQueueSection({ ticker }: AmbiguousQueueSectionProps) {
     if (!accessionNumber) return;
     setBusyAccession(accessionNumber);
     try {
-      await resolveAmbiguousFiling(accessionNumber, "ignore", "ignored from queue");
+      const token = await getToken();
+      await resolveAmbiguousFiling(accessionNumber, "ignore", "ignored from queue", token);
       setItems((prev) => prev.filter((item) => item.accession_number !== accessionNumber));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resolve filing");
@@ -202,11 +203,12 @@ export function AmbiguousQueueSection({ ticker }: AmbiguousQueueSectionProps) {
 
     setManualBusy(mode);
     try {
+      const token = await getToken();
       const payload = {
         ...parsed,
         dry_run: mode === "dry_run",
       };
-      const response = await applyAmbiguousActions(payload);
+      const response = await applyAmbiguousActions(payload, token);
       setManualResponse(response);
       if (mode === "dry_run") {
         setLastDryRunFingerprint(fingerprint);
@@ -216,6 +218,7 @@ export function AmbiguousQueueSection({ ticker }: AmbiguousQueueSectionProps) {
           selectedAccession,
           "accepted_manual_apply",
           "manual apply completed from review panel",
+          token,
         );
         setItems((prev) =>
           prev.filter((item) => item.accession_number !== selectedAccession),

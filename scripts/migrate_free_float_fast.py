@@ -66,7 +66,7 @@ async def main():
     """)
     tickers = [r['symbol'] for r in rows]
     
-    print(f"\n📊 {len(tickers)} CS tickers pending")
+    print(f"\n {len(tickers)} CS tickers pending")
     
     if not tickers:
         print("Nothing to do!")

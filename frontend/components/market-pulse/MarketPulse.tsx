@@ -33,7 +33,7 @@ function loadPrefs(): PulsePrefs {
   try { const s = localStorage.getItem(LS_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
 }
 function savePrefs(p: PulsePrefs) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(p)); } catch {}
+  try { localStorage.setItem(LS_KEY, JSON.stringify(p)); } catch { }
 }
 
 const BAR_BLUE = '#2563eb';
@@ -424,11 +424,10 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
               <div ref={viewMenuRef} className="relative" onMouseDown={e => e.stopPropagation()}>
                 <button
                   onClick={() => setViewMenuOpen(v => !v)}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors ${
-                    viewMenuOpen
+                  className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors ${viewMenuOpen
                       ? 'bg-primary/10 text-primary border border-primary'
                       : 'bg-surface-inset text-muted-fg border border-transparent hover:border-border hover:text-foreground'
-                  }`}
+                    }`}
                 >
                   {activeViewDef.shortLabel}
                   <ChevronDown className="w-2.5 h-2.5" />
@@ -439,11 +438,10 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
                       <button
                         key={v.key}
                         onClick={() => handleViewChange(v.key)}
-                        className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
-                          activeView === v.key
+                        className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${activeView === v.key
                             ? 'text-primary bg-primary/10 font-semibold'
                             : 'text-foreground hover:bg-surface-hover font-medium'
-                        }`}
+                          }`}
                       >
                         {v.label}
                       </button>
@@ -487,9 +485,8 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
             <div className="flex bg-surface-inset rounded p-px gap-px">
               {[{ l: 'All', v: 0 }, { l: '>300M', v: 3e8 }, { l: '>2B', v: 2e9 }, { l: '>10B', v: 1e10 }].map(p => (
                 <button key={p.v} onClick={() => setMinCap(p.v)}
-                  className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors ${
-                    minCap === p.v ? 'bg-surface text-foreground shadow-sm' : 'text-muted-fg hover:text-foreground/80'
-                  }`}>{p.l}</button>
+                  className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors ${minCap === p.v ? 'bg-surface text-foreground shadow-sm' : 'text-muted-fg hover:text-foreground/80'
+                    }`}>{p.l}</button>
               ))}
             </div>
           )}
@@ -558,7 +555,7 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
         ) : !sorted.length ? (
           <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
             <div className="w-10 h-10 rounded-full bg-surface-inset flex items-center justify-center mb-3">
-              <span className="text-lg">📊</span>
+              <span className="text-lg"></span>
             </div>
             <p className="text-[13px] font-medium text-foreground mb-1">Market closed</p>
             <p className="text-[11px] text-muted-fg">Data will refresh when the market opens</p>

@@ -263,7 +263,7 @@ def main():
     all_results = []
     n_batches = (len(news_df) + BATCH_SIZE - 1) // BATCH_SIZE
     
-    log.info(f"📊 Procesando {len(news_df):,} noticias en {n_batches} batches de {BATCH_SIZE}")
+    log.info(f" Procesando {len(news_df):,} noticias en {n_batches} batches de {BATCH_SIZE}")
     
     for i in tqdm(range(n_batches), desc="Procesando batches"):
         start_idx = i * BATCH_SIZE
@@ -321,7 +321,7 @@ def main():
     results_df['direction'] = results_df.apply(classify_direction, axis=1)
     
     # Estadísticas
-    log.info("\n📊 ESTADÍSTICAS DE IMPACTO:")
+    log.info("\n ESTADÍSTICAS DE IMPACTO:")
     log.info(f"   Total con impacto calculado: {len(results_df):,}")
     
     valid_impact = results_df[results_df['impact_15min'].notna()]

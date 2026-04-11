@@ -522,6 +522,80 @@ async def bulk_score_stop(request: Request):
     return {"ok": True, "status": svc.status()}
 
 
+# ── Direct Batch Scorer endpoints ─────────────────────────────────────────────
+
+@router.get("/batch-score/status")
+async def batch_score_status(request: Request):
+    """Status of the direct batch scorer (scores all tickers from DB in one pass)."""
+    scorer = getattr(request.app.state, "batch_scorer", None)
+    if not scorer:
+        return {"running": False, "error": "not_initialized"}
+    return scorer.status()
+
+
+@router.post("/batch-score/run-now")
+async def batch_score_run_now(request: Request):
+    """Trigger an immediate batch scoring pass (non-blocking, runs in background)."""
+    scorer = getattr(request.app.state, "batch_scorer", None)
+    if not scorer:
+        return {"ok": False, "error": "not_initialized"}
+    asyncio.create_task(scorer._run_once())
+    return {"ok": True, "message": "Batch scoring pass triggered"}
+
+
+@router.post("/batch-score/run-sync")
+async def batch_score_run_sync(request: Request):
+    """
+    Trigger an immediate batch scoring pass and WAIT for it to complete.
+    Used by data_maintenance SyncDilutionScoresTask to score all tickers
+    before syncing to Redis.
+    """
+    scorer = getattr(request.app.state, "batch_scorer", None)
+    if not scorer:
+        return {"ok": False, "error": "not_initialized"}
+    await scorer._run_once()
+    return {
+        "ok": True,
+        "scored": scorer._last_scored,
+        "errors": scorer._last_errors,
+        "elapsed_ms": scorer._last_run_ms,
+    }
+
+
+# ── Cash History Scraper endpoints ────────────────────────────────────────────
+
+@router.get("/cash-scraper/status")
+async def cash_scraper_status(request: Request):
+    """Returns the current status of the background cash history scraper."""
+    scraper = getattr(request.app.state, "cash_scraper", None)
+    if not scraper:
+        return {"running": False, "error": "not_initialized"}
+    return scraper.status()
+
+
+@router.post("/cash-scraper/start")
+async def cash_scraper_start(request: Request):
+    """Manually starts (or restarts) the cash history scraper."""
+    scraper = getattr(request.app.state, "cash_scraper", None)
+    if not scraper:
+        from shared.utils.redis_client import RedisClient as _RC
+        from services.pipeline.cash_history_scraper import get_cash_history_scraper
+        scraper = get_cash_history_scraper(_RC())
+        request.app.state.cash_scraper = scraper
+    scraper.start()
+    return {"ok": True, "status": scraper.status()}
+
+
+@router.post("/cash-scraper/stop")
+async def cash_scraper_stop(request: Request):
+    """Stops the cash history scraper."""
+    scraper = getattr(request.app.state, "cash_scraper", None)
+    if not scraper:
+        return {"ok": False, "error": "not_initialized"}
+    await scraper.stop()
+    return {"ok": True, "status": scraper.status()}
+
+
 @router.get("/scores/export")
 async def export_all_dilution_scores():
     """
@@ -1299,55 +1373,51 @@ async def get_cash_position(ticker: str, max_quarters: int = 40):
     """
     try:
         ticker = ticker.upper()
-        
+
+        # ── Primary: analyst-maintained dt_cash_position + dt_cash_meta ──────
+        from services.sec.dt_cash_service import get_dt_cash_position
+        dt_result = await get_dt_cash_position(ticker, max_quarters)
+        if dt_result:
+            logger.info("cash_position_from_dt_tables", ticker=ticker,
+                        quarters=len(dt_result.get("cash_history", [])))
+            return dt_result
+
+        # ── Fallback: SEC-API.io XBRL (tickers not yet in analyst tables) ────
+        logger.info("cash_position_dt_miss_fallback_sec", ticker=ticker)
         redis = RedisClient()
         await redis.connect()
-        
+
         try:
             from services.sec.sec_cash_history import SECCashHistoryService
             from services.market.capital_raise_extractor import get_total_capital_raises
-            
-            # Get SEC XBRL cash history
+
             service = SECCashHistoryService(redis)
             result = await service.get_full_cash_history(ticker, max_quarters)
-            
+
             if result.get("error"):
                 raise HTTPException(status_code=404, detail=result["error"])
-            
-            # Get capital raises since last report
+
             last_report_date = result.get("last_report_date")
             if last_report_date:
                 try:
                     capital_raises_raw = await get_total_capital_raises(ticker, last_report_date)
-                    
-                    # Normalize structure for frontend
-                    total_raised = capital_raises_raw.get("total_gross_proceeds", 0) or capital_raises_raw.get("total", 0) or 0
-                    raise_count = capital_raises_raw.get("raise_count", 0) or capital_raises_raw.get("count", 0) or 0
+                    total_raised  = capital_raises_raw.get("total_gross_proceeds", 0) or capital_raises_raw.get("total", 0) or 0
+                    raise_count   = capital_raises_raw.get("raise_count", 0) or capital_raises_raw.get("count", 0) or 0
                     raise_details = capital_raises_raw.get("raises", []) or capital_raises_raw.get("details", [])
-                    
-                    result["capital_raises"] = {
-                        "total": total_raised,
-                        "count": raise_count,
-                        "details": raise_details
-                    }
-                    
-                    # Add capital raises to estimated cash
+                    result["capital_raises"] = {"total": total_raised, "count": raise_count, "details": raise_details}
                     if total_raised > 0:
-                        result["estimated_current_cash"] = (
-                            result.get("estimated_current_cash", 0) + total_raised
-                        )
-                        logger.info("capital_raises_added", ticker=ticker, total=total_raised)
+                        result["estimated_current_cash"] = (result.get("estimated_current_cash", 0) + total_raised)
                 except Exception as cr_err:
                     logger.warning("capital_raises_fetch_failed", ticker=ticker, error=str(cr_err))
                     result["capital_raises"] = {"total": 0, "count": 0, "details": []}
             else:
                 result["capital_raises"] = {"total": 0, "count": 0, "details": []}
-            
+
             return result
-            
+
         finally:
             await redis.disconnect()
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1899,7 +1969,7 @@ async def get_preliminary_analysis(
     mode: str = Query(default="full", description="Analysis mode: 'full' (45s) or 'quick' (15s)")
 ):
     """
-    📊 PRELIMINARY DILUTION ANALYSIS (JSON)
+     PRELIMINARY DILUTION ANALYSIS (JSON)
     
     Análisis preliminar usando AI con búsqueda web.
     Útil cuando NO tenemos datos en caché/BD.
@@ -2047,7 +2117,7 @@ async def enqueue_scraping_job(
 @router.get("/{ticker}/jobs/status")
 async def get_job_status(ticker: str):
     """
-    📊 ESTADO DEL JOB DE SCRAPING
+     ESTADO DEL JOB DE SCRAPING
     
     Obtiene el estado actual del job de scraping para un ticker.
     Útil para polling mientras el job está en proceso.
@@ -2410,7 +2480,7 @@ async def get_warrant_history(
     warrant_id: str
 ):
     """
-    📊 WARRANT SERIES HISTORY
+     WARRANT SERIES HISTORY
     
     Obtiene el historial completo de un warrant específico:
     - Todos los eventos (ejercicios, ajustes, etc.)

@@ -361,7 +361,7 @@ class TickerEnricher:
             
             # Mostrar estadísticas
             print("\n" + "="*60)
-            print("📊 ESTADÍSTICAS:")
+            print(" ESTADÍSTICAS:")
             print(f"   Procesados:     {self.stats['processed']}")
             print(f"   Enriquecidos:   {self.stats['enriched']}")
             print(f"   - Polygon:      {self.stats['polygon_success']}")

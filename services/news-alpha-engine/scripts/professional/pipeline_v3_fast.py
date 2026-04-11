@@ -289,7 +289,7 @@ def main():
     
     # Estadísticas
     log.info("\n" + "=" * 50)
-    log.info("📊 ESTADÍSTICAS DE IMPACTO")
+    log.info(" ESTADÍSTICAS DE IMPACTO")
     log.info("=" * 50)
     
     valid = results_df[results_df['impact_15min'].notna()]

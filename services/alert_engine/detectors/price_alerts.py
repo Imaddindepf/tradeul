@@ -348,6 +348,13 @@ class PriceAlertDetector(BaseAlertDetector):
         sym = current.symbol
         price = current.price
         prev_tracked = self._tracked_pre_highs.get(sym)
+
+        # Sembrar con intraday_high (= day.h de Polygon, incluye extended hours desde 4 AM).
+        # Evita falsos positivos cuando el servicio arranca a mitad de la sesión pre-market.
+        if prev_tracked is None and current.intraday_high is not None:
+            self._tracked_pre_highs[sym] = current.intraday_high
+            prev_tracked = current.intraday_high
+
         self._tracked_pre_highs[sym] = max(self._tracked_pre_highs.get(sym, 0), price)
         if prev_tracked is None or price <= prev_tracked:
             return
@@ -374,9 +381,15 @@ class PriceAlertDetector(BaseAlertDetector):
         sym = current.symbol
         price = current.price
         prev_tracked = self._tracked_pre_lows.get(sym)
+
+        # Sembrar con intraday_low (= day.l de Polygon, incluye extended hours desde 4 AM).
         if prev_tracked is None:
-            self._tracked_pre_lows[sym] = price
-            return
+            seed = current.intraday_low if current.intraday_low is not None else price
+            self._tracked_pre_lows[sym] = seed
+            if current.intraday_low is not None and price >= current.intraday_low:
+                return  # precio actual no rompe el mínimo pre-market conocido
+            prev_tracked = seed
+
         self._tracked_pre_lows[sym] = min(self._tracked_pre_lows[sym], price)
         if price >= prev_tracked:
             return

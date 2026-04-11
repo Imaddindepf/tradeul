@@ -533,7 +533,7 @@ class DailyMaintenanceScheduler:
         Actualiza shares_outstanding, market_cap, free_float, beta, etc.
         para TODOS los tickers activos.
         """
-        logger.info("📊 starting_metadata_refresh", date=str(current_date))
+        logger.info(" starting_metadata_refresh", date=str(current_date))
         
         start_time = datetime.now()
         
@@ -671,7 +671,7 @@ class DailyMaintenanceScheduler:
         hay datos nuevos que cargar. Esto asegura que los baselines
         nunca expiren durante fines de semana o festivos.
         """
-        logger.info("📊 starting_baselines_refresh", date=str(current_date))
+        logger.info(" starting_baselines_refresh", date=str(current_date))
         
         start_time = datetime.now()
         trades_result = None
@@ -949,7 +949,7 @@ class DailyMaintenanceScheduler:
         
         Se ejecuta a las 10:00 AM ET para dar tiempo a que se publiquen los resultados.
         """
-        logger.info("📊 starting_earnings_bmo_collect", date=str(current_date))
+        logger.info(" starting_earnings_bmo_collect", date=str(current_date))
         
         start_time = datetime.now()
         
@@ -987,7 +987,7 @@ class DailyMaintenanceScheduler:
         
         Se ejecuta a las 5:00 PM ET después del cierre del mercado.
         """
-        logger.info("📊 starting_earnings_amc_collect", date=str(current_date))
+        logger.info(" starting_earnings_amc_collect", date=str(current_date))
         
         start_time = datetime.now()
         

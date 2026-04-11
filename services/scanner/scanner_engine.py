@@ -1020,6 +1020,8 @@ class ScannerEngine:
                 dilution_historical_score=atr_data.get('dilution_historical_score') if atr_data else None,
                 dilution_cash_need=atr_data.get('dilution_cash_need') if atr_data else None,
                 dilution_cash_need_score=atr_data.get('dilution_cash_need_score') if atr_data else None,
+                # Time of Day [TOD]
+                minutes_since_open=atr_data.get('minutes_since_open') if atr_data else None,
                 # Session
                 session=self.current_session,
                 score=0.0,

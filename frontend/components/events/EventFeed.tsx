@@ -265,7 +265,7 @@ export function EventFeed({
       >
         {events.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-zinc-500">
-            <span className="text-2xl mb-2">📊</span>
+            <span className="text-2xl mb-2"></span>
             <span className="text-sm">Waiting for events...</span>
             <span className="text-xs mt-1">Events will appear here in real-time</span>
           </div>

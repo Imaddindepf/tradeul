@@ -609,7 +609,7 @@ if __name__ == "__main__":
         matcher = PatternMatcher()
         await matcher.initialize()
         
-        print("\n📊 Matcher Stats:")
+        print("\n Matcher Stats:")
         print(matcher.get_stats())
         
         # Test with random prices

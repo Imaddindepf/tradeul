@@ -216,7 +216,7 @@ class RedisHealthChecker:
                 "missing_rvol_averages",
                 "incomplete_rvol_averages"
             ]):
-                logger.info("📊 Step 2/3: Calculating RVOL historical averages...")
+                logger.info(" Step 2/3: Calculating RVOL historical averages...")
                 from tasks.calculate_rvol_averages import CalculateRVOLHistoricalAveragesTask
                 
                 rvol_task = CalculateRVOLHistoricalAveragesTask(self.redis, self.db)

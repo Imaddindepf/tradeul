@@ -310,7 +310,7 @@ if __name__ == "__main__":
     processor = DataProcessor()
     vectors, metadata = processor.process_multiple_files(files)
     
-    print(f"\n📊 Processing Results:")
+    print(f"\n Processing Results:")
     print(f"  Total patterns: {len(vectors):,}")
     print(f"  Vector shape: {vectors.shape}")
     print(f"  Memory: {vectors.nbytes / 1024**2:.2f} MB")

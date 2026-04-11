@@ -75,7 +75,7 @@ class SharesRefresher:
         # 1. Obtener símbolos de la BD
         symbols = await self._get_active_symbols(limit)
         self.stats["total"] = len(symbols)
-        print(f"📊 Tickers a procesar: {len(symbols)}")
+        print(f" Tickers a procesar: {len(symbols)}")
         print()
         
         # 2. Fetch de Polygon en paralelo
