@@ -44,7 +44,26 @@ AVAILABLE_AGENTS = {
     ),
     "financial": (
         "Fundamental data: income statements, balance sheets, cash flow, SEC filings. "
-        "Capabilities: quarterly/annual financials, SEC 10-K/10-Q/8-K, EPS history, ratios."
+        "Capabilities: quarterly/annual financials, SEC 10-K/10-Q/8-K, EPS history, ratios. "
+        "Does NOT handle dilution analysis — use the dilution agent for that."
+    ),
+    "dilution": (
+        "Stock dilution analysis from the Tradeul dilution tracker service — uses OUR OWN DATABASE, "
+        "no internet search needed. Two complementary data sources: "
+        "(1) SEC-extracted data: warrants (exercise price, expiration, price protection/ratchet clauses, "
+        "lifecycle events), ATM offerings (capacity, remaining, placement agent), "
+        "shelf registrations (S-3, baby-shelf restrictions, current raisable amount), "
+        "completed offerings history, convertible notes/preferred, equity lines, S-1 offerings. "
+        "(2) Analyst-curated instrument context: precise ATM/shelf/warrant details with "
+        "baby-shelf calculations, overhead supply analysis. "
+        "Risk scoring (1-10): overall_risk, offering_ability, overhead_supply, "
+        "historical_dilution, cash_need. "
+        "Cash runway: months remaining, burn rate, available financing. "
+        "Potential dilution %: total ceiling if all instruments exercised. "
+        "Use for: ANY question about warrants, ATM, shelf, dilution risk, cash runway, "
+        "shares outstanding history, offering history, convertible instruments, "
+        "equity lines, PIPE deals, registration statements. "
+        "CRITICAL for micro-cap and small-cap analysis."
     ),
     "research": (
         "Real-time web and X.com search via Grok, or Gemini Pro fallback. "
@@ -54,15 +73,26 @@ AVAILABLE_AGENTS = {
         "Capabilities: why a stock moves, social sentiment, analyst opinions, real-time catalysts."
     ),
     "code_exec": (
-        "Python/DuckDB code generation for custom analysis. "
-        "Capabilities: custom calculations, data transformations, comparisons."
+        "Python/DuckDB code generation for custom statistical analysis and data exploration. "
+        "Use for: frequency studies ('how often does X happen?', 'con qué frecuencia...'), "
+        "conditional probability ('what % of the time does X happen when Y?'), "
+        "statistical correlations, custom calculations, data transformations, comparisons, "
+        "pattern counts, historical distribution analysis, and any quantitative question that "
+        "requires custom code but is NOT asking for trading strategy P&L simulation. "
+        "Examples: 'how often does a gap >3% continue up the next day?', "
+        "'what % of TSLA gap-up days close green?', 'average return after a VWAP reclaim'. "
+        "CRITICAL: do NOT use for trading strategy P&L backtesting — use backtest for that."
     ),
     "backtest": (
-        "Professional backtesting engine for trading strategies described in natural language. "
-        "Parses strategy description → executes backtest with split-adjusted data → returns "
-        "metrics (Sharpe, Sortino, Max DD, Win Rate), equity curves, trade log, "
-        "walk-forward analysis, and Monte Carlo simulation. "
-        "Capabilities: strategy backtesting from natural language descriptions."
+        "Professional backtesting engine for TRADING STRATEGIES only. "
+        "Use ONLY when user wants to simulate a trading strategy with explicit entry rules, "
+        "exit rules (stop loss, profit target, time stop), and measure P&L performance. "
+        "Returns: Sharpe ratio, Win Rate, Max Drawdown, equity curve, trade log, walk-forward, Monte Carlo. "
+        "Examples: 'backtest buying gap-ups >5% on TSLA with 10% stop', "
+        "'test RSI<30 entry with 2R target on SPY', 'strategy: buy VWAP reclaim, sell EOD'. "
+        "CRITICAL: Do NOT use for statistical/frequency questions ('how often...', '% of time', "
+        "'con qué frecuencia') — those belong to code_exec. "
+        "The strategy MUST have entry conditions + exit rules to qualify for backtest."
     ),
     "screener": (
         "DuckDB-powered stock screener on daily data with 60+ indicators. "
@@ -131,12 +161,14 @@ SCREENING — Filter stocks by specific numeric criteria (without ranking) → s
 THEMATIC — Find stocks by investment theme, sector vertical, or industry category. The user is explicitly looking for a LIST of companies in a specific theme. Examples: "robotics stocks", "empresas de memoria", "quantum computing companies", "acciones de energía nuclear", "cybersecurity zero trust", "EV charging", "GLP-1 weight loss drugs", "chip foundry stocks", "defense tech", "lithium miners" → market_data. IMPORTANT: Broad market questions like "what theme is driving the market today?", "que tema mueve el mercado?", "what sectors are hot?" are NOT THEMATIC — they are RANKING queries because the user wants to see current market movers, not a static list of themed companies.
 DEEP_RESEARCH — Comprehensive analysis, business model, competitive positioning, sentiment, analyst opinions → research + financial (when tickers are present). Use for: "how does X make money?", "compare X vs Y", "what's X's competitive moat?", "diferencias entre X e Y", "modelo de negocio de X"
 COMPLETE_ANALYSIS — Full picture: "análisis completo", "deep dive", "full breakdown" → market_data + news_events + financial (add research if sentiment/opinions requested)
-CODE — Custom calculations, data transformations → code_exec
-BACKTEST — Strategy backtesting from natural language: "backtest buying when RSI < 30", "/backtest gap strategy" → backtest. IMPORTANT: The query MUST contain an actual trading strategy (entry/exit rules, indicators, conditions). If the user is only ASKING about backtesting capabilities, how to use it, or what parameters are needed (e.g. "quiero hacer backtest, qué necesitas?", "how does backtest work?", "what can I backtest?"), classify as GREETING — do NOT route to the backtest agent.
+CODE — Custom statistical analysis, frequency studies, conditional probabilities, data transformations → code_exec. Use when user asks "how often", "what % of the time", "con qué frecuencia", "average return after X", "correlation between X and Y" — any question needing custom Python/DuckDB analysis on historical data WITHOUT trading strategy P&L simulation.
+BACKTEST — Trading strategy P&L simulation with entry/exit rules → backtest. ONLY when user describes a STRATEGY with entry conditions AND exit rules (stop, target, time). Examples: "backtest buying RSI<30 with 5% stop", "/backtest gap-up strategy". If query is a frequency/statistical question WITHOUT explicit P&L strategy intent, route to CODE instead. If user is only asking ABOUT backtest capabilities (no strategy given), classify as GREETING.
 CHART_ANALYSIS — User is asking about a specific chart they are viewing (technical analysis, patterns, support/resistance, trend) → market_data (add research if "why" is asked, add news_events for context)
+DILUTION_ANALYSIS — ANY question about stock dilution, warrants, ATM offerings, shelf registrations, convertible notes/preferred, equity lines, S-1 filings, cash runway, burn rate, shares outstanding history, offering history, PIPE deals, registration statements, dilution risk scores, price protection/ratchet clauses, baby-shelf restrictions, overhead supply → dilution. Add market_data for current price context. Add news_events if asking about recent filings or catalysts.
 
 A single query can combine MULTIPLE intents — select agents for ALL detected intents.
 Example: "Why is TSLA up? Show me the financials too" = CAUSAL + FUNDAMENTALS → research + news_events + market_data + financial
+Example: "What's NVAX's dilution risk and cash runway?" = DILUTION_ANALYSIS → dilution + market_data
 </intent_types>
 
 <routing_principles>
@@ -148,15 +180,17 @@ Example: "Why is TSLA up? Show me the financials too" = CAUSAL + FUNDAMENTALS �
 
 4. For COMPLETE_ANALYSIS, select at least market_data + news_events + financial. Add research when the user mentions sentiment, opinions, research, or "con sentimiento".
 
-5. THEMATIC queries ask for stocks by theme, sector, or industry vertical. Route to market_data ONLY — it resolves themes via the classification database (124 pre-computed themes, no LLM needed at query time). You MUST populate the "theme_tags" field with canonical tags from the thematic catalog below. Map the user's natural language to one or more canonical tags. Examples: "robótica" → ["robotics"], "chips de memoria" → ["memory_chips"], "IA generativa" → ["generative_ai"], "cybersecurity zero trust" → ["cybersecurity", "identity_zero_trust"].
+5. DILUTION queries use the dilution agent exclusively — it queries our own database with no internet needed. Keywords: warrants, ATM, shelf, s-3, cash runway, burn rate, dilution risk, shares outstanding, PIPE, registered direct, offering history, convertible note, equity line, price protection, ratchet, baby-shelf, overhead supply. Do NOT route dilution queries to financial or research agents. Always add market_data alongside dilution for current price context.
 
-6. Write the plan field in the same language the user used in their query.
+7. THEMATIC queries ask for stocks by theme, sector, or industry vertical. Route to market_data ONLY — it resolves themes via the classification database (124 pre-computed themes, no LLM needed at query time). You MUST populate the "theme_tags" field with canonical tags from the thematic catalog below. Map the user's natural language to one or more canonical tags. Examples: "robótica" → ["robotics"], "chips de memoria" → ["memory_chips"], "IA generativa" → ["generative_ai"], "cybersecurity zero trust" → ["cybersecurity", "identity_zero_trust"].
 
-7. CHART_ANALYSIS queries come with a chart_context containing the user's visible chart data (OHLCV bars, indicators, drawings). Always include market_data for enrichment. Add research if the user asks "why" something happened.
+8. Write the plan field in the same language the user used in their query.
 
-8. AGENT TASK DECOMPOSITION: When selecting 2+ agents, you MUST generate "agent_tasks" — a dict mapping each agent name to a specific sub-question or instruction tailored to that agent's data sources. Each task must be a clear, self-contained sentence that tells the agent EXACTLY what to search for. Use the verified company names from ticker extraction. For single-agent queries, set agent_tasks to null. This is critical — without tailored tasks, agents fall back to generic behavior and may miss the user's actual question.
+9. CHART_ANALYSIS queries come with a chart_context containing the user's visible chart data (OHLCV bars, indicators, drawings). Always include market_data for enrichment. Add research if the user asks "why" something happened.
 
-9. MARKET_PULSE queries analyze aggregated sector/industry/theme performance. You MUST generate "pulse_queries" — an array of structured query objects. Each query: {{"group": "sectors"|"industries"|"themes", "sort_by": metric, "limit": int, "cap_size": "mega"|"large"|"mid"|"small"|null, "min_market_cap": int|null, "sector": str|null, "include_movers": bool, "metric_filters": [{{"metric":str,"op":"gt|gte|lt|lte","value":float}}], "label": str}}. Set "pulse_compare": true when comparing segments. Set "pulse_drilldown": {{"from_query":0,"rank":1,"sort_by":"change_percent","limit":10}} to drill into a result. Sortable metrics: weighted_change, avg_change, breadth, avg_rvol, avg_rsi, avg_daily_rsi, avg_atr_pct, avg_change_5d, avg_change_10d, avg_change_20d, avg_from_52w_high, avg_from_52w_low, avg_pos_in_range, avg_bb_position, avg_dist_vwap, avg_dist_sma20, avg_dist_sma50, total_dollar_volume, count. Cap sizes: mega(>200B), large(>10B), mid(>2B), small(>300M), micro(>50M).
+10. AGENT TASK DECOMPOSITION: When selecting 2+ agents, you MUST generate "agent_tasks" — a dict mapping each agent name to a specific sub-question or instruction tailored to that agent's data sources. Each task must be a clear, self-contained sentence that tells the agent EXACTLY what to search for. Use the verified company names from ticker extraction. For single-agent queries, set agent_tasks to null. This is critical — without tailored tasks, agents fall back to generic behavior and may miss the user's actual question.
+
+11. MARKET_PULSE queries analyze aggregated sector/industry/theme performance. You MUST generate "pulse_queries" — an array of structured query objects. Each query: {{"group": "sectors"|"industries"|"themes", "sort_by": metric, "limit": int, "cap_size": "mega"|"large"|"mid"|"small"|null, "min_market_cap": int|null, "sector": str|null, "include_movers": bool, "metric_filters": [{{"metric":str,"op":"gt|gte|lt|lte","value":float}}], "label": str}}. Set "pulse_compare": true when comparing segments. Set "pulse_drilldown": {{"from_query":0,"rank":1,"sort_by":"change_percent","limit":10}} to drill into a result. Sortable metrics: weighted_change, avg_change, breadth, avg_rvol, avg_rsi, avg_daily_rsi, avg_atr_pct, avg_change_5d, avg_change_10d, avg_change_20d, avg_from_52w_high, avg_from_52w_low, avg_pos_in_range, avg_bb_position, avg_dist_vwap, avg_dist_sma20, avg_dist_sma50, total_dollar_volume, count. Cap sizes: mega(>200B), large(>10B), mid(>2B), small(>300M), micro(>50M).
 </routing_principles>
 
 <thematic_catalog>
@@ -283,6 +317,15 @@ User: "/backtest Buy stocks gapping up 5% with volume > 1M, sell at 10% profit o
 User: "backtest RSI mean reversion on SPY from 2020 to 2024"
 {{"intent": "BACKTEST", "tickers": ["SPY"], "agents": ["backtest"], "theme_tags": [], "plan": "Backtest RSI mean reversion strategy on SPY", "confidence": 1.0, "reasoning": "Backtest request with specific ticker and strategy", "clarification": null}}
 
+User: "con qué frecuencia un gap > 3% continúa al alza al día siguiente en TSLA cuando su volumen relativo es por encima de 2?"
+{{"intent": "CODE", "tickers": ["TSLA"], "agents": ["code_exec"], "theme_tags": [], "plan": "Statistical frequency study: gap >3% continuation rate when RVOL>2 on TSLA using historical daily bars", "confidence": 1.0, "reasoning": "Frequency/probability question — not a strategy P&L simulation. Needs custom code to count occurrences and calculate conditional probability.", "clarification": null}}
+
+User: "how often does AAPL close green after gapping up more than 2%?"
+{{"intent": "CODE", "tickers": ["AAPL"], "agents": ["code_exec"], "theme_tags": [], "plan": "Calculate % of AAPL gap-up days (>2%) that close positive using historical data", "confidence": 1.0, "reasoning": "Statistical frequency question — code_exec will analyze historical bars and compute the conditional win rate.", "clarification": null}}
+
+User: "average return of SPY the day after a red Friday"
+{{"intent": "CODE", "tickers": ["SPY"], "agents": ["code_exec"], "theme_tags": [], "plan": "Compute average Monday return for SPY following a red Friday using historical daily bars", "confidence": 1.0, "reasoning": "Historical pattern analysis without entry/exit strategy — code_exec statistical study.", "clarification": null}}
+
 User: "noticias de AAPL"
 {{"intent": "NEWS", "tickers": ["AAPL"], "agents": ["news_events", "market_data"], "theme_tags": [], "plan": "Obtener noticias recientes de AAPL con contexto de precio", "confidence": 1.0, "reasoning": "News query for specific ticker with price context", "clarification": null}}
 
@@ -303,6 +346,27 @@ User: "Full technical analysis of TSLA chart" [chart_context attached]
 
 User: "Why did NVDA move like this on 2025-12-15?" [chart_context attached]
 {{"intent": "CHART_ANALYSIS", "tickers": ["NVDA"], "agents": ["market_data", "news_events", "research"], "theme_tags": [], "plan": "Analyze NVDA chart candle movement: search for catalysts on that date via research, check news, get price context", "confidence": 0.95, "reasoning": "Chart analysis with causal why — needs research agent for catalyst discovery", "clarification": null}}
+
+User: "qué warrants tiene NVAX y cuál es su precio de ejercicio?"
+{{"intent": "DILUTION_ANALYSIS", "tickers": ["NVAX"], "agents": ["dilution", "market_data"], "theme_tags": [], "agent_tasks": {{"dilution": "Get all outstanding warrants for NVAX (Novavax): exercise prices, expiration dates, shares underlying, price protection clauses, and warrant lifecycle events.", "market_data": "Current price and float data for NVAX to contextualize warrant exercise prices"}}, "plan": "Obtener warrants de NVAX: precios de ejercicio, vencimientos y claúsulas de protección de precio", "confidence": 1.0, "reasoning": "Dilution query focused on warrants — use dilution agent with market_data for price context", "clarification": null}}
+
+User: "how much cash runway does SNDX have? when will they need to raise?"
+{{"intent": "DILUTION_ANALYSIS", "tickers": ["SNDX"], "agents": ["dilution", "market_data"], "theme_tags": [], "agent_tasks": {{"dilution": "Get cash position, burn rate, and cash runway analysis for SNDX (Syndax Pharmaceuticals). Include available ATM/shelf financing capacity.", "market_data": "Current price and market cap for SNDX"}}, "plan": "Analyze SNDX cash runway: months remaining, burn rate, and available financing options", "confidence": 1.0, "reasoning": "Cash runway is a dilution domain query — dilution agent has the cash_position and runway data", "clarification": null}}
+
+User: "dame el análisis completo de dilución de MARA"
+{{"intent": "DILUTION_ANALYSIS", "tickers": ["MARA"], "agents": ["dilution", "market_data"], "theme_tags": [], "agent_tasks": {{"dilution": "Full dilution analysis for MARA (Marathon Digital Holdings): SEC profile with all instruments (warrants, ATM, shelf, convertibles, equity lines), risk scores (overall, offering ability, overhead supply, historical, cash need), cash runway, potential total dilution percentage, and completed offerings history.", "market_data": "Current price, volume, market cap, and float for MARA"}}, "plan": "Análisis completo de dilución de MARA: perfil SEC, riesgo, runway de caja, % dilución potencial", "confidence": 1.0, "reasoning": "Full dilution analysis request — dilution agent covers all aspects, market_data for context", "clarification": null}}
+
+User: "what is ILUS's dilution risk score?"
+{{"intent": "DILUTION_ANALYSIS", "tickers": ["ILUS"], "agents": ["dilution", "market_data"], "theme_tags": [], "agent_tasks": {{"dilution": "Get dilution risk ratings for ILUS: overall risk score, offering ability risk, overhead supply risk, historical dilution risk, and cash need risk (all on 1-10 scale).", "market_data": "Current price and market cap for ILUS"}}, "plan": "Get ILUS dilution risk scores across all 5 risk dimensions", "confidence": 1.0, "reasoning": "Risk score query maps directly to dilution agent risk_ratings endpoint", "clarification": null}}
+
+User: "cuánto puede diluirse MMAT si usa todo su shelf y ATM?"
+{{"intent": "DILUTION_ANALYSIS", "tickers": ["MMAT"], "agents": ["dilution", "market_data"], "theme_tags": [], "agent_tasks": {{"dilution": "Calculate total potential dilution percentage for MMAT (Meta Materials): breakdown by instrument type (warrants, ATM, shelf, convertibles) showing worst-case dilution ceiling if all instruments are exercised at current price.", "market_data": "Current price and shares outstanding for MMAT to contextualize dilution percentages"}}, "plan": "Calcular dilución potencial total de MMAT: desglose por instrumento y porcentaje máximo de dilución", "confidence": 1.0, "reasoning": "Potential dilution ceiling query — dilution agent's dilution_analysis endpoint provides exact breakdown", "clarification": null}}
+
+User: "show me the offering history for SAVA and how many times they've diluted shareholders"
+{{"intent": "DILUTION_ANALYSIS", "tickers": ["SAVA"], "agents": ["dilution", "market_data"], "theme_tags": [], "agent_tasks": {{"dilution": "Get completed offerings history for SAVA (Cassava Sciences): all past capital raises with dates, types, amounts raised, shares issued, prices, and banks. Include shares outstanding history to quantify historical dilution percentage.", "market_data": "Current price and shares outstanding for SAVA"}}, "plan": "Pull SAVA offering history and shares outstanding trajectory to quantify historical dilution", "confidence": 1.0, "reasoning": "Offering history is dilution domain — completed_offerings and shares_history from dilution agent", "clarification": null}}
+
+User: "análisis completo de NVAX con noticias y dilución"
+{{"intent": "COMPLETE_ANALYSIS", "tickers": ["NVAX"], "agents": ["market_data", "news_events", "dilution", "financial"], "theme_tags": [], "agent_tasks": {{"market_data": "Current price, volume, RVOL, technicals, and enriched snapshot for NVAX (Novavax)", "news_events": "Latest Benzinga news and market events for NVAX", "dilution": "Full dilution profile for NVAX: warrants, ATM, shelf, cash runway, risk scores", "financial": "Recent financial statements for NVAX: income, balance sheet, cash flow"}}, "plan": "Análisis completo de NVAX: precio, noticias, perfil de dilución y fundamentales", "confidence": 0.95, "reasoning": "Complete analysis with explicit dilution request — four agents covering all data domains", "clarification": null}}
 </examples>"""
 
 
@@ -311,13 +375,8 @@ User: "Why did NVDA move like this on 2025-12-15?" [chart_context attached]
 def _get_llm():
     global _llm
     if _llm is None:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        _llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            temperature=0.0,
-            max_output_tokens=1024,
-            response_mime_type="application/json",
-        )
+        from agents._make_llm import make_llm
+        _llm = make_llm(tier="fast", temperature=0.0, max_tokens=1024)
     return _llm
 
 

@@ -8,7 +8,7 @@
 3. ✅ **Exponerlos en la UI** para que el usuario pueda configurarlos
 4. ✅ **Tener columnas para mostrarlos** (opcional pero recomendado)
 
-## 📊 ESTADO ACTUAL:
+##  ESTADO ACTUAL:
 
 ### Backend (WebSocket Server)
 **Archivo**: `services/websocket_server/src/index.js`

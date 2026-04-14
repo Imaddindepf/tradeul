@@ -107,7 +107,7 @@ Variables de entorno:
 | `POLL_INTERVAL_SECONDS` | 5 | Intervalo de polling |
 | `LOG_LEVEL` | INFO | Nivel de logging |
 
-## 📊 Redis Keys
+##  Redis Keys
 
 | Key | Tipo | Descripción |
 |-----|------|-------------|

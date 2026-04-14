@@ -140,7 +140,7 @@ logger.info(
 
 ---
 
-## 📊 Comparación Antes vs Después
+##  Comparación Antes vs Después
 
 | Aspecto | Antes | Después |
 |---------|-------|---------|

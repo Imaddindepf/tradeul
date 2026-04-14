@@ -3,7 +3,7 @@ Base Alert Detector - Abstract base for all alert detector plugins.
 
 Key difference from old EventDetector: every alert MUST produce:
   - quality: float (meaning depends on alert type)
-  - description: str (human-readable, like Trade Ideas description column)
+  - description: str (human-readable, like Tradeul description column)
 
 The base provides cooldown management, alert creation helpers, and
 access to the baseline loader for historical data.

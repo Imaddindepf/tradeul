@@ -284,8 +284,8 @@ function VisualGridView({
               ? 'border-green-500/40 bg-green-500/5'
               : miss
                 ? 'border-red-500/40 bg-red-500/5'
-                : 'border-border/30 bg-muted/10'
-            : 'border-border/30 bg-muted/10'
+                : 'border-black/12 dark:border-white/10 bg-black/5 dark:bg-white/6'
+            : 'border-black/12 dark:border-white/10 bg-black/5 dark:bg-white/6'
         )}
       >
         <TickerLogo symbol={r.symbol} size={24} />
@@ -304,7 +304,7 @@ function VisualGridView({
 
   const renderSection = (title: string, items: EarningsReport[], count: number) => (
     <div className="flex-1 flex flex-col min-w-0">
-      <div className="flex items-center justify-between px-1.5 py-0.5 border-b border-border/30">
+      <div className="flex items-center justify-between px-1.5 py-0.5 border-b border-black/12 dark:border-white/10">
         <span className="text-[10px] font-semibold">{title}</span>
         <span className="text-[9px] text-muted-foreground">{count}</span>
       </div>
@@ -325,7 +325,7 @@ function VisualGridView({
   return (
     <div ref={gridRef} className="h-full flex flex-col bg-background" style={{ position: 'relative' }}>
       {/* Date header */}
-      <div className="px-2 py-1 border-b border-border/40 text-center">
+      <div className="px-2 py-1 border-b border-black/15 dark:border-white/12 text-center">
         <span className="text-[11px] font-semibold">{fmt.fullDate(date)}</span>
         <span className="text-[9px] text-muted-foreground ml-2">
           {reports.length} earnings
@@ -335,18 +335,18 @@ function VisualGridView({
       {/* Two columns: BMO | AMC */}
       <div className="flex-1 flex overflow-hidden">
         {renderSection('BEFORE MARKET', bmo, bmo.length)}
-        <div className="w-px bg-border/40" />
+        <div className="w-px bg-black/12 dark:bg-white/10" />
         {renderSection('AFTER MARKET', amc, amc.length)}
       </div>
 
       {/* TBD row if any */}
       {tbd.length > 0 && (
-        <div className="border-t border-border/40">
+        <div className="border-t border-black/15 dark:border-white/12">
           <div className="px-1.5 py-0.5 flex items-center gap-1">
             <span className="text-[9px] text-muted-foreground">TBD:</span>
             <div className="flex gap-0.5 overflow-x-auto">
               {tbd.slice(0, 15).map(r => (
-                <span key={r.symbol} className="text-[9px] bg-muted/50 px-1 rounded">
+                <span key={r.symbol} className="text-[9px] bg-black/10 dark:bg-white/20 px-1 rounded">
                   {r.symbol}
                 </span>
               ))}
@@ -558,9 +558,9 @@ export function EarningsCalendarContent() {
       <React.Fragment key={`${r.symbol}-${r.report_date}`}>
         <tr
           className={cn(
-            'border-b border-border/10 transition-colors',
-            idx % 2 === 1 ? 'bg-muted/5' : '',
-            'hover:bg-muted/20 cursor-pointer'
+            'border-b border-black/8 dark:border-white/8 transition-colors',
+            idx % 2 === 1 ? 'bg-black/3 dark:bg-white/4' : '',
+            'hover:bg-black/5 dark:hover:bg-white/8 cursor-pointer'
           )}
           onClick={() => setExpandedRow(isExpanded ? null : `${r.symbol}-${r.report_date}`)}
         >
@@ -668,7 +668,7 @@ export function EarningsCalendarContent() {
 
         {/* Expanded details */}
         {isExpanded && (
-          <tr className="bg-muted/10">
+          <tr className="bg-black/4 dark:bg-white/5">
             <td colSpan={showDateCol ? 15 : 14} className="px-2 py-2 text-[11px]">
               <div className="grid grid-cols-3 gap-x-4 gap-y-1">
                 <div className="text-muted-foreground">
@@ -756,7 +756,7 @@ export function EarningsCalendarContent() {
     return (
       <div className={cn('h-full flex flex-col bg-background text-foreground overflow-hidden', fontClass)}>
         {/* Header */}
-        <div className="flex items-center justify-between px-2 py-1 border-b border-border/40 gap-2">
+        <div className="flex items-center justify-between px-2 py-1 border-b border-black/15 dark:border-white/12 gap-2">
           {/* View tabs */}
           <div className="flex items-center gap-0.5">
             {(['day', 'week', 'visual', 'search'] as ViewMode[]).map(v => (
@@ -809,7 +809,7 @@ export function EarningsCalendarContent() {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-2 py-0.5 border-t border-border/30 text-[9px] text-muted-foreground">
+        <div className="flex items-center justify-between px-2 py-0.5 border-t border-black/12 dark:border-white/10 text-[9px] text-muted-foreground">
           <span>{statsText}</span>
           <span>tradeul.com</span>
         </div>
@@ -820,31 +820,31 @@ export function EarningsCalendarContent() {
   return (
     <div className={cn('h-full flex flex-col bg-background text-foreground overflow-hidden', fontClass)}>
       {/* Header */}
-      <div className="flex items-center justify-between px-2 py-1 border-b border-border/40 gap-2">
-        {/* View tabs */}
-        <div className="flex items-center gap-0.5">
-          {(['day', 'week', 'visual', 'search'] as ViewMode[]).map(v => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={cn(
-                'px-2 py-0.5 rounded transition-colors text-[11px]',
-                view === v ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {v === 'day' ? 'DAY' : v === 'week' ? 'WEEK' : v === 'visual' ? 'GRID' : 'FIND'}
-            </button>
-          ))}
-        </div>
+        <div className="flex items-center justify-between px-2 py-1 border-b border-black/15 dark:border-white/12 gap-2">
+          {/* View tabs */}
+          <div className="flex items-center gap-0.5">
+            {(['day', 'week', 'visual', 'search'] as ViewMode[]).map(v => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={cn(
+                  'px-2 py-0.5 rounded transition-colors text-[11px]',
+                  view === v ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {v === 'day' ? 'DAY' : v === 'week' ? 'WEEK' : v === 'visual' ? 'GRID' : 'FIND'}
+              </button>
+            ))}
+          </div>
 
-        {/* Search input */}
+          {/* Search input */}
         <form onSubmit={handleSearch} className="flex-1 max-w-[120px]">
           <input
             type="text"
             value={searchInput}
             onChange={e => setSearchInput(e.target.value.toUpperCase())}
             placeholder="Ticker..."
-            className="w-full bg-transparent border border-border/50 rounded px-1.5 py-0.5 text-[11px] focus:border-foreground/50 outline-none"
+            className="w-full bg-transparent border border-black/20 dark:border-white/15 rounded px-1.5 py-0.5 text-[11px] focus:border-black/40 dark:focus:border-white/50 outline-none"
           />
         </form>
 
@@ -864,7 +864,7 @@ export function EarningsCalendarContent() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center justify-between px-2 py-1 border-b border-border/30 gap-2">
+      <div className="flex items-center justify-between px-2 py-1 border-b border-black/12 dark:border-white/10 gap-2">
         {/* Importance filter */}
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-muted-foreground">IMP:</span>
@@ -922,8 +922,8 @@ export function EarningsCalendarContent() {
           </div>
         ) : (
           <table className="w-full">
-            <thead className="sticky top-0 bg-background/95 backdrop-blur-sm z-10">
-              <tr className="border-b border-border/40">
+            <thead className="sticky top-0 bg-background backdrop-blur-sm z-10">
+              <tr className="border-b border-black/15 dark:border-white/12">
                 <th className="px-1 py-1 w-7"></th>
                 <ColHeader field="symbol" label="TICKER" align="left" />
                 {showDateCol && <th className="px-1 py-1 font-medium text-muted-foreground text-[10px]">DATE</th>}
@@ -948,7 +948,7 @@ export function EarningsCalendarContent() {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-2 py-0.5 border-t border-border/30 text-[9px] text-muted-foreground">
+      <div className="flex items-center justify-between px-2 py-0.5 border-t border-black/12 dark:border-white/10 text-[9px] text-muted-foreground">
         <span>{reports.length} showing</span>
         <span>tradeul.com</span>
       </div>

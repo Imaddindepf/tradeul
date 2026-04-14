@@ -47,7 +47,7 @@ FILTER_FIELD_MAPPING = [
     ("min_vol_15min", "max_vol_15min", "vol_15min"),
     ("min_vol_30min", "max_vol_30min", "vol_30min"),
     #
-    # === Volume Window % (Trade Ideas style) ===
+    # === Volume Window % (Tradeul style) ===
     ("min_vol_1min_pct", "max_vol_1min_pct", "vol_1min_pct"),
     ("min_vol_5min_pct", "max_vol_5min_pct", "vol_5min_pct"),
     ("min_vol_10min_pct", "max_vol_10min_pct", "vol_10min_pct"),

@@ -1,7 +1,7 @@
 """
 Check Mark Alert Detector - CMU (bullish) and CMD (bearish) continuation patterns.
 
-Trade Ideas spec:
+Tradeul spec:
   CMU: higher highs -> pullback -> even higher highs (continuation up)
   CMD: lower lows -> bounce -> even lower lows (continuation down)
 

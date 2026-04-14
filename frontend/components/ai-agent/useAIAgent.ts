@@ -38,6 +38,8 @@ const NODE_LABELS: Record<string, string> = {
   screener: 'Screener',
   backtest: 'Backtester',
   synthesizer: 'Synthesizer',
+  dilution: 'Dilution Tracker',
+  context_enricher: 'Context',
 };
 
 function generateSessionId(): string {

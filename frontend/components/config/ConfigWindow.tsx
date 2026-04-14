@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * ConfigWindow - Strategy Builder (estilo Trade Ideas Alert Config Window)
+ * ConfigWindow - Strategy Builder (Alert Config Window)
  *
  * Tabs: Strategies | Alerts | Filters | Symbols | Summary
  *

@@ -1,7 +1,7 @@
 """
 Alert Types — Complete enum of all detectable alert types.
 
-Each alert type maps 1:1 to a Trade Ideas alert code.
+Each alert type maps 1:1 to a Tradeul alert code.
 Organized by implementation tier:
   Tier 1: Implementable now (data available in enriched snapshot + daily OHLC)
   Tier 2: Requires multi-timeframe bar data (BarEngine already computes)

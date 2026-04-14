@@ -5,7 +5,7 @@
 
 ---
 
-## 📊 RESUMEN DE CAMBIOS
+##  RESUMEN DE CAMBIOS
 
 ### **Antes:**
 - ❌ `ticker_metadata` (TABLA) - 12,147 registros
@@ -167,7 +167,7 @@ Esto:
 
 ---
 
-## 📊 IMPACTO EN ESPACIO
+##  IMPACTO EN ESPACIO
 
 | Objeto | Tamaño |
 |--------|--------|

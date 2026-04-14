@@ -5,7 +5,7 @@
 
 ---
 
-## 📊 RESUMEN DE CAMBIOS
+##  RESUMEN DE CAMBIOS
 
 ### **Antes (FASE 1):**
 - `tickers_unified` con **20 campos** (campos básicos)

@@ -1,5 +1,5 @@
 """
-Alert Strategies Router - CRUD for user alert strategies (Trade Ideas style)
+Alert Strategies Router - CRUD for user alert strategies (Tradeul style)
 """
 
 import json

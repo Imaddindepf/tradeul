@@ -6,7 +6,7 @@
 
 ---
 
-## 📊 RESUMEN EJECUTIVO
+##  RESUMEN EJECUTIVO
 
 Todos los microservicios, tasks y scripts han sido migrados para usar `tickers_unified` directamente en lugar de las vistas `ticker_metadata` y `ticker_universe`.
 
@@ -240,7 +240,7 @@ Todos los microservicios, tasks y scripts han sido migrados para usar `tickers_u
 
 ---
 
-## 📊 ESTADÍSTICAS DE MIGRACIÓN
+##  ESTADÍSTICAS DE MIGRACIÓN
 
 ### Por Tipo de Cambio
 

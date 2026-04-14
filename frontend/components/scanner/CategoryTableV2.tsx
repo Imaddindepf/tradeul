@@ -912,7 +912,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           return <div className="font-mono text-foreground/80">{formatNumber(value)}</div>;
         },
       }),
-      // Volume window % columns (Trade Ideas style)
+      // Volume window % columns (Tradeul style)
       ...(['vol_1min_pct', 'vol_5min_pct', 'vol_10min_pct', 'vol_15min_pct', 'vol_30min_pct'] as const).map(key => {
         const labels: Record<string, string> = { vol_1min_pct: '1m V%', vol_5min_pct: '5m V%', vol_10min_pct: '10m V%', vol_15min_pct: '15m V%', vol_30min_pct: '30m V%' };
         return columnHelper.accessor(key, {
@@ -931,7 +931,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           },
         });
       }),
-      // Range window $ columns (Trade Ideas: Range2..Range120 in dollars)
+      // Range window $ columns (Tradeul: Range2..Range120 in dollars)
       ...(['range_2min', 'range_5min', 'range_15min', 'range_30min', 'range_60min', 'range_120min'] as const).map(key => {
         const labels: Record<string, string> = { range_2min: 'R2m$', range_5min: 'R5m$', range_15min: 'R15m$', range_30min: 'R30m$', range_60min: 'R60m$', range_120min: 'R120m$' };
         return columnHelper.accessor(key, {
@@ -949,7 +949,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           },
         });
       }),
-      // Range window % columns (Trade Ideas style)
+      // Range window % columns (Tradeul style)
       ...(['range_2min_pct', 'range_5min_pct', 'range_15min_pct', 'range_30min_pct', 'range_60min_pct', 'range_120min_pct'] as const).map(key => {
         const labels: Record<string, string> = { range_2min_pct: 'R2m%', range_5min_pct: 'R5m%', range_15min_pct: 'R15m%', range_30min_pct: 'R30m%', range_60min_pct: 'R60m%', range_120min_pct: 'R120m%' };
         return columnHelper.accessor(key, {
@@ -2187,9 +2187,9 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
             if (!value) return <div className="text-muted-fg">-</div>;
             const colorClass =
               value === 'Low' ? 'text-emerald-600' :
-              value === 'Medium' ? 'text-amber-500' :
-              value === 'High' ? 'text-rose-600 font-semibold' :
-              'text-foreground/70';
+                value === 'Medium' ? 'text-amber-500' :
+                  value === 'High' ? 'text-rose-600 font-semibold' :
+                    'text-foreground/70';
             return <div className={`text-xs ${colorClass}`}>{value}</div>;
           },
         });
@@ -2219,6 +2219,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     autoResetExpanded: false,
     enableRowSelection: false,
     manualPagination: true,
+    enableSortingRemoval: false,
   });
 
   const getRowClassName = useCallback((row: Row<Ticker>) => {

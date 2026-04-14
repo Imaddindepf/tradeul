@@ -140,6 +140,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "query_planner", "market_data",
                 "news_events", "financial", "research", "code_exec",
                 "screener", "backtest", "synthesizer",
+                "dilution", "context_enricher",
             }
 
             try:

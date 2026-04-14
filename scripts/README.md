@@ -52,7 +52,7 @@ docker exec tradeul_data_maintenance python /app/scripts/load_massive_parallel.p
 
 ---
 
-### 📊 **load_universe_polygon.py**
+###  **load_universe_polygon.py**
 **Propósito:** Cargar universo completo de tickers desde Polygon
 
 ```bash

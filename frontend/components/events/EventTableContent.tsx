@@ -467,7 +467,7 @@ function parseEvent(d: any): MarketEvent {
     id: d.id || `${d.symbol}_${d.event_type}_${d.timestamp}`,
     symbol: d.symbol,
     event_type: d.event_type,
-    timestamp: d.timestamp,
+    timestamp: typeof d.timestamp === 'string' ? new Date(d.timestamp).getTime() : (d.timestamp ?? 0),
     price: d.price,
     prev_value: p('prev_value'),
     new_value: p('new_value'),
@@ -1211,7 +1211,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('chg_120min_min', filters.min_chg_120min); setF('chg_120min_max', filters.max_chg_120min);
     setF('chg_2min_dollars_min', filters.min_chg_2min_dollars); setF('chg_2min_dollars_max', filters.max_chg_2min_dollars);
     setF('chg_120min_dollars_min', filters.min_chg_120min_dollars); setF('chg_120min_dollars_max', filters.max_chg_120min_dollars);
-    // Extended Trade Ideas parity filters
+    // Extended Tradeul parity filters
     setF('gapDollarsMin', filters.min_gap_dollars); setF('gapDollarsMax', filters.max_gap_dollars);
     setF('gapRatioMin', filters.min_gap_ratio); setF('gapRatioMax', filters.max_gap_ratio);
     setF('changeFromCloseDollarsMin', filters.min_change_from_close_dollars); setF('changeFromCloseDollarsMax', filters.max_change_from_close_dollars);
@@ -3243,6 +3243,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     getSortedRowModel: getSortedRowModel(),
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
+    enableSortingRemoval: false,
   });
 
   // ========================================================================

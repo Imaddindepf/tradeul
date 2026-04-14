@@ -1189,7 +1189,7 @@ _a("RESUME", AlertType.RESUME,
 
 
 # ──────────────────────────────────────────────────────────────────────
-# ORB — All 7 Trade Ideas timeframes (quality = range_pct)
+# ORB — All 7 Tradeul timeframes (quality = range_pct)
 # Codes: ORU1/ORD1, ORU2/ORD2, ORU5/ORD5, ORU10/ORD10,
 #        ORU15/ORD15, ORU30/ORD30, ORU60/ORD60
 # ──────────────────────────────────────────────────────────────────────

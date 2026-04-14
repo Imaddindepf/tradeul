@@ -27,6 +27,10 @@ _genai_client = None
 def _get_genai_client():
     global _genai_client
     if _genai_client is None:
+        import os
+        google_key = os.getenv("GOOGLE_API_KEY", "").strip()
+        if not google_key:
+            raise RuntimeError("GOOGLE_API_KEY not set — structured Gemini path unavailable")
         from google import genai
         _genai_client = genai.Client()
     return _genai_client
@@ -39,12 +43,8 @@ _fallback_llm = None
 def _get_fallback_llm():
     global _fallback_llm
     if _fallback_llm is None:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        _fallback_llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            temperature=0.3,
-            max_output_tokens=8192,
-        )
+        from agents._make_llm import make_llm
+        _fallback_llm = make_llm(tier="fast", temperature=0.3, max_tokens=8192)
     return _fallback_llm
 
 

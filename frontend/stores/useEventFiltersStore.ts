@@ -92,7 +92,7 @@ interface EventFilterParameters {
   min_vol_30min?: number;
   max_vol_30min?: number;
 
-  // Volume window % (Trade Ideas style)
+  // Volume window % (Tradeul style)
   min_vol_1min_pct?: number;
   max_vol_1min_pct?: number;
   min_vol_5min_pct?: number;
@@ -104,7 +104,7 @@ interface EventFilterParameters {
   min_vol_30min_pct?: number;
   max_vol_30min_pct?: number;
 
-  // Range window filters (Trade Ideas: Range2..Range120)
+  // Range window filters (Tradeul: Range2..Range120)
   min_range_2min?: number;
   max_range_2min?: number;
   min_range_5min?: number;
@@ -423,7 +423,7 @@ interface EventFilterParameters {
   min_chg_120min_dollars?: number;
   max_chg_120min_dollars?: number;
 
-  // === Extended Trade Ideas parity filters ===
+  // === Extended Tradeul parity filters ===
   // Gap $ [GUD]
   min_gap_dollars?: number;
   max_gap_dollars?: number;

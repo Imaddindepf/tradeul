@@ -112,7 +112,7 @@ export function buildChartSnapshot(
     }
 
     if (!indicators.bb_upper && closePrices.length >= 20) {
-        const sma = indicators.sma20 ?? calcSMA(closePrices, 20);
+        const sma = (indicators.sma20 as number | undefined) ?? calcSMA(closePrices, 20);
         const last20 = closePrices.slice(-20);
         const variance = last20.reduce((s, c) => s + Math.pow(c - sma, 2), 0) / 20;
         const stddev = Math.sqrt(variance);

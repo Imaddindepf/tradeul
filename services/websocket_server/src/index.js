@@ -567,7 +567,7 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['chg2minDollarsMin', 'chg2minDollarsMax', null, 'chg_2min_dollars'],
     ['chg60minDollarsMin','chg60minDollarsMax',null, 'chg_60min_dollars'],
     ['chg120minDollarsMin','chg120minDollarsMax',null,'chg_120min_dollars'],
-    // Extended Trade Ideas parity
+    // Extended Tradeul parity
     ['gapDollarsMin',     'gapDollarsMax',     null, 'gap_dollars'],
     ['gapRatioMin',       'gapRatioMax',       null, 'gap_ratio'],
     ['changeFromCloseDollarsMin','changeFromCloseDollarsMax', null, 'change_from_close'],
@@ -1476,7 +1476,7 @@ const NUMERIC_FILTER_DEFS = [
   ['chg2minDollarsMax', 'chg_2min_dollars_max', pf],
   ['chg120minDollarsMin', 'chg_120min_dollars_min', pf],
   ['chg120minDollarsMax', 'chg_120min_dollars_max', pf],
-  // === Extended Trade Ideas parity filters ===
+  // === Extended Tradeul parity filters ===
   // Gap $ [GUD]
   ['gapDollarsMin', 'gap_dollars_min', pf],
   ['gapDollarsMax', 'gap_dollars_max', pf],
@@ -1865,7 +1865,7 @@ const ENRICHED_FIELD_MAP = {
   chg120minMin: 'chg_120min', chg120minMax: 'chg_120min',
   chg2minDollarsMin: 'chg_2min_dollars', chg2minDollarsMax: 'chg_2min_dollars',
   chg120minDollarsMin: 'chg_120min_dollars', chg120minDollarsMax: 'chg_120min_dollars',
-  // Extended Trade Ideas parity filters
+  // Extended Tradeul parity filters
   gapDollarsMin: 'gap_dollars', gapDollarsMax: 'gap_dollars',
   gapRatioMin: 'gap_ratio', gapRatioMax: 'gap_ratio',
   changeFromCloseDollarsMin: 'change_from_close', changeFromCloseDollarsMax: 'change_from_close',
@@ -2058,7 +2058,7 @@ function eventPassesSubscription(evt, sub) {
   }
 
   // ── Apply all numeric filters ──
-  // Supports inverted ranges (min > max) for OR/outside-range logic (Trade Ideas style).
+  // Supports inverted ranges (min > max) for OR/outside-range logic (Tradeul style).
   function chkEvt(v, minKey, maxKey) {
     const lo = sub[minKey], hi = sub[maxKey];
     if (lo === null && hi === null) return true;
@@ -2269,7 +2269,7 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.chg_2min_dollars, 'chg2minDollarsMin', 'chg2minDollarsMax')) return false;
   if (!chkEvt(enriched.chg_120min_dollars, 'chg120minDollarsMin', 'chg120minDollarsMax')) return false;
 
-  // Extended Trade Ideas parity filters
+  // Extended Tradeul parity filters
   if (!chkEvt(enriched.gap_dollars, 'gapDollarsMin', 'gapDollarsMax')) return false;
   if (!chkEvt(enriched.gap_ratio, 'gapRatioMin', 'gapRatioMax')) return false;
   if (!chkEvt(enriched.change_from_close, 'changeFromCloseDollarsMin', 'changeFromCloseDollarsMax')) return false;

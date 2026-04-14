@@ -10,7 +10,7 @@ Sistema completo para análisis de dilución de acciones basado en datos extraí
 - ✅ **Datos reales** extraídos de filings oficiales de la SEC
 - ✅ **API REST completa** con endpoints especializados
 
-## 📊 Datos Extraídos
+##  Datos Extraídos
 
 ### 1. Warrants
 - Fecha de emisión

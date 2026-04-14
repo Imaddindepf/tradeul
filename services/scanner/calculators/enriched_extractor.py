@@ -32,14 +32,14 @@ class EnrichedData:
     chg_15min: Optional[float] = None
     chg_30min: Optional[float] = None
     
-    # Volume window % (Trade Ideas style, vs avg_volume_10d)
+    # Volume window % (Tradeul style, vs avg_volume_10d)
     vol_1min_pct: Optional[float] = None
     vol_5min_pct: Optional[float] = None
     vol_10min_pct: Optional[float] = None
     vol_15min_pct: Optional[float] = None
     vol_30min_pct: Optional[float] = None
     
-    # Price range windows (Trade Ideas: Range2..Range120)
+    # Price range windows (Tradeul: Range2..Range120)
     range_2min: Optional[float] = None
     range_5min: Optional[float] = None
     range_15min: Optional[float] = None

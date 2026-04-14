@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     # Redis (queue + job storage)
     redis_url: str = "redis://redis:6379"
+    # Redis DB 0 — where live snapshots (snapshot:enriched:*) live
+    redis_snapshot_url: str = ""
     jobs_queue_name: str = "backtester:jobs"
     job_result_ttl_seconds: int = 7 * 24 * 3600  # 7 days
     max_concurrent_jobs_per_user: int = 2

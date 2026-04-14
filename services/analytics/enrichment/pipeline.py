@@ -487,7 +487,7 @@ class EnrichmentPipeline:
         
         # ================================================================
         # Price range windows: Range2..Range120 ($) and Range2P..Range120P (% of ATR)
-        # Trade Ideas: range_Nmin = high - low in last N minutes
+        # Tradeul: range_Nmin = high - low in last N minutes
         #              range_Nmin_pct = (range_Nmin / ATR) * 100
         # ================================================================
         _range_windows = ('range_2min', 'range_5min', 'range_15min',
@@ -525,7 +525,7 @@ class EnrichmentPipeline:
                 ticker_data['ema_9'] = indicators.ema_9
                 ticker_data['ema_20'] = indicators.ema_20
                 ticker_data['ema_50'] = indicators.ema_50
-                # SMA — Trade Ideas alignment (intraday from 1-min bars)
+                # SMA — Tradeul alignment (intraday from 1-min bars)
                 ticker_data['sma_5'] = indicators.sma_5
                 ticker_data['sma_8'] = indicators.sma_8
                 ticker_data['sma_20'] = indicators.sma_20
@@ -784,7 +784,7 @@ class EnrichmentPipeline:
                 ticker_data[_pos_key] = None
 
         # Position in Consolidation [RCon] = position within the consolidation range
-        # Trade Ideas: based on the high/low of the consolidation period (inside-day streak),
+        # Tradeul: based on the high/low of the consolidation period (inside-day streak),
         # not today's intraday range. >100 = broken out above, <0 = broken down below.
         _con_days = ticker_data.get('consolidation_days')
         if _con_days and _con_days > 0 and price:
@@ -826,7 +826,7 @@ class EnrichmentPipeline:
                 ticker_data[_dist_key] = None
 
         # Distance from Daily SMAs (%) — real-time with current price
-        # Trade Ideas [MA50P] formula: ((Last Price) - (SMA)) / (SMA) * 100
+        # Tradeul [MA50P] formula: ((Last Price) - (SMA)) / (SMA) * 100
         for _sma_period in ('5', '8', '10', '20', '50', '200'):
             _sma_val = ticker_data.get(f'daily_sma_{_sma_period}')
             _dist_key = f'dist_daily_sma_{_sma_period}'
@@ -1095,13 +1095,13 @@ class EnrichmentPipeline:
         else:
             ticker_data['change_from_close'] = None
 
-        # Change from today's open (%) — Trade Ideas FOP
+        # Change from today's open (%) — Tradeul FOP
         if price and day_open and day_open > 0:
             ticker_data['change_from_open'] = round((price - day_open) / day_open * 100, 4)
         else:
             ticker_data['change_from_open'] = None
 
-        # Change from today's open ($) — Trade Ideas FOD
+        # Change from today's open ($) — Tradeul FOD
         if price and day_open:
             ticker_data['change_from_open_dollars'] = round(price - day_open, 4)
         else:
@@ -1135,7 +1135,7 @@ class EnrichmentPipeline:
         self._compute_extended_derived(ticker_data, price, prev_day, prev_close, day_open, _atr_val)
 
     def _compute_extended_derived(self, ticker_data, price, prev_day, prev_close, day_open, atr_val):
-        """Extended derived fields — Trade Ideas parity."""
+        """Extended derived fields — Tradeul parity."""
         prev_high = prev_day.get('h') if isinstance(prev_day, dict) else None
         prev_low = prev_day.get('l') if isinstance(prev_day, dict) else None
 

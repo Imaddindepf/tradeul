@@ -3,7 +3,7 @@ Filter Engine
 Declarative filter system for ScannerTicker.
 
 Supports inverted ranges (min > max) for OR/outside-range logic,
-matching Trade Ideas behavior: min=5, max=-5 → value ≥ 5 OR value ≤ -5.
+matching Tradeul behavior: min=5, max=-5 → value ≥ 5 OR value ≤ -5.
 """
 
 from typing import Optional, List, Any
@@ -45,7 +45,7 @@ FILTER_DEFINITIONS = [
     ('min_price_from_intraday_low', 'max_price_from_intraday_low', 'price_from_intraday_low', False),
     ('min_market_cap', 'max_market_cap', 'market_cap', False),
     ('min_float', 'max_float', 'free_float', False),
-    # Volume window % (Trade Ideas style)
+    # Volume window % (Tradeul style)
     ('min_vol_1min_pct', 'max_vol_1min_pct', 'vol_1min_pct', False),
     ('min_vol_5min_pct', 'max_vol_5min_pct', 'vol_5min_pct', False),
     ('min_vol_10min_pct', 'max_vol_10min_pct', 'vol_10min_pct', False),
@@ -77,7 +77,7 @@ def check_min_max(
     Check if ticker_value passes a min/max range filter.
 
     When both bounds are set and min > max, uses OR/outside-range logic
-    (Trade Ideas style): value >= min OR value <= max.
+    (Tradeul style): value >= min OR value <= max.
     Otherwise uses standard AND/inside-range: min <= value <= max.
     """
     if min_value is None and max_value is None:

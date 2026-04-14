@@ -481,7 +481,7 @@ export default Scanner;
 
 ---
 
-## 📊 Performance
+##  Performance
 
 ### **Capacidad**
 

@@ -103,7 +103,7 @@ SELECT
 
 ---
 
-## 📊 Estado Pre-Migración
+##  Estado Pre-Migración
 
 **Tablas actuales:**
 - Scanner/Market: 9 tablas

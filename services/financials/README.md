@@ -328,7 +328,7 @@ Limpia cache de un símbolo.
 
 ---
 
-## 📊 Cobertura de Campos
+##  Cobertura de Campos
 
 ### Income Statement
 - Revenue, Revenue % YoY

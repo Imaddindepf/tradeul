@@ -1,4 +1,4 @@
-# SEC Filings Service 📊
+# SEC Filings Service 
 
 Servicio de streaming y backfill de SEC EDGAR filings en tiempo real.
 
@@ -228,7 +228,7 @@ BACKFILL_BATCH_SIZE=50
 BACKFILL_DAYS_BACK=30  # días hacia atrás en inicio
 ```
 
-## 📊 Schema de Base de Datos
+##  Schema de Base de Datos
 
 ### Tabla `sec_filings`
 

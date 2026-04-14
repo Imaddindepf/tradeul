@@ -5,7 +5,7 @@
  * - Event types seleccionados
  * - Filtros numericos (precio, volumen, rvol, etc.)
  * 
- * Funciona similar a las "Strategies" de Trade Ideas:
+ * Funciona similar a las "Strategies" de Tradeul:
  * el usuario configura una ventana de alertas y puede guardar/cargar
  * esa configuracion como un preset reutilizable.
  */

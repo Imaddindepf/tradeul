@@ -136,7 +136,7 @@ const tickers = useOrderedTickersOptimized(listName)
 
 ---
 
-## 📊 **IMPACTO COMBINADO**
+##  **IMPACTO COMBINADO**
 
 | Escenario | Performance Antes | Performance Después |
 |-----------|-------------------|-------------------|

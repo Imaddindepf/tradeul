@@ -60,7 +60,7 @@ El agente genera código en un DSL propio que se ejecuta contra la infraestructu
 
 ---
 
-## 📊 Datos Disponibles
+##  Datos Disponibles
 
 ### Redis Keys
 | Key Pattern | Descripción | Tipo |

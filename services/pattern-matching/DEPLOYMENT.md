@@ -258,7 +258,7 @@ docker-compose restart
 
 ---
 
-## 📊 Tamaños Esperados
+##  Tamaños Esperados
 
 | Componente | Tamaño |
 |------------|--------|

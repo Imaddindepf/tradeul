@@ -9,7 +9,7 @@ TI: Single Print - reports as soon as value crosses, no candle wait.
 No custom settings, quality = 0.
 
 EMAs are updated incrementally O(1) per tick. Seeded with SMA of the
-first `period` bars to match Trade Ideas behavior.
+first `period` bars to match Tradeul behavior.
 """
 
 from datetime import datetime, time

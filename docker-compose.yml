@@ -999,6 +999,7 @@ services:
       - BACKTESTER_POLYGON_DATA_DIR=/data/polygon
       - BACKTESTER_SPLITS_CACHE_DIR=/data/backtester/splits
       - BACKTESTER_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/6
+      - BACKTESTER_REDIS_SNAPSHOT_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     volumes:
       - polygon_data:/data/polygon:ro
       - backtester_data:/data/backtester

@@ -99,7 +99,7 @@ Filters:
 
 ---
 
-## 📊 Cobertura Actualizada:
+##  Cobertura Actualizada:
 
 ### ANTES:
 ```

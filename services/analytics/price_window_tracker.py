@@ -57,7 +57,7 @@ class PriceChangeResult(NamedTuple):
 
 
 class PriceRangeResult(NamedTuple):
-    """High-Low range ($) for each time window (Trade Ideas style)"""
+    """High-Low range ($) for each time window (Tradeul style)"""
     range_2min: Optional[float]
     range_5min: Optional[float]
     range_15min: Optional[float]

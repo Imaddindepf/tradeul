@@ -660,7 +660,7 @@ class ScreenerEngine:
         self._compute_linear_regression(source_table, target_table)
 
     def _compute_consecutive_days(self, source_table: str, target_table: str):
-        """Compute consecutive days up/down [Up] — Trade Ideas parity."""
+        """Compute consecutive days up/down [Up] — Tradeul parity."""
         df = self.conn.execute(f"""
             SELECT symbol, date, close
             FROM {source_table}

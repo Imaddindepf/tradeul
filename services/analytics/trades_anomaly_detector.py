@@ -22,7 +22,7 @@ EJEMPLO REAL:
 
 REFERENCIAS:
 - Polygon Aggregates: https://polygon.io/docs/stocks/get_v2_aggs_ticker__stocksticker__range__multiplier___timespan___from___to
-- Similar a: Trade Ideas, Massive.com anomaly detection workflow
+- Similar a: Tradeul, Massive.com anomaly detection workflow
 """
 
 from datetime import datetime

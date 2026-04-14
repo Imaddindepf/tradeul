@@ -1,7 +1,7 @@
 """
 Pullback Alert Detector - 8 pullback variants (Close + Open x High/Low x 75%/25%).
 
-Trade Ideas spec:
+Tradeul spec:
   PFL75C: Start at prev_close, stock goes DOWN to today's low, bounces 75% back toward close. direction=+
   PFL25C: Same but 25% bounce. direction=+
   PFH75C: Start at prev_close, stock goes UP to today's high, pulls back 75% toward close. direction=-

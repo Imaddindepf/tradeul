@@ -6,7 +6,7 @@
 
 ---
 
-## 📊 ANÁLISIS DE IMPACTO
+##  ANÁLISIS DE IMPACTO
 
 ### ✅ ESTADO ACTUAL (Post FASE 1 y 2)
 - `tickers_unified` creada con **35 campos** (20 base + 15 expandidos)
@@ -173,7 +173,7 @@ docker-compose restart ticker-metadata-service scanner data-maintenance
 
 ---
 
-## 📊 TIEMPO ESTIMADO TOTAL
+##  TIEMPO ESTIMADO TOTAL
 
 - **Desarrollo**: ~2 horas
 - **Testing**: ~30 minutos

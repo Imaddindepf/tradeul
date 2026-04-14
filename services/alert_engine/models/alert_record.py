@@ -3,7 +3,7 @@ Alert Record — The output of the alert engine.
 
 Extends EventRecord with:
   - quality: universal numeric field whose meaning depends on the alert type
-  - description: human-readable text (like Trade Ideas description column)
+  - description: human-readable text (like Tradeul description column)
   - quality_context: additional metadata for the quality value
 """
 

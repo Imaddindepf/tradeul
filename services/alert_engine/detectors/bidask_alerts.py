@@ -3,7 +3,7 @@ Bid/Ask Microstructure Alert Detector.
 
 Covers: LBS, LAS, MC, MCU, MCD, ML, LSP.
 
-Trade Ideas behavior:
+Tradeul behavior:
   - MC "Market Crossed": ask < bid. Quality = cents crossed (bid - ask).
     Reports first crossing in each group. New alert only if cross grows
     or market uncrossed for several minutes.

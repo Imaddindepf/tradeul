@@ -12,7 +12,7 @@ Servicio para análisis de dilución de acciones, cash runway y riesgo de offeri
 - ✅ Análisis de dilución histórica
 - ✅ Risk scoring completo
 
-### 📊 **Estrategia Tiered**
+###  **Estrategia Tiered**
 - **Tier 1** (500 tickers): Sincronización diaria
 - **Tier 2** (2000 tickers): Sincronización semanal
 - **Tier 3** (resto): Lazy loading (solo cuando usuario lo solicita)

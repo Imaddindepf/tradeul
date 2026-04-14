@@ -200,13 +200,19 @@ async def health():
 @rest_app.get("/api/tools")
 async def list_tools():
     """List all available MCP tools."""
-    tools_dict = await gateway.get_tools()
     tools = []
-    for name, tool in tools_dict.items():
-        tools.append({
-            "name": name,
-            "description": getattr(tool, "description", ""),
-        })
+    # FastMCP exposes tools via _tool_manager
+    try:
+        tool_manager = getattr(gateway, "_tool_manager", None)
+        if tool_manager:
+            tools_dict = tool_manager._tools
+            for name, tool in tools_dict.items():
+                tools.append({
+                    "name": name,
+                    "description": getattr(tool, "description", ""),
+                })
+    except Exception:
+        pass
     return {"tools": tools, "total": len(tools)}
 
 

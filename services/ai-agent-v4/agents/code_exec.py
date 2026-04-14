@@ -64,15 +64,11 @@ Additional context (if any):
 
 
 def _get_llm():
-    """Lazily create the Gemini 2.5 Pro LLM for code generation."""
+    """Lazily create the LLM for code generation — uses best available provider."""
     global _llm
     if _llm is None:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        _llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-pro",
-            temperature=0.1,
-            max_output_tokens=4096,
-        )
+        from agents._make_llm import make_llm
+        _llm = make_llm(tier="pro", temperature=0.1, max_tokens=4096)
     return _llm
 
 

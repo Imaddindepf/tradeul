@@ -1,7 +1,7 @@
 """
 Momentum Alert Detector - Running Up/Down, % Change, Std Dev Breakout.
 
-Trade Ideas behavior:
+Tradeul behavior:
   - RUN "Running Up Now": ~1 min chart, no confirmation, single print trigger.
     Quality = size of the move in dollars. User filters by min dollar move.
   - RU "Running Up": ~1 min, statistically validated, NBBO confirmed.

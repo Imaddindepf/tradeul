@@ -117,7 +117,7 @@ ls -lh data/professional/*.parquet
 
 ---
 
-## 📊 DATOS DISPONIBLES
+##  DATOS DISPONIBLES
 
 ### Noticias (news_all_sessions.parquet):
 ```python

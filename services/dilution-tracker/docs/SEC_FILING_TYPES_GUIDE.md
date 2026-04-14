@@ -94,7 +94,7 @@
 
 ---
 
-## 📊 Financials
+##  Financials
 
 | Filing | Propósito | Deadline | Impacto |
 |--------|-----------|----------|---------|

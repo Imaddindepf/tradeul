@@ -99,7 +99,7 @@ class IndicatorValues(NamedTuple):
     ema_9: Optional[float]
     ema_20: Optional[float]
     ema_50: Optional[float]
-    # SMA — aligned with Trade Ideas (intraday from 1-min bars)
+    # SMA — aligned with Tradeul (intraday from 1-min bars)
     sma_5: Optional[float]
     sma_8: Optional[float]
     sma_20: Optional[float]
@@ -293,7 +293,7 @@ class TickerBarState:
             self.ema_9 = EMA(period=9)
             self.ema_20 = EMA(period=20)
             self.ema_50 = EMA(period=50)
-            # SMA for intraday (Trade Ideas alignment)
+            # SMA for intraday (Tradeul alignment)
             self.sma_5 = SMA(period=5)
             self.sma_8 = SMA(period=8)
             self.sma_20 = SMA(period=20)
@@ -468,7 +468,7 @@ class BarEngine:
         state.acc_volumes.append(bar.av)
         state.highs.append(bar.h)
         state.lows.append(bar.l)
-        # Trade Ideas-style consecutive candles:
+        # Tradeul-style consecutive candles:
         # up = higher high + higher low, down = lower high + lower low.
         if state.prev_bar_high > 0 and state.prev_bar_low > 0:
             direction = self._classify_candle_direction(
@@ -570,7 +570,7 @@ class BarEngine:
         tf_state.closes.append(c)
 
         # Store this bar's high/low as "previous" for IDH/IDL comparison
-        # and update Trade Ideas-style consecutive candles on closed bars.
+        # and update Tradeul-style consecutive candles on closed bars.
         if tf_state.prev_bar_high > 0 and tf_state.prev_bar_low > 0:
             direction = BarEngine._classify_candle_direction(
                 prev_high=tf_state.prev_bar_high,
@@ -674,7 +674,7 @@ class BarEngine:
         ema_20 = self._read_talipp(state.ema_20)
         ema_50 = self._read_talipp(state.ema_50)
 
-        # SMA (intraday, from 1-min bars — Trade Ideas alignment)
+        # SMA (intraday, from 1-min bars — Tradeul alignment)
         sma_5 = self._read_talipp(state.sma_5)
         sma_8 = self._read_talipp(state.sma_8)
         sma_20 = self._read_talipp(state.sma_20)
@@ -831,7 +831,7 @@ class BarEngine:
         cur_high: float,
         cur_low: float,
     ) -> int:
-        """Classify candle direction using Trade Ideas HH/HL vs LH/LL rules."""
+        """Classify candle direction using Tradeul HH/HL vs LH/LL rules."""
         if cur_high > prev_high and cur_low > prev_low:
             return 1
         if cur_high < prev_high and cur_low < prev_low:

@@ -86,12 +86,8 @@ _llm = None
 def _get_llm():
     global _llm
     if _llm is None:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        _llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            temperature=0.0,
-            max_output_tokens=1024,
-        )
+        from agents._make_llm import make_llm
+        _llm = make_llm(tier="fast", temperature=0.0, max_tokens=1024)
     return _llm
 
 

@@ -1,4 +1,4 @@
-# 📊 XBRL Mapping Engine
+#  XBRL Mapping Engine
 
 Sistema de normalización de datos financieros XBRL a campos canónicos.
 

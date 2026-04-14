@@ -33,7 +33,7 @@ El servicio rastrea el estado de cada tarea en Redis:
 
 **Al reiniciar**: Reanuda desde la última tarea completada.
 
-## 📊 Endpoints
+##  Endpoints
 
 - `GET /health` - Health check
 - `GET /status` - Estado detallado del último mantenimiento

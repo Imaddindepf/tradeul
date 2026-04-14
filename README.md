@@ -6,7 +6,7 @@ Sistema profesional de escaneo de mercados en tiempo real para 11,000+ acciones,
 
 - 🚀 **Escalable**: Procesa 11,882 tickers con snapshots cada 5 segundos
 - ⚡ **Tiempo Real**: WebSocket con datos segundo a segundo de Polygon
-- 📊 **RVOL Preciso**: Cálculo por slots de 5 minutos (siguiendo lógica de PineScript)
+-  **RVOL Preciso**: Cálculo por slots de 5 minutos (siguiendo lógica de PineScript)
 - 🌅 **Extended Hours**: Soporte completo para pre-market y post-market (4 AM - 8 PM ET)
 - 🔥 **Pre-Market Warmup**: Datos FMP precargados a las 3 AM (sin delays)
 - 🔄 **Suscripción Dinámica**: WebSocket se ajusta automáticamente a tickers filtrados
@@ -142,7 +142,7 @@ curl http://localhost:8000/api/v1/rvol/AAPL | jq
 docker-compose logs -f scanner
 ```
 
-## 📊 Pipeline de Datos
+##  Pipeline de Datos
 
 ```
 ┌─────────────────────────────────────────────────────────┐

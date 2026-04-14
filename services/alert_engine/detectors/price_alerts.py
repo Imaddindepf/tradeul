@@ -1,7 +1,7 @@
 """
 Price Alert Detector - New Highs/Lows with lookback-based quality.
 
-Trade Ideas spec coverage:
+Tradeul spec coverage:
   NHP/NLP:   quality = lookback_days (0-366). Regular hours only. Reset daily.
   NHPF/NLPF: filtered (rate-limited by volatility). Same quality as NHP/NLP.
   NHA/NLB:   quality = lookback_days. Custom = min shares. Blackout 30s/60s open.
@@ -513,7 +513,7 @@ class PriceAlertDetector(BaseAlertDetector):
     def _compute_lookback_high(self, symbol, price) -> Tuple[int, Optional[str], Optional[float]]:
         """Returns (lookback_days, resistance_date_str, resistance_price).
 
-        Trade Ideas: quality = max days for which this is a new high.
+        Tradeul: quality = max days for which this is a new high.
         Description: the most recent day before today when price was higher.
         """
         if not self.baseline:
@@ -604,7 +604,7 @@ class PriceAlertDetector(BaseAlertDetector):
         return lookback
 
     def _build_high_description(self, price, lookback, resistance_day, resistance_price):
-        """Trade Ideas style: 'New high $X. Last higher: MM/DD at $Y' """
+        """Tradeul style: 'New high $X. Last higher: MM/DD at $Y' """
         desc = f"New high ${price:.2f}"
         if lookback == 0:
             pass

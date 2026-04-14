@@ -205,26 +205,17 @@ _llm_code = None
 def _get_llm():
     global _llm
     if _llm is None:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        _llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            temperature=0.1,
-            max_output_tokens=8192,
-            response_mime_type="application/json",
-        )
+        from agents._make_llm import make_llm
+        _llm = make_llm(tier="fast", temperature=0.1, max_tokens=8192)
     return _llm
 
 
 def _get_llm_code():
-    """LLM for code generation — no JSON mime type, higher token limit."""
+    """LLM for code generation — higher token limit."""
     global _llm_code
     if _llm_code is None:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        _llm_code = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            temperature=0.15,
-            max_output_tokens=16384,
-        )
+        from agents._make_llm import make_llm
+        _llm_code = make_llm(tier="fast", temperature=0.15, max_tokens=16384)
     return _llm_code
 
 
@@ -393,6 +384,38 @@ def _is_valid_json(s: str) -> bool:
         return False
 
 
+def _sanitize_dates(config: dict) -> dict:
+    """Replace literal 'YYYY-MM-DD' placeholders or invalid dates with sensible defaults."""
+    import datetime as _dt
+    today = _dt.date.today()
+    is_intraday = config.get("timeframe", "1d") not in ("1d", "1D")
+    default_start = today - _dt.timedelta(days=30 if is_intraday else 730)
+
+    for field in ("start_date", "end_date"):
+        val = config.get(field, "")
+        if not val or val == "YYYY-MM-DD" or val == "today" or not str(val).replace("-", "").isdigit():
+            config[field] = str(today if field == "end_date" else default_start)
+            continue
+        # Validate it parses correctly
+        try:
+            _dt.date.fromisoformat(str(val))
+        except ValueError:
+            config[field] = str(today if field == "end_date" else default_start)
+
+    # Ensure end > start by at least 5 days
+    try:
+        start = _dt.date.fromisoformat(config["start_date"])
+        end = _dt.date.fromisoformat(config["end_date"])
+        if end <= start:
+            config["end_date"] = str(today)
+            config["start_date"] = str(today - _dt.timedelta(days=30 if is_intraday else 730))
+    except Exception:
+        config["start_date"] = str(default_start)
+        config["end_date"] = str(today)
+
+    return config
+
+
 async def _parse_strategy(query: str, tickers: list[str] | None = None, max_retries: int = 1) -> dict:
     """Use LLM to parse natural language into StrategyConfig JSON with retry."""
     llm = _get_llm()
@@ -432,16 +455,16 @@ async def _parse_strategy(query: str, tickers: list[str] | None = None, max_retr
             # Gemini sometimes returns parsed dicts instead of JSON strings
             if isinstance(raw_content, dict):
                 logger.info("Backtest agent: LLM returned dict directly, using as-is")
-                return raw_content
+                return _sanitize_dates(raw_content)
             if isinstance(raw_content, list) and len(raw_content) == 1 and isinstance(raw_content[0], dict):
                 logger.info("Backtest agent: LLM returned list with single dict")
-                return raw_content[0]
+                return _sanitize_dates(raw_content[0])
 
             raw_str = str(raw_content) if not isinstance(raw_content, str) else raw_content
             logger.debug("Backtest agent: raw LLM output (%d chars): %.300s", len(raw_str), raw_str)
 
             cleaned = _clean_json(raw_str)
-            return json.loads(cleaned)
+            return _sanitize_dates(json.loads(cleaned))
         except json.JSONDecodeError as exc:
             last_error = exc
             logger.warning(
@@ -584,12 +607,8 @@ _mode_classifier_llm = None
 def _get_mode_classifier_llm():
     global _mode_classifier_llm
     if _mode_classifier_llm is None:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        _mode_classifier_llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-lite",
-            temperature=0.0,
-            max_output_tokens=8,
-        )
+        from agents._make_llm import make_llm
+        _mode_classifier_llm = make_llm(tier="fast", temperature=0.0, max_tokens=8)
     return _mode_classifier_llm
 
 

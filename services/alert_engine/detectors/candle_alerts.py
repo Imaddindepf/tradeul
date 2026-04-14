@@ -1,7 +1,7 @@
 """
 N-Minute High/Low Detector — Traditional candlestick analysis.
 
-Trade Ideas spec:
+Tradeul spec:
   IDH5/IDL5 through IDH60/IDL60.
   "Look at the current candle that is building for a stock, and compare that
    to the previous candle. The first time that the current candle goes above

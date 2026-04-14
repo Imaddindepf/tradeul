@@ -1,7 +1,7 @@
 """
 Volume Alert Detector - HRV, SV, VS1, UNOP, BP with ratio-based quality.
 
-Trade Ideas behavior:
+Tradeul behavior:
   - HRV "High Relative Volume": quality = current_volume / historical_avg_volume
     for the same 5-minute slot. User sets minimum ratio (e.g., 2.0 = only show
     when volume is 2x normal). Default fires at 1.5x (50% above normal).

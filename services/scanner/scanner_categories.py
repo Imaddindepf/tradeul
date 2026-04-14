@@ -49,7 +49,7 @@ class CategoryCriteria:
     GAP_EXTREME = 10.0            # Gap extremo: 10%
     
     # MOMENTUM_UP (HOD MOMENTUM - BALANCED CRITERIA)
-    # Basado en Trade Ideas / Warrior Trading - adaptado para ALL CAPS
+    # Basado en Tradeul / Warrior Trading - adaptado para ALL CAPS
     # Stocks "running up" haciendo nuevos máximos con volumen
     # CRITERIOS BALANCEADOS (incluye large caps como CMG, MCD):
     # 1. price_from_intraday_high >= -1.0%: Haciendo máximos (máx 1% del HOD)
@@ -152,7 +152,7 @@ class ScannerCategorizer:
         
         # 2. MOMENTUM_UP (HOD MOMENTUM - BALANCED FOR ALL CAPS)
         # Stocks "running up" - haciendo nuevos máximos con volumen
-        # Basado en Trade Ideas / Warrior Trading - adaptado para ALL CAPS
+        # Basado en Tradeul / Warrior Trading - adaptado para ALL CAPS
         # CRITERIOS BALANCEADOS (incluye large caps como CMG, MCD):
         #   1. price_from_intraday_high >= -1%: Haciendo máximos (máx 1% del HOD)
         #   2. change_percent >= 1%: Mínimo 1% arriba del día (large cap friendly)

@@ -17,7 +17,7 @@ if chg_1min >= 0.8 and rvol >= 1.5:
     # CONSOLIDATION_BREAKOUT_UP, cooldown 600s
 ```
 
-| Aspecto | Trade Ideas | TradeUL | Gap |
+| Aspecto | Tradeul | TradeUL | Gap |
 |---------|-------------|---------|-----|
 | Que detecta | Estado de consolidacion | Breakout FROM consolidation | 🔧 Diferente |
 | Z-score quality | 2-10 | No | ❌ |

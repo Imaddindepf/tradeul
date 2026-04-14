@@ -1,4 +1,4 @@
-# 📊 Analytics Service - Cálculo Preciso de RVOL
+#  Analytics Service - Cálculo Preciso de RVOL
 
 Servicio dedicado para cálculos avanzados de indicadores, con foco especial en el cálculo de **RVOL (Relative Volume) por slots**.
 
@@ -215,7 +215,7 @@ rvols = await calculator.calculate_rvol_batch(["AAPL", "TSLA", "NVDA"])
 
 ---
 
-## 📊 Tabla de TimescaleDB
+##  Tabla de TimescaleDB
 
 ```sql
 CREATE TABLE volume_slots (

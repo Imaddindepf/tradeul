@@ -1,5 +1,5 @@
 """
-Financial Agent - Financial statements, SEC filings, and risk assessment.
+Financial Agent - Financial statements and SEC filings.
 
 MCP tools used (parameter names MUST match exactly):
   - financials.get_financial_statements(symbol, period, limit)
@@ -8,8 +8,9 @@ MCP tools used (parameter names MUST match exactly):
 Data cleaning:
   - SEC filings: strip null fields, internal IDs → only metadata rows
   - Financial statements: keep key metrics, human-readable labels
-  
-NOTE: Dilution MCP is disabled — dilution tools are skipped gracefully.
+
+NOTE: Dilution analysis (warrants, ATM, shelf, cash runway, risk scores) is handled
+by the dedicated dilution agent — do NOT route dilution queries here.
 """
 from __future__ import annotations
 import asyncio
@@ -20,13 +21,6 @@ from agents._mcp_tools import call_mcp_tool
 
 
 # ── Intent detection ────────────────────────────────────────────────
-
-_DILUTION_KEYWORDS = [
-    "dilution", "diluted", "diluting", "warrants", "warrant",
-    "offering", "shelf", "atm", "at-the-market", "shares outstanding",
-    "float", "authorized shares", "convertible", "pipe",
-    "dilucion", "dilución", "acciones",
-]
 
 _SEC_KEYWORDS = [
     "sec", "filing", "filings", "10-k", "10-q", "8-k", "s-1", "s-3",
@@ -48,9 +42,6 @@ _QUARTERLY_KEYWORDS = [
     "último trimestre", "últimos trimestres",
 ]
 
-
-def _wants_dilution(q: str) -> bool:
-    return any(kw in q.lower() for kw in _DILUTION_KEYWORDS)
 
 def _wants_sec(q: str) -> bool:
     return any(kw in q.lower() for kw in _SEC_KEYWORDS)
@@ -227,10 +218,9 @@ async def financial_node(state: dict) -> dict:
 
     wants_sec = _wants_sec(query)
     wants_fin = _wants_financials(query)
-    wants_dil = _wants_dilution(query)
     quarterly = _wants_quarterly(query)
 
-    fetch_financials = wants_fin or not wants_sec
+    fetch_financials = wants_fin or (not wants_sec)
     fetch_sec = wants_sec
 
     async def _fetch_financials_for_ticker(ticker: str) -> tuple[str, dict[str, Any], list[str]]:
@@ -257,10 +247,6 @@ async def financial_node(state: dict) -> dict:
             except Exception as exc:
                 ticker_errors.append(f"sec_filings/{ticker}: {exc}")
 
-        # 3. Dilution — DISABLED
-        if wants_dil:
-            ticker_data["dilution_note"] = "Dilution analysis is temporarily unavailable."
-
         return ticker, ticker_data, ticker_errors
 
     ticker_results = await asyncio.gather(*[
@@ -280,8 +266,8 @@ async def financial_node(state: dict) -> dict:
             "financial": {
                 "tickers_analyzed": tickers[:3],
                 "sec_checked": fetch_sec,
-                "financials_checked": fetch_financials,
-                "quarterly": quarterly,
+        "financials_checked": fetch_financials,
+            "quarterly": quarterly,
                 **results,
             },
         },

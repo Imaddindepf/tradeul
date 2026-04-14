@@ -45,7 +45,7 @@ def get_system_rules() -> List[ScanRule]:
         
         # MOMENTUM_UP (HOD MOMENTUM - BALANCED FOR ALL CAPS)
         # Stocks "running up" haciendo máximos con volumen
-        # Basado en Trade Ideas / Warrior Trading - adaptado para ALL CAPS
+        # Basado en Tradeul / Warrior Trading - adaptado para ALL CAPS
         # Criterios balanceados que incluyen large caps como CMG, MCD
         ScanRule(
             id="category:momentum_up",

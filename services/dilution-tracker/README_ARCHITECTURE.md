@@ -1,4 +1,4 @@
-# 📊 Dilution Tracker Service - Documentación Técnica Completa
+#  Dilution Tracker Service - Documentación Técnica Completa
 
 > Servicio de análisis de dilución de acciones basado en SEC EDGAR con extracción por IA
 
@@ -538,7 +538,7 @@ curl "http://localhost:8000/api/sec-dilution/MULN/risk-ratings"
 
 ---
 
-## 📊 Sistema de Risk Ratings
+##  Sistema de Risk Ratings
 
 ### 5 Ratings Estilo DilutionTracker.com
 

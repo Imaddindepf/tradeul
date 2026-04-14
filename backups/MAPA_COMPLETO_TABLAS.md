@@ -6,7 +6,7 @@
 
 ---
 
-## 📊 RESUMEN POR TAMAÑO
+##  RESUMEN POR TAMAÑO
 
 | Tabla | Tamaño | Registros Est. | Categoría |
 |-------|--------|----------------|-----------|
@@ -22,7 +22,7 @@
 | `sec_warrants` | 56 KB | ~200 | 📄 SEC Data |
 | `sec_completed_offerings` | 48 KB | ~150 | 📄 SEC Data |
 | `market_data_daily` | 32 KB | ~100 | 📈 Market |
-| `market_sessions_log` | 24 KB | ~50 | 📊 Logs |
+| `market_sessions_log` | 24 KB | ~50 |  Logs |
 | Resto (10 tablas) | <16 KB | <100 | 📄 SEC + Config |
 
 ---
@@ -654,7 +654,7 @@ Plan: Eliminar después de 1 mes sin issues (FASE 4)
 6. Return to frontend
 ```
 
-### 📊 FLUJO SCANNER
+###  FLUJO SCANNER
 
 ```
 1. Polygon WS → Real-time ticks

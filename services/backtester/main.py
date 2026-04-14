@@ -17,6 +17,7 @@ from core.engine import BacktestEngine
 from core.metrics import compute_advanced_metrics
 from core.models import BacktestRequest, BacktestResponse, CodeBacktestRequest
 from core.code_executor import CodeExecutor
+from core.adhoc_executor import AdHocExecutor
 from core.charts import generate_full_dashboard
 from analysis.walk_forward import WalkForwardAnalyzer
 from analysis.monte_carlo import MonteCarloAnalyzer
@@ -236,6 +237,69 @@ async def run_code_backtest(request: CodeBacktestRequest):
     except Exception as e:
         logger.error("code_backtest_failed", error=str(e))
         return BacktestResponse(status="error", error=f"Internal error: {str(e)}")
+
+
+@app.post("/api/v1/execute")
+async def execute_adhoc(request: dict):
+    """
+    Execute ad-hoc Python code in a sandboxed environment with market data helpers.
+
+    Request body:
+        {
+          "code": "...",          // Python code to execute
+          "timeout_seconds": 30   // optional, default 30, max 60
+        }
+
+    Injected helpers available in the code:
+        historical_query(ticker, start, end, interval="1d") -> DataFrame
+        live_quote(ticker) -> dict
+        run_sql(query) -> DataFrame
+        register_df(name, df) -> None
+        save_output(data, label="result") -> None
+        save_chart(fig, label="chart") -> None
+
+    Returns:
+        {
+          "status": "success" | "error",
+          "outputs": {label: data},
+          "charts": {label: "<base64-png>"},
+          "prints": ["..."],
+          "error": str | null,
+          "traceback": str | null,
+          "execution_ms": int
+        }
+    """
+    if data_layer is None:
+        raise HTTPException(503, "Service not ready")
+
+    code = request.get("code", "").strip()
+    if not code:
+        raise HTTPException(400, "Field 'code' is required and cannot be empty")
+
+    timeout = min(int(request.get("timeout_seconds", 30)), 60)
+
+    executor = AdHocExecutor(
+        data_layer=data_layer,
+        redis_url=settings.redis_url,
+        redis_snapshot_url=settings.redis_snapshot_url or None,
+        timeout_seconds=timeout,
+    )
+
+    try:
+        result = executor.execute(code)
+    except Exception as exc:
+        logger.error("adhoc_execute_failed", error=str(exc))
+        return {
+            "status": "error",
+            "outputs": {},
+            "charts": {},
+            "prints": [],
+            "error": f"Internal error: {exc}",
+            "traceback": None,
+            "execution_ms": 0,
+        }
+
+    return result
 
 
 @app.post("/api/v1/backtest/natural")

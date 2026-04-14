@@ -79,14 +79,14 @@ class ScannerTicker(BaseModel):
     vol_15min: Optional[int] = Field(None, description="Volume traded in last 15 minutes")
     vol_30min: Optional[int] = Field(None, description="Volume traded in last 30 minutes")
     
-    # Volume window % metrics (vs avg_volume_10d, Trade Ideas style)
+    # Volume window % metrics (vs avg_volume_10d, Tradeul style)
     vol_1min_pct: Optional[float] = Field(None, description="Volume 1min as % of expected (100=normal)")
     vol_5min_pct: Optional[float] = Field(None, description="Volume 5min as % of expected (100=normal)")
     vol_10min_pct: Optional[float] = Field(None, description="Volume 10min as % of expected (100=normal)")
     vol_15min_pct: Optional[float] = Field(None, description="Volume 15min as % of expected (100=normal)")
     vol_30min_pct: Optional[float] = Field(None, description="Volume 30min as % of expected (100=normal)")
     
-    # Price range window metrics (Trade Ideas: Range2..Range120)
+    # Price range window metrics (Tradeul: Range2..Range120)
     range_2min: Optional[float] = Field(None, description="High-Low range ($) in last 2 minutes")
     range_5min: Optional[float] = Field(None, description="High-Low range ($) in last 5 minutes")
     range_15min: Optional[float] = Field(None, description="High-Low range ($) in last 15 minutes")
@@ -559,7 +559,7 @@ class FilterParameters(BaseModel):
     min_vol_30min: Optional[int] = Field(None, ge=0, description="Min volume in last 30 minutes")
     max_vol_30min: Optional[int] = Field(None, ge=0, description="Max volume in last 30 minutes")
     
-    # Volume window % filters (vs avg_volume_10d, Trade Ideas style)
+    # Volume window % filters (vs avg_volume_10d, Tradeul style)
     min_vol_1min_pct: Optional[float] = Field(None, ge=0, description="Min volume 1min %")
     max_vol_1min_pct: Optional[float] = Field(None, ge=0, description="Max volume 1min %")
     min_vol_5min_pct: Optional[float] = Field(None, ge=0, description="Min volume 5min %")
@@ -571,7 +571,7 @@ class FilterParameters(BaseModel):
     min_vol_30min_pct: Optional[float] = Field(None, ge=0, description="Min volume 30min %")
     max_vol_30min_pct: Optional[float] = Field(None, ge=0, description="Max volume 30min %")
     
-    # Price range window filters (Trade Ideas: Range2..Range120)
+    # Price range window filters (Tradeul: Range2..Range120)
     min_range_2min: Optional[float] = Field(None, description="Min 2min range ($)")
     max_range_2min: Optional[float] = Field(None, description="Max 2min range ($)")
     min_range_5min: Optional[float] = Field(None, description="Min 5min range ($)")

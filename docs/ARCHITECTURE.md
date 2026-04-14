@@ -395,7 +395,7 @@ Eventos del sistema: `DAY_CHANGED` (reset caches), `SESSION_CHANGED` (transicion
 
 | # | Mejora | Desc | Complejidad |
 |---|--------|------|-------------|
-| 1 | **User Event Rules** | CRUD de reglas de eventos custom (tipo Trade Ideas) | Alta |
+| 1 | **User Event Rules** | CRUD de reglas de eventos custom (tipo Tradeul) | Alta |
 | 2 | **Notificaciones Push/Sound** | Alertas por evento configurable | Media |
 | 3 | **Event Persistence** | Guardar en TimescaleDB (actualmente solo Redis ~8h) | Media |
 | 4 | **Nuevos Tipos de Evento** | gap_fill, support_break, resistance_break, 52w_high/low | Alta |
@@ -407,7 +407,7 @@ Eventos del sistema: `DAY_CHANGED` (reset caches), `SESSION_CHANGED` (transicion
 |---|--------|------|-------------|
 | 6 | **Health Check** en alert_engine | Puerto 8040 sin HTTP server | Baja |
 | 7 | **Limpiar Codigo Legacy** | Detectores no usados en alert_engine | Baja |
-| 8 | **Categorias Custom Scanner** | Combinaciones de condiciones como Trade Ideas | Alta |
+| 8 | **Categorias Custom Scanner** | Combinaciones de condiciones como Tradeul | Alta |
 | 9 | **Filtros Avanzados Scanner** | Sector, industry, EPS, earnings date, short interest | Media |
 | 10 | **Server-Side Filtering Completo** | Filtrar por precio, RVOL, change% en WS server | Media |
 | 11 | **Metricas/Monitoring** | Prometheus metrics (eventos/seg, latencia, etc.) | Media |
@@ -491,11 +491,11 @@ Caddy: `tradeul.com` -> localhost:3000 (frontend), `/api/` -> :8000, `/ws/` -> :
 
 ---
 
-## 12. Alert System (Trade Ideas-like)
+## 12. Alert System (Tradeul-like)
 
 ### 12.1 Arquitectura del Sistema de Alertas
 
-Inspirado en Trade Ideas. El sistema tiene:
+Inspirado en Tradeul. El sistema tiene:
 
 | Concepto | Descripcion | Ejemplo |
 |----------|-------------|---------|

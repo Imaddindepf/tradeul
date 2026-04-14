@@ -1,7 +1,7 @@
 """
-Opening Range Breakout (ORB) Detector — All 7 Trade Ideas timeframes.
+Opening Range Breakout (ORB) Detector — All 7 Tradeul timeframes.
 
-Trade Ideas codes: ORU1/ORD1, ORU2/ORD2, ORU5/ORD5, ORU10/ORD10,
+Tradeul codes: ORU1/ORD1, ORU2/ORD2, ORU5/ORD5, ORU10/ORD10,
                    ORU15/ORD15, ORU30/ORD30, ORU60/ORD60.
 
 The opening range is defined as [low, high] of the first N minutes
@@ -12,7 +12,7 @@ crosses above the range high (or below the range low) for the day.
 Quality = the % width of the opening range. Wider range = higher
 quality breakout because the stock had to overcome more resistance.
 
-Per Trade Ideas: "1 minute does not mean one minute after the bell.
+Per Tradeul: "1 minute does not mean one minute after the bell.
 Each stock has its own clock. We start the clock when a stock has
 its first print of the day."
 

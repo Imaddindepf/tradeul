@@ -174,7 +174,7 @@ Scanner → stream:scanner:filtered → ["AAPL", "TSLA", "NVDA", ...]
 
 ---
 
-## 📊 Publicación a Redis Streams
+##  Publicación a Redis Streams
 
 ### **Stream: realtime:trades**
 

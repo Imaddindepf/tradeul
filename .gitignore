@@ -114,3 +114,4 @@ trajectories.npy
 *.tsbuildinfo
 real_results_*.txt
 
+*.bak
