@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional, List
 
-from fastapi import FastAPI, Query as QueryParam, HTTPException, Request, Header
+from fastapi import FastAPI, Query as QueryParam, HTTPException, Request, Header, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import structlog
@@ -23,6 +23,7 @@ import redis.asyncio as aioredis
 
 from config import settings
 from stream_consumer import XFilteredStreamConsumer
+from trader_auth import verify_trader_key_ws, verify_trader_key_http, TraderSession
 
 logging.basicConfig(format="%(message)s", stream=sys.stdout, level=logging.INFO, force=True)
 
@@ -283,6 +284,95 @@ async def get_history(
     except Exception as e:
         logger.error("get_history_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Trader WebSocket Stream (autenticado) ───────────────────────────────────
+
+@app.websocket("/stream")
+async def trader_ws_stream(websocket: WebSocket):
+    """
+    WebSocket endpoint para traders programáticos.
+
+    Autenticación:
+      - Header:      Authorization: Bearer opn_xxx
+      - Query param: ?api_key=opn_xxx  (para clientes que no soportan headers WS)
+
+    Protocolo de mensajes (servidor → trader):
+      { "type": "connected",  "key_id": "...", "ts": "..." }
+      { "type": "news",       "id": "...", "text": "...", "tickers": [...], "created_at": "..." }
+      { "type": "ping",       "ts": 1234567890 }
+
+    Filtrado (trader → servidor, opcional):
+      { "action": "subscribe", "tickers": ["TSLA", "NVDA"] }
+      { "action": "subscribe", "tickers": [] }   ← recibe todo el feed
+    """
+    if not redis_client:
+        await websocket.close(code=1011, reason="Service not ready")
+        return
+
+    trader: TraderSession = await verify_trader_key_ws(websocket, redis_client.client)
+
+    await websocket.accept()
+    logger.info("trader_ws_connected", key_id=trader.key_id, name=trader.name)
+
+    subscribed_tickers: set = set()
+
+    await websocket.send_json({
+        "type": "connected",
+        "key_id": trader.key_id,
+        "rate_limit": trader.rate_limit,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
+    pubsub = redis_client.client.pubsub()
+    await pubsub.subscribe("openul:live")
+
+    ping_interval = 30
+    last_ping = time.time()
+
+    try:
+        while True:
+            try:
+                msg_text = await asyncio.wait_for(websocket.receive_text(), timeout=0.05)
+                try:
+                    msg = json.loads(msg_text)
+                    if msg.get("action") == "subscribe":
+                        tickers = msg.get("tickers", [])
+                        subscribed_tickers = {t.upper() for t in tickers if isinstance(t, str)}
+                        await websocket.send_json({
+                            "type": "subscribed",
+                            "tickers": list(subscribed_tickers) or ["*"],
+                        })
+                except (json.JSONDecodeError, Exception):
+                    pass
+            except asyncio.TimeoutError:
+                pass
+
+            redis_msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0.1)
+            if redis_msg and redis_msg["type"] == "message":
+                try:
+                    item = json.loads(redis_msg["data"])
+                    if subscribed_tickers:
+                        item_tickers = {t.upper() for t in item.get("tickers", [])}
+                        if not item_tickers.intersection(subscribed_tickers):
+                            continue
+                    item["type"] = "news"
+                    await websocket.send_json(item)
+                except Exception:
+                    pass
+
+            now = time.time()
+            if now - last_ping >= ping_interval:
+                await websocket.send_json({"type": "ping", "ts": int(now)})
+                last_ping = now
+
+    except WebSocketDisconnect:
+        logger.info("trader_ws_disconnected", key_id=trader.key_id)
+    except Exception as e:
+        logger.error("trader_ws_error", key_id=trader.key_id, error=str(e))
+    finally:
+        await pubsub.unsubscribe("openul:live")
+        await pubsub.close()
 
 
 # ── Main ────────────────────────────────────────────────────────────────

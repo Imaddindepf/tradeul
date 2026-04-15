@@ -256,6 +256,10 @@
     "opn": {
       "name": "Openul",
       "description": "Ultra-low-latency breaking news"
+    },
+    "api": {
+      "name": "Developer Access",
+      "description": "Manage API keys for the breaking news stream"
     }
   },
   "scanner": {
