@@ -17,17 +17,17 @@ async def main():
     url = "${ENDPOINT}"
 
     async with websockets.connect(url, extra_headers=headers) as ws:
-        # Optional: subscribe to specific tickers only
-        await ws.send(json.dumps({
-            "action": "subscribe",
-            "tickers": ["TSLA", "NVDA"]
-        }))
+        # Receive ALL news (default — no subscribe needed)
+        # To filter by tickers, send:
+        # await ws.send(json.dumps({"action":"subscribe","tickers":["TSLA","NVDA"]}))
 
         async for message in ws:
             item = json.loads(message)
             if item["type"] == "news":
                 print(f"[{item['created_at']}] {item['text']}")
                 print(f"  Tickers: {item.get('tickers', [])}")
+            elif item["type"] == "ping":
+                pass  # keepalive, no response needed
 
 asyncio.run(main())`,
 
@@ -38,11 +38,9 @@ const ws = new WebSocket('${ENDPOINT}', {
 });
 
 ws.on('open', () => {
-  // Optional: subscribe to specific tickers only
-  ws.send(JSON.stringify({
-    action: 'subscribe',
-    tickers: ['TSLA', 'NVDA']
-  }));
+  // Receive ALL news — no subscribe message needed.
+  // To filter by specific tickers:
+  // ws.send(JSON.stringify({ action: 'subscribe', tickers: ['TSLA', 'NVDA'] }));
 });
 
 ws.on('message', (data) => {
@@ -60,10 +58,13 @@ wscat \\
   --connect "${ENDPOINT}" \\
   --header "Authorization: Bearer <your-api-key>"
 
-# Once connected, send a subscription filter:
+# Default: receives ALL news — no message needed.
+
+# To filter by specific tickers only, send after connecting:
 # {"action":"subscribe","tickers":["TSLA","NVDA"]}
 
-# To receive all news (no filter), skip the subscribe message.`,
+# To reset and receive everything again:
+# {"action":"subscribe","tickers":[]}`,
 };
 
 export function StreamSection() {
