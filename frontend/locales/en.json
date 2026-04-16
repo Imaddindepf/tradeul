@@ -682,6 +682,9 @@
       },
       "OPN": {
         "description": "Ultra-low-latency breaking news"
+      },
+      "API": {
+        "description": "Manage API keys for the breaking news stream"
       }
     }
   },

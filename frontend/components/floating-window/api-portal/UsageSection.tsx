@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
 
 interface KeyInfo {
   key_id: string;
@@ -23,6 +24,7 @@ function formatRelative(iso: string | null): string {
 }
 
 export function UsageSection() {
+  const { authFetch } = useAuthFetch();
   const [keys, setKeys] = useState<KeyInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,7 +33,7 @@ export function UsageSection() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/v1/developer/keys');
+      const res = await authFetch('/api/v1/developer/keys');
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setKeys(data.keys);
@@ -40,7 +42,7 @@ export function UsageSection() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [authFetch]);
 
   useEffect(() => { fetchKeys(); }, [fetchKeys]);
 

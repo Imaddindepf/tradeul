@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
 
 interface KeyInfo {
   key_id: string;
@@ -35,6 +36,7 @@ function formatRelative(iso: string | null): string {
 }
 
 export function KeysSection() {
+  const { authFetch } = useAuthFetch();
   const [keys, setKeys] = useState<KeyInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -48,7 +50,7 @@ export function KeysSection() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/v1/developer/keys');
+      const res = await authFetch('/api/v1/developer/keys');
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setKeys(data.keys);
@@ -57,7 +59,7 @@ export function KeysSection() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [authFetch]);
 
   useEffect(() => { fetchKeys(); }, [fetchKeys]);
 
@@ -66,9 +68,8 @@ export function KeysSection() {
     setCreating(true);
     setError('');
     try {
-      const res = await fetch('/api/v1/developer/keys', {
+      const res = await authFetch('/api/v1/developer/keys', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName.trim() }),
       });
       if (!res.ok) {
@@ -89,7 +90,7 @@ export function KeysSection() {
   const handleRevoke = async (key_id: string) => {
     setRevoking(key_id);
     try {
-      const res = await fetch(`/api/v1/developer/keys/${key_id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/v1/developer/keys/${key_id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to revoke key');
       await fetchKeys();
     } catch (e: any) {

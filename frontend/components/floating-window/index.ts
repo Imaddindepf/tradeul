@@ -4,3 +4,4 @@ export { DilutionTrackerContent } from './DilutionTrackerContent';
 export { UserProfileContent, USER_PROFILE_WINDOW_CONFIG } from './UserProfileContent';
 export { EarningsCalendarContent } from './EarningsCalendarContent';
 export { PredictionMarketsContent } from './PredictionMarketsContent';
+export { APIContent } from './APIContent';
