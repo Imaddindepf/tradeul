@@ -341,7 +341,7 @@ async def trader_ws_stream(websocket: WebSocket):
         await websocket.close(code=1011, reason="Service not ready")
         return
 
-    trader: TraderSession = await verify_trader_key_ws(websocket, redis_client.client)
+    trader: TraderSession = await verify_trader_key_ws(websocket, redis_client)
 
     await websocket.accept()
     logger.info("trader_ws_connected", key_id=trader.key_id, name=trader.name)
