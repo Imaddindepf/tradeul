@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDownRight, ArrowUpRight, BarChart3, Minus } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { CodeBlock } from './CodeBlock';
+import { StructuredResponseRenderer, type StructuredResponse } from './StructuredResponseRenderer';
 import type { ResultBlockData, OutputItem } from './types';
 
 const LazyAutoChart = dynamic(() => import('./AutoChart').then(m => m.AutoBarChart), {
@@ -307,6 +308,10 @@ function renderOutput(output: OutputItem, idx: number) {
   const type = output.type || 'text';
 
   if (type === 'research' || type === 'text' || type === 'markdown') {
+    const sr = output.structured_response;
+    if (sr && typeof sr === 'object' && 'sections' in sr) {
+      return <StructuredResponseRenderer key={idx} data={sr as unknown as StructuredResponse} />;
+    }
     const content = (output.content as string) || '';
     return <V4ResponseRenderer key={idx} content={content} />;
   }
