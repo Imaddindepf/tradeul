@@ -20,6 +20,7 @@ interface ResultBlockProps {
 // ── Inline markdown formatter ────────────────────────────────────
 function fmtInline(text: string): string {
   return text
+    .replace(/\s*\\\\\s*$/, '')                                                   // strip trailing \\ line breaks
     .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
     .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em class="text-foreground">$1</em>')
     .replace(/`([^`]+)`/g, '<code class="px-0.5 py-px rounded bg-surface-inset text-primary text-[10px] font-mono">$1</code>')
