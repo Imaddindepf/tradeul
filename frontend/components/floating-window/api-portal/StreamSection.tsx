@@ -149,8 +149,9 @@ export function StreamSection() {
         </div>
         <div className="space-y-1">
           {[
-            { type: 'connected', desc: 'Sent once on connect. Contains key_id and rate_limit.' },
-            { type: 'news',      desc: 'Breaking news item. Fields: id, text, tickers[], created_at.' },
+            { type: 'connected', desc: 'Sent once on connect. Contains key_id and timestamp.' },
+            { type: 'news',      desc: 'Breaking news. Fields: id, text, tickers[], created_at, media? (image url), urls? (links).' },
+            { type: 'reaction',  desc: 'Price reaction after a headline. Adds: direction, change_pct, price, ref_price, delay_seconds.' },
             { type: 'subscribed',desc: 'Confirms your ticker filter. Send { action: subscribe, tickers: [] } for all.' },
             { type: 'ping',      desc: 'Keepalive every 30s. No response needed.' },
           ].map(row => (

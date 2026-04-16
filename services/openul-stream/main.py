@@ -288,6 +288,37 @@ async def get_history(
 
 # ── Trader WebSocket Stream (autenticado) ───────────────────────────────────
 
+def _sanitize_for_trader(item: dict) -> dict:
+    """
+    Filtra los campos internos antes de enviar al trader externo.
+    Solo expone campos públicos — sin fuentes, metadatos internos ni IDs de infraestructura.
+    """
+    # Campos base siempre presentes
+    out: dict = {
+        "type": "news",
+        "id":         item.get("id", ""),
+        "text":       item.get("text", ""),
+        "tickers":    item.get("tickers", []),
+        "created_at": item.get("created_at", ""),
+    }
+
+    # Campos opcionales de noticias
+    if item.get("media"):
+        out["media"] = item["media"]
+    if item.get("urls"):
+        out["urls"] = item["urls"]
+
+    # Campos extra de reacciones de precio
+    item_type = item.get("type", "")
+    if item_type == "reaction":
+        out["type"] = "reaction"
+        for field in ("direction", "change_pct", "price", "ref_price", "delay_seconds"):
+            if field in item:
+                out[field] = item[field]
+
+    return out
+
+
 @app.websocket("/stream")
 async def trader_ws_stream(websocket: WebSocket):
     """
@@ -356,8 +387,7 @@ async def trader_ws_stream(websocket: WebSocket):
                         item_tickers = {t.upper() for t in item.get("tickers", [])}
                         if not item_tickers.intersection(subscribed_tickers):
                             continue
-                    item["type"] = "news"
-                    await websocket.send_json(item)
+                    await websocket.send_json(_sanitize_for_trader(item))
                 except Exception:
                     pass
 
