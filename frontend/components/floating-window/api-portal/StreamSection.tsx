@@ -1,7 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import python from 'react-syntax-highlighter/dist/esm/languages/hljs/python';
+import javascript from 'react-syntax-highlighter/dist/esm/languages/hljs/javascript';
+import bash from 'react-syntax-highlighter/dist/esm/languages/hljs/bash';
+
+SyntaxHighlighter.registerLanguage('python', python);
+SyntaxHighlighter.registerLanguage('javascript', javascript);
+SyntaxHighlighter.registerLanguage('bash', bash);
+
+const HIGHLIGHT_LANG: Record<string, string> = {
+  python: 'python',
+  javascript: 'javascript',
+  curl: 'bash',
+};
 
 type Lang = 'python' | 'javascript' | 'curl';
 
@@ -65,6 +79,28 @@ wscat \\
 
 # To reset and receive everything again:
 # {"action":"subscribe","tickers":[]}`,
+};
+
+// Tema minimalista que encaja con el diseño dark de la app
+const tradeulTheme: Record<string, React.CSSProperties> = {
+  'hljs':                    { color: 'hsl(var(--foreground) / 0.75)', background: 'transparent' },
+  'hljs-comment':            { color: 'hsl(var(--muted-foreground) / 0.4)', fontStyle: 'italic' },
+  'hljs-keyword':            { color: '#7aa2f7' },
+  'hljs-built_in':           { color: '#7dcfff' },
+  'hljs-type':               { color: '#7dcfff' },
+  'hljs-string':             { color: '#9ece6a' },
+  'hljs-number':             { color: '#ff9e64' },
+  'hljs-literal':            { color: '#ff9e64' },
+  'hljs-title':              { color: '#e0af68' },
+  'hljs-title.function_':    { color: '#e0af68' },
+  'hljs-params':             { color: 'hsl(var(--foreground) / 0.75)' },
+  'hljs-attr':               { color: '#73daca' },
+  'hljs-variable':           { color: 'hsl(var(--foreground) / 0.75)' },
+  'hljs-variable.language_': { color: '#7aa2f7' },
+  'hljs-subst':              { color: 'hsl(var(--foreground) / 0.75)' },
+  'hljs-punctuation':        { color: 'hsl(var(--muted-foreground) / 0.6)' },
+  'hljs-operator':           { color: '#89ddff' },
+  'hljs-meta':               { color: 'hsl(var(--muted-foreground) / 0.4)' },
 };
 
 export function StreamSection() {
@@ -154,9 +190,25 @@ export function StreamSection() {
           </button>
         </div>
 
-        <pre className="flex-1 overflow-y-auto bg-muted/20 rounded border border-border px-3 py-2 text-[10px] font-mono text-foreground/80 whitespace-pre leading-relaxed min-h-0">
-          {SNIPPETS[lang]}
-        </pre>
+        <div className="flex-1 overflow-y-auto rounded border border-border min-h-0 text-[10px] leading-relaxed [&>pre]:!m-0 [&>pre]:!rounded [&>pre]:!text-[10px] [&>pre]:!leading-relaxed [&>pre]:!h-full [&>pre]:!bg-transparent">
+          <SyntaxHighlighter
+            language={HIGHLIGHT_LANG[lang]}
+            useInlineStyles={true}
+            style={tradeulTheme}
+            customStyle={{
+              background: 'transparent',
+              padding: '10px 12px',
+              margin: 0,
+              fontSize: '10px',
+              lineHeight: '1.6',
+              height: '100%',
+              overflow: 'auto',
+            }}
+            codeTagProps={{ style: { fontFamily: 'var(--font-mono, ui-monospace, monospace)' } }}
+          >
+            {SNIPPETS[lang]}
+          </SyntaxHighlighter>
+        </div>
       </div>
     </div>
   );
