@@ -42,8 +42,8 @@ router = APIRouter(prefix="/api/v1/developer", tags=["developer"])
 # Redis client inyectado desde main.py al arrancar
 _redis: Optional[RedisClient] = None
 
-MAX_KEYS_PER_TRADER = 10
-DEFAULT_RATE_LIMIT = 120  # req/min
+MAX_KEYS_PER_TRADER = 100   # sin límite práctico
+DEFAULT_RATE_LIMIT = 0      # sin rate limiting en WS stream
 
 
 def set_redis_client(client: RedisClient) -> None:
@@ -138,14 +138,8 @@ async def create_key(
     """
     redis = _get_redis()
 
-    # Límite de keys por trader
     index_key = _trader_index_key(user.id)
     existing = await redis.client.smembers(index_key)
-    if len(existing) >= MAX_KEYS_PER_TRADER:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Maximum of {MAX_KEYS_PER_TRADER} keys per trader reached. Revoke unused keys first.",
-        )
 
     raw_key = _generate_key()
     sha = _sha256(raw_key)

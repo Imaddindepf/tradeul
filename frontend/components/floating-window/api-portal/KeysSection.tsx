@@ -220,7 +220,7 @@ export function KeysSection() {
       {/* Footer note */}
       <div className="px-2 py-1.5 border-t border-border flex-shrink-0">
         <span className="text-[9px] text-muted-foreground/30">
-          Keys are stored as SHA-256 hash · {keys.filter(k => k.active).length} active · rate limit {keys[0]?.rate_limit ?? 120} req/min
+          {keys.filter(k => k.active).length} active {keys.filter(k => k.active).length === 1 ? 'key' : 'keys'} · keys are stored as SHA-256 hash
         </span>
       </div>
     </div>

@@ -93,27 +93,6 @@ export function UsageSection() {
         ))}
       </div>
 
-      {/* Service limits */}
-      <div className="border-b border-border flex-shrink-0">
-        <div className="px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/50 border-b border-border">
-          Service Limits
-        </div>
-        {[
-          { label: 'Rate limit',      value: `${keys[0]?.rate_limit ?? 120} req / min per key` },
-          { label: 'Max keys',        value: '10 keys per account' },
-          { label: 'News retention',  value: '500 items in cache' },
-          { label: 'WS connections',  value: 'Up to 5 simultaneous per key' },
-        ].map(row => (
-          <div
-            key={row.label}
-            className="flex justify-between items-center px-2 py-[5px] border-b border-border hover:bg-muted/5 transition-colors"
-          >
-            <span className="text-[10px] text-muted-foreground/60">{row.label}</span>
-            <span className="text-[10px] font-medium tabular-nums">{row.value}</span>
-          </div>
-        ))}
-      </div>
-
       {/* Stream info */}
       <div className="flex-shrink-0">
         <div className="px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground/50 border-b border-border">
