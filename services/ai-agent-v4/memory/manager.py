@@ -54,6 +54,7 @@ class MemoryManager:
         query: str,
         response: str,
         agent_results_summary: Optional[dict[str, Any]] = None,
+        structured_response: Optional[dict[str, Any]] = None,
     ) -> None:
         """Append a query/response pair to a conversation thread.
 
@@ -66,16 +67,21 @@ class MemoryManager:
             query:                 The user's query text.
             response:              The agent's response text.
             agent_results_summary: Optional summary of agent results.
+            structured_response:   Optional structured response data for rich rendering.
         """
         r = await self._get_redis()
         now = time.time()
 
-        entry = orjson.dumps({
+        entry_data: dict[str, Any] = {
             "query": query,
             "response": response,
             "agent_results_summary": agent_results_summary or {},
             "timestamp": now,
-        })
+        }
+        if structured_response:
+            entry_data["structured_response"] = structured_response
+
+        entry = orjson.dumps(entry_data)
 
         conv_key = f"memory:conversations:{user_id}:{thread_id}"
         await r.rpush(conv_key, entry)
