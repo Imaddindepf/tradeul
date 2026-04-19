@@ -53,6 +53,7 @@ from routes.rrg import router as rrg_router, set_redis_client as set_rrg_redis, 
 from routes.analyst_ratings import router as analyst_ratings_router
 from routes.perplexity_financials import router as perplexity_financials_router
 from routes.developer import router as developer_router, set_redis_client as set_developer_redis
+from routes.public import router as public_router, set_redis_client as set_public_redis
 from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
@@ -135,6 +136,10 @@ async def lifespan(app: FastAPI):
     # Configurar router de developer API (trader keys)
     set_developer_redis(redis_client)
     logger.info("developer_router_configured")
+
+    # Configurar router público (landing page, sin auth)
+    set_public_redis(redis_client)
+    logger.info("public_router_configured")
     
     # Configurar router de institutional con SEC API client
     # Nota: se configura después de http_clients.initialize()
@@ -258,6 +263,7 @@ app.include_router(rrg_router)  # RRG (Relative Rotation Graph) with historical 
 app.include_router(analyst_ratings_router)  # Analyst ratings & price targets (Perplexity proxy)
 app.include_router(perplexity_financials_router)  # Balance Sheet + Cash Flow (Perplexity proxy)
 app.include_router(developer_router)               # Trader API key management (Openul stream)
+app.include_router(public_router)                  # Public endpoints (landing page, top movers, sin auth)
 
 
 # ============================================================================
