@@ -323,7 +323,7 @@ function VisualGridView({
   );
 
   return (
-    <div ref={gridRef} className="h-full flex flex-col bg-background" style={{ position: 'relative' }}>
+    <div ref={gridRef} className="h-full flex flex-col bg-surface" style={{ position: 'relative' }}>
       {/* Date header */}
       <div className="px-2 py-1 border-b border-black/15 dark:border-white/12 text-center">
         <span className="text-[11px] font-semibold">{fmt.fullDate(date)}</span>
@@ -558,8 +558,8 @@ export function EarningsCalendarContent() {
       <React.Fragment key={`${r.symbol}-${r.report_date}`}>
         <tr
           className={cn(
-            'border-b border-black/8 dark:border-white/8 transition-colors',
-            idx % 2 === 1 ? 'bg-black/3 dark:bg-white/4' : '',
+            'border-b border-black/8 dark:border-white/6 transition-colors',
+            idx % 2 === 1 ? 'bg-black/3 dark:bg-white/4' : 'bg-surface',
             'hover:bg-black/5 dark:hover:bg-white/8 cursor-pointer'
           )}
           onClick={() => setExpandedRow(isExpanded ? null : `${r.symbol}-${r.report_date}`)}
@@ -668,7 +668,7 @@ export function EarningsCalendarContent() {
 
         {/* Expanded details */}
         {isExpanded && (
-          <tr className="bg-black/4 dark:bg-white/5">
+          <tr className="bg-surface-hover dark:bg-white/5">
             <td colSpan={showDateCol ? 15 : 14} className="px-2 py-2 text-[11px]">
               <div className="grid grid-cols-3 gap-x-4 gap-y-1">
                 <div className="text-muted-foreground">
@@ -754,7 +754,7 @@ export function EarningsCalendarContent() {
   // Show visual view
   if (view === 'visual') {
     return (
-      <div className={cn('h-full flex flex-col bg-background text-foreground overflow-hidden', fontClass)}>
+      <div className={cn('h-full flex flex-col bg-surface text-foreground overflow-hidden', fontClass)}>
         {/* Header */}
         <div className="flex items-center justify-between px-2 py-1 border-b border-black/15 dark:border-white/12 gap-2">
           {/* View tabs */}
@@ -818,7 +818,7 @@ export function EarningsCalendarContent() {
   }
 
   return (
-    <div className={cn('h-full flex flex-col bg-background text-foreground overflow-hidden', fontClass)}>
+    <div className={cn('h-full flex flex-col bg-surface text-foreground overflow-hidden', fontClass)}>
       {/* Header */}
         <div className="flex items-center justify-between px-2 py-1 border-b border-black/15 dark:border-white/12 gap-2">
           {/* View tabs */}
@@ -921,8 +921,8 @@ export function EarningsCalendarContent() {
             {view === 'search' && !searchTicker ? 'Enter ticker to search' : 'No earnings found'}
           </div>
         ) : (
-          <table className="w-full">
-            <thead className="sticky top-0 bg-background backdrop-blur-sm z-10">
+          <table className="w-full border-collapse bg-surface">
+            <thead className="sticky top-0 bg-surface backdrop-blur-sm z-10">
               <tr className="border-b border-black/15 dark:border-white/12">
                 <th className="px-1 py-1 w-7"></th>
                 <ColHeader field="symbol" label="TICKER" align="left" />

@@ -48,7 +48,7 @@ class PatternIndexer:
         index_dir: str = None,
         use_gpu: bool = None
     ):
-        self.dimension = dimension or settings.window_size
+        self.dimension = dimension or settings.vector_dim
         self.index_type = index_type or settings.index_type
         self.index_dir = index_dir or settings.index_dir
         self.use_gpu = use_gpu if use_gpu is not None else settings.use_gpu

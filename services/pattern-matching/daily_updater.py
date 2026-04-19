@@ -85,18 +85,33 @@ class DailyUpdater:
     
     @staticmethod
     def normalize_pattern(prices: np.ndarray) -> np.ndarray:
-        """Normalize prices to z-scored cumulative returns"""
+        """Normalize prices to z-scored cumulative returns."""
         if len(prices) < 2:
             return np.zeros(len(prices), dtype=np.float32)
-        
+
         returns = (prices / prices[0] - 1) * 100
         mean = returns.mean()
         std = returns.std()
-        
+
         if std < 1e-8:
             return np.zeros(len(returns), dtype=np.float32)
-        
+
         return ((returns - mean) / std).astype(np.float32)
+
+    @staticmethod
+    def normalize_volume(volumes: np.ndarray) -> np.ndarray:
+        """Normalize volume to z-scored log-volume (mirrors DataProcessor)."""
+        if len(volumes) == 0:
+            return np.zeros(len(volumes), dtype=np.float32)
+
+        log_vols = np.log1p(np.maximum(volumes, 0).astype(np.float64))
+        mean = log_vols.mean()
+        std = log_vols.std()
+
+        if std < 1e-8:
+            return np.zeros(len(log_vols), dtype=np.float32)
+
+        return ((log_vols - mean) / std).astype(np.float32)
     
     def extract_patterns_from_flat(
         self, 
@@ -124,10 +139,11 @@ class DailyUpdater:
                 ticker = row['ticker']
                 if ticker not in ticker_data:
                     ticker_data[ticker] = []
-                
+
                 ticker_data[ticker].append({
                     'timestamp': int(row['window_start']),
                     'close': float(row['close']),
+                    'volume': float(row['volume']),
                 })
         
         # Extract patterns for each ticker
@@ -142,14 +158,18 @@ class DailyUpdater:
                 continue
             
             prices = np.array([b['close'] for b in bars])
-            
+            volumes = np.array([b['volume'] for b in bars])
+
             # Slide window
             for i in range(len(bars) - self.window_size - 15 + 1):
                 window_prices = prices[i:i + self.window_size]
+                window_volumes = volumes[i:i + self.window_size]
                 future_prices = prices[i + self.window_size:i + self.window_size + 15]
-                
-                # Normalize pattern
-                pattern = self.normalize_pattern(window_prices)
+
+                # Build 90-dim vector: price (z-scored returns) + volume (z-scored log)
+                price_vec = self.normalize_pattern(window_prices)
+                vol_vec = self.normalize_volume(window_volumes)
+                pattern = np.concatenate([price_vec, vol_vec])
                 
                 if np.any(np.isnan(pattern)) or np.all(pattern == 0):
                     continue

@@ -151,65 +151,67 @@ class PatternMatcher:
         if self.http_client:
             await self.http_client.aclose()
     
-    async def get_realtime_prices(
+    async def get_realtime_bars(
         self,
         symbol: str,
-        minutes: int = None
-    ) -> List[float]:
+        minutes: int = None,
+    ) -> Dict:
         """
-        Fetch real-time minute bars from Polygon
-        
-        Args:
-            symbol: Ticker symbol
-            minutes: Number of minutes to fetch
-            
-        Returns:
-            List of close prices
+        Fetch real-time minute bars from Polygon (OHLCV).
+
+        Returns a dict with 'prices' (close) and 'volumes' lists,
+        both truncated to the last `minutes` bars.
         """
         minutes = minutes or settings.window_size
-        
-        # Calculate time range
+
         end = datetime.now()
-        # Add buffer for market hours
         from_ts = int((end.timestamp() - (minutes + 30) * 60) * 1000)
         to_ts = int(end.timestamp() * 1000)
-        
+
         url = (
             f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/1/minute"
             f"/{from_ts}/{to_ts}"
             f"?adjusted=true&sort=asc&limit={minutes + 60}"
             f"&apiKey={settings.polygon_api_key}"
         )
-        
+
         try:
-            # Ensure client is available (recreate if closed)
             if not self.http_client or self.http_client.is_closed:
                 self.http_client = httpx.AsyncClient(timeout=10.0)
             response = await self.http_client.get(url)
             response.raise_for_status()
             data = response.json()
-            
+
             results = data.get('results', [])
             if not results:
                 raise ValueError(f"No price data for {symbol}")
-            
-            # Extract close prices
-            prices = [bar['c'] for bar in results]
-            
-            # Return last N minutes
-            return prices[-minutes:]
-            
+
+            prices = [bar['c'] for bar in results][-minutes:]
+            volumes = [bar.get('v', 0.0) for bar in results][-minutes:]
+
+            return {"prices": prices, "volumes": volumes}
+
         except Exception as e:
-            logger.error("Failed to fetch prices", symbol=symbol, error=str(e))
+            logger.error("Failed to fetch bars", symbol=symbol, error=str(e))
             raise
+
+    async def get_realtime_prices(
+        self,
+        symbol: str,
+        minutes: int = None,
+    ) -> List[float]:
+        """Backward-compatible wrapper — returns close prices only."""
+        bars = await self.get_realtime_bars(symbol, minutes)
+        return bars["prices"]
     
     async def search(
         self,
         symbol: str,
         prices: Optional[List[float]] = None,
+        volumes: Optional[List[float]] = None,
         k: int = None,
         cross_asset: bool = True,
-        nprobe: int = None
+        nprobe: int = None,
     ) -> Dict:
         """
         Search for similar patterns
@@ -231,18 +233,22 @@ class PatternMatcher:
         start_time = datetime.now()
         
         try:
-            # Get prices if not provided
+            # Get bars (prices + volumes) if not provided
             if prices is None:
-                prices = await self.get_realtime_prices(symbol)
-            
+                bars = await self.get_realtime_bars(symbol)
+                prices = bars["prices"]
+                volumes = bars["volumes"]
+            else:
+                volumes = None  # Caller provided prices only — volume component zeroed
+
             if len(prices) < settings.window_size:
                 return {
                     "error": f"Need at least {settings.window_size} prices, got {len(prices)}",
                     "status": "insufficient_data"
                 }
-            
-            # Normalize query pattern
-            query_vector = self.processor.get_realtime_pattern(prices)
+
+            # Build 90-dim query vector (45 price + 45 volume)
+            query_vector = self.processor.get_realtime_pattern(prices, volumes)
             
             # Search FAISS
             distances, indices, neighbors = self.indexer.search(
@@ -411,7 +417,7 @@ class PatternMatcher:
                             'high': float(row['high']),
                             'low': float(row['low']),
                             'close': float(row['close']),
-                            'volume': int(row['volume']),
+                            'volume': int(float(row['volume'])),
                         })
             
             if not bars:

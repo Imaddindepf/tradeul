@@ -51,7 +51,9 @@ class Settings(BaseSettings):
     max_k: int = 200               # Maximum neighbors to return
     
     # FAISS Index Config
-    index_type: str = "IVF4096,PQ32"  # IVF clusters + Product Quantization
+    # Vector = 45 price dims (z-scored returns) + 45 volume dims (z-scored log-volume)
+    vector_dim: int = 90              # Total vector dimension (window_size * 2)
+    index_type: str = "IVF4096,PQ30" # PQ30: 90/30=3 dims per subquantizer
     index_nprobe: int = 64            # Number of clusters to search
     use_gpu: bool = False             # Use GPU acceleration
     
