@@ -106,6 +106,7 @@ class ReteManager:
             for row in rows:
                 filter_data = dict(row)
                 user_id = filter_data.get('user_id', 'unknown')
+                scan_id = filter_data.get('id')
                 
                 # Parsear parameters si es string (asyncpg puede devolver JSONB como string)
                 params = filter_data.get('parameters')
@@ -116,11 +117,21 @@ class ReteManager:
                 user_rules = convert_user_filters([filter_data], user_id)
                 if user_rules:
                     logger.info("converted_user_filter",
-                        filter_id=filter_data.get('id'),
+                        filter_id=scan_id,
                         name=filter_data.get('name'),
                         conditions=len(user_rules[0].conditions) if user_rules else 0
                     )
                 rules.extend(user_rules)
+
+                # Renovar la clave de ownership en Redis para que el WebSocket
+                # pueda validar el acceso aunque el filtro tenga más de 7 días.
+                if self.redis and scan_id and user_id and user_id != 'unknown':
+                    try:
+                        owner_key = f"user_scan:owner:{scan_id}"
+                        await self.redis.set(owner_key, user_id, ttl=604800, serialize=False)  # 7 días
+                    except Exception as redis_err:
+                        logger.warning("owner_key_renewal_failed",
+                            scan_id=scan_id, error=str(redis_err))
             
             logger.info("loaded_user_rules", count=len(rules))
             
