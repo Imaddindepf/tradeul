@@ -39,15 +39,57 @@ function TradeulWordmark({
 }
 
 // ─── Live scanner terminal para el hero ─────────────────────────────────────
-const HERO_ROWS = [
-  { rank: 1, sym: 'CLOV', price: 2.87,  chg: '+31.05%', rvol: '18.4x', vol5pct: '5640%', pos: '97%', float: '23M' },
-  { rank: 2, sym: 'WOLF', price: 4.23,  chg: '+22.15%', rvol: '12.3x', vol5pct: '3821%', pos: '89%', float: '88M' },
-  { rank: 3, sym: 'IONQ', price: 12.84, chg: '+18.92%', rvol: '8.7x',  vol5pct: '2104%', pos: '96%', float: '34M' },
-  { rank: 4, sym: 'SMCI', price: 38.74, chg: '+15.23%', rvol: '6.8x',  vol5pct: '1842%', pos: '92%', float: '52M' },
-  { rank: 5, sym: 'MSTR', price: 42.30, chg: '+8.67%',  rvol: '5.3x',  vol5pct: '1234%', pos: '91%', float: '45M' },
-  { rank: 6, sym: 'PLTR', price: 32.15, chg: '+9.45%',  rvol: '2.9x',  vol5pct:  '621%', pos: '87%', float: '78M' },
-  { rank: 7, sym: 'CAVA', price: 28.45, chg: '+5.44%',  rvol: '2.1x',  vol5pct:  '512%', pos: '85%', float: '67M' },
+// Calco fiel de CategoryTableV2 con columnas reales (incl. D.Risk — dilution_overall_risk).
+// Datos muestreados del snapshot enriquecido (snapshot:enriched:last_close) para
+// small/mid caps con perfil real de breakout y riesgo de dilución.
+type HeroDRisk = 'Low' | 'Medium' | 'High';
+const HERO_ROWS: Array<{
+  rank: number;
+  sym: string;
+  price: number;
+  chg: string;
+  rvol: string;
+  vol5pct: string;
+  pos: string;
+  float: string;
+  dRisk: HeroDRisk;
+}> = [
+  { rank: 1, sym: 'MSTR', price: 166.25, chg: '+11.62%', rvol: '8.4x', vol5pct: '2890%', pos: '92%', float: '267M', dRisk: 'Medium' },
+  { rank: 2, sym: 'SOUN', price: 8.09,   chg: '+9.04%',  rvol: '6.1x', vol5pct: '2140%', pos: '88%', float: '378M', dRisk: 'High'   },
+  { rank: 3, sym: 'CAVA', price: 94.78,  chg: '+7.38%',  rvol: '4.8x', vol5pct: '1560%', pos: '91%', float: '100M', dRisk: 'Low'    },
+  { rank: 4, sym: 'GRRR', price: 12.98,  chg: '+6.92%',  rvol: '7.2x', vol5pct: '1820%', pos: '87%', float: '20M',  dRisk: 'Medium' },
+  { rank: 5, sym: 'BBAI', price: 3.91,   chg: '+5.44%',  rvol: '5.6x', vol5pct: '1305%', pos: '86%', float: '431M', dRisk: 'High'   },
+  { rank: 6, sym: 'CLOV', price: 2.23,   chg: '+4.86%',  rvol: '3.9x', vol5pct:  '904%', pos: '89%', float: '389M', dRisk: 'Medium' },
+  { rank: 7, sym: 'IONQ', price: 45.62,  chg: '+3.67%',  rvol: '3.2x', vol5pct:  '712%', pos: '85%', float: '290M', dRisk: 'Medium' },
+  { rank: 8, sym: 'RILY', price: 7.85,   chg: '+2.95%',  rvol: '4.1x', vol5pct:  '612%', pos: '85%', float: '21M',  dRisk: 'High'   },
 ];
+
+// Column layout — anchos en fr + fijos (calco CategoryTableV2).
+// Se usa en header y rows para alinear pixel-perfect.
+type HeroCol = {
+  key: string;
+  label: string;
+  w: string;
+  align: 'center' | 'left' | 'right';
+  sorted?: boolean;
+};
+const HERO_COLS: HeroCol[] = [
+  { key: 'rank',   label: '#',      w: '26px', align: 'center' },
+  { key: 'sym',    label: 'Sym',    w: '52px', align: 'left'   },
+  { key: 'price',  label: 'Price',  w: '62px', align: 'right'  },
+  { key: 'chg',    label: 'Chg%',   w: '64px', align: 'right', sorted: true },
+  { key: 'rvol',   label: 'RVOL',   w: '50px', align: 'right'  },
+  { key: 'vol5',   label: '5m V%',  w: '62px', align: 'right'  },
+  { key: 'pos',    label: 'Pos%',   w: '48px', align: 'right'  },
+  { key: 'float',  label: 'Float',  w: '50px', align: 'right'  },
+  { key: 'drisk',  label: 'D.Risk', w: '60px', align: 'right'  },
+];
+
+function dRiskClass(v: HeroDRisk): string {
+  if (v === 'High')   return 'text-rose-500 font-bold';
+  if (v === 'Medium') return 'text-amber-400 font-semibold';
+  return 'text-emerald-500 font-semibold';
+}
 
 function HeroScannerTerminal() {
   const [flashSym, setFlashSym] = useState<string | null>(null);
@@ -55,10 +97,11 @@ function HeroScannerTerminal() {
   const [livePrices, setLivePrices] = useState<Record<string, number>>(
     Object.fromEntries(HERO_ROWS.map(r => [r.sym, r.price]))
   );
+  const [clock, setClock] = useState('09:32:41');
 
   useEffect(() => {
-    const badgeTimer = setTimeout(() => setNewBadge(false), 2400);
-    const interval = setInterval(() => {
+    const badgeTimer = setTimeout(() => setNewBadge(false), 2800);
+    const priceTimer = setInterval(() => {
       const row = HERO_ROWS[Math.floor(Math.random() * HERO_ROWS.length)];
       setFlashSym(row.sym);
       setLivePrices(prev => ({
@@ -67,7 +110,15 @@ function HeroScannerTerminal() {
       }));
       setTimeout(() => setFlashSym(null), 420);
     }, 1100);
-    return () => { clearInterval(interval); clearTimeout(badgeTimer); };
+    // Reloj ficticio de sesión (09:32 + segundos reales para autenticidad)
+    const clockTimer = setInterval(() => {
+      const d = new Date();
+      const hh = '09';
+      const mm = String(32 + (d.getMinutes() % 3)).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      setClock(`${hh}:${mm}:${ss}`);
+    }, 1000);
+    return () => { clearInterval(priceTimer); clearInterval(clockTimer); clearTimeout(badgeTimer); };
   }, []);
 
   return (
@@ -78,41 +129,55 @@ function HeroScannerTerminal() {
         filter: 'blur(8px)',
       }} />
 
-      {/* Terminal window */}
-      <div className="relative bg-[#080809] rounded-2xl border border-white/[0.07] shadow-[0_32px_80px_rgba(0,0,0,0.5)] overflow-hidden">
+      {/* Floating window — calco de FloatingWindow.tsx + MarketTableLayout.tsx */}
+      <div className="relative bg-[#0a0a0a] rounded-xl border border-[#1d1d1f] shadow-[0_32px_80px_rgba(0,0,0,0.55)] overflow-hidden">
 
-        {/* Title bar */}
-        <div className="flex items-center gap-2 px-3 h-9 bg-[#0c0c0e] border-b border-white/[0.06]">
-          {/* Traffic lights */}
-          <div className="flex items-center gap-1.5 mr-1">
-            <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
-            <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
-            <div className="w-3 h-3 rounded-full bg-[#28c840]" />
-          </div>
-          {/* Title */}
-          <div className="flex items-center gap-1.5 flex-1">
-            <Star className="w-3 h-3 text-[#666]" />
-            <span className="text-[11px] font-medium text-[#999] tracking-wide">Daily Breakout BF</span>
-          </div>
-          {/* Action icons */}
-          <div className="flex items-center gap-2">
-            <Link2 className="w-3 h-3 text-[#444] hover:text-[#777] transition-colors" />
-            <SlidersHorizontal className="w-3 h-3 text-[#444] hover:text-[#777] transition-colors" />
-            <ExternalLink className="w-3 h-3 text-[#444] hover:text-[#777] transition-colors" />
-            <div className="flex items-center gap-1 ml-1">
+        {/* Title bar — calco MarketTableLayoutHeader */}
+        <div className="flex items-center justify-between px-2.5 h-[30px] bg-[#0d0d0d] border-b border-[#1d1d1f] select-none">
+          <div className="flex items-center gap-2 min-w-0">
+            <Star className="w-[11px] h-[11px] text-amber-400 flex-shrink-0" />
+            <h3 className="text-[11.5px] font-semibold text-[#e8e8ed] truncate">Daily Breakout BF</h3>
+            <div className="flex items-center gap-1 ml-0.5">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[9px] text-emerald-500 font-semibold tracking-widest">LIVE</span>
+              <span className="text-[10px] font-medium text-emerald-500">Live</span>
             </div>
+            <span className="ml-1 px-1.5 h-[16px] inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 text-[9.5px] font-semibold text-amber-300 whitespace-nowrap">
+              {HERO_ROWS.length} hits
+            </span>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {/* LinkGroupSelector (chain icon) */}
+            <button className="p-1 rounded hover:bg-[#1a1a1a] transition-colors" title="Link group">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <path d="M6.5 8.5h3M9.5 6H11a2.5 2.5 0 0 1 0 5H9.5M6.5 11H5a2.5 2.5 0 0 1 0-5h1.5"
+                  stroke="#6b6b70" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <button className="p-1 rounded hover:bg-[#1a1a1a] transition-colors" title="Table settings">
+              <SlidersHorizontal className="w-[11px] h-[11px] text-[#6b6b70]" />
+            </button>
+            <button className="p-1 rounded hover:bg-[#1a1a1a] transition-colors" title="Open in new window">
+              <ExternalLink className="w-[11px] h-[11px] text-[#6b6b70]" />
+            </button>
+            <button className="p-1 rounded hover:bg-rose-500/15 transition-colors" title="Close">
+              <X className="w-[11px] h-[11px] text-[#6b6b70]" />
+            </button>
           </div>
         </div>
 
-        {/* Column headers */}
-        <div className="grid grid-cols-8 items-center px-3 py-1.5 border-b border-white/[0.04] bg-[#070709]">
-          {['#', 'Sym', 'Price', 'Chg%', 'RVOL', '5m V%', 'Pos%', 'Float'].map((h, i) => (
-            <span key={h} className={`text-[9px] font-semibold text-[#444] uppercase tracking-widest
-              ${i === 0 ? 'text-center' : i === 1 ? '' : 'text-right'}`}>
-              {h}
-            </span>
+        {/* Column headers — calco BullFlagColHeaders, fila de 24px para que luzca en hero */}
+        <div className="flex items-center px-2.5 h-[24px] bg-[#080808] border-b border-[#1d1d1f]">
+          {HERO_COLS.map((col) => (
+            <div key={col.key}
+              className={`flex items-center gap-0.5 text-[10px] font-medium select-none flex-shrink-0 ${col.sorted ? 'text-amber-400' : 'text-[#6b6b70]'}`}
+              style={{ width: col.w, justifyContent: col.align === 'right' ? 'flex-end' : col.align === 'center' ? 'center' : 'flex-start' }}>
+              {col.label}
+              {col.sorted && (
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                  <path d="M19 5l-7 7-7-7"/>
+                </svg>
+              )}
+            </div>
           ))}
         </div>
 
@@ -123,47 +188,62 @@ function HeroScannerTerminal() {
             const price = livePrices[row.sym] ?? row.price;
             const vol5Num = parseFloat(row.vol5pct);
             const posNum = parseFloat(row.pos);
+            const vol5Color = vol5Num >= 2000 ? 'text-emerald-500' : vol5Num >= 1000 ? 'text-amber-400' : 'text-[#9a9aa0]';
+            const posColor  = posNum >= 92 ? 'text-emerald-500' : 'text-[#9a9aa0]';
             return (
               <div key={row.sym}
-                className={`grid grid-cols-8 items-center px-3 py-1.5 transition-all duration-200 border-b border-white/[0.02]
-                  ${isFlash ? 'bg-emerald-500/[0.08]' : idx % 2 === 0 ? 'bg-transparent' : 'bg-white/[0.008]'}`}>
-                <span className="text-[9px] text-[#3a3a3a] text-center font-mono">{row.rank}</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-[11px] font-bold text-[#e8e8ed] font-mono">{row.sym}</span>
+                className={`flex items-center px-2.5 h-[24px] border-b border-[#0d0d0d] transition-colors duration-200
+                  ${isFlash ? 'bg-emerald-500/[0.10]' : 'hover:bg-[#111111]'}`}>
+                <div className="text-[10px] font-medium text-[#515154] flex-shrink-0"
+                  style={{ width: HERO_COLS[0].w, textAlign: 'center' }}>{row.rank}</div>
+                <div className="flex items-center gap-1 flex-shrink-0" style={{ width: HERO_COLS[1].w }}>
+                  <span className="text-[11px] font-bold text-[#2997ff]">{row.sym}</span>
                   {idx === 0 && newBadge && (
                     <motion.span
                       initial={{ opacity: 0, scale: 0.6 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0 }}
-                      className="text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 py-0.5 rounded-sm leading-none"
+                      className="text-[7px] font-bold text-emerald-400 bg-emerald-500/20 px-1 rounded-sm leading-none"
                     >
                       NEW
                     </motion.span>
                   )}
                 </div>
-                <span className={`text-[10px] font-mono text-right transition-colors duration-200 ${isFlash ? 'text-emerald-300' : 'text-[#c8c8d0]'}`}>
+                <div className={`font-mono text-[10.5px] text-right flex-shrink-0 transition-colors duration-200 ${isFlash ? 'text-emerald-300' : 'text-[#e8e8ed]'}`}
+                  style={{ width: HERO_COLS[2].w }}>
                   {price.toFixed(2)}
-                </span>
-                <span className="text-[10px] font-mono text-right text-emerald-500">{row.chg}</span>
-                <span className="text-[10px] font-mono text-right text-blue-400">{row.rvol}</span>
-                <span className={`text-[10px] font-mono text-right ${vol5Num > 2000 ? 'text-amber-400' : vol5Num > 1000 ? 'text-amber-500/80' : 'text-[#c8c8d0]'}`}>
-                  {row.vol5pct}
-                </span>
-                <span className={`text-[10px] font-mono text-right ${posNum >= 95 ? 'text-emerald-400' : posNum >= 90 ? 'text-emerald-500/80' : 'text-[#c8c8d0]'}`}>
-                  {row.pos}
-                </span>
-                <span className="text-[10px] font-mono text-right text-[#555]">{row.float}</span>
+                </div>
+                <div className="font-mono font-semibold text-[10.5px] text-emerald-500 text-right flex-shrink-0"
+                  style={{ width: HERO_COLS[3].w }}>{row.chg}</div>
+                <div className="font-mono font-semibold text-[10.5px] text-[#2997ff] text-right flex-shrink-0"
+                  style={{ width: HERO_COLS[4].w }}>{row.rvol}</div>
+                <div className={`font-mono font-semibold text-[10.5px] text-right flex-shrink-0 ${vol5Color}`}
+                  style={{ width: HERO_COLS[5].w }}>{row.vol5pct}</div>
+                <div className={`font-mono font-semibold text-[10.5px] text-right flex-shrink-0 ${posColor}`}
+                  style={{ width: HERO_COLS[6].w }}>{row.pos}</div>
+                <div className="font-mono text-[10.5px] text-[#86868b] text-right flex-shrink-0"
+                  style={{ width: HERO_COLS[7].w }}>{row.float}</div>
+                <div className={`text-[10.5px] text-right flex-shrink-0 ${dRiskClass(row.dRisk)}`}
+                  style={{ width: HERO_COLS[8].w }}>{row.dRisk}</div>
               </div>
             );
           })}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between px-3 py-2 bg-[#070709] border-t border-white/[0.04]">
-          <span className="text-[9px] text-[#3a3a3a]">7 results · min_rvol: 2x · float &lt; 100M</span>
-          <div className="flex items-center gap-1.5">
+        {/* Footer — calco de la table-footer real con filtros aplicados */}
+        <div className="flex items-center justify-between px-2.5 py-1.5 bg-[#080808] border-t border-[#1d1d1f]">
+          <div className="flex items-center gap-1.5 text-[9.5px] text-[#6b6b70]">
+            <span className="text-[#9a9aa0] font-medium">{HERO_ROWS.length} results</span>
+            <span className="text-[#303034]">·</span>
+            <span>min_rvol: 2x</span>
+            <span className="text-[#303034]">·</span>
+            <span>pos_in_range &gt; 85</span>
+            <span className="text-[#303034]">·</span>
+            <span>vol_5min &gt; 500%</span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[9px] font-mono text-[#444]">09:32:41 ET</span>
+            <span className="text-[9.5px] font-mono text-[#9a9aa0]">{clock} ET</span>
           </div>
         </div>
       </div>
@@ -1470,8 +1550,13 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Brand — floating top-left, mirrors the centered pill */}
-      <div className="fixed top-7 left-6 sm:left-8 z-50 pointer-events-auto">
+      {/* ========== TICKER TAPE — primer elemento, full-width, estilo Bloomberg/FT ========== */}
+      <div className="fixed top-0 left-0 right-0 z-40">
+        <TickerMarquee />
+      </div>
+
+      {/* Brand — floating top-left, bajamos para que quede debajo de la cinta */}
+      <div className="fixed top-[54px] left-6 sm:left-8 z-50 pointer-events-auto">
         <Link
           href="/"
           aria-label="Tradeul — inicio"
@@ -1482,7 +1567,7 @@ export default function Home() {
       </div>
 
       {/* Navigation - Centered floating pill navbar */}
-      <nav className="fixed top-6 left-1/2 -translate-x-1/2 z-50">
+      <nav className="fixed top-[52px] left-1/2 -translate-x-1/2 z-50">
         <div className="flex items-center gap-1 px-2 py-2 rounded-full bg-white/80 backdrop-blur-xl border border-slate-200 shadow-lg shadow-slate-200/50">
           {/* Menu items */}
           <div className="flex items-center">
@@ -1535,11 +1620,11 @@ export default function Home() {
       {/* ========== HERO SECTION — compact, editorial ========== */}
       <section
         ref={heroRef}
-        className="relative flex flex-col justify-center px-6 snap-start pt-28 pb-16 lg:pt-24 lg:pb-20"
+        className="relative flex flex-col justify-center px-6 md:px-10 lg:px-14 snap-start pt-[140px] pb-16 lg:pt-[150px] lg:pb-20"
       >
         <motion.div
           style={{ opacity: heroOpacity, y: heroY, scale: heroScale }}
-          className="max-w-7xl mx-auto w-full"
+          className="max-w-[1440px] mx-auto w-full"
         >
           {/* Two column layout: Text left, Live terminal right */}
           <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-12 items-center">
@@ -1690,12 +1775,9 @@ export default function Home() {
 
       </section>
 
-      {/* ========== MARQUEE TICKER RIBBON ========== */}
-      <TickerMarquee />
-
       {/* ========== DASHBOARD DEMO SECTION ========== */}
       <section className="relative py-20 px-6 snap-start flex flex-col justify-center overflow-hidden">
-        <div className="max-w-6xl mx-auto w-full">
+        <div className="max-w-[1440px] mx-auto w-full px-2 md:px-6 lg:px-8">
           {/* Section header */}
           <RevealSection className="text-center mb-10">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-[0.2em] mb-4 block">
@@ -1745,7 +1827,7 @@ export default function Home() {
 
       {/* ========== EDITORIAL MODULES — LIGHT BG, DARK PRODUCT WINDOWS ========== */}
       <section id="products" className="relative py-28 px-6 scroll-mt-24 bg-white">
-        <div className="max-w-6xl mx-auto relative">
+        <div className="max-w-[1280px] mx-auto relative px-2 md:px-4 lg:px-6">
           {/* Section header — editorial serif */}
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }} transition={{ duration: 0.6 }}
@@ -1884,7 +1966,7 @@ export default function Home() {
 
       {/* ========== USE CASES STRIP (light) ========== */}
       <section id="solutions" className="relative py-24 px-6 scroll-mt-24 bg-slate-50/60 border-y border-slate-200/70">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-[1440px] mx-auto px-2 md:px-6 lg:px-8">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }} className="max-w-3xl mb-14">
             <div className="flex items-center gap-2 mb-5">
@@ -1942,7 +2024,7 @@ export default function Home() {
 
       {/* ========== 32-MODULE INDEX GRID ========== */}
       <section className="relative py-24 px-6 bg-white border-t border-slate-200/70">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-[1440px] mx-auto px-2 md:px-6 lg:px-8">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }} className="max-w-3xl mb-12">
             <div className="flex items-center gap-2 mb-5">
@@ -2012,7 +2094,7 @@ export default function Home() {
 
       {/* ========== Footer — massive wordmark ========== */}
       <footer id="resources" className="relative pt-20 pb-6 px-6 overflow-hidden border-t border-slate-200/70 scroll-mt-24 bg-white">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-[1440px] mx-auto px-2 md:px-6 lg:px-8">
           {/* Links row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 pb-16">
             {[

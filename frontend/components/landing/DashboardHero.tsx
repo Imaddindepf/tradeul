@@ -34,15 +34,29 @@ const MOMENTUM_ROWS = [
 
 // "Estrategia 3 Daily Breakout Bull Flag Momentum" — columnas de la estrategia real del usuario:
 // filters: min_rvol:2, min_vol_5min_pct:500, min_pos_in_range:85, min_todays_range_pct:150
-// price: $1-$50, float <100M, chg >2%
-const BULL_FLAG_ROWS = [
-  { rank: 1, sym: 'CLOV', price: '2.87',  chg: '+31.05%', rvol: '18.4x', vol5pct: '5640%', pos: '97%', float: '23M' },
-  { rank: 2, sym: 'WOLF', price: '4.23',  chg: '+22.15%', rvol: '12.3x', vol5pct: '3821%', pos: '89%', float: '88M' },
-  { rank: 3, sym: 'IONQ', price: '12.84', chg: '+18.92%', rvol: '8.7x',  vol5pct: '2104%', pos: '96%', float: '34M' },
-  { rank: 4, sym: 'SMCI', price: '38.74', chg: '+15.23%', rvol: '6.8x',  vol5pct: '1842%', pos: '92%', float: '52M' },
-  { rank: 5, sym: 'MSTR', price: '42.30', chg: '+8.67%',  rvol: '5.3x',  vol5pct: '1234%', pos: '91%', float: '45M' },
-  { rank: 6, sym: 'PLTR', price: '32.15', chg: '+9.45%',  rvol: '2.9x',  vol5pct: '621%',  pos: '87%', float: '78M' },
-  { rank: 7, sym: 'CAVA', price: '28.45', chg: '+5.44%',  rvol: '2.1x',  vol5pct: '512%',  pos: '85%', float: '67M' },
+// Datos muestreados del snapshot real (snapshot:enriched:last_close) para tickers típicos
+// de small/mid cap con perfil de breakout y riesgo de dilución.
+// D.Risk = dilution_overall_risk (Low/Medium/High) — columna propietaria de Tradeul.
+type DRisk = 'Low' | 'Medium' | 'High';
+const BULL_FLAG_ROWS: Array<{
+  rank: number;
+  sym: string;
+  price: string;
+  chg: string;
+  rvol: string;
+  vol5pct: string;
+  pos: string;
+  float: string;
+  dRisk: DRisk;
+}> = [
+  { rank: 1, sym: 'MSTR', price: '166.25', chg: '+11.62%', rvol: '8.4x', vol5pct: '2890%', pos: '92%', float: '267M', dRisk: 'Medium' },
+  { rank: 2, sym: 'SOUN', price: '8.09',   chg: '+9.04%',  rvol: '6.1x', vol5pct: '2140%', pos: '88%', float: '378M', dRisk: 'High'   },
+  { rank: 3, sym: 'CAVA', price: '94.78',  chg: '+7.38%',  rvol: '4.8x', vol5pct: '1560%', pos: '91%', float: '100M', dRisk: 'Low'    },
+  { rank: 4, sym: 'GRRR', price: '12.98',  chg: '+6.92%',  rvol: '7.2x', vol5pct: '1820%', pos: '87%', float: '20M',  dRisk: 'Medium' },
+  { rank: 5, sym: 'BBAI', price: '3.91',   chg: '+5.44%',  rvol: '5.6x', vol5pct: '1305%', pos: '86%', float: '431M', dRisk: 'High'   },
+  { rank: 6, sym: 'CLOV', price: '2.23',   chg: '+4.86%',  rvol: '3.9x', vol5pct: '904%',  pos: '89%', float: '389M', dRisk: 'Medium' },
+  { rank: 7, sym: 'IONQ', price: '45.62',  chg: '+3.67%',  rvol: '3.2x', vol5pct: '712%',  pos: '85%', float: '290M', dRisk: 'Medium' },
+  { rank: 8, sym: 'RILY', price: '7.85',   chg: '+2.95%',  rvol: '4.1x', vol5pct: '612%',  pos: '85%', float: '21M',  dRisk: 'High'   },
 ];
 
 // Chart: 28 candles [open, close, high, low]
@@ -237,18 +251,19 @@ function ScannerRow({ row, flash }: { row: (typeof SCANNER_ROWS)[number]; flash:
 // ─────────────────────────────────────────────────────────────────────────────
 
 
-// "Estrategia 3 Daily Breakout Bull Flag Momentum" real columns:
-// price · change_percent · rvol · vol_5min_pct · pos_in_range · float_shares
+// "Estrategia 3 Daily Breakout Bull Flag Momentum" real columns (calco de CategoryTableV2):
+// price · change_percent · rvol · vol_5min_pct · pos_in_range · float · dilution_overall_risk
 function BullFlagColHeaders() {
   const cols = [
-    { label: '#',     w: '14px', align: 'center' as const },
-    { label: 'Sym',   w: '36px', align: 'left'   as const },
-    { label: 'Price', w: '46px', align: 'right'  as const },
-    { label: 'Chg%',  w: '48px', align: 'right'  as const, sorted: true },
-    { label: 'RVOL',  w: '38px', align: 'right'  as const },
-    { label: '5m V%', w: '52px', align: 'right'  as const },
-    { label: 'Pos%',  w: '40px', align: 'right'  as const },
-    { label: 'Float', w: '42px', align: 'right'  as const },
+    { label: '#',      w: '14px', align: 'center' as const },
+    { label: 'Sym',    w: '40px', align: 'left'   as const },
+    { label: 'Price',  w: '48px', align: 'right'  as const },
+    { label: 'Chg%',   w: '50px', align: 'right'  as const, sorted: true },
+    { label: 'RVOL',   w: '38px', align: 'right'  as const },
+    { label: '5m V%',  w: '50px', align: 'right'  as const },
+    { label: 'Pos%',   w: '38px', align: 'right'  as const },
+    { label: 'Float',  w: '42px', align: 'right'  as const },
+    { label: 'D.Risk', w: '48px', align: 'right'  as const },
   ];
   return (
     <div className="flex items-center px-1.5 h-[20px] border-b border-[#1d1d1f] bg-[#080808] flex-shrink-0">
@@ -267,16 +282,21 @@ function BullFlagColHeaders() {
 function BullFlagRow({ row, isNew }: { row: (typeof BULL_FLAG_ROWS)[number]; isNew?: boolean }) {
   const vol5Color = parseInt(row.vol5pct) >= 2000 ? '#10b981' : parseInt(row.vol5pct) >= 1000 ? '#f59e0b' : '#86868b';
   const posColor  = parseInt(row.pos) >= 92 ? '#10b981' : '#86868b';
+  const dRiskClass =
+    row.dRisk === 'High'   ? 'text-rose-500 font-bold' :
+    row.dRisk === 'Medium' ? 'text-amber-400 font-semibold' :
+    /* Low */                'text-emerald-500 font-semibold';
   return (
     <div className={`flex items-center px-1.5 h-[17px] border-b border-[#0d0d0d] transition-colors duration-500 ${isNew ? 'bg-emerald-500/15' : 'hover:bg-[#111111]'}`}>
       <div className="text-[8.5px] font-medium text-[#515154] text-center flex-shrink-0" style={{ width: '14px' }}>{row.rank}</div>
-      <div className="text-[9.5px] font-bold text-[#2997ff] flex-shrink-0 cursor-pointer" style={{ width: '36px' }}>{row.sym}</div>
-      <div className="font-mono text-[8.5px] text-[#e8e8ed] text-right flex-shrink-0" style={{ width: '46px' }}>{row.price}</div>
-      <div className="font-mono font-semibold text-[8.5px] text-emerald-500 text-right flex-shrink-0" style={{ width: '48px' }}>{row.chg}</div>
+      <div className="text-[9.5px] font-bold text-[#2997ff] flex-shrink-0 cursor-pointer" style={{ width: '40px' }}>{row.sym}</div>
+      <div className="font-mono text-[8.5px] text-[#e8e8ed] text-right flex-shrink-0" style={{ width: '48px' }}>{row.price}</div>
+      <div className="font-mono font-semibold text-[8.5px] text-emerald-500 text-right flex-shrink-0" style={{ width: '50px' }}>{row.chg}</div>
       <div className="font-mono font-semibold text-[8.5px] text-[#2997ff] text-right flex-shrink-0" style={{ width: '38px' }}>{row.rvol}</div>
-      <div className="font-mono font-semibold text-[8.5px] text-right flex-shrink-0" style={{ width: '52px', color: vol5Color }}>{row.vol5pct}</div>
-      <div className="font-mono font-semibold text-[8.5px] text-right flex-shrink-0" style={{ width: '40px', color: posColor }}>{row.pos}</div>
+      <div className="font-mono font-semibold text-[8.5px] text-right flex-shrink-0" style={{ width: '50px', color: vol5Color }}>{row.vol5pct}</div>
+      <div className="font-mono font-semibold text-[8.5px] text-right flex-shrink-0" style={{ width: '38px', color: posColor }}>{row.pos}</div>
       <div className="font-mono text-[8.5px] text-[#86868b] text-right flex-shrink-0" style={{ width: '42px' }}>{row.float}</div>
+      <div className={`text-[8.5px] text-right flex-shrink-0 ${dRiskClass}`} style={{ width: '48px' }}>{row.dRisk}</div>
     </div>
   );
 }
@@ -681,6 +701,10 @@ const NEWS_POOL: PoolItem[] = [
   { type: 'reaction', ticker: 'NVDA', pct: 1.4, price: 912.40 },
 ];
 
+// Intrínseco del mockup — diseñado pixel-perfect a este tamaño, luego escalamos.
+const HERO_INTRINSIC_W = 1060;
+const HERO_INTRINSIC_H = 560;
+
 export function DashboardHero() {
   // Solo animaciones internas: flash de precios, stream del agente, llegada de breaking news.
   // Las VENTANAS están siempre presentes — no hay cascada de entrada.
@@ -689,6 +713,24 @@ export function DashboardHero() {
   const [aiText, setAiText]           = useState('');
   const [aiSteps, setAiSteps]         = useState(0);
   const [flashRow, setFlashRow]       = useState<string | null>(null);
+
+  // Responsive scaler: medimos el contenedor y escalamos el mockup (que es pixel-fijo internamente).
+  // Cap a 1.45x para que en 4K no se vea grotesco, floor a 0.5x para mobile/tablet.
+  const scalerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const el = scalerRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.getBoundingClientRect().width;
+      if (!w) return;
+      setScale(Math.min(Math.max(w / HERO_INTRINSIC_W, 0.5), 1.45));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Feed inicial (newest first, ya invertido). Después se van insertando items al top.
   const [newsFeed, setNewsFeed] = useState<FeedItem[]>(() => [...NEWS_ITEMS].reverse());
@@ -749,8 +791,20 @@ export function DashboardHero() {
   }, []);
 
   return (
-    <div className="w-full max-w-[1060px] mx-auto">
-      <div className="relative">
+    <div
+      ref={scalerRef}
+      className="w-full mx-auto"
+      // Reservamos altura = H_intrínseca × scale para que el layout no salte al montar.
+      style={{ height: HERO_INTRINSIC_H * scale }}
+    >
+      <div
+        className="relative origin-top-left"
+        style={{
+          width: HERO_INTRINSIC_W,
+          height: HERO_INTRINSIC_H,
+          transform: `scale(${scale})`,
+        }}
+      >
         <div className="absolute -inset-6 bg-gradient-to-r from-blue-600/10 via-violet-600/6 to-blue-600/10 blur-3xl rounded-3xl pointer-events-none" />
 
         <div className="relative h-[560px] rounded-xl overflow-hidden border border-[#1d1d1f] bg-[#080808] shadow-2xl shadow-black/70 flex flex-col">
@@ -847,8 +901,15 @@ export function DashboardHero() {
             >
               <MarketTableLayoutHeader
                 title="Daily Breakout BF"
-                showLive={false}
-                extra={<Star className="w-[10px] h-[10px] text-amber-400 ml-1 flex-shrink-0" />}
+                showLive={true}
+                extra={
+                  <>
+                    <Star className="w-[10px] h-[10px] text-amber-400 ml-1 flex-shrink-0" />
+                    <span className="ml-1 px-1.5 h-[14px] inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 text-[9px] font-semibold text-amber-300">
+                      {BULL_FLAG_ROWS.length} hits
+                    </span>
+                  </>
+                }
               />
               <BullFlagColHeaders />
               <div className="flex-1 overflow-hidden">
