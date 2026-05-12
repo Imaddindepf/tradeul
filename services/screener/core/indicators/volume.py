@@ -15,6 +15,12 @@ class VolumeIndicators(IndicatorGroup):
     def get_indicators(self) -> List[IndicatorDefinition]:
         standard_ops = [OperatorType.GT, OperatorType.GTE, OperatorType.LT, OperatorType.LTE, OperatorType.BETWEEN]
         
+        # Sanity ceilings: anything above these is almost certainly a UI
+        # unit-scaling bug (e.g. 500 K rendered as "500 M" -> 500_000_000_000).
+        # Catching it here turns a silent count=0 into a 400 with a clear msg.
+        VOLUME_MAX = 50_000_000_000          # 50B shares/day
+        DOLLAR_VOLUME_MAX = 5_000_000_000_000  # $5T
+
         return [
             IndicatorDefinition(
                 name="volume",
@@ -25,6 +31,7 @@ class VolumeIndicators(IndicatorGroup):
                 sql_expression="volume",
                 operators=standard_ops,
                 min_value=0,
+                max_value=VOLUME_MAX,
                 format_string="{:,.0f}",
             ),
             IndicatorDefinition(
@@ -36,6 +43,7 @@ class VolumeIndicators(IndicatorGroup):
                 sql_expression="avg_volume_5",
                 operators=standard_ops,
                 min_value=0,
+                max_value=VOLUME_MAX,
                 format_string="{:,.0f}",
             ),
             IndicatorDefinition(
@@ -47,6 +55,7 @@ class VolumeIndicators(IndicatorGroup):
                 sql_expression="avg_volume_10",
                 operators=standard_ops,
                 min_value=0,
+                max_value=VOLUME_MAX,
                 format_string="{:,.0f}",
             ),
             IndicatorDefinition(
@@ -58,6 +67,7 @@ class VolumeIndicators(IndicatorGroup):
                 sql_expression="avg_volume_20",
                 operators=standard_ops,
                 min_value=0,
+                max_value=VOLUME_MAX,
                 format_string="{:,.0f}",
             ),
             IndicatorDefinition(
@@ -69,6 +79,7 @@ class VolumeIndicators(IndicatorGroup):
                 sql_expression="relative_volume",
                 operators=standard_ops,
                 min_value=0,
+                max_value=10_000,  # rvol > 10000x is impossible
                 format_string="{:.2f}x",
             ),
             IndicatorDefinition(
@@ -80,6 +91,7 @@ class VolumeIndicators(IndicatorGroup):
                 sql_expression="price * volume",
                 operators=standard_ops,
                 min_value=0,
+                max_value=DOLLAR_VOLUME_MAX,
                 format_string="${:,.0f}",
             ),
             IndicatorDefinition(

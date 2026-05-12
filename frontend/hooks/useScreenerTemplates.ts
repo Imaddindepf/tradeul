@@ -23,6 +23,13 @@ export interface FilterCondition {
     value?: number | number[] | boolean | null;
     compare_field?: string | null;
     compare_params?: IndicatorParams | null;
+    // UI-only metadata for `units`-type fields (Market Cap, Volume, Float...).
+    // Persisted so the K/M/B selector and the input value can be restored
+    // exactly as the user configured them. The backend ignores these fields.
+    multiplier?: number;
+    displayValue?: number;
+    displayMin?: number;
+    displayMax?: number;
 }
 
 export interface ScreenerTemplate {

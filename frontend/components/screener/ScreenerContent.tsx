@@ -22,6 +22,7 @@ import {
     Save,
     Star,
 } from 'lucide-react';
+import { useAuth } from '@clerk/nextjs';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
@@ -163,6 +164,72 @@ const UNIT_MULTIPLIERS = [
     { value: 1_000_000, label: 'M' },
     { value: 1_000_000_000, label: 'B' },
 ];
+
+// Default multiplier when no metadata is available (used to render the K/M/B select)
+const DEFAULT_UNIT_MULTIPLIER = 1_000_000;
+
+/**
+ * Infer the (multiplier, displayValue) pair from an absolute value.
+ * Picks the largest multiplier that keeps `displayValue` an integer
+ * and >= 1. Falls back to K so values like 500_000 render as "500 K"
+ * instead of "0.5 M". Used when loading templates / persisted state
+ * that don't carry the UI metadata.
+ */
+function inferDisplayUnit(value: number): { multiplier: number; displayValue: number } {
+    if (!Number.isFinite(value) || value <= 0) {
+        return { multiplier: DEFAULT_UNIT_MULTIPLIER, displayValue: 0 };
+    }
+    if (value >= 1_000_000_000 && value % 1_000_000_000 === 0) {
+        return { multiplier: 1_000_000_000, displayValue: value / 1_000_000_000 };
+    }
+    if (value >= 1_000_000 && value % 1_000_000 === 0) {
+        return { multiplier: 1_000_000, displayValue: value / 1_000_000 };
+    }
+    if (value >= 1_000 && value % 1_000 === 0) {
+        return { multiplier: 1_000, displayValue: value / 1_000 };
+    }
+    if (value >= 1_000_000_000) return { multiplier: 1_000_000_000, displayValue: value / 1_000_000_000 };
+    if (value >= 1_000_000) return { multiplier: 1_000_000, displayValue: value / 1_000_000 };
+    return { multiplier: 1_000, displayValue: value / 1_000 };
+}
+
+/**
+ * Backfill `multiplier`/`displayValue` (or `displayMin`/`displayMax`) on a
+ * filter that was persisted/loaded without UI metadata. No-op for fields
+ * that aren't of `units` type or filters that already carry the metadata.
+ */
+function hydrateUnitsFilter<T extends { field: string; operator: string; value: unknown; multiplier?: number; displayValue?: number; displayMin?: number; displayMax?: number }>(filter: T): T {
+    const fieldInfo = AVAILABLE_FIELDS.find(f => f.value === filter.field);
+    if (!fieldInfo || (fieldInfo as any).type !== 'units') return filter;
+
+    if (filter.operator === 'between' && Array.isArray(filter.value) && filter.value.length === 2) {
+        const [min, max] = filter.value as number[];
+        if (filter.multiplier && filter.displayMin !== undefined && filter.displayMax !== undefined) {
+            return filter;
+        }
+        // Use the same multiplier for both ends, derived from the larger end
+        const reference = Math.max(Math.abs(min || 0), Math.abs(max || 0)) || DEFAULT_UNIT_MULTIPLIER;
+        const { multiplier } = inferDisplayUnit(reference);
+        return {
+            ...filter,
+            multiplier,
+            displayMin: multiplier ? min / multiplier : min,
+            displayMax: multiplier ? max / multiplier : max,
+        };
+    }
+
+    if (typeof filter.value === 'number') {
+        if (filter.multiplier && filter.displayValue !== undefined) return filter;
+        const { multiplier, displayValue } = inferDisplayUnit(filter.value);
+        return { ...filter, multiplier, displayValue };
+    }
+
+    return filter;
+}
+
+function hydrateAllUnitsFilters<T extends FilterCondition>(filters: T[]): T[] {
+    return filters.map(f => hydrateUnitsFilter(f));
+}
 
 // Parametric indicators - user can change the period
 // Only simple indicators support dynamic periods (complex like RSI, ADX use precomputed)
@@ -874,61 +941,67 @@ function FilterBuilder({
                                 minWidth={120}
                             />
                         ) : filter.operator === 'between' && fieldInfo?.type === 'units' ? (
-                            <div className="flex items-center gap-1">
-                                <input
-                                    type="number"
-                                    value={(filter as any).displayMin ?? 0}
-                                    onChange={(e) => {
-                                        const num = parseFloat(e.target.value) || 0;
-                                        const mult = (filter as any).multiplier || 1_000_000;
-                                        const max = (filter as any).displayMax ?? 100;
-                                        updateFilter(realIndex, {
-                                            value: [num * mult, max * mult],
-                                            displayMin: num,
-                                            displayMax: max,
-                                            multiplier: mult
-                                        } as any);
-                                    }}
-                                    className="w-[42px] px-1 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
-                                    style={{ fontSize: '12px', fontFamily }}
-                                />
-                                <span className="text-foreground" style={{ fontSize: '12px', fontFamily }}>to</span>
-                                <input
-                                    type="number"
-                                    value={(filter as any).displayMax ?? 100}
-                                    onChange={(e) => {
-                                        const num = parseFloat(e.target.value) || 0;
-                                        const mult = (filter as any).multiplier || 1_000_000;
-                                        const min = (filter as any).displayMin ?? 0;
-                                        updateFilter(realIndex, {
-                                            value: [min * mult, num * mult],
-                                            displayMin: min,
-                                            displayMax: num,
-                                            multiplier: mult
-                                        } as any);
-                                    }}
-                                    className="w-[42px] px-1 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
-                                    style={{ fontSize: '12px', fontFamily }}
-                                />
-                                <select
-                                    value={(filter as any).multiplier || 1_000_000}
-                                    onChange={(e) => {
-                                        const mult = parseInt(e.target.value);
-                                        const min = (filter as any).displayMin ?? 0;
-                                        const max = (filter as any).displayMax ?? 100;
-                                        updateFilter(realIndex, {
-                                            value: [min * mult, max * mult],
-                                            multiplier: mult
-                                        } as any);
-                                    }}
-                                    className="px-1 py-0.5 rounded border border-border bg-surface-hover text-foreground"
-                                    style={{ fontSize: '11px', fontFamily }}
-                                >
-                                    <option value={1000}>K</option>
-                                    <option value={1000000}>M</option>
-                                    <option value={1000000000}>B</option>
-                                </select>
-                            </div>
+                            (() => {
+                                // Backfill multiplier/displayMin/displayMax from the absolute
+                                // value if the persisted filter is missing UI metadata
+                                const hydrated = hydrateUnitsFilter(filter as any);
+                                const currentMult = (hydrated as any).multiplier ?? DEFAULT_UNIT_MULTIPLIER;
+                                const currentMin = (hydrated as any).displayMin ?? 0;
+                                const currentMax = (hydrated as any).displayMax ?? 100;
+                                return (
+                                    <div className="flex items-center gap-1">
+                                        <input
+                                            type="number"
+                                            value={currentMin}
+                                            onChange={(e) => {
+                                                const num = parseFloat(e.target.value) || 0;
+                                                updateFilter(realIndex, {
+                                                    value: [num * currentMult, currentMax * currentMult],
+                                                    displayMin: num,
+                                                    displayMax: currentMax,
+                                                    multiplier: currentMult
+                                                } as any);
+                                            }}
+                                            className="w-[42px] px-1 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
+                                            style={{ fontSize: '12px', fontFamily }}
+                                        />
+                                        <span className="text-foreground" style={{ fontSize: '12px', fontFamily }}>to</span>
+                                        <input
+                                            type="number"
+                                            value={currentMax}
+                                            onChange={(e) => {
+                                                const num = parseFloat(e.target.value) || 0;
+                                                updateFilter(realIndex, {
+                                                    value: [currentMin * currentMult, num * currentMult],
+                                                    displayMin: currentMin,
+                                                    displayMax: num,
+                                                    multiplier: currentMult
+                                                } as any);
+                                            }}
+                                            className="w-[42px] px-1 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
+                                            style={{ fontSize: '12px', fontFamily }}
+                                        />
+                                        <select
+                                            value={currentMult}
+                                            onChange={(e) => {
+                                                const mult = parseInt(e.target.value);
+                                                updateFilter(realIndex, {
+                                                    value: [currentMin * mult, currentMax * mult],
+                                                    displayMin: currentMin,
+                                                    displayMax: currentMax,
+                                                    multiplier: mult
+                                                } as any);
+                                            }}
+                                            className="px-1 py-0.5 rounded border border-border bg-surface-hover text-foreground"
+                                            style={{ fontSize: '11px', fontFamily }}
+                                        >
+                                            <option value={1000}>K</option>
+                                            <option value={1000000}>M</option>
+                                            <option value={1000000000}>B</option>
+                                        </select>
+                                    </div>
+                                );
+                            })()
                         ) : filter.operator === 'between' ? (
                             <div className="flex items-center gap-1">
                                 <NumberInput
@@ -953,33 +1026,40 @@ function FilterBuilder({
                                 )}
                             </div>
                         ) : fieldInfo?.type === 'units' ? (
-                            <div className="flex items-center gap-0.5">
-                                <input
-                                    type="number"
-                                    value={(filter as any).displayValue ?? (typeof filter.value === 'number' ? filter.value : 0)}
-                                    onChange={(e) => {
-                                        const num = parseFloat(e.target.value) || 0;
-                                        const mult = (filter as any).multiplier || 1_000_000;
-                                        updateFilter(realIndex, { value: num * mult, displayValue: num, multiplier: mult } as any);
-                                    }}
-                                    className="w-[48px] px-1.5 py-0.5 rounded-l border border-border bg-[var(--color-input-bg)] text-foreground font-medium"
-                                    style={{ fontSize: '12px', fontFamily }}
-                                />
-                                <select
-                                    value={(filter as any).multiplier || 1_000_000}
-                                    onChange={(e) => {
-                                        const mult = parseInt(e.target.value);
-                                        const num = (filter as any).displayValue ?? 0;
-                                        updateFilter(realIndex, { value: num * mult, multiplier: mult } as any);
-                                    }}
-                                    className="px-1 py-0.5 rounded-r border border-l-0 border-border bg-surface-hover text-foreground"
-                                    style={{ fontSize: '12px', fontFamily }}
-                                >
-                                    <option value={1000}>K</option>
-                                    <option value={1000000}>M</option>
-                                    <option value={1000000000}>B</option>
-                                </select>
-                            </div>
+                            (() => {
+                                // Backfill multiplier/displayValue from the absolute value
+                                // if the persisted filter is missing UI metadata
+                                const hydrated = hydrateUnitsFilter(filter as any);
+                                const currentMult = (hydrated as any).multiplier ?? DEFAULT_UNIT_MULTIPLIER;
+                                const currentDisplay = (hydrated as any).displayValue ?? (typeof filter.value === 'number' ? filter.value : 0);
+                                return (
+                                    <div className="flex items-center gap-0.5">
+                                        <input
+                                            type="number"
+                                            value={currentDisplay}
+                                            onChange={(e) => {
+                                                const num = parseFloat(e.target.value) || 0;
+                                                updateFilter(realIndex, { value: num * currentMult, displayValue: num, multiplier: currentMult } as any);
+                                            }}
+                                            className="w-[48px] px-1.5 py-0.5 rounded-l border border-border bg-[var(--color-input-bg)] text-foreground font-medium"
+                                            style={{ fontSize: '12px', fontFamily }}
+                                        />
+                                        <select
+                                            value={currentMult}
+                                            onChange={(e) => {
+                                                const mult = parseInt(e.target.value);
+                                                updateFilter(realIndex, { value: currentDisplay * mult, displayValue: currentDisplay, multiplier: mult } as any);
+                                            }}
+                                            className="px-1 py-0.5 rounded-r border border-l-0 border-border bg-surface-hover text-foreground"
+                                            style={{ fontSize: '12px', fontFamily }}
+                                        >
+                                            <option value={1000}>K</option>
+                                            <option value={1000000}>M</option>
+                                            <option value={1000000000}>B</option>
+                                        </select>
+                                    </div>
+                                );
+                            })()
                         ) : (
                             <div className="flex items-center gap-1">
                                 <NumberInput
@@ -1569,15 +1649,18 @@ export function ScreenerContent() {
     const font = useUserPreferencesStore(selectFont);
     const fontFamily = `var(--font-${font})`;
     const { state: windowState, updateState: updateWindowState } = useWindowState<ScreenerWindowState>();
+    const { userId: clerkUserId } = useAuth();
 
     // Default filters
-    const defaultFilters: FilterCondition[] = [
+    const defaultFilters: FilterCondition[] = hydrateAllUnitsFilters([
         { field: 'price', operator: 'between', value: [5, 500] },
         { field: 'volume', operator: 'gt', value: 500000 },
-    ];
+    ]);
 
     // State - use persisted values if available
-    const [filters, setFilters] = useState<FilterCondition[]>(windowState.filters || defaultFilters);
+    const [filters, setFilters] = useState<FilterCondition[]>(
+        windowState.filters ? hydrateAllUnitsFilters(windowState.filters) : defaultFilters
+    );
     const [symbols, setSymbols] = useState<string[]>([]);
     const [symbolInput, setSymbolInput] = useState('');
     const [sortBy, setSortBy] = useState(windowState.sortBy || 'relative_volume');
@@ -1644,7 +1727,7 @@ export function ScreenerContent() {
 
             // Update local state from windowState if different
             if (JSON.stringify(filters) !== JSON.stringify(windowState.filters)) {
-                setFilters(windowState.filters as FilterCondition[]);
+                setFilters(hydrateAllUnitsFilters(windowState.filters as FilterCondition[]));
             }
             if (windowState.sortBy && sortBy !== windowState.sortBy) {
                 setSortBy(windowState.sortBy);
@@ -1687,13 +1770,29 @@ export function ScreenerContent() {
                 body.symbols = symbols;
             }
 
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            // Diagnostics-only: lets us trace requests back to a user when
+            // investigating bug reports. Endpoint is unauthenticated.
+            if (clerkUserId) headers['X-User-Id'] = clerkUserId;
+
             const res = await fetch(`${API_BASE}/screen`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify(body),
             });
 
-            const data: ScreenerResponse = await res.json();
+            const data: ScreenerResponse = await res.json().catch(() => ({} as any));
+
+            // Backend returns 400 with { detail: { message, errors } } for
+            // invalid filters (e.g. unit-scaling mistakes). Surface the actual
+            // reason instead of swallowing it as "0 results".
+            if (!res.ok) {
+                const detail = (data as any)?.detail;
+                const msg = typeof detail === 'string'
+                    ? detail
+                    : detail?.errors?.join('; ') || detail?.message || `HTTP ${res.status}`;
+                throw new Error(msg);
+            }
 
             if (data.status === 'error') {
                 throw new Error(data.errors?.join(', ') || 'Search failed');
@@ -1707,7 +1806,7 @@ export function ScreenerContent() {
         } finally {
             setLoading(false);
         }
-    }, [filters, symbols, sortBy, sortOrder, limit]);
+    }, [filters, symbols, sortBy, sortOrder, limit, clerkUserId]);
 
     // Update ref for auto-execute
     useEffect(() => {
@@ -1733,7 +1832,7 @@ export function ScreenerContent() {
             value: Array.isArray(f.value) ? [...f.value] : f.value,
             compareMode: 'value' as const,
         }));
-        setFilters(clonedFilters);
+        setFilters(hydrateAllUnitsFilters(clonedFilters));
         setSortBy(preset.sort_by);
         setSortOrder(preset.sort_order as 'asc' | 'desc');
         setActivePreset(preset.id);
@@ -1750,13 +1849,24 @@ export function ScreenerContent() {
     const handleSaveTemplate = async () => {
         if (!templateName.trim()) return;
 
-        const templateFilters: TemplateFilterCondition[] = filters.map(f => ({
-            field: f.field,
-            operator: f.operator,
-            value: f.compareMode === 'field' ? undefined : (typeof f.value === 'string' ? undefined : f.value),
-            compare_field: f.compareMode === 'field' && typeof f.value === 'string' ? f.value : undefined,
-            params: f.params ?? undefined,
-        }));
+        const templateFilters: TemplateFilterCondition[] = filters.map(f => {
+            // Persist UI-only metadata for units-type fields so the next load
+            // can restore the K/M/B selector without inferring from the raw value.
+            const extra: Record<string, unknown> = {};
+            if (typeof (f as any).multiplier === 'number') extra.multiplier = (f as any).multiplier;
+            if (typeof (f as any).displayValue === 'number') extra.displayValue = (f as any).displayValue;
+            if (typeof (f as any).displayMin === 'number') extra.displayMin = (f as any).displayMin;
+            if (typeof (f as any).displayMax === 'number') extra.displayMax = (f as any).displayMax;
+
+            return {
+                field: f.field,
+                operator: f.operator,
+                value: f.compareMode === 'field' ? undefined : (typeof f.value === 'string' ? undefined : f.value),
+                compare_field: f.compareMode === 'field' && typeof f.value === 'string' ? f.value : undefined,
+                params: f.params ?? undefined,
+                ...extra,
+            } as TemplateFilterCondition;
+        });
 
         const result = await createTemplate({
             name: templateName.trim(),
@@ -1774,15 +1884,24 @@ export function ScreenerContent() {
 
     // Apply user template
     const applyUserTemplate = async (template: ScreenerTemplate) => {
-        const loadedFilters: FilterCondition[] = template.filters.map(f => ({
-            field: f.field,
-            operator: f.operator,
-            value: f.compare_field ? f.compare_field : (f.value as number | number[] | boolean),
-            compareMode: f.compare_field ? 'field' as const : 'value' as const,
-            params: f.params ?? undefined,
-        }));
+        const loadedFilters: FilterCondition[] = template.filters.map(f => {
+            // Persisted filters may carry display metadata (multiplier/displayValue)
+            // for units-type fields; preserve it if present, otherwise infer.
+            const raw = f as unknown as Record<string, unknown>;
+            return {
+                field: f.field,
+                operator: f.operator,
+                value: f.compare_field ? f.compare_field : (f.value as number | number[] | boolean),
+                compareMode: f.compare_field ? 'field' as const : 'value' as const,
+                params: f.params ?? undefined,
+                ...(typeof raw.multiplier === 'number' ? { multiplier: raw.multiplier } : {}),
+                ...(typeof raw.displayValue === 'number' ? { displayValue: raw.displayValue } : {}),
+                ...(typeof raw.displayMin === 'number' ? { displayMin: raw.displayMin as number } : {}),
+                ...(typeof raw.displayMax === 'number' ? { displayMax: raw.displayMax as number } : {}),
+            };
+        });
 
-        setFilters(loadedFilters);
+        setFilters(hydrateAllUnitsFilters(loadedFilters));
         setSortBy(template.sortBy);
         setSortOrder(template.sortOrder as 'asc' | 'desc');
         setLimit(template.limitResults);

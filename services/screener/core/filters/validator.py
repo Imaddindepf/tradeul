@@ -66,38 +66,46 @@ class FilterValidator:
             return errors
         
         # Type validation
+        # Track all numeric values to range-check below (handles `between` too)
+        numeric_values = []
         if operator == "between":
             if not isinstance(value, (list, tuple)) or len(value) != 2:
                 errors.append(f"{prefix}: 'between' requires [min, max] array")
                 return errors
-            
+
             try:
                 min_val, max_val = float(value[0]), float(value[1])
                 if min_val > max_val:
                     errors.append(f"{prefix}: min value must be <= max value")
+                numeric_values.extend([min_val, max_val])
             except (ValueError, TypeError):
                 errors.append(f"{prefix}: 'between' values must be numbers")
-        
+
         elif operator in ("gt", "gte", "lt", "lte"):
             # Value should be numeric or another indicator
             if isinstance(value, str):
                 # Check if it's another indicator
                 if not self.registry.get_indicator(value):
                     try:
-                        float(value)
+                        numeric_values.append(float(value))
                     except ValueError:
                         errors.append(f"{prefix}: Invalid value '{value}'")
-            elif not isinstance(value, (int, float)):
+            elif isinstance(value, (int, float)):
+                numeric_values.append(float(value))
+            else:
                 errors.append(f"{prefix}: Value must be numeric, got {type(value).__name__}")
-        
-        # Range validation
-        if indicator.min_value is not None and isinstance(value, (int, float)):
-            if value < indicator.min_value:
-                errors.append(f"{prefix}: Value {value} below minimum {indicator.min_value}")
-        
-        if indicator.max_value is not None and isinstance(value, (int, float)):
-            if value > indicator.max_value:
-                errors.append(f"{prefix}: Value {value} above maximum {indicator.max_value}")
-        
+
+        # Range validation (applies to gt/gte/lt/lte and to both ends of `between`)
+        for num in numeric_values:
+            if indicator.min_value is not None and num < indicator.min_value:
+                errors.append(
+                    f"{prefix} ({field}): value {num:g} is below minimum {indicator.min_value:g}"
+                )
+            if indicator.max_value is not None and num > indicator.max_value:
+                errors.append(
+                    f"{prefix} ({field}): value {num:g} is above maximum {indicator.max_value:g}. "
+                    f"Check the unit selector (K/M/B); the value looks unit-scaled by mistake."
+                )
+
         return errors
 

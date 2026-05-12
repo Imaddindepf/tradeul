@@ -6,7 +6,7 @@ Endpoints para gestionar plantillas del Screener por usuario
 import json
 from datetime import datetime
 from typing import Optional, List, Any, Dict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from fastapi import APIRouter, HTTPException, Depends
 import structlog
@@ -32,7 +32,16 @@ class IndicatorParams(BaseModel):
 
 
 class FilterCondition(BaseModel):
-    """Condición de filtro con parámetros dinámicos"""
+    """Condición de filtro con parámetros dinámicos.
+
+    `extra="allow"` se usa para preservar metadata SOLO de UI que el frontend
+    persiste en cada filtro de tipo `units` (Market Cap, Volume, Float...):
+    `multiplier`, `displayValue`, `displayMin`, `displayMax`. Sin esto Pydantic
+    los descartaría al guardar el template y al recargarlo el frontend perdería
+    el K/M/B configurado por el usuario, provocando el bug de re-escalado.
+    """
+    model_config = ConfigDict(extra="allow")
+
     field: str = Field(..., description="Campo/indicador (sma, rsi, price, etc.)")
     params: Optional[IndicatorParams] = Field(None, description="Parámetros del indicador")
     operator: str = Field(..., description="Operador (gt, gte, lt, lte, eq, between)")

@@ -2,15 +2,21 @@
 Screener API routes
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List, Any
 import math
+import os
+from typing import Any, Optional
+
 import structlog
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from ..schemas import ScreenerRequest, ScreenerResponse
 from core.engine import ScreenerEngine
 
 logger = structlog.get_logger(__name__)
+
+# Verbose logging of full request bodies (filters_detail). Useful for
+# diagnosing UI bugs reported by users; keep off by default in production.
+LOG_REQUEST_BODIES = os.getenv("SCREENER_LOG_REQUEST_BODIES", "1") == "1"
 
 
 def clean_float_values(data: Any) -> Any:
@@ -47,47 +53,73 @@ def set_engine(engine: ScreenerEngine):
 @router.post("", response_model=ScreenerResponse)
 async def run_screener(
     request: ScreenerRequest,
-    engine: ScreenerEngine = Depends(get_engine)
+    engine: ScreenerEngine = Depends(get_engine),
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
 ):
     """
     Run stock screener with filters
-    
+
     Execute a screener query with custom filters. All filters are combined with AND logic.
-    
+
     Example filters:
     - Price between $10-$100: `{"field": "price", "operator": "between", "value": [10, 100]}`
     - RSI oversold: `{"field": "rsi_14", "operator": "lt", "value": 30}`
     - High volume: `{"field": "relative_volume", "operator": "gt", "value": 2}`
     - Above SMA 50: `{"field": "above_sma_50", "operator": "eq", "value": true}`
+
+    The optional `X-User-Id` header is used purely for diagnostics so requests
+    can be attributed to a user when investigating bug reports.
     """
-    logger.info(
-        "screener_request",
-        filters_count=len(request.filters),
-        sort_by=request.sort_by,
-        limit=request.limit
-    )
-    
     # Convert filters to dict format
     filters = [f.model_dump() for f in request.filters]
-    
+
+    log_kwargs = dict(
+        filters_count=len(request.filters),
+        sort_by=request.sort_by,
+        limit=request.limit,
+        user_id=x_user_id,
+    )
+    if LOG_REQUEST_BODIES:
+        log_kwargs["filters_detail"] = filters
+        log_kwargs["symbols"] = request.symbols
+
+    logger.info("screener_request", **log_kwargs)
+
+    # Validate filters BEFORE running the query so unit-scaling mistakes
+    # (e.g. avg_volume_20 > 504_000_000_000) surface as a 400 with a clear
+    # message instead of a silent count=0 response that confuses users.
+    is_valid, validation_errors = engine.validator.validate(filters)
+    if not is_valid:
+        logger.warning(
+            "screener_validation_failed",
+            user_id=x_user_id,
+            errors=validation_errors,
+            filters_detail=filters,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Invalid filters", "errors": validation_errors},
+        )
+
     result = engine.screen(
         filters=filters,
         sort_by=request.sort_by,
         sort_order=request.sort_order,
         limit=request.limit,
-        symbols=request.symbols
+        symbols=request.symbols,
     )
-    
+
     # Clean NaN/Infinity values for JSON serialization
     result = clean_float_values(result)
-    
+
     logger.info(
         "screener_response",
         status=result["status"],
         count=result["count"],
-        query_time_ms=result["query_time_ms"]
+        query_time_ms=result["query_time_ms"],
+        user_id=x_user_id,
     )
-    
+
     return ScreenerResponse(**result)
 
 
