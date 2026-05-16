@@ -473,6 +473,14 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
             setNoDataAvailable(true);
             setIsReady(true);
           }
+        } else if (
+          msg.message?.includes('Scan not found') ||
+          msg.message?.includes('Access denied') ||
+          msg.message?.includes('Not authorized')
+        ) {
+          // La clave de ownership en Redis expiró pero los datos sí existen.
+          // resync no verifica ownership y devuelve el snapshot correctamente.
+          ws.send({ action: 'resync', list: listName });
         }
       }
     });

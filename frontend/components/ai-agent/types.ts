@@ -99,4 +99,5 @@ export interface SessionMessage {
   timestamp: number;
   query: string;
   response: string;
+  structured_response?: Record<string, unknown>;
 }

@@ -256,6 +256,10 @@
     "opn": {
       "name": "Openul",
       "description": "Breaking news de ultra-baja latencia"
+    },
+    "api": {
+      "name": "Developer Access",
+      "description": "Gestiona tus API keys para el stream de noticias"
     }
   },
   "scanner": {
@@ -678,6 +682,9 @@
       },
       "OPN": {
         "description": "Breaking news de ultra-baja latencia"
+      },
+      "API": {
+        "description": "Gestionar claves API del stream de breaking news"
       }
     }
   },

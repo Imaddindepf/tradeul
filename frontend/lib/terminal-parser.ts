@@ -319,6 +319,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.OPN.description',
         shortcut: null
     },
+    API: {
+        id: 'api',
+        label: 'API',
+        name: 'Developer Access',
+        descriptionKey: 'terminalCommands.globalCommands.API.description',
+        shortcut: null
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;

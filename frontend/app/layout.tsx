@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import {
   Inter,
+  Instrument_Serif,
   JetBrains_Mono,
   Oxygen_Mono,
   IBM_Plex_Mono,
@@ -17,6 +18,15 @@ import { BacktestFloatingProvider } from '@/contexts/BacktestFloatingContext';
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
+  display: 'swap',
+});
+
+// Editorial display serif — italics for landing page headlines
+const instrumentSerif = Instrument_Serif({
+  weight: '400',
+  style: ['normal', 'italic'],
+  subsets: ['latin'],
+  variable: '--font-instrument-serif',
   display: 'swap',
 });
 
@@ -48,7 +58,7 @@ const firaCode = Fira_Code({
 });
 
 export const metadata: Metadata = {
-  title: 'Tradeul — Real-Time Market Intelligence',
+  title: 'Tradeul · Real-Time Market Intelligence',
   description: 'Professional trading platform with real-time market data, dilution tracking, and intelligent scanning.',
   icons: {
     icon: [
@@ -69,7 +79,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" translate="no" suppressHydrationWarning className={`${inter.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable} notranslate`}>
+    <html lang="en" translate="no" suppressHydrationWarning className={`${inter.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable} notranslate`}>
       <body className="font-sans antialiased">
         <ClerkProvider>
           <ChunkLoadErrorHandler />

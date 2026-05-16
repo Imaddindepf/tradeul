@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # Ingest API (for external sources like OOC bot)
     ingest_secret: Optional[str] = Field(default=None, description="Secret key for POST /api/v1/ingest")
 
+    # Trader API auth
+    trader_auth_enabled: bool = Field(default=True, description="Require API key for trader WS/REST endpoints")
+    trader_rate_limit: int = Field(default=120, description="Max requests per minute per API key")
+    trader_max_connections: int = Field(default=5, description="Max simultaneous WS connections per API key")
+
     # Reconnect
     initial_backoff: float = Field(default=0.5, description="Initial reconnect backoff seconds")
     max_backoff: float = Field(default=30.0, description="Max reconnect backoff seconds")

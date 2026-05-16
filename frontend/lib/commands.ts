@@ -31,6 +31,7 @@ import {
   Gauge,
   LineChart,
   Radio,
+  KeyRound,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -78,6 +79,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'rtn', label: 'RTN', description: 'commands.rtn.description', icon: TrendingUp, isNew: true },
   { id: 'backtest', label: 'BT', description: 'commands.backtest.description', icon: LineChart, isNew: true },
   { id: 'opn', label: 'OPN', description: 'commands.opn.description', icon: Radio, isNew: true },
+  { id: 'api', label: 'API', description: 'commands.api.description', icon: KeyRound },
 ];
 
 /**

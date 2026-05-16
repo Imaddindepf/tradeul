@@ -52,31 +52,44 @@ class DataProcessor:
     @staticmethod
     def normalize_pattern(prices: np.ndarray) -> np.ndarray:
         """
-        Normalize prices to z-scored cumulative returns
-        
-        This makes patterns comparable across different price levels
-        
-        Args:
-            prices: Array of close prices
-            
-        Returns:
-            Normalized vector (mean=0, std=1)
+        Normalize prices to z-scored cumulative returns.
+        Makes patterns comparable across different price levels.
         """
         if len(prices) < 2:
             return np.zeros(len(prices), dtype=np.float32)
-        
-        # Calculate cumulative % returns from first price
+
         returns = (prices / prices[0] - 1) * 100
-        
-        # Z-score normalization
         mean = returns.mean()
         std = returns.std()
-        
-        if std < 1e-8:  # Flat price, avoid division by zero
+
+        if std < 1e-8:
             return np.zeros(len(returns), dtype=np.float32)
-        
-        normalized = (returns - mean) / std
-        return normalized.astype(np.float32)
+
+        return ((returns - mean) / std).astype(np.float32)
+
+    @staticmethod
+    def normalize_volume(volumes: np.ndarray) -> np.ndarray:
+        """
+        Normalize volume profile using z-scored log-volume.
+
+        Using log1p captures the order-of-magnitude differences in volume
+        (a 10x spike is more meaningful than an absolute difference).
+        Z-scoring within the window captures WHERE volume was concentrated,
+        making a pattern with volume front-loaded vs back-loaded distinguishable.
+
+        Returns zeros if volume is uniform or unavailable (neutral signal).
+        """
+        if len(volumes) == 0:
+            return np.zeros(len(volumes), dtype=np.float32)
+
+        log_vols = np.log1p(np.maximum(volumes, 0).astype(np.float64))
+        mean = log_vols.mean()
+        std = log_vols.std()
+
+        if std < 1e-8:
+            return np.zeros(len(log_vols), dtype=np.float32)
+
+        return ((log_vols - mean) / std).astype(np.float32)
     
     @staticmethod
     def calculate_future_returns(
@@ -148,22 +161,25 @@ class DataProcessor:
                 for i in range(0, len(group) - min_length + 1, self.step_size):
                     # Window data
                     window_prices = prices[i:i + self.window_size]
-                    window_volume = volumes[i:i + self.window_size].sum()
-                    
+                    window_volumes = volumes[i:i + self.window_size]
+                    window_volume = window_volumes.sum()
+
                     # Skip low volume patterns
                     if window_volume < min_volume:
                         continue
-                    
+
                     # Future data
                     future_start = i + self.window_size
                     future_end = future_start + self.future_size
                     future_prices = prices[future_start:future_end]
-                    
-                    # Normalize pattern
-                    vector = self.normalize_pattern(window_prices)
-                    
-                    # Skip flat patterns
-                    if np.allclose(vector, 0):
+
+                    # Build 90-dim vector: 45 price (z-scored returns) + 45 volume (z-scored log)
+                    price_vec = self.normalize_pattern(window_prices)
+                    vol_vec = self.normalize_volume(window_volumes)
+                    vector = np.concatenate([price_vec, vol_vec])
+
+                    # Skip flat price patterns
+                    if np.allclose(price_vec, 0):
                         continue
                     
                     # Calculate future returns
@@ -258,29 +274,34 @@ class DataProcessor:
     def get_realtime_pattern(
         self,
         prices: List[float],
-        window_size: int = None
+        volumes: Optional[List[float]] = None,
+        window_size: int = None,
     ) -> np.ndarray:
         """
-        Normalize a real-time price pattern for searching
-        
-        Args:
-            prices: List of recent close prices
-            window_size: Expected window size (for validation)
-            
-        Returns:
-            Normalized vector ready for FAISS search
+        Build a 90-dim query vector from real-time bars.
+
+        First 45 dims: z-scored cumulative price returns.
+        Last 45 dims:  z-scored log-volume profile.
+        If volumes are not available, the volume component is zeroed out
+        (neutral signal — search degrades gracefully to price-only matching).
         """
         window_size = window_size or self.window_size
-        
+
         if len(prices) < window_size:
             raise ValueError(
                 f"Need at least {window_size} prices, got {len(prices)}"
             )
-        
-        # Take last window_size prices
-        prices = np.array(prices[-window_size:])
-        
-        return self.normalize_pattern(prices)
+
+        prices_arr = np.array(prices[-window_size:], dtype=np.float32)
+        price_vec = self.normalize_pattern(prices_arr)
+
+        if volumes is not None and len(volumes) >= window_size:
+            volumes_arr = np.array(volumes[-window_size:], dtype=np.float32)
+            vol_vec = self.normalize_volume(volumes_arr)
+        else:
+            vol_vec = np.zeros(window_size, dtype=np.float32)
+
+        return np.concatenate([price_vec, vol_vec])
 
 
 def process_file_wrapper(args):

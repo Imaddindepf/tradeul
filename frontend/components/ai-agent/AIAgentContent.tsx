@@ -224,7 +224,12 @@ export const AIAgentContent = memo(function AIAgentContent({
           result: {
             success: true,
             code: '',
-            outputs: [{ type: 'research', title: 'AI Analysis', content: entry.response }],
+            outputs: [{
+              type: 'research',
+              title: 'AI Analysis',
+              content: entry.response,
+              structured_response: entry.structured_response,
+            }],
             execution_time_ms: 0,
             timestamp: ts.toISOString(),
           },

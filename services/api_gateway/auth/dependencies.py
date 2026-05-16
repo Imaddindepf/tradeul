@@ -168,3 +168,23 @@ async def require_premium(
         )
     return user
 
+
+async def require_trader(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    """
+    Requerir que el usuario tenga acceso a la API de traders.
+
+    El admin asigna el rol 'trader' en Clerk public_metadata:
+        { "roles": ["trader"] }
+
+    Lanza 403 Forbidden si el usuario no tiene el rol.
+    """
+    if not user.is_trader:
+        logger.warning(f"trader_access_denied user_id={user.id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Trader API access required. Contact your administrator.",
+        )
+    return user
+

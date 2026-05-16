@@ -275,6 +275,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                         query=query,
                         response=final_response[:2000],
                         agent_results_summary=results_summary or None,
+                        structured_response=structured_response,
                     )
                 except Exception as mem_exc:
                     logger.warning(

@@ -83,11 +83,16 @@ class AuthenticatedUser:
     def is_admin(self) -> bool:
         """Verificar si el usuario tiene rol de admin."""
         return "admin" in self.roles or self.metadata.get("role") == "admin"
-    
+
     @property
     def is_premium(self) -> bool:
         """Verificar si el usuario tiene plan premium."""
         return "premium" in self.roles or self.metadata.get("plan") == "premium"
+
+    @property
+    def is_trader(self) -> bool:
+        """Verificar si el usuario tiene acceso a la API de traders (Openul stream)."""
+        return "trader" in self.roles or self.is_admin
     
     @property
     def display_name(self) -> str:

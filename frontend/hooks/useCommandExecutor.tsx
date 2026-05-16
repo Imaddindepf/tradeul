@@ -38,6 +38,7 @@ import { EventTableContent } from '@/components/events/EventTableContent';
 import { ConfigWindow, type AlertWindowConfig, type BacktestFromConfigData } from '@/components/config/ConfigWindow';
 import { BacktestPanelContent } from '@/components/backtest-floating/BacktestFloatingWindow';
 import { OpenULContent } from '@/components/openul';
+import { APIContent } from '@/components/floating-window/APIContent';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
@@ -751,6 +752,19 @@ export function useCommandExecutor() {
                     y: Math.max(70, 90),
                     minWidth: 360,
                     minHeight: 400,
+                });
+                return null;
+
+            case 'api':
+                openWindow({
+                    title: 'API — Developer Access',
+                    content: <APIContent />,
+                    width: 680,
+                    height: 560,
+                    x: Math.max(80, screenWidth / 2 - 340),
+                    y: Math.max(60, screenHeight / 2 - 280),
+                    minWidth: 560,
+                    minHeight: 420,
                 });
                 return null;
 

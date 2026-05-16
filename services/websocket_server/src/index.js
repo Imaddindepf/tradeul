@@ -4851,6 +4851,7 @@ wss.on("connection", async (ws, req) => {
             );
             sendMessage(connectionId, {
               type: "error",
+              list: listName,
               message: validation.error || "Access denied",
             });
             return;

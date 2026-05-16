@@ -30,6 +30,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        serif: ["var(--font-instrument-serif)", "Georgia", "serif"],
         mono: ["var(--font-mono)", "JetBrains Mono", "monospace"],
       },
       animation: {

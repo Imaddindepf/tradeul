@@ -5,13 +5,16 @@ Este módulo implementa la verificación de tokens JWT de Clerk
 sin hacer requests a Clerk en cada petición (usa JWKS cacheado).
 
 Latencia añadida: ~0.5ms por request (verificación criptográfica local).
+Nota: Clerk no incluye public_metadata en el JWT por defecto.
+      Si el token no contiene roles, se hace fallback a la Management API
+      con caché en memoria de 5 minutos por usuario.
 """
 import base64
 import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 import jwt
@@ -21,6 +24,47 @@ from jwt.exceptions import InvalidTokenError
 from .models import AuthenticatedUser, ClerkClaims
 
 logger = logging.getLogger("api_gateway.auth")
+
+# Caché de public_metadata por user_id: {user_id: (metadata_dict, expire_ts)}
+_metadata_cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
+_METADATA_CACHE_TTL = 300  # 5 minutos
+
+
+async def _fetch_clerk_public_metadata(user_id: str) -> Dict[str, Any]:
+    """
+    Obtiene public_metadata directamente de la Clerk Management API.
+    Se llama solo cuando el JWT no contiene roles (configuración por defecto de Clerk).
+    Resultado cacheado 5 minutos por user_id.
+    """
+    now = time.monotonic()
+
+    cached = _metadata_cache.get(user_id)
+    if cached and cached[1] > now:
+        return cached[0]
+
+    secret_key = os.getenv("CLERK_SECRET_KEY", "")
+    if not secret_key:
+        logger.warning("clerk_secret_key_missing cannot enrich metadata")
+        return {}
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(
+                f"https://api.clerk.com/v1/users/{user_id}",
+                headers={"Authorization": f"Bearer {secret_key}"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                metadata = data.get("public_metadata", {})
+                _metadata_cache[user_id] = (metadata, now + _METADATA_CACHE_TTL)
+                logger.info(f"clerk_metadata_fetched user_id={user_id} roles={metadata.get('roles', [])}")
+                return metadata
+            else:
+                logger.warning(f"clerk_metadata_fetch_failed user_id={user_id} status={resp.status_code}")
+                return {}
+    except Exception as e:
+        logger.warning(f"clerk_metadata_fetch_error user_id={user_id} error={e}")
+        return {}
 
 
 class ClerkJWTError(Exception):
@@ -186,8 +230,14 @@ class ClerkJWTVerifier:
             
             # Convertir a nuestros modelos
             claims = ClerkClaims.from_dict(payload)
+
+            # Clerk no incluye public_metadata en el JWT por defecto.
+            # Si no hay roles en el token, los cargamos desde la Management API.
+            if not claims.public_metadata.get("roles"):
+                claims.public_metadata = await _fetch_clerk_public_metadata(claims.sub)
+
             user = AuthenticatedUser.from_claims(claims)
-            
+
             return user
             
         except jwt.ExpiredSignatureError:

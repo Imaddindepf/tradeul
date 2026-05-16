@@ -76,7 +76,8 @@ For CHART_ANALYSIS queries, leave session_context empty.
 <metrics_card_rules>
 For queries about specific tickers, populate the metrics field with data from agent_results.market_data.enriched.
 Use the company names from ticker_info — these are VERIFIED.
-Format numbers with units: "$3.84", "6.78M", "RVOL 8.2x", "+69.01%", "-5.3%".
+Format numbers with units: "$3.84", "6.78M", "2.62x", "+69.01%", "-5.3%".
+For the rvol field use ONLY the multiplier value like "2.62x" — do NOT include the word "RVOL".
 Large numbers abbreviated: 1.5B, 245M, 12.3K.
 For CHART_ANALYSIS or RANKING queries, set metrics to null.
 </metrics_card_rules>
@@ -213,7 +214,7 @@ def _structured_to_markdown(resp: SynthesizerResponse) -> str:
 
     if resp.metrics:
         m = resp.metrics
-        lines = [f"**{m.ticker}** — {m.company_name} ({m.sector}) \\\\"]
+        lines = [f"**{m.ticker}** — {m.company_name} ({m.sector})"]
         kv_pairs = []
         if m.price:
             kv_pairs.append(f"**Price:** {m.price}")
@@ -222,9 +223,11 @@ def _structured_to_markdown(resp: SynthesizerResponse) -> str:
         if m.volume:
             kv_pairs.append(f"**Volume:** {m.volume}")
         if m.rvol:
-            kv_pairs.append(f"(RVOL {m.rvol})")
+            # Strip any "RVOL" prefix the LLM may have added to avoid duplication
+            rvol_val = m.rvol.replace("RVOL", "").strip()
+            kv_pairs.append(f"(RVOL {rvol_val})")
         if kv_pairs:
-            lines.append(" | ".join(kv_pairs) + " \\\\")
+            lines.append(" | ".join(kv_pairs))
         kv2 = []
         if m.rsi:
             kv2.append(f"**RSI(14):** {m.rsi}")
@@ -233,7 +236,7 @@ def _structured_to_markdown(resp: SynthesizerResponse) -> str:
         if m.adx:
             kv2.append(f"**ADX(14):** {m.adx}")
         if kv2:
-            lines.append(" | ".join(kv2) + " \\\\")
+            lines.append(" | ".join(kv2))
         kv3 = []
         if m.week52_range:
             kv3.append(f"**52W Range:** {m.week52_range}")
