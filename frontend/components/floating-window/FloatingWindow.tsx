@@ -4,20 +4,25 @@ import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, ExternalLink } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { FloatingWindow as FloatingWindowType, useFloatingWindow, WindowIdProvider, WindowStateProvider } from '@/contexts/FloatingWindowContext';
+import { FloatingWindow as FloatingWindowType, useFloatingWindowActions, WindowIdProvider, WindowStateProvider } from '@/contexts/FloatingWindowContext';
 import { LinkGroupSelector, LINK_GROUP_COLORS } from '@/components/linking/LinkGroupSelector';
 import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
+import { useUserPreferencesStore, selectLockMovement, selectLockClose } from '@/stores/useUserPreferencesStore';
 
 interface FloatingWindowProps {
   window: FloatingWindowType;
 }
 
-export function FloatingWindow({ window }: FloatingWindowProps) {
+function FloatingWindowImpl({ window }: FloatingWindowProps) {
   const { t } = useTranslation();
-  const { closeWindow, updateWindow } = useFloatingWindow();
+  const { closeWindow, updateWindow } = useFloatingWindowActions();
   const { getToken, userId } = useAuth();
   const { user } = useUser();
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Dashboard panel locks (bottom-right toolbar)
+  const lockMovement = useUserPreferencesStore(selectLockMovement);
+  const lockClose = useUserPreferencesStore(selectLockClose);
 
   // Detectar si la ventana externa se cerró (desde su pestaña o botón X)
   useEffect(() => {
@@ -379,6 +384,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       maxWidth={window.maxWidth || 1600}
       maxHeight={window.maxHeight || 1000}
       enableResizing={true}
+      lockMovement={lockMovement}
       onPositionChange={handlePositionChange}
       onSizeChange={handleSizeChange}
       onZIndexChange={handleZIndexChange}
@@ -423,20 +429,22 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
                 <ExternalLink className="w-3 h-3 text-muted-fg group-hover:text-primary" />
               </button>
 
-              {/* Close Button */}
-              <button
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleClose();
-                }}
-                className="p-0.5 rounded hover:bg-red-500/15 transition-colors group"
-                aria-label={t('common.close')}
-              >
-                <X className="w-3 h-3 text-muted-fg group-hover:text-red-600" />
-              </button>
+              {/* Close Button (hidden when Lock Close is active) */}
+              {!lockClose && (
+                <button
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClose();
+                  }}
+                  className="p-0.5 rounded hover:bg-red-500/15 transition-colors group"
+                  aria-label={t('common.close')}
+                >
+                  <X className="w-3 h-3 text-muted-fg group-hover:text-red-600" />
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -474,4 +482,16 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
     </FloatingWindowBase>
   );
 }
+
+/**
+ * Memoized to prevent re-rendering every open window when `windows[]`
+ * changes (e.g. opening a new chart). Each instance only re-renders when
+ * its own `window` reference is replaced — which only happens for the
+ * window being updated (openWindow/updateWindow/bringToFront mutate one
+ * entry at a time via `prev.map`).
+ */
+export const FloatingWindow = React.memo(
+  FloatingWindowImpl,
+  (prev, next) => prev.window === next.window,
+);
 

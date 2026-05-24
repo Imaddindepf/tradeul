@@ -25,7 +25,7 @@ const SNIPPETS: Record<Lang, string> = {
   python: `import asyncio, json, websockets
 from websockets.exceptions import ConnectionClosed
 
-URL    = "wss://tradeul.com/stream"
+URL    = "wss://stream.tradeul.com/stream"
 APIKEY = "<your-api-key>"
 TICKERS = []  # [] = all news  |  ["TSLA","NVDA"] = filtered
 
@@ -65,7 +65,7 @@ asyncio.run(connect())`,
 
   javascript: `import WebSocket from 'ws';
 
-const URL    = 'wss://tradeul.com/stream';
+const URL    = 'wss://stream.tradeul.com/stream';
 const APIKEY = '<your-api-key>';
 const TICKERS = [];  // [] = all news  |  ['TSLA','NVDA'] = filtered
 

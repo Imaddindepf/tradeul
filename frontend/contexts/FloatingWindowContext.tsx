@@ -226,7 +226,7 @@ export function useCurrentWindowId(): string | null {
  */
 export function useCloseCurrentWindow(): () => void {
   const windowId = useCurrentWindowId();
-  const { closeWindow } = useFloatingWindow();
+  const { closeWindow } = useFloatingWindowActions();
 
   return useCallback(() => {
     if (windowId) {
@@ -277,8 +277,16 @@ export interface SerializableWindowLayout {
   isMinimized: boolean;
 }
 
-interface FloatingWindowContextType {
-  windows: FloatingWindow[];
+/**
+ * Action surface for the floating window system.
+ *
+ * Splitting state from actions lets ~30 consumers that only need to call
+ * functions (openWindow, broadcastTicker, ...) avoid re-rendering every
+ * time `windows` changes. Each callback below is wrapped in useCallback
+ * with empty/stable deps, so this object's identity stays the same for
+ * the entire app lifetime.
+ */
+export interface FloatingWindowActions {
   openWindow: (config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'> & { id?: string }) => string;
   closeWindow: (id: string) => void;
   updateWindow: (id: string, updates: Partial<FloatingWindow>) => void;
@@ -297,7 +305,17 @@ interface FloatingWindowContextType {
   closeAllWindows: () => void;
 }
 
-const FloatingWindowContext = createContext<FloatingWindowContextType | undefined>(undefined);
+/**
+ * Backwards-compatible legacy surface that exposes BOTH state and actions.
+ * Prefer `useFloatingWindowActions()` or `useFloatingWindowsList()` in new
+ * code — they don't trigger re-renders on unrelated `windows` updates.
+ */
+interface FloatingWindowContextType extends FloatingWindowActions {
+  windows: FloatingWindow[];
+}
+
+const FloatingWindowActionsContext = createContext<FloatingWindowActions | undefined>(undefined);
+const FloatingWindowStateContext = createContext<{ windows: FloatingWindow[] } | undefined>(undefined);
 
 // Usar timestamp + random para IDs únicos (evita problemas con HMR)
 const generateWindowId = () => `window-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -379,6 +397,16 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
       return id;
     }
 
+    // Dashboard "Lock Open" guard:
+    // Block NEW window creation (no explicit id) but always allow restoration
+    // calls that pass an existing id (e.g. workspace switch / cold reload).
+    if (!config.id) {
+      const lockOpen = useUserPreferencesStore.getState().panelLocks?.open;
+      if (lockOpen) {
+        return id;
+      }
+    }
+
     const sameTypeCount = currentWindows.filter((w) => w.title === config.title).length;
     const offset = config.id ? 0 : sameTypeCount * 30;
 
@@ -397,6 +425,11 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const closeWindow = useCallback((id: string) => {
+    // Dashboard "Lock Close" guard: prevent user-driven close while active.
+    // Internal closes (workspace switch, closeAllWindows, etc.) bypass this
+    // because they go through setWindows directly, not closeWindow.
+    const lockClose = useUserPreferencesStore.getState().panelLocks?.close;
+    if (lockClose) return;
     setWindows((prev) => prev.filter((w) => w.id !== id));
   }, []);
 
@@ -533,35 +566,96 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
     };
   }, [windows, saveWindowLayouts]);
 
+  // The actions object only changes if any of the underlying callbacks
+  // changes its identity — and they're all wrapped in stable useCallbacks.
+  // In practice this is created once and never replaced, so consumers of
+  // `useFloatingWindowActions()` NEVER re-render due to window changes.
+  const actions = useMemo<FloatingWindowActions>(
+    () => ({
+      openWindow,
+      closeWindow,
+      updateWindow,
+      bringToFront,
+      minimizeWindow,
+      maximizeWindow,
+      restoreWindow,
+      getMaxZIndex,
+      exportLayout,
+      broadcastTicker,
+      subscribeTicker,
+      getSubscriberCount,
+      setWindowLinkGroup,
+      closeAllWindows,
+    }),
+    [
+      openWindow,
+      closeWindow,
+      updateWindow,
+      bringToFront,
+      minimizeWindow,
+      maximizeWindow,
+      restoreWindow,
+      getMaxZIndex,
+      exportLayout,
+      broadcastTicker,
+      subscribeTicker,
+      getSubscriberCount,
+      setWindowLinkGroup,
+      closeAllWindows,
+    ],
+  );
+
+  const stateValue = useMemo(() => ({ windows }), [windows]);
+
   return (
-    <FloatingWindowContext.Provider
-      value={{
-        windows,
-        openWindow,
-        closeWindow,
-        updateWindow,
-        bringToFront,
-        minimizeWindow,
-        maximizeWindow,
-        restoreWindow,
-        getMaxZIndex,
-        exportLayout,
-        broadcastTicker,
-        subscribeTicker,
-        getSubscriberCount,
-        setWindowLinkGroup,
-        closeAllWindows,
-      }}
-    >
-      {children}
-    </FloatingWindowContext.Provider>
+    <FloatingWindowActionsContext.Provider value={actions}>
+      <FloatingWindowStateContext.Provider value={stateValue}>
+        {children}
+      </FloatingWindowStateContext.Provider>
+    </FloatingWindowActionsContext.Provider>
   );
 }
 
-export function useFloatingWindow() {
-  const context = useContext(FloatingWindowContext);
-  if (!context) {
-    throw new Error('useFloatingWindow must be used within FloatingWindowProvider');
+/**
+ * Subscribe to the floating-window ACTION surface only.
+ * Components using this hook do NOT re-render when windows change.
+ * This is the right hook for ~90% of consumers (anything that just opens,
+ * closes or broadcasts to windows).
+ */
+export function useFloatingWindowActions(): FloatingWindowActions {
+  const ctx = useContext(FloatingWindowActionsContext);
+  if (!ctx) {
+    throw new Error('useFloatingWindowActions must be used within FloatingWindowProvider');
   }
-  return context;
+  return ctx;
 }
+
+/**
+ * Subscribe to the floating-window LIST only.
+ * Re-renders when the `windows` array changes. Use this for the renderer,
+ * layout-options modal, fullscreen guard, or any component that genuinely
+ * needs to iterate / inspect the open windows.
+ */
+export function useFloatingWindowsList(): FloatingWindow[] {
+  const ctx = useContext(FloatingWindowStateContext);
+  if (!ctx) {
+    throw new Error('useFloatingWindowsList must be used within FloatingWindowProvider');
+  }
+  return ctx.windows;
+}
+
+/**
+ * @deprecated Prefer `useFloatingWindowActions()` for components that only
+ * need to call actions, or `useFloatingWindowsList()` for components that
+ * iterate the open windows. This compat hook subscribes to BOTH contexts
+ * and therefore re-renders on every window mutation.
+ */
+export function useFloatingWindow(): FloatingWindowContextType {
+  const actions = useFloatingWindowActions();
+  const windows = useFloatingWindowsList();
+  return useMemo<FloatingWindowContextType>(
+    () => ({ ...actions, windows }),
+    [actions, windows],
+  );
+}
+

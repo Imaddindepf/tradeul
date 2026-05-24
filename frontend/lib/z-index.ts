@@ -86,6 +86,17 @@ export const Z_INDEX = {
   // ============================================================================
   /** Barra de tabs de workspaces en la parte inferior */
   WORKSPACE_TABS: 10002,
+
+  // ============================================================================
+  // CAPA 7: DASHBOARD OVERLAYS (z-10500) - Modales y popovers globales
+  // ============================================================================
+  /**
+   * Overlays globales que deben tapar TODO el chrome (navbar y workspace tabs)
+   * incluido el bottom toolbar (layout options, bug report, lock popover, ...).
+   * Renderizar SIEMPRE via createPortal(document.body) para evitar quedar
+   * atrapados por containing-blocks de ancestros con backdrop-filter/transform.
+   */
+  DASHBOARD_OVERLAY: 10500,
 } as const;
 
 /**

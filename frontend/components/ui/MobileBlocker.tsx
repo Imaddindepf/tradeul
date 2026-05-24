@@ -40,24 +40,15 @@ function isMobileDevice(): boolean {
 export function MobileBlocker({ children }: { children: React.ReactNode }) {
     const { t } = useTranslation();
     const [isMobile, setIsMobile] = useState(false);
-    const [isChecking, setIsChecking] = useState(true);
     const [dismissed, setDismissed] = useState(false);
 
     useEffect(() => {
-        // Solo detectar una vez al montar (no en resize)
+        // Solo detectar una vez al montar (no en resize).
+        // No bloqueamos el primer render con un splash: asumimos desktop (el
+        // caso mayoritario), renderizamos los children y, si tras el mount
+        // detectamos que es móvil, mostramos el overlay encima.
         setIsMobile(isMobileDevice());
-        setIsChecking(false);
     }, []);
-
-    if (isChecking) {
-        return (
-            <div className="min-h-screen bg-surface-hover flex items-center justify-center">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center animate-pulse">
-                    <span className="text-white font-bold text-xl">T</span>
-                </div>
-            </div>
-        );
-    }
 
     if (!isMobile || dismissed) {
         return <>{children}</>;

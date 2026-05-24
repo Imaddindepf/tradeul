@@ -17,6 +17,11 @@ export interface FloatingWindowBaseProps {
   focusedBorderColor?: string;
   initialZIndex?: number;
   stackOffset?: number; // Offset para posicionar múltiples ventanas escalonadas
+  /**
+   * When true the window cannot be dragged nor resized (resize handle hidden).
+   * Used by the dashboard "Lock Movement" toggle in the bottom toolbar.
+   */
+  lockMovement?: boolean;
   onZIndexChange?: (zIndex: number) => void;
   onSizeChange?: (size: { width: number; height: number }) => void;
   onPositionChange?: (position: { x: number; y: number }) => void;
@@ -42,6 +47,7 @@ function FloatingWindowBaseComponent({
   focusedBorderColor = 'border-primary',
   initialZIndex,
   stackOffset = 0,
+  lockMovement = false,
   onZIndexChange,
   onSizeChange,
   onPositionChange,
@@ -115,6 +121,7 @@ function FloatingWindowBaseComponent({
 
   // Drag handler optimizado con bounds checking
   const handleDragStart = useCallback((e: MouseEvent<HTMLDivElement>) => {
+    if (lockMovement) return; // Movement locked from dashboard toolbar
     const target = e.target as HTMLElement;
     if (!target.closest(`.${dragHandleClassName}`)) return;
 
@@ -165,10 +172,11 @@ function FloatingWindowBaseComponent({
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [dragHandleClassName, position.x, position.y, size.width, bringToFront, onPositionChange]);
+  }, [dragHandleClassName, position.x, position.y, size.width, bringToFront, onPositionChange, lockMovement]);
 
   // Resize handler optimizado
   const handleResizeStart = useCallback((e: MouseEvent<HTMLDivElement>) => {
+    if (lockMovement) return; // Resize also locked when movement is locked
     e.preventDefault();
     e.stopPropagation();
 
@@ -204,7 +212,7 @@ function FloatingWindowBaseComponent({
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [size.width, size.height, minWidth, minHeight, maxWidth, maxHeight, bringToFront, onSizeChange]);
+  }, [size.width, size.height, minWidth, minHeight, maxWidth, maxHeight, bringToFront, onSizeChange, lockMovement]);
 
   // Capturar click en fase de captura para traer al frente SIEMPRE
   useEffect(() => {
@@ -240,8 +248,8 @@ function FloatingWindowBaseComponent({
         {children}
       </div>
 
-      {/* Resize handle */}
-      {enableResizing && (
+      {/* Resize handle (hidden when movement is locked) */}
+      {enableResizing && !lockMovement && (
         <div
           onMouseDown={handleResizeStart}
           className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize hover:bg-primary/20 transition-colors"

@@ -7,7 +7,7 @@ import { useClerk, useUser } from '@clerk/nextjs';
 import { User, Settings, LogOut } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
 import { UserProfileContent, USER_PROFILE_WINDOW_CONFIG } from '@/components/floating-window';
 
 interface NavbarProps {
@@ -59,7 +59,7 @@ export function UserMenu() {
   const { signOut } = useClerk();
   const { user } = useUser();
   const { executeCommand } = useCommandExecutor();
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
 
   const handleOpenProfile = () => {
     setIsOpen(false);

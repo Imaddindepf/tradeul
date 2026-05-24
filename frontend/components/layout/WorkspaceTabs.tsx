@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { Z_INDEX } from '@/lib/z-index';
+import { DashboardToolbar } from '@/components/dashboard-toolbar/DashboardToolbar';
 
 interface WorkspaceTabsProps {
   /** Función para obtener el contenido de una ventana por layout */
@@ -220,6 +221,9 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
 
       {/* Spacer derecho */}
       <div className="flex-1" />
+
+      {/* Toolbar inferior derecha: layout options, lock, report bug, fullscreen */}
+      <DashboardToolbar />
     </div>
   );
 }
