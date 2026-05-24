@@ -1386,7 +1386,10 @@ export default function Home() {
   // Auto-redirect signed-in users straight into the app. Avoids the
   // "I just logged in but I'm still on the landing page" UX trap and is
   // also our last line of defence in case any auth flow returns to `/`
-  // instead of `/workspace`.
+  // instead of `/workspace`. We deliberately let the middleware handle
+  // pending-task redirects (e.g. /tasks/reset-password) — pushing
+  // `/workspace` here is fine because the middleware will intercept
+  // and bounce to the task page when needed.
   useEffect(() => {
     if (isLoaded && isSignedIn) {
       router.replace('/workspace');
@@ -1607,8 +1610,15 @@ export default function Home() {
             </button>
           </div>
 
-          {/* CTA button */}
-          <SignedOut>
+          {/*
+            CTA button. `treatPendingAsSignedOut` makes Clerk treat sessions
+            with an unresolved `currentTask` (e.g. mandatory password reset)
+            as signed-out so we keep the "Sign up" CTA visible until the
+            task is resolved by the middleware-driven redirect to /tasks/...
+            Otherwise the user would see "Open app" but the app would bounce
+            them back to the task page in an infinite loop.
+          */}
+          <SignedOut treatPendingAsSignedOut>
             <button
               onClick={() => setAuthPanel('signup')}
               className="ml-2 px-5 py-2 rounded-full bg-[#2563eb] text-white font-medium text-sm hover:bg-[#1d4ed8] transition-colors shadow-[0_6px_20px_-6px_rgba(37,99,235,0.55)]"
@@ -1616,7 +1626,7 @@ export default function Home() {
               {t('landing.nav.signUp')}
             </button>
           </SignedOut>
-          <SignedIn>
+          <SignedIn treatPendingAsSignedOut>
             <Link
               href="/workspace"
               className="ml-2 px-5 py-2 rounded-full bg-[#2563eb] text-white font-medium text-sm hover:bg-[#1d4ed8] transition-colors flex items-center gap-2 shadow-[0_6px_20px_-6px_rgba(37,99,235,0.55)]"
