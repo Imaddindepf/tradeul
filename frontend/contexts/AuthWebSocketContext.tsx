@@ -17,6 +17,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, ReactNode, useMemo } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useRxWebSocket, UseRxWebSocketReturn } from '@/hooks/useRxWebSocket';
+import { buildWsAuthUrl } from '@/lib/ws-auth';
 
 interface AuthWebSocketContextType {
     ws: UseRxWebSocketReturn;
@@ -31,22 +32,6 @@ const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/sc
 
 // Intervalo de refresh del token (50 segundos, antes de que expire el token de 60s)
 const TOKEN_REFRESH_INTERVAL = 50000;
-
-/**
- * Construir URL con token
- */
-function buildAuthUrl(baseUrl: string, token: string): string {
-    try {
-        const wsProtocol = baseUrl.startsWith('wss://') ? 'wss:' : 'ws:';
-        const httpUrl = baseUrl.replace(/^wss?:\/\//, 'http://');
-        const url = new URL(httpUrl);
-        url.searchParams.set('token', token);
-        return url.toString().replace(/^http:\/\//, wsProtocol + '//');
-    } catch {
-        const separator = baseUrl.includes('?') ? '&' : '?';
-        return `${baseUrl}${separator}token=${token}`;
-    }
-}
 
 interface AuthWebSocketProviderProps {
     children: ReactNode;
@@ -106,7 +91,7 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
                 const token = await getToken({ skipCache: true });
                 if (token) {
                     tokenRef.current = token;
-                    const urlWithToken = buildAuthUrl(WS_BASE_URL, token);
+                    const urlWithToken = buildWsAuthUrl(WS_BASE_URL, token);
                     setWsUrl(urlWithToken);
                     setIsAuthenticated(true);
                     setIsReady(true);
@@ -152,7 +137,7 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
                 const newToken = await getToken({ skipCache: true });
                 if (newToken && newToken !== tokenRef.current) {
                     tokenRef.current = newToken;
-                    const newUrl = buildAuthUrl(WS_BASE_URL, newToken);
+                    const newUrl = buildWsAuthUrl(WS_BASE_URL, newToken);
 
                     // Actualizar token en SharedWorker:
                     // - Si conectado: envía refresh_token al servidor
@@ -184,7 +169,7 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
                 const newToken = await getToken({ skipCache: true });
                 if (newToken) {
                     tokenRef.current = newToken;
-                    const newUrl = buildAuthUrl(WS_BASE_URL, newToken);
+                    const newUrl = buildWsAuthUrl(WS_BASE_URL, newToken);
                     ws.updateToken(newUrl, newToken);
                 }
             } catch (error) {

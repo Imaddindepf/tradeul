@@ -2,15 +2,16 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Check, X, Users, Loader2 } from 'lucide-react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useUser } from '@clerk/nextjs';
 import { useChatStore } from '@/stores/useChatStore';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
 
 export function ChatInvites() {
-  const { getToken, isSignedIn } = useAuth();
+  const { authFetch, isSignedIn } = useAuthFetch();
   const { user } = useUser();
   const { invites, addInvite, removeInvite, groups, setGroups, setActiveTarget } = useChatStore();
   const [loading, setLoading] = useState<string | null>(null);
@@ -23,10 +24,7 @@ export function ChatInvites() {
 
     const fetchInvites = async () => {
       try {
-        const token = await getToken();
-        const res = await fetch(`${CHAT_API_URL}/api/chat/invites`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await authFetch(`${CHAT_API_URL}/api/chat/invites`);
         if (res.ok) {
           const data = await res.json();
           // Add each invite to store (avoiding duplicates)
@@ -49,22 +47,20 @@ export function ChatInvites() {
     };
 
     fetchInvites();
-  }, [isSignedIn, getToken, addInvite]);
+  }, [isSignedIn, authFetch, addInvite]);
 
   const handleAccept = async (invite: typeof invites[0]) => {
     setLoading(invite.group_id);
     try {
-      const token = await getToken();
       const displayName = user?.username || user?.fullName || user?.firstName || 'Usuario';
-      
-      const response = await fetch(`${CHAT_API_URL}/api/chat/invites/group/${invite.group_id}/accept`, {
-        method: 'POST',
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
+
+      const response = await authFetch(
+        `${CHAT_API_URL}/api/chat/invites/group/${invite.group_id}/accept`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ user_name: displayName }),
         },
-        body: JSON.stringify({ user_name: displayName }),
-      });
+      );
 
       if (response.ok) {
         const group = await response.json();
@@ -84,11 +80,10 @@ export function ChatInvites() {
   const handleDecline = async (invite: typeof invites[0]) => {
     setLoading(invite.group_id);
     try {
-      const token = await getToken();
-      await fetch(`${CHAT_API_URL}/api/chat/invites/group/${invite.group_id}/decline`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await authFetch(
+        `${CHAT_API_URL}/api/chat/invites/group/${invite.group_id}/decline`,
+        { method: 'POST' },
+      );
       removeInvite(invite.group_id);
     } catch (error) {
       console.error('Failed to decline invite:', error);

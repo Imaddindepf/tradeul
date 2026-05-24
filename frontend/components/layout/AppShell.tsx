@@ -5,6 +5,7 @@ import { Navbar } from './Navbar';
 import { AnnouncementBanner } from './AnnouncementBanner';
 import { FloatingWindowProvider } from '@/contexts/FloatingWindowContext';
 import { AuthWebSocketProvider } from '@/contexts/AuthWebSocketContext';
+import { ChatWebSocketProvider } from '@/contexts/ChatWebSocketContext';
 import { SquawkProvider } from '@/contexts/SquawkContext';
 import { FloatingWindowManager } from '@/components/floating-window/FloatingWindowManager';
 import { CatalystAlertsPopup, CatalystDetectorProvider } from '@/components/catalyst-alerts';
@@ -39,7 +40,8 @@ function GlobalHooksHandler() {
 export function AppShell({ children }: AppShellProps) {
   return (
     <AuthWebSocketProvider>
-      <SquawkProvider>
+      <ChatWebSocketProvider>
+        <SquawkProvider>
         <FloatingWindowProvider>
           {/* GlobalHooksHandler: hooks globales (reset dia, sync filtros) */}
           <GlobalHooksHandler />
@@ -71,7 +73,8 @@ export function AppShell({ children }: AppShellProps) {
             </InsightsProvider>
           </NewsProvider>
         </FloatingWindowProvider>
-      </SquawkProvider>
+        </SquawkProvider>
+      </ChatWebSocketProvider>
     </AuthWebSocketProvider>
   );
 }

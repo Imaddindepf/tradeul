@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
+import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { Loader2, Users, Check, X, AlertTriangle, Copy, ExternalLink } from 'lucide-react';
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
@@ -21,7 +22,8 @@ interface InviteLinkInfo {
 export default function InvitePage() {
     const params = useParams();
     const router = useRouter();
-    const { isSignedIn, getToken, isLoaded } = useAuth();
+    const { isSignedIn, isLoaded } = useAuth();
+    const { authFetch } = useAuthFetch();
     const code = params.code as string;
 
     const [linkInfo, setLinkInfo] = useState<InviteLinkInfo | null>(null);
@@ -76,14 +78,14 @@ export default function InvitePage() {
 
         setJoining(true);
         try {
-            const token = await getToken();
-            const res = await fetch(`${CHAT_API_URL}/api/chat/invites/invite-links/${code}/join`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-            });
+            // useAuthFetch automatically attaches the Clerk JWT and retries
+            // ONCE on 401 with a fresh token — important here because the
+            // invitee might have just completed OAuth and the cached token
+            // can race with Clerk's user-creation webhook.
+            const res = await authFetch(
+                `${CHAT_API_URL}/api/chat/invites/invite-links/${code}/join`,
+                { method: 'POST' },
+            );
 
             const data = await res.json();
 
@@ -110,7 +112,7 @@ export default function InvitePage() {
         } finally {
             setJoining(false);
         }
-    }, [isSignedIn, joining, joinResult, getToken, code, router]);
+    }, [isSignedIn, joining, joinResult, authFetch, code, router]);
 
     // Auto-join when user signs in and link is valid
     useEffect(() => {
