@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ExternalLink, History, Maximize2, SlidersHorizontal, Star } from 'lucide-react';
+import {
+  X, ExternalLink, History, Maximize2, SlidersHorizontal,
+} from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FAKE DATA
@@ -679,6 +681,230 @@ function MockMarketStatus() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// NOTA: Los mini-calcos de ventanas (MockPatternMatch, MockSECFilings,
+// MockMarketPulse, MockDilution, MockBacktest, MockNotes, MockAlerts,
+// MockWorkflow) fueron eliminados. La paleta es solo una capa demostrativa
+// y al seleccionar un comando se cierra sin abrir ninguna ventana.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// (Los 8 Mock* de ventanas-calco fueron eliminados; la paleta no abre nada.)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMAND PALETTE — calco fiel de components/ui/CommandPalette.tsx
+//   · Decorativa: al seleccionar un comando se cierra sin abrir ventanas.
+//   · Posición: absolute left-4 top-12 (anclada top-left dentro del mockup,
+//     NO modal centrado, SIN backdrop).
+//   · Catálogo completo de MAIN_COMMANDS del producto real (lib/commands.ts).
+//   · Prefijo "SC" expande submenu de scanners (heading "System"), igual que real.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type HeroCommand = {
+  id: string;
+  label: string;       // mostrado en el recuadro monospace
+  description: string; // texto muted a la derecha
+  isNew?: boolean;
+};
+
+// Catálogo completo = MAIN_COMMANDS de lib/commands.ts (orden y descripciones
+// coinciden con el producto). Las descriptions usan strings literales en inglés
+// (evitamos i18n aquí porque el landing es en inglés).
+const HERO_MAIN_COMMANDS: HeroCommand[] = [
+  { id: 'SC',      label: 'SC',      description: 'Scanner categories' },
+  { id: 'WL',      label: 'WL',      description: 'Watchlist' },
+  { id: 'DT',      label: 'DT',      description: 'Dilution Tracker' },
+  { id: 'SEC',     label: 'SEC',     description: 'SEC filings in real-time' },
+  { id: 'NEWS',    label: 'NEWS',    description: 'Breaking news feed' },
+  { id: 'INS',     label: 'INS',     description: 'Insider transactions', isNew: true },
+  { id: 'ALERTS',  label: 'ALERTS',  description: 'Rules engine · alerts' },
+  { id: 'FA',      label: 'FA',      description: 'Fundamental Analysis' },
+  { id: 'IPO',     label: 'IPO',     description: 'Upcoming & recent IPOs' },
+  { id: 'PROFILE', label: 'PROFILE', description: 'Company profile' },
+  { id: 'SET',     label: 'SET',     description: 'Settings' },
+  { id: 'CHAT',    label: 'CHAT',    description: 'Community chat' },
+  { id: 'NOTE',    label: 'NOTE',    description: 'Notes & journal' },
+  { id: 'PM',      label: 'PM',      description: 'Pattern match — FAISS analogs' },
+  { id: 'GR',      label: 'GR',      description: 'Graph ratio' },
+  { id: 'SCREEN',  label: 'SCREEN',  description: 'Custom screener' },
+  { id: 'MP',      label: 'MP',      description: 'Multi-period comparison' },
+  { id: 'INSIDER', label: 'INSIDER', description: 'Insider feed' },
+  { id: 'FAN',     label: 'FAN',     description: 'Fundamental analysis — AI', isNew: true },
+  { id: 'AI',      label: 'AI',      description: 'AI Agent — multi-agent pipeline', isNew: true },
+  { id: 'ERN',     label: 'ERN',     description: 'Earnings calendar', isNew: true },
+  { id: 'PREDICT', label: 'PREDICT', description: 'Forecast models', isNew: true },
+  { id: 'HM',      label: 'HM',      description: 'Market heatmap', isNew: true },
+  { id: 'HDS',     label: 'HDS',     description: 'Holders & institutions', isNew: true },
+  { id: 'EVN',     label: 'EVN',     description: 'Event strategies', isNew: true },
+  { id: 'BUILD',   label: 'BUILD',   description: 'Workflow builder' },
+  { id: 'PULSE',   label: 'PULSE',   description: 'Market Pulse — sectors heatmap', isNew: true },
+  { id: 'RTN',     label: 'RTN',     description: 'Sector rotation', isNew: true },
+  { id: 'BT',      label: 'BT',      description: 'Backtest replay & stats', isNew: true },
+  { id: 'OPN',     label: 'OPN',     description: 'OpenUL news stream', isNew: true },
+  { id: 'API',     label: 'API',     description: 'API keys' },
+];
+
+// SCANNER submenu — se muestra cuando el input empieza con "SC"
+// (calco de SCANNER_COMMANDS del CommandPalette real).
+const HERO_SCANNER_COMMANDS: HeroCommand[] = [
+  { id: 'gappers_up',   label: 'Gap Up',      description: 'Stocks gapping up with volume' },
+  { id: 'gappers_down', label: 'Gap Down',    description: 'Stocks gapping down' },
+  { id: 'momentum_up',  label: 'Mom Up',      description: 'Momentum up with rising RVOL' },
+  { id: 'momentum_down',label: 'Mom Down',    description: 'Momentum down' },
+  { id: 'winners',      label: 'Top Gainers', description: 'Top gainers intraday' },
+  { id: 'losers',       label: 'Top Losers',  description: 'Top losers intraday' },
+  { id: 'new_highs',    label: 'New Highs',   description: 'Stocks making new highs' },
+  { id: 'new_lows',     label: 'New Lows',    description: 'Stocks making new lows' },
+  { id: 'anomalies',    label: 'Anomalies',   description: 'Unusual price / volume activity' },
+  { id: 'high_volume',  label: 'High Vol',    description: 'Volume surge candidates' },
+  { id: 'reversals',    label: 'Reversals',   description: 'Intraday reversal candidates' },
+  { id: 'post_market',  label: 'Post-Mkt',    description: 'Post-market movers' },
+  { id: 'with_news',    label: 'With News',   description: 'Movers with breaking news' },
+];
+
+/**
+ * HeroCommandPalette — calco fiel de CommandPalette.tsx real:
+ *   · Posición: absolute left-4 top-12 (dentro del mockup)
+ *   · Ancho: ~340px. Sin backdrop.
+ *   · Top bar: "COMMANDS"/"SCANNER" uppercase mono + X
+ *   · Items: [LABEL mono recuadro] description text-muted
+ *   · Submenu: al escribir "SC" aparece lista de scanners con heading "System"
+ *   · Footer: solo ↵
+ *   · onPick: SOLO cierra la paleta (no abre ventanas inventadas)
+ */
+function HeroCommandPalette({
+  open,
+  query,
+  onQueryChange,
+  onClose,
+  onPick,
+}: {
+  open: boolean;
+  query: string;
+  onQueryChange: (q: string) => void;
+  onClose: () => void;
+  onPick: (cmd: HeroCommand) => void;
+}) {
+  const [idx, setIdx] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (open) { setIdx(0); setTimeout(() => inputRef.current?.focus(), 40); } }, [open]);
+
+  const search = query.toLowerCase().trim();
+  const hasScPrefix = search.startsWith('sc');
+
+  // Determinar qué lista mostrar (calco del comportamiento real)
+  const visible: HeroCommand[] = hasScPrefix
+    ? HERO_SCANNER_COMMANDS.filter((c) => {
+        // Después del prefijo "sc", filtramos por el resto
+        const rest = search.replace(/^sc\s*/, '');
+        if (!rest) return true;
+        return c.label.toLowerCase().includes(rest) || c.description.toLowerCase().includes(rest);
+      })
+    : HERO_MAIN_COMMANDS.filter((c) => {
+        if (!search) return true;
+        return c.label.toLowerCase().includes(search)
+            || c.description.toLowerCase().includes(search)
+            || c.id.toLowerCase().includes(search);
+      });
+
+  useEffect(() => { if (idx >= visible.length) setIdx(Math.max(0, visible.length - 1)); }, [visible.length, idx]);
+
+  const heading = hasScPrefix ? 'SCANNER' : 'COMMANDS';
+
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setIdx((i) => Math.min(i + 1, visible.length - 1)); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); setIdx((i) => Math.max(i - 1, 0)); return; }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const c = visible[idx];
+      if (!c) return;
+      // "SC" abre submenu (calco real)
+      if (c.id === 'SC' && !hasScPrefix) {
+        onQueryChange('SC ');
+        setIdx(0);
+        return;
+      }
+      onPick(c);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="absolute z-[70] animate-slideDown"
+      style={{ left: 16, top: 48, width: 340, maxHeight: 'calc(100% - 96px)' }}
+    >
+      <div className="border border-[#1d1d1f] bg-[#0a0a0a] shadow-2xl overflow-hidden flex flex-col">
+        {/* Top bar — calco EXACTO: px-2 py-1 bg-surface-hover, uppercase mono */}
+        <div className="flex items-center justify-between px-2 py-1 border-b border-[#1d1d1f] bg-[#111111] flex-shrink-0">
+          <span className="text-[10px] text-[#515154] uppercase tracking-wide font-mono">{heading}</span>
+          <button
+            onClick={onClose}
+            className="text-[#515154] hover:text-[#e8e8ed] transition-colors"
+          >
+            <X className="w-2.5 h-2.5" />
+          </button>
+        </div>
+
+        {/* Input invisible para capturar typing (como Command.Input hidden del real) */}
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => { onQueryChange(e.target.value); setIdx(0); }}
+          onKeyDown={handleKey}
+          className="absolute opacity-0 pointer-events-none"
+          aria-label="Command palette input"
+        />
+
+        {/* Lista — p-0.5, items px-1.5 py-1 (calco EXACTO) */}
+        <div className="overflow-y-auto p-0.5 flex-1" style={{ maxHeight: 320 }}>
+          {visible.length === 0 && (
+            <div className="py-4 text-center text-[10px] text-[#515154]">No commands found</div>
+          )}
+
+          {hasScPrefix && visible.length > 0 && (
+            <div className="text-[9px] text-[#515154] uppercase px-1 pt-1 pb-0.5">System</div>
+          )}
+
+          {visible.map((cmd, i) => {
+            const selected = i === idx;
+            return (
+              <button
+                key={cmd.id}
+                onMouseEnter={() => setIdx(i)}
+                onClick={() => {
+                  if (cmd.id === 'SC' && !hasScPrefix) { onQueryChange('SC '); setIdx(0); return; }
+                  onPick(cmd);
+                }}
+                className={`w-full flex items-center gap-1.5 px-1.5 py-1 cursor-pointer transition-colors text-left ${
+                  selected ? 'bg-[#1a1a1c]' : 'hover:bg-[#111111]'
+                }`}
+              >
+                <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-[#1d1d1f] text-[#e8e8ed] flex-shrink-0">
+                  {cmd.label}
+                </span>
+                {cmd.isNew && (
+                  <span className="px-1 py-0.5 text-[8px] font-bold bg-[#2997ff] text-white rounded flex-shrink-0">
+                    NEW
+                  </span>
+                )}
+                <span className="text-[10px] text-[#515154] truncate">{cmd.description}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Footer — calco: px-2 py-0.5 bg-surface-hover, solo ↵ alineado a la derecha */}
+        <div className="flex items-center justify-end px-2 py-0.5 border-t border-[#1d1d1f] bg-[#111111] flex-shrink-0">
+          <span className="text-[9px] text-[#515154] font-mono">↵</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN — DashboardHero
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -724,13 +950,53 @@ export function DashboardHero() {
     const update = () => {
       const w = el.getBoundingClientRect().width;
       if (!w) return;
-      setScale(Math.min(Math.max(w / HERO_INTRINSIC_W, 0.5), 1.45));
+      const s = Math.min(Math.max(w / HERO_INTRINSIC_W, 0.5), 1.45);
+      setScale(s);
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // ── COMMAND PALETTE (decorativa) ──────────────────────────────────────────
+  // La paleta se abre con ⌘K / Ctrl+K cuando el hero está en viewport.
+  // Al seleccionar un comando simplemente se cierra — NO abre ventanas.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const heroVisibleRef = useRef(false);
+  const mockupRef     = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = mockupRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => { heroVisibleRef.current = entries[0]?.isIntersecting ?? false; },
+      { threshold: 0.15 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isCmdK = (e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K');
+      if (isCmdK && heroVisibleRef.current) {
+        e.preventDefault();
+        setPaletteOpen((p) => {
+          if (!p) setPaletteQuery('');
+          return !p;
+        });
+      } else if (e.key === 'Escape' && paletteOpen) {
+        setPaletteOpen(false);
+        setPaletteQuery('');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [paletteOpen]);
+
+  const closePalette = () => { setPaletteOpen(false); setPaletteQuery(''); };
 
   // Feed inicial (newest first, ya invertido). Después se van insertando items al top.
   const [newsFeed, setNewsFeed] = useState<FeedItem[]>(() => [...NEWS_ITEMS].reverse());
@@ -807,15 +1073,27 @@ export function DashboardHero() {
       >
         <div className="absolute -inset-6 bg-gradient-to-r from-blue-600/10 via-violet-600/6 to-blue-600/10 blur-3xl rounded-3xl pointer-events-none" />
 
-        <div className="relative h-[560px] rounded-xl overflow-hidden border border-[#1d1d1f] bg-[#080808] shadow-2xl shadow-black/70 flex flex-col">
+        <div
+          ref={mockupRef}
+          className="relative h-[560px] rounded-xl overflow-hidden border border-[#1d1d1f] bg-[#080808] shadow-2xl shadow-black/70 flex flex-col"
+        >
           {/* ── NAVBAR ── */}
           <nav className="h-10 bg-[#080808]/90 backdrop-blur-sm border-b border-[#1d1d1f] flex items-center px-3 gap-2 flex-shrink-0">
             <div className="flex items-center gap-1.5 w-[260px] flex-shrink-0">
               <span className="text-[#515154] font-mono text-[11px] select-none">{'>'}</span>
-              <div className="flex items-center flex-1 px-1.5 py-[3px] rounded-sm bg-[#0d0d0d] border border-[#1d1d1f]">
+              <button
+                type="button"
+                onClick={() => { setPaletteQuery(''); setPaletteOpen(true); }}
+                className="flex items-center flex-1 px-1.5 py-[3px] rounded-sm bg-[#0d0d0d] border border-[#1d1d1f] hover:border-[#2997ff]/40 transition-colors"
+                title="Open command palette (⌘K)"
+              >
                 <span className="font-mono text-[10px] text-[#515154]">command</span>
                 <span className="inline-block w-[1.5px] h-3 bg-[#2997ff] ml-0.5 animate-pulse align-middle" />
-              </div>
+                <span className="ml-auto flex items-center gap-0.5">
+                  <kbd className="text-[8px] font-mono text-[#515154] border border-[#1d1d1f] bg-[#111111] rounded px-1 py-[1px]">⌘</kbd>
+                  <kbd className="text-[8px] font-mono text-[#515154] border border-[#1d1d1f] bg-[#111111] rounded px-1 py-[1px]">K</kbd>
+                </span>
+              </button>
             </div>
             <div className="w-px h-5 bg-[#1d1d1f] mx-1 flex-shrink-0" />
             <div className="flex-1 flex justify-center">
@@ -879,15 +1157,11 @@ export function DashboardHero() {
               <FloatingWindowChrome
                 title="Chart"
                 extra={
-                  <div className="flex items-center gap-1">
-                    <div className="w-[13px] h-[13px] rounded-sm bg-[#2997ff] flex items-center justify-center flex-shrink-0">
-                      <span className="text-white font-bold" style={{ fontSize: 6 }}>N</span>
-                    </div>
-                    <span className="text-[10px] font-medium text-[#e8e8ed]">NVDA</span>
-                    <span className="text-[9px] text-emerald-500 font-mono font-semibold">+3.52%</span>
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#515154]">
-                      <path d="M19 9l-7 7-7-7"/>
-                    </svg>
+                  <div
+                    className="flex items-center h-[18px] px-1.5 rounded border border-[#1d1d1f] bg-[#050505] text-[11px] font-mono text-[#e8e8ed]"
+                    style={{ width: 64 }}
+                  >
+                    NVDA
                   </div>
                 }
               />
@@ -902,14 +1176,6 @@ export function DashboardHero() {
               <MarketTableLayoutHeader
                 title="Daily Breakout BF"
                 showLive={true}
-                extra={
-                  <>
-                    <Star className="w-[10px] h-[10px] text-amber-400 ml-1 flex-shrink-0" />
-                    <span className="ml-1 px-1.5 h-[14px] inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 text-[9px] font-semibold text-amber-300">
-                      {BULL_FLAG_ROWS.length} hits
-                    </span>
-                  </>
-                }
               />
               <BullFlagColHeaders />
               <div className="flex-1 overflow-hidden">
@@ -934,10 +1200,10 @@ export function DashboardHero() {
               style={{ right: 8, width: 340, top: 256, bottom: 8 }}
             >
               <FloatingWindowChrome
-                title="Openul"
+                title="Openul — Breaking News"
                 extra={
-                  <div className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                  <div className="flex items-center gap-1.5 mr-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
                     <span className="text-[9px] font-mono text-[#515154]">{newsFeed.length} today</span>
                   </div>
                 }
@@ -945,6 +1211,14 @@ export function DashboardHero() {
               <MockOpenUL items={newsFeed} totalShown={newsFeed.length} />
             </div>
 
+            {/* ── COMMAND PALETTE (calco fiel; decorativa: no abre ventanas) ── */}
+            <HeroCommandPalette
+              open={paletteOpen}
+              query={paletteQuery}
+              onQueryChange={setPaletteQuery}
+              onClose={closePalette}
+              onPick={closePalette}
+            />
           </div>
 
           {/* ── WORKSPACE TABS — calco exacto de WorkspaceTabs.tsx ── */}

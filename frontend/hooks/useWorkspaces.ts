@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useMemo, useRef, useEffect } from 'react';
-import { useFloatingWindow, type LinkGroup } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useFloatingWindowsList, type LinkGroup } from '@/contexts/FloatingWindowContext';
 import { useAuth } from '@clerk/nextjs';
 import {
   useUserPreferencesStore,
@@ -51,7 +51,8 @@ interface UseWorkspacesReturn {
 }
 
 export function useWorkspaces(): UseWorkspacesReturn {
-  const { windows, openWindow, closeWindow } = useFloatingWindow();
+  const { openWindow, closeWindow } = useFloatingWindowActions();
+  const windows = useFloatingWindowsList();
   const { getToken, isSignedIn } = useAuth();
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 

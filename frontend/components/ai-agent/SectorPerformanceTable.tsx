@@ -2,7 +2,7 @@
 
 import { memo, useState, useMemo, useCallback } from 'react';
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
 import { ChartContent } from '@/components/chart/ChartContent';
 
 interface SectorRow {
@@ -107,7 +107,7 @@ export const SectorPerformanceTable = memo(function SectorPerformanceTable({
     total
 }: SectorPerformanceTableProps) {
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
-    const { openWindow } = useFloatingWindow();
+    const { openWindow } = useFloatingWindowActions();
 
     const sorted = useMemo(() =>
         [...rows].sort((a, b) => (Number(b.avg_change) || 0) - (Number(a.avg_change) || 0)),

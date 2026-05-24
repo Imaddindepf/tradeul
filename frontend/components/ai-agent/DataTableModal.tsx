@@ -2,7 +2,7 @@
 
 import { memo, useState, useMemo, useCallback } from 'react';
 import { Search, Download, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
 import { ChartContent } from '@/components/chart/ChartContent';
 
 interface DataTableContentProps {
@@ -75,7 +75,7 @@ export const DataTableContent = memo(function DataTableContent({
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
 
   const cols = useMemo(() => {
     const priority = ['symbol', 'price', 'change_percent', 'premarket_change_percent', 'volume_today', 'market_cap', 'synthetic_sector', 'sector'];
@@ -222,7 +222,7 @@ export const DataTableContent = memo(function DataTableContent({
 
 // Hook para abrir la tabla como ventana flotante
 export function useOpenDataTable() {
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
 
   return useCallback((props: DataTableContentProps) => {
     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;

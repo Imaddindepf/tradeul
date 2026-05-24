@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useFloatingWindow, useCloseCurrentWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useFloatingWindowsList, useCloseCurrentWindow } from '@/contexts/FloatingWindowContext';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG, PredictionMarketsContent } from '@/components/floating-window';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
@@ -26,7 +26,7 @@ import { RatioAnalysisContent } from '@/components/ratio-analysis';
 import { ScreenerContent } from '@/components/screener';
 import { HistoricalMultipleSecurityContent } from '@/components/historical-multiple-security';
 import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insider-trading';
-import { FinancialAnalystContent } from '@/components/financial-analyst';
+import { FinancialAnalystCanvas } from '@/components/financial-analyst';
 import { AIAgentContent } from '@/components/ai-agent';
 import { InsightsPanel } from '@/components/insights';
 import { HeatmapContent } from '@/components/heatmap';
@@ -57,7 +57,8 @@ function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: st
  */
 export function useCommandExecutor() {
     const { t } = useTranslation();
-    const { openWindow, closeWindow, windows } = useFloatingWindow();
+    const { openWindow, closeWindow } = useFloatingWindowActions();
+    const windows = useFloatingWindowsList();
 
     // Obtener categorías del scanner con traducciones
     const getScannerCategory = useCallback((categoryId: string) => {
@@ -662,10 +663,10 @@ export function useCommandExecutor() {
             case 'fan':
                 openWindow({
                     title: 'Financial Analyst',
-                    content: <FinancialAnalystContent />,
-                    width: 500,
+                    content: <FinancialAnalystCanvas />,
+                    width: 700,
                     height: 650,
-                    x: Math.max(50, screenWidth / 2 - 250),
+                    x: Math.max(50, screenWidth / 2 - 350),
                     y: Math.max(70, screenHeight / 2 - 325),
                     minWidth: 400,
                     minHeight: 500,
@@ -830,10 +831,10 @@ export function useCommandExecutor() {
             case 'des': // Alias
                 openWindow({
                     title: 'Financial Analyst',
-                    content: <FinancialAnalystContent initialTicker={normalizedTicker} />,
-                    width: 500,
+                    content: <FinancialAnalystCanvas initialTicker={normalizedTicker} />,
+                    width: 700,
                     height: 650,
-                    x: Math.max(50, screenWidth / 2 - 250),
+                    x: Math.max(50, screenWidth / 2 - 350),
                     y: Math.max(70, screenHeight / 2 - 325),
                     minWidth: 400,
                     minHeight: 500,
@@ -933,10 +934,10 @@ export function useCommandExecutor() {
                 // Financial Analyst con ticker específico
                 openWindow({
                     title: 'Financial Analyst',
-                    content: <FinancialAnalystContent initialTicker={normalizedTicker} />,
-                    width: 500,
+                    content: <FinancialAnalystCanvas initialTicker={normalizedTicker} />,
+                    width: 700,
                     height: 650,
-                    x: Math.max(50, screenWidth / 2 - 250),
+                    x: Math.max(50, screenWidth / 2 - 350),
                     y: Math.max(70, screenHeight / 2 - 325),
                     minWidth: 400,
                     minHeight: 500,

@@ -12,7 +12,7 @@ import {
     Maximize2,
 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
-import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useWindowState } from '@/contexts/FloatingWindowContext';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 import { CandlestickSelector } from './CandlestickSelector';
 import { getUserTimezone } from '@/lib/date-utils';
@@ -997,7 +997,7 @@ function LiveForecastChart({
 // ============================================================================
 
 export function PatternMatchingContent({ initialTicker }: { initialTicker?: string }) {
-    const { openWindow } = useFloatingWindow();
+    const { openWindow } = useFloatingWindowActions();
     const { state: windowState, updateState: updateWindowState } = useWindowState<PMWindowState>();
     const font = useUserPreferencesStore(selectFont);
     const fontFamily = `var(--font-${font})`;

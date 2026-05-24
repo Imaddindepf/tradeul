@@ -73,6 +73,27 @@ export type TimezoneOption =
   | 'Asia/Singapore'      // SGT - Singapore
   | 'UTC';                // UTC
 
+export type ChartCandleStyle = 'candles' | 'line' | 'area' | 'bars' | 'heikin-ashi';
+
+export interface ChartPreferences {
+  candleStyle: ChartCandleStyle;
+  gridVisible: boolean;
+  watermarkVisible: boolean;
+  logScale: boolean;
+}
+
+/**
+ * Per-dashboard floating-window locks (TradingView / GodelTerminal style).
+ * - movement: disables drag and resize on every floating window
+ * - open:     blocks opening NEW windows (restoration with an explicit id still works)
+ * - close:    hides the X button so existing windows cannot be closed
+ */
+export interface PanelLocks {
+  movement: boolean;
+  open: boolean;
+  close: boolean;
+}
+
 interface ThemePreferences {
   font: FontFamily;
   colorScheme: 'light' | 'dark' | 'system';
@@ -84,6 +105,7 @@ interface ThemePreferences {
 export interface UserPreferences {
   colors: ColorPreferences;
   theme: ThemePreferences;
+  chart: ChartPreferences;
   /** DEPRECATED: usar workspaces[].windowLayouts */
   windowLayouts: WindowLayout[];
   layoutInitialized: boolean;
@@ -97,6 +119,8 @@ export interface UserPreferences {
   workspacesModifiedAt: number;
   columnVisibility: Record<string, Record<string, boolean>>;
   columnOrder: Record<string, string[]>;
+  /** Per-dashboard floating-window locks (persisted locally only) */
+  panelLocks: PanelLocks;
 }
 
 interface UserPreferencesState extends UserPreferences {
@@ -113,6 +137,12 @@ interface UserPreferencesState extends UserPreferences {
   setNewsSquawkEnabled: (enabled: boolean) => void;
   setTimezone: (timezone: TimezoneOption) => void;
   setNewsViewMode: (mode: NewsViewMode) => void;
+
+  // Actions - Chart
+  setCandleStyle: (style: ChartCandleStyle) => void;
+  setChartGridVisible: (visible: boolean) => void;
+  setChartWatermarkVisible: (visible: boolean) => void;
+  setChartLogScale: (enabled: boolean) => void;
   
   // Actions - Layout (DEPRECATED - usar workspaces)
   saveWindowLayouts: (layouts: WindowLayout[]) => void;
@@ -152,6 +182,11 @@ interface UserPreferencesState extends UserPreferences {
   // Actions - Columns
   saveColumnVisibility: (listName: string, visibility: Record<string, boolean>) => void;
   saveColumnOrder: (listName: string, order: string[]) => void;
+
+  // Actions - Panel Locks
+  setPanelLock: (key: keyof PanelLocks, value: boolean) => void;
+  togglePanelLock: (key: keyof PanelLocks) => void;
+  resetPanelLocks: () => void;
   
   // Actions - General
   resetAll: () => void;
@@ -178,6 +213,13 @@ const DEFAULT_THEME: ThemePreferences = {
   newsViewMode: 'table',
 };
 
+const DEFAULT_CHART: ChartPreferences = {
+  candleStyle: 'candles',
+  gridVisible: true,
+  watermarkVisible: false,
+  logScale: false,
+};
+
 // Default Main workspace
 const DEFAULT_MAIN_WORKSPACE: Workspace = {
   id: 'main',
@@ -190,6 +232,7 @@ const DEFAULT_MAIN_WORKSPACE: Workspace = {
 const DEFAULT_PREFERENCES: UserPreferences & { isSyncing: boolean; lastSyncedAt: number | null; isWorkspaceSwitching: boolean } = {
   colors: DEFAULT_COLORS,
   theme: DEFAULT_THEME,
+  chart: DEFAULT_CHART,
   windowLayouts: [], // DEPRECATED
   layoutInitialized: false,
   workspaces: [DEFAULT_MAIN_WORKSPACE],
@@ -201,6 +244,7 @@ const DEFAULT_PREFERENCES: UserPreferences & { isSyncing: boolean; lastSyncedAt:
   isWorkspaceSwitching: false,
   columnVisibility: {},
   columnOrder: {},
+  panelLocks: { movement: false, open: false, close: false },
 };
 
 // ============================================================================
@@ -264,6 +308,29 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       setNewsViewMode: (newsViewMode) =>
         set((state) => ({
           theme: { ...state.theme, newsViewMode },
+        })),
+
+      // ========================================
+      // Chart Actions
+      // ========================================
+      setCandleStyle: (candleStyle) =>
+        set((state) => ({
+          chart: { ...state.chart, candleStyle },
+        })),
+
+      setChartGridVisible: (gridVisible) =>
+        set((state) => ({
+          chart: { ...state.chart, gridVisible },
+        })),
+
+      setChartWatermarkVisible: (watermarkVisible) =>
+        set((state) => ({
+          chart: { ...state.chart, watermarkVisible },
+        })),
+
+      setChartLogScale: (logScale) =>
+        set((state) => ({
+          chart: { ...state.chart, logScale },
         })),
 
       // ========================================
@@ -541,12 +608,29 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         })),
 
       // ========================================
+      // Panel Lock Actions
+      // ========================================
+      setPanelLock: (key, value) =>
+        set((state) => ({
+          panelLocks: { ...state.panelLocks, [key]: value },
+        })),
+
+      togglePanelLock: (key) =>
+        set((state) => ({
+          panelLocks: { ...state.panelLocks, [key]: !state.panelLocks[key] },
+        })),
+
+      resetPanelLocks: () =>
+        set({ panelLocks: { movement: false, open: false, close: false } }),
+
+      // ========================================
       // General Actions
       // ========================================
       resetAll: () => set({
         ...DEFAULT_PREFERENCES,
         workspaces: [{ ...DEFAULT_MAIN_WORKSPACE, createdAt: Date.now() }],
         workspacesModifiedAt: Date.now(),
+        chart: { ...DEFAULT_CHART },
       }),
 
       exportPreferences: () => {
@@ -554,6 +638,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         return JSON.stringify({
           colors: state.colors,
           theme: state.theme,
+          chart: state.chart,
           windowLayouts: state.windowLayouts,
           layoutInitialized: state.layoutInitialized,
           workspaces: state.workspaces,
@@ -569,6 +654,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           set({
             colors: data.colors || DEFAULT_COLORS,
             theme: { ...DEFAULT_THEME, ...(data.theme || {}) },
+            chart: { ...DEFAULT_CHART, ...(data.chart || {}) },
             windowLayouts: data.windowLayouts || [],
             layoutInitialized: data.layoutInitialized ?? false,
             workspaces: data.workspaces || [DEFAULT_MAIN_WORKSPACE],
@@ -589,6 +675,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       partialize: (state) => ({
         colors: state.colors,
         theme: state.theme,
+        chart: state.chart,
         windowLayouts: state.windowLayouts,
         layoutInitialized: state.layoutInitialized,
         workspaces: state.workspaces,
@@ -596,6 +683,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         workspacesModifiedAt: state.workspacesModifiedAt,
         columnVisibility: state.columnVisibility,
         columnOrder: state.columnOrder,
+        panelLocks: state.panelLocks,
       }),
       // Evitar hidratación automática para prevenir errores SSR/CSR mismatch
       skipHydration: true,
@@ -610,11 +698,23 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
 export const selectColors = (state: UserPreferencesState) => state.colors;
 export const selectFont = (state: UserPreferencesState) => state.theme.font;
 export const selectTimezone = (state: UserPreferencesState) => state.theme.timezone || 'America/New_York';
+export const selectChartPrefs = (state: UserPreferencesState) =>
+  state.chart || { candleStyle: 'candles' as const, gridVisible: true, watermarkVisible: false, logScale: false };
 
 // Workspace selectors
 export const selectWorkspaces = (state: UserPreferencesState) => state.workspaces;
 export const selectActiveWorkspaceId = (state: UserPreferencesState) => state.activeWorkspaceId;
-export const selectActiveWorkspace = (state: UserPreferencesState) => 
+export const selectActiveWorkspace = (state: UserPreferencesState) =>
   state.workspaces.find(w => w.id === state.activeWorkspaceId);
+
+// Panel lock selectors
+export const selectPanelLocks = (state: UserPreferencesState) =>
+  state.panelLocks || { movement: false, open: false, close: false };
+export const selectLockMovement = (state: UserPreferencesState) =>
+  state.panelLocks?.movement ?? false;
+export const selectLockOpen = (state: UserPreferencesState) =>
+  state.panelLocks?.open ?? false;
+export const selectLockClose = (state: UserPreferencesState) =>
+  state.panelLocks?.close ?? false;
 
 

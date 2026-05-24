@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { RefreshCw, ExternalLink, TrendingUp, TrendingDown, Users, Building2, Calendar, Globe, Phone } from 'lucide-react';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { TradingChart } from '@/components/chart/TradingChart';
-import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useWindowState } from '@/contexts/FloatingWindowContext';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { TickerNewsMini } from '@/components/news/TickerNewsMini';
 
@@ -181,7 +181,7 @@ function ExpandableText({ text, className = '' }: { text: string; className?: st
 
 function DescriptionContentComponent({ ticker: initialTicker, exchange }: DescriptionContentProps) {
   const { t } = useTranslation();
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
   const { state: windowState, updateState: updateWindowState } = useWindowState<DescriptionWindowState>();
   
   // Use persisted ticker or prop

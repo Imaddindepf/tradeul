@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useFloatingWindow, type LinkGroup } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, type LinkGroup } from '@/contexts/FloatingWindowContext';
 
 const LINK_GROUPS: { value: LinkGroup; color: string; label: string }[] = [
   { value: null,     color: '#94A3B8', label: 'None' },
@@ -40,7 +40,7 @@ interface LinkGroupSelectorProps {
 }
 
 export function LinkGroupSelector({ windowId, currentLinkGroup }: LinkGroupSelectorProps) {
-  const { setWindowLinkGroup } = useFloatingWindow();
+  const { setWindowLinkGroup } = useFloatingWindowActions();
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);

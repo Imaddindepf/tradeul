@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { RefreshCw, AlertTriangle, Copy, Check } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
-import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useWindowState } from '@/contexts/FloatingWindowContext';
 import { SymbioticTable } from './tables/SymbioticTable';
 
 interface FinancialsWindowState {
@@ -179,7 +179,7 @@ interface FinancialsContentProps {
 }
 
 export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
-    const { openWindow } = useFloatingWindow();
+    const { openWindow } = useFloatingWindowActions();
     const { state: windowState, updateState: updateWindowState } = useWindowState<FinancialsWindowState>();
     
     const [data, setData] = useState<SymbioticFinancialData | null>(null);

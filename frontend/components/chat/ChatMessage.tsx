@@ -3,7 +3,7 @@
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { MoreVertical, Copy, Reply, Smile, MessageCircle, CornerDownRight } from 'lucide-react';
 import { type ChatMessage as ChatMessageType, useChatStore } from '@/stores/useChatStore';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
 import { useAuth } from '@clerk/nextjs';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
 import { TickerMention } from './TickerMention';
@@ -24,7 +24,7 @@ interface ChatMessageProps {
 const TICKER_REGEX = /\$([A-Z]{1,5})\b/g;
 
 export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
   const { getToken, userId } = useAuth();
   const { groups, setGroups, setActiveTarget, messages, activeTarget, getTargetKey } = useChatStore();
 

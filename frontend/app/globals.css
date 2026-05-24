@@ -57,6 +57,29 @@ body {
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;
 
+  /* Status colors — used across the app for success / warning / danger / accent */
+  --color-success: #10b981;
+  --color-success-hover: #059669;
+  --color-warning: #f59e0b;
+  --color-warning-hover: #d97706;
+  --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
+  --color-accent: #f59e0b;
+  --color-accent-hover: #d97706;
+
+  /* Chart-specific tokens */
+  --color-chart-up: #10b981;
+  --color-chart-down: #ef4444;
+  --color-chart-up-soft: rgba(16, 185, 129, 0.3);
+  --color-chart-down-soft: rgba(239, 68, 68, 0.3);
+  --color-chart-grid: #f1f5f9;
+  --color-chart-watermark: rgba(100, 116, 139, 0.07);
+  --color-chart-crosshair: #3b82f6;
+  --color-chart-marker-earnings: #2563eb;
+  --color-chart-marker-news: #f59e0b;
+  --color-chart-marker-upcoming: #d946ef;
+  --color-chart-replay: #ea580c;
+
   --color-table-header: #f8fafc;
   --color-table-row-hover: #f1f5f9;
   --color-table-stripe: #fafbfc;
@@ -75,6 +98,7 @@ body {
 
   /* Font (overridden by ThemeProvider) */
   --font-mono-selected: var(--font-jetbrains-mono);
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 }
 
 .dark {
@@ -89,6 +113,29 @@ body {
   --color-muted-fg: #86868b;
   --color-primary: #2997ff;
   --color-primary-hover: #64b5f6;
+
+  /* Status colors — dark variants */
+  --color-success: #34d399;
+  --color-success-hover: #10b981;
+  --color-warning: #fbbf24;
+  --color-warning-hover: #f59e0b;
+  --color-danger: #f87171;
+  --color-danger-hover: #ef4444;
+  --color-accent: #fbbf24;
+  --color-accent-hover: #f59e0b;
+
+  /* Chart-specific tokens — dark variants */
+  --color-chart-up: #22c55e;
+  --color-chart-down: #f87171;
+  --color-chart-up-soft: rgba(34, 197, 94, 0.3);
+  --color-chart-down-soft: rgba(248, 113, 113, 0.3);
+  --color-chart-grid: #111111;
+  --color-chart-watermark: rgba(245, 245, 247, 0.04);
+  --color-chart-crosshair: #2997ff;
+  --color-chart-marker-earnings: #2997ff;
+  --color-chart-marker-news: #fbbf24;
+  --color-chart-marker-upcoming: #f472b6;
+  --color-chart-replay: #fb923c;
 
   --color-table-header: #0a0a0a;
   --color-table-row-hover: #111111;
@@ -372,4 +419,26 @@ td, th {
 
 .animate-highlight-pulse {
   animation: highlight-pulse 0.8s ease-in-out infinite;
+}
+
+/* ============================================================================
+   CHART — Live dot pulse animation
+   ============================================================================ */
+@keyframes chart-live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--color-success);
+    opacity: 1;
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    opacity: 0.9;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    opacity: 1;
+  }
+}
+
+.animate-live-pulse {
+  animation: chart-live-pulse 1.6s ease-out infinite;
 }

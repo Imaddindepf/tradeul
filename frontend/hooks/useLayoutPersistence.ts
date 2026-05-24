@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useFloatingWindow, SerializableWindowLayout } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, SerializableWindowLayout } from '@/contexts/FloatingWindowContext';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { getWindowType } from '@/lib/window-config';
 
@@ -10,7 +10,7 @@ import { getWindowType } from '@/lib/window-config';
  * Estilo Godel Terminal: vuelves al día siguiente y todo está igual
  */
 export function useLayoutPersistence() {
-  const { exportLayout, closeAllWindows } = useFloatingWindow();
+  const { exportLayout, closeAllWindows } = useFloatingWindowActions();
   const saveWindowLayouts = useUserPreferencesStore((s) => s.saveWindowLayouts);
   const windowLayouts = useUserPreferencesStore((s) => s.windowLayouts);
   const clearWindowLayouts = useUserPreferencesStore((s) => s.clearWindowLayouts);

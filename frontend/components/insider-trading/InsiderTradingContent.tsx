@@ -5,7 +5,7 @@ import { RefreshCw, AlertTriangle, ExternalLink, Loader2, HelpCircle, ChevronDow
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 import { getUserTimezone } from '@/lib/date-utils';
-import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useWindowState } from '@/contexts/FloatingWindowContext';
 import { InsiderChartContent } from './InsiderChartContent';
 import { InsiderGlossaryContent } from './InsiderGlossaryContent';
 
@@ -199,7 +199,7 @@ type InsiderTradingWindowState = {
 export function InsiderTradingContent() {
   const font = useUserPreferencesStore(selectFont);
   const fontClass = FONT_CLASSES[font] || 'font-jetbrains-mono';
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
   const { state: windowState, updateState: updateWindowState } = useWindowState<InsiderTradingWindowState>();
 
   // State - restored from window state

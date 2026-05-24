@@ -11,7 +11,7 @@ import { TerminalPalette } from '@/components/ui/TerminalPalette';
 import { HelpModal } from '@/components/ui/HelpModal';
 import { Settings2, LayoutGrid } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useFloatingWindowsList } from '@/contexts/FloatingWindowContext';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
@@ -43,7 +43,7 @@ import { useEventFiltersStore, type ActiveEventFilters } from '@/stores/useEvent
 import { useMarketSessionStore } from '@/stores/useMarketSessionStore';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 // Phase 1: All window types for full restoration
-import { FinancialAnalystContent } from '@/components/financial-analyst';
+import { FinancialAnalystCanvas } from '@/components/financial-analyst';
 import { InsightsPanel } from '@/components/insights';
 import { HeatmapContent } from '@/components/heatmap';
 import { GlossaryContent } from '@/components/glossary';
@@ -57,6 +57,7 @@ import { OpenULContent } from '@/components/openul/OpenULContent';
 import { ConfigWindow, type AlertWindowConfig } from '@/components/config/ConfigWindow';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
+import { BugReportsAdminContent } from '@/components/dashboard-toolbar/BugReportsAdminContent';
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
 function adaptMarketSession(session: MarketSession) {
@@ -100,7 +101,8 @@ export default function ScannerPage() {
   const [activeQuoteTicker, setActiveQuoteTicker] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { windows, openWindow, closeWindow } = useFloatingWindow();
+  const { openWindow, closeWindow } = useFloatingWindowActions();
+  const windows = useFloatingWindowsList();
   const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, getScannerCategory } = useCommandExecutor();
   const { getSavedLayout, hasLayout, isLayoutInitialized } = useLayoutPersistence();
   const { activeWorkspace, saveCurrentLayout } = useWorkspaces();
@@ -110,6 +112,10 @@ export default function ScannerPage() {
 
   const layoutRestoredRef = useRef(false);
   const initialTablesOpenedRef = useRef(false);
+  // Suppresses the "No windows open" empty state during the brief gap between
+  // mount and layout restoration. Without this, F5 reload flashes the empty
+  // state for ~100–250 ms while persisted layouts hydrate and open.
+  const [layoutReady, setLayoutReady] = useState(false);
 
   // Función para reconstruir contenido de ventana por título y componentState
   const getWindowContent = useCallback((layout: { title: string; componentState?: Record<string, unknown> }) => {
@@ -133,7 +139,7 @@ export default function ScannerPage() {
     if (title === 'Historical Multiple Security') return <HistoricalMultipleSecurityContent />;
     if (title === 'Earnings Calendar') return <EarningsCalendarContent />;
     // New window types — full restoration
-    if (title === 'Financial Analyst') return <FinancialAnalystContent />;
+    if (title === 'Financial Analyst') return <FinancialAnalystCanvas />;
     if (title === 'Insights') return <InsightsPanel />;
     if (title === 'Prediction Markets') return <PredictionMarketsContent />;
     if (title === 'Market Heatmap') return <HeatmapContent />;
@@ -146,6 +152,7 @@ export default function ScannerPage() {
     if (title === 'Analyst Ratings') return <AnalystRatingsContent />;
     if (title === 'Market Pulse') return <MarketPulseContent onOpenTicker={(sym) => executeTickerCommand(sym, 'chart')} />;
     if (title === 'Openul — Breaking News') return <OpenULContent />;
+    if (title === 'Bug Reports Admin') return <BugReportsAdminContent />;
     if (title === 'Chart') return <ChartContent ticker={(componentState?.ticker as string) || 'AAPL'} />;
     // Strategy Builder - restore with full callbacks for creating event/scanner windows
     if (title === 'Strategy Builder') return (
@@ -332,6 +339,7 @@ export default function ScannerPage() {
             } as any);
           }
         });
+        setLayoutReady(true);
       }, 100);
       return;
     }
@@ -359,6 +367,7 @@ export default function ScannerPage() {
             });
           }
         });
+        setLayoutReady(true);
       }, 100);
       return;
     }
@@ -367,6 +376,7 @@ export default function ScannerPage() {
     if (isLayoutInitialized && !hasLayout && !hasWorkspaceLayouts) {
       layoutRestoredRef.current = true;
       initialTablesOpenedRef.current = true;
+      setLayoutReady(true);
       return;
     }
 
@@ -401,11 +411,25 @@ export default function ScannerPage() {
         categories.forEach((categoryId, index) => {
           setTimeout(() => {
             openScannerTable(categoryId, index);
+            if (index === categories.length - 1) {
+              setLayoutReady(true);
+            }
           }, index * 50);
         });
+        if (categories.length === 0) {
+          setLayoutReady(true);
+        }
       }, 100);
     }
   }, [mounted, hasLayout, isLayoutInitialized, activeWorkspace, getSavedLayout, getWindowContent, openWindow, openScannerTable]);
+
+  // Safety net: if layout restoration never completes (edge case), reveal the
+  // empty state after 1.5s so the user is never left staring at a blank canvas.
+  useEffect(() => {
+    if (layoutReady) return;
+    const t = setTimeout(() => setLayoutReady(true), 1500);
+    return () => clearTimeout(t);
+  }, [layoutReady]);
 
   // Montaje inicial y keyboard shortcuts
   useEffect(() => {
@@ -611,10 +635,10 @@ export default function ScannerPage() {
       {/* Altura: 100vh - 40px (navbar h-10) - 32px (workspace tabs) */}
       <main
         className="h-[calc(100vh-40px-32px)] relative overflow-hidden transition-colors duration-200"
-        style={{ backgroundColor: 'var(--color-background, #f8fafc)' }}
+        style={{ backgroundColor: 'var(--color-background, inherit)' }}
       >
-        {/* Empty state cuando no hay ventanas */}
-        {hasNoWindows && (
+        {/* Empty state cuando no hay ventanas — only after layout restore completes */}
+        {hasNoWindows && layoutReady && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-muted-fg">
               <LayoutGrid className="h-16 w-16 mx-auto mb-4 text-muted-fg/50" />

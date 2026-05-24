@@ -8,14 +8,14 @@
 
 import { Bell, BellOff, Zap } from 'lucide-react';
 import { useAlertCount, useAlertsEnabled, useCatalystAlertsStore } from '@/stores/useCatalystAlertsStore';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
 import { CatalystAlertsConfig } from './CatalystAlertsConfig';
 
 export function CatalystAlertsBadge() {
   const enabled = useAlertsEnabled();
   const count = useAlertCount();
   const setEnabled = useCatalystAlertsStore((state) => state.setEnabled);
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
   
   const handleClick = () => {
     setEnabled(!enabled);

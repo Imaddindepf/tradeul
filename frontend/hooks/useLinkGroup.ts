@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useFloatingWindow, useCurrentWindowId, type LinkGroup, type TickerBroadcast } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useFloatingWindowsList, useCurrentWindowId, type LinkGroup, type TickerBroadcast } from '@/contexts/FloatingWindowContext';
 
 /**
  * Hook for subscriber windows (chart, FAN, etc.)
@@ -9,7 +9,8 @@ import { useFloatingWindow, useCurrentWindowId, type LinkGroup, type TickerBroad
  * Returns the latest broadcasted ticker, or null.
  */
 export function useLinkGroupSubscription(): TickerBroadcast | null {
-  const { subscribeTicker, windows } = useFloatingWindow();
+  const { subscribeTicker } = useFloatingWindowActions();
+  const windows = useFloatingWindowsList();
   const windowId = useCurrentWindowId();
   const linkGroup = windowId ? (windows.find(w => w.id === windowId)?.linkGroup ?? null) : null;
   const [lastBroadcast, setLastBroadcast] = useState<TickerBroadcast | null>(null);
@@ -32,7 +33,8 @@ export function useLinkGroupSubscription(): TickerBroadcast | null {
  * Returns a publish function and helper to check for subscribers.
  */
 export function useLinkGroupPublisher() {
-  const { broadcastTicker, getSubscriberCount, windows } = useFloatingWindow();
+  const { broadcastTicker, getSubscriberCount } = useFloatingWindowActions();
+  const windows = useFloatingWindowsList();
   const windowId = useCurrentWindowId();
   const linkGroup = windowId ? (windows.find(w => w.id === windowId)?.linkGroup ?? null) : null;
 

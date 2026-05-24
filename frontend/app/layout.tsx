@@ -80,6 +80,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" translate="no" suppressHydrationWarning className={`${inter.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable} notranslate`}>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var d=document.documentElement,p=JSON.parse(localStorage.getItem('tradeul-user-preferences')||'{}'),s=(p.state&&p.state.theme&&p.state.theme.colorScheme)||'light';if(s==='system'){s=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'}if(s==='dark'){d.classList.add('dark');d.style.colorScheme='dark';d.style.background='#000';d.style.setProperty('--color-background','#000')}var bg=p.state&&p.state.colors&&p.state.colors.background;if(bg){d.style.background=bg;d.style.setProperty('--color-background',bg)}}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className="font-sans antialiased">
         <ClerkProvider>
           <ChunkLoadErrorHandler />

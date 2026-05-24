@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useMemo, useCallback } from 'react';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { DataTableContent } from './DataTableModal';
 
@@ -85,7 +85,7 @@ const PREVIEW = 10;
 const THRESHOLD = 10;
 
 export const DataTable = memo(function DataTable({ columns, rows, title, total }: DataTableProps) {
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
 
   const cols = useMemo(() => {
     const priority = ['symbol', 'price', 'change_percent', 'premarket_change_percent', 'volume_today', 'rvol', 'rvol_slot', 'market_cap', 'synthetic_sector', 'synthetic_secto', 'sector'];

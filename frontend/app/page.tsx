@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { SignIn, SignUp, SignedIn, SignedOut } from '@clerk/nextjs';
-import { ArrowRight, X, Zap, Newspaper, BarChart3, Shield, SlidersHorizontal, LineChart, Bell, Target, Layers, Star, ExternalLink, Link2 } from 'lucide-react';
+import { ArrowRight, X, Zap, Newspaper, BarChart3, Shield, SlidersHorizontal, LineChart, Bell, Target, Layers, ExternalLink, Link2 } from 'lucide-react';
 import { useAppTranslation } from '@/hooks/useAppTranslation';
 import { motion, useScroll, useTransform, useSpring, MotionValue, AnimatePresence } from 'framer-motion';
 import { DashboardHero } from '@/components/landing/DashboardHero';
@@ -97,7 +97,6 @@ function HeroScannerTerminal() {
   const [livePrices, setLivePrices] = useState<Record<string, number>>(
     Object.fromEntries(HERO_ROWS.map(r => [r.sym, r.price]))
   );
-  const [clock, setClock] = useState('09:32:41');
 
   useEffect(() => {
     const badgeTimer = setTimeout(() => setNewBadge(false), 2800);
@@ -110,15 +109,7 @@ function HeroScannerTerminal() {
       }));
       setTimeout(() => setFlashSym(null), 420);
     }, 1100);
-    // Reloj ficticio de sesión (09:32 + segundos reales para autenticidad)
-    const clockTimer = setInterval(() => {
-      const d = new Date();
-      const hh = '09';
-      const mm = String(32 + (d.getMinutes() % 3)).padStart(2, '0');
-      const ss = String(d.getSeconds()).padStart(2, '0');
-      setClock(`${hh}:${mm}:${ss}`);
-    }, 1000);
-    return () => { clearInterval(priceTimer); clearInterval(clockTimer); clearTimeout(badgeTimer); };
+    return () => { clearInterval(priceTimer); clearTimeout(badgeTimer); };
   }, []);
 
   return (
@@ -132,18 +123,14 @@ function HeroScannerTerminal() {
       {/* Floating window — calco de FloatingWindow.tsx + MarketTableLayout.tsx */}
       <div className="relative bg-[#0a0a0a] rounded-xl border border-[#1d1d1f] shadow-[0_32px_80px_rgba(0,0,0,0.55)] overflow-hidden">
 
-        {/* Title bar — calco MarketTableLayoutHeader */}
+        {/* Title bar — calco MarketTableLayoutHeader (real: title + dot Live) */}
         <div className="flex items-center justify-between px-2.5 h-[30px] bg-[#0d0d0d] border-b border-[#1d1d1f] select-none">
           <div className="flex items-center gap-2 min-w-0">
-            <Star className="w-[11px] h-[11px] text-amber-400 flex-shrink-0" />
             <h3 className="text-[11.5px] font-semibold text-[#e8e8ed] truncate">Daily Breakout BF</h3>
-            <div className="flex items-center gap-1 ml-0.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-medium text-emerald-500">Live</span>
+            <div className="flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span className="text-[10px] font-medium text-emerald-600">Live</span>
             </div>
-            <span className="ml-1 px-1.5 h-[16px] inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 text-[9.5px] font-semibold text-amber-300 whitespace-nowrap">
-              {HERO_ROWS.length} hits
-            </span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             {/* LinkGroupSelector (chain icon) */}
@@ -230,22 +217,6 @@ function HeroScannerTerminal() {
           })}
         </div>
 
-        {/* Footer — calco de la table-footer real con filtros aplicados */}
-        <div className="flex items-center justify-between px-2.5 py-1.5 bg-[#080808] border-t border-[#1d1d1f]">
-          <div className="flex items-center gap-1.5 text-[9.5px] text-[#6b6b70]">
-            <span className="text-[#9a9aa0] font-medium">{HERO_ROWS.length} results</span>
-            <span className="text-[#303034]">·</span>
-            <span>min_rvol: 2x</span>
-            <span className="text-[#303034]">·</span>
-            <span>pos_in_range &gt; 85</span>
-            <span className="text-[#303034]">·</span>
-            <span>vol_5min &gt; 500%</span>
-          </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[9.5px] font-mono text-[#9a9aa0]">{clock} ET</span>
-          </div>
-        </div>
       </div>
     </div>
   );

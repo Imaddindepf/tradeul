@@ -18,6 +18,7 @@ import { useEffect, useRef } from 'react';
 import { useTickersStore } from '@/stores/useTickersStore';
 import { useNewsStore } from '@/stores/useNewsStore';
 import { useNewsTickersStore } from '@/stores/useNewsTickersStore';
+import { useEventsStore } from '@/stores/useEventsStore';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 
 export function useTradingDayReset() {
@@ -28,6 +29,7 @@ export function useTradingDayReset() {
   const resetTickers = useTickersStore((state) => state.reset);
   const resetNews = useNewsStore((state) => state.reset);
   const resetNewsTickers = useNewsTickersStore((state) => state.resetForNewSession);
+  const resetEvents = useEventsStore((state) => state.reset);
   
   useEffect(() => {
     const subscription = ws.messages$.subscribe((message: any) => {
@@ -46,6 +48,7 @@ export function useTradingDayReset() {
           resetTickers();
           resetNews();
           resetNewsTickers();
+          resetEvents();
         } catch (e) {
         }
         
@@ -57,5 +60,5 @@ export function useTradingDayReset() {
     });
     
     return () => subscription.unsubscribe();
-  }, [ws.messages$, resetTickers, resetNews, resetNewsTickers]);
+  }, [ws.messages$, resetTickers, resetNews, resetNewsTickers, resetEvents]);
 }
