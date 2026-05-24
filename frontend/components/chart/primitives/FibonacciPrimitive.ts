@@ -14,6 +14,12 @@ import type { FibonacciDrawing } from './types';
 import { FIB_LEVELS } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
+import {
+  ZONE_HIT_PADDING,
+  bodyHit,
+  firstHandleHit,
+  inBox,
+} from './hitTesting';
 
 const LEVEL_COLORS: Record<number, string> = {
   0:     '#787b86',
@@ -141,26 +147,15 @@ class FibPaneView implements IPrimitivePaneView {
   }
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
-    if (this._x1 === 0 && this._x2 === 0 || this._levels.length < 2) return null;
+    if ((this._x1 === 0 && this._x2 === 0) || this._levels.length < 2) return null;
     const y1 = this._levels[0].y;
     const y2 = this._levels[this._levels.length - 1].y;
-    // Check anchor points
-    const distP1 = Math.hypot(x - this._x1, y - y1);
-    if (distP1 < 12) {
-      return { cursorStyle: 'crosshair', externalId: this._id + ':p1', zOrder: 'top' };
-    }
-    const distP2 = Math.hypot(x - this._x2, y - y2);
-    if (distP2 < 12) {
-      return { cursorStyle: 'crosshair', externalId: this._id + ':p2', zOrder: 'top' };
-    }
-    // Check if within the fibonacci zone
-    const top = Math.min(y1, y2);
-    const bot = Math.max(y1, y2);
-    const left = Math.min(this._x1, this._x2);
-    const right = Math.max(this._x1, this._x2);
-    if (x >= left - 5 && x <= right + 5 && y >= top - 5 && y <= bot + 5) {
-      return { cursorStyle: 'grab', externalId: this._id, zOrder: 'top' };
-    }
+    const handle = firstHandleHit(x, y, this._id, [
+      [this._x1, y1, ':p1'],
+      [this._x2, y2, ':p2'],
+    ]);
+    if (handle) return handle;
+    if (inBox(x, y, this._x1, y1, this._x2, y2, ZONE_HIT_PADDING)) return bodyHit(this._id);
     return null;
   }
 }
@@ -192,9 +187,9 @@ export class FibonacciPrimitive implements ISeriesPrimitive<Time> {
     this._requestUpdate = null;
   }
 
-  updateDrawing(drawing: FibonacciDrawing, isSelected: boolean, _isHovered?: boolean, dataTimes?: number[]): void {
+  updateDrawing(drawing: FibonacciDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
     this._drawing = drawing;
-    this._isSelected = isSelected;
+    this._isSelected = isSelected || !!isHovered;
     if (dataTimes) this._dataTimes = dataTimes;
     this.updateAllViews();
     this._requestUpdate?.();

@@ -13,6 +13,12 @@ import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { ParallelChannelDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
+import {
+  ZONE_HIT_PADDING,
+  bodyHit,
+  firstHandleHit,
+  inBox,
+} from './hitTesting';
 
 class ChannelRenderer implements IPrimitivePaneRenderer {
   constructor(
@@ -126,34 +132,22 @@ class ChannelPaneView implements IPrimitivePaneView {
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
     if (this._x1 === 0 && this._x2 === 0) return null;
-
-    // 4 corner anchors: A(:p1), B(:p2), C(:p3), D(:p4)
-    for (const [px, py, label] of [
+    const m1x = (this._x1 + this._x2) / 2, m1y = (this._y1 + this._y2) / 2;
+    const m2x = (this._x3 + this._x4) / 2, m2y = (this._y3 + this._y4) / 2;
+    const handle = firstHandleHit(x, y, this._id, [
       [this._x1, this._y1, ':p1'],
       [this._x2, this._y2, ':p2'],
       [this._x3, this._y3, ':p3'],
       [this._x4, this._y4, ':p4'],
-    ] as [number, number, string][]) {
-      if (Math.hypot(x - px, y - py) < 12)
-        return { cursorStyle: 'crosshair', externalId: this._id + label, zOrder: 'top' };
-    }
-
-    // 2 midpoint anchors: M1(:m1), M2(:m2) — for channel width
-    const m1x = (this._x1 + this._x2) / 2, m1y = (this._y1 + this._y2) / 2;
-    const m2x = (this._x3 + this._x4) / 2, m2y = (this._y3 + this._y4) / 2;
-    if (Math.hypot(x - m1x, y - m1y) < 12)
-      return { cursorStyle: 'ns-resize', externalId: this._id + ':m1', zOrder: 'top' };
-    if (Math.hypot(x - m2x, y - m2y) < 12)
-      return { cursorStyle: 'ns-resize', externalId: this._id + ':m2', zOrder: 'top' };
-
-    // Interior — translate
+      [m1x, m1y, ':m1'],
+      [m2x, m2y, ':m2'],
+    ]);
+    if (handle) return handle;
     const minX = Math.min(this._x1, this._x2, this._x3, this._x4);
     const maxX = Math.max(this._x1, this._x2, this._x3, this._x4);
     const minY = Math.min(this._y1, this._y2, this._y3, this._y4);
     const maxY = Math.max(this._y1, this._y2, this._y3, this._y4);
-    if (x >= minX - 5 && x <= maxX + 5 && y >= minY - 5 && y <= maxY + 5) {
-      return { cursorStyle: 'grab', externalId: this._id, zOrder: 'top' };
-    }
+    if (inBox(x, y, minX, minY, maxX, maxY, ZONE_HIT_PADDING)) return bodyHit(this._id);
     return null;
   }
 }
@@ -176,8 +170,8 @@ export class ParallelChannelPrimitive implements ISeriesPrimitive<Time> {
 
   detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
 
-  updateDrawing(drawing: ParallelChannelDrawing, isSelected: boolean, _isHovered?: boolean, dataTimes?: number[]): void {
-    this._drawing = drawing; this._isSelected = isSelected;
+  updateDrawing(drawing: ParallelChannelDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
+    this._drawing = drawing; this._isSelected = isSelected || !!isHovered;
     if (dataTimes) this._dataTimes = dataTimes;
     this.updateAllViews(); this._requestUpdate?.();
   }

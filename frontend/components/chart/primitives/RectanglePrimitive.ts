@@ -13,6 +13,13 @@ import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { RectangleDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
+import {
+  HANDLE_RENDER_RADIUS,
+  ZONE_HIT_PADDING,
+  bodyHit,
+  firstHandleHit,
+  inBox,
+} from './hitTesting';
 
 class RectRenderer implements IPrimitivePaneRenderer {
   constructor(
@@ -45,7 +52,6 @@ class RectRenderer implements IPrimitivePaneRenderer {
       ctx.strokeRect(left, top, w, h);
       resetLineStyle(ctx);
 
-      // Anchor dots when selected
       if (this._isSelected) {
         const corners = [
           [left, top], [left + w, top],
@@ -53,7 +59,7 @@ class RectRenderer implements IPrimitivePaneRenderer {
         ];
         for (const [cx, cy] of corners) {
           ctx.beginPath();
-          ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+          ctx.arc(cx, cy, HANDLE_RENDER_RADIUS, 0, Math.PI * 2);
           ctx.fillStyle = this._color;
           ctx.fill();
           ctx.strokeStyle = '#ffffff';
@@ -100,22 +106,19 @@ class RectPaneView implements IPrimitivePaneView {
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
     if (this._x1 === 0 && this._x2 === 0) return null;
-    // Check corner anchors
-    const distP1 = Math.hypot(x - this._x1, y - this._y1);
-    if (distP1 < 12) {
-      return { cursorStyle: 'crosshair', externalId: this._id + ':p1', zOrder: 'top' };
-    }
-    const distP2 = Math.hypot(x - this._x2, y - this._y2);
-    if (distP2 < 12) {
-      return { cursorStyle: 'crosshair', externalId: this._id + ':p2', zOrder: 'top' };
-    }
-    // Check edges and interior
-    const left = Math.min(this._x1, this._x2);
-    const right = Math.max(this._x1, this._x2);
-    const top = Math.min(this._y1, this._y2);
-    const bot = Math.max(this._y1, this._y2);
-    if (x >= left - 5 && x <= right + 5 && y >= top - 5 && y <= bot + 5) {
-      return { cursorStyle: 'grab', externalId: this._id, zOrder: 'top' };
+    // The four corners are reshape handles. :p1/:p2 are the user-defined
+    // anchor pair; :p3/:p4 are the derived opposite corners.
+    //   :p1 = (x1,y1)             :p3 = (x2,y1)
+    //   :p4 = (x1,y2)             :p2 = (x2,y2)
+    const handle = firstHandleHit(x, y, this._id, [
+      [this._x1, this._y1, ':p1'],
+      [this._x2, this._y2, ':p2'],
+      [this._x2, this._y1, ':p3'],
+      [this._x1, this._y2, ':p4'],
+    ]);
+    if (handle) return handle;
+    if (inBox(x, y, this._x1, this._y1, this._x2, this._y2, ZONE_HIT_PADDING)) {
+      return bodyHit(this._id);
     }
     return null;
   }
@@ -148,9 +151,9 @@ export class RectanglePrimitive implements ISeriesPrimitive<Time> {
     this._requestUpdate = null;
   }
 
-  updateDrawing(drawing: RectangleDrawing, isSelected: boolean, _isHovered?: boolean, dataTimes?: number[]): void {
+  updateDrawing(drawing: RectangleDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
     this._drawing = drawing;
-    this._isSelected = isSelected;
+    this._isSelected = isSelected || !!isHovered;
     if (dataTimes) this._dataTimes = dataTimes;
     this.updateAllViews();
     this._requestUpdate?.();

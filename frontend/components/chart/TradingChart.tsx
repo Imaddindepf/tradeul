@@ -23,6 +23,10 @@ import { RectanglePrimitive } from './primitives/RectanglePrimitive';
 import { CirclePrimitive } from './primitives/CirclePrimitive';
 import { TrianglePrimitive } from './primitives/TrianglePrimitive';
 import { MeasurePrimitive } from './primitives/MeasurePrimitive';
+import { ArrowPrimitive } from './primitives/ArrowPrimitive';
+import { TextPrimitive } from './primitives/TextPrimitive';
+import { PriceRangePrimitive } from './primitives/PriceRangePrimitive';
+import { DateRangePrimitive } from './primitives/DateRangePrimitive';
 import { TentativePrimitive } from './primitives/TentativePrimitive';
 import { timeToPixelX } from './primitives/coordinateUtils';
 import { ChartToolbar } from './ChartToolbar';
@@ -77,6 +81,11 @@ function TradingChartComponent({
     minimal = false,
     onOpenChart,
     onOpenNews,
+    controlledInterval,
+    onIntervalChange: onIntervalChangeExternal,
+    onChartReady,
+    cellOverlay,
+    inLayoutMode = false,
 }: TradingChartProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const tickerSearchRef = useRef<TickerSearchRef>(null);
@@ -92,14 +101,26 @@ function TradingChartComponent({
     const fontFamily = `var(--font-${font})`;
 
     // ── Ticker management ────────────────────────────────────────────────
-    const ticker = useTickerManagement(initialTicker, tickerSearchRef, onTickerChange);
+    const ticker = useTickerManagement(initialTicker, tickerSearchRef, onTickerChange, { inLayoutMode });
     const {
         currentTicker, inputValue, setInputValue, windowId, windowState,
         openWindow, tickerMeta, isMarketOpen,
     } = ticker;
 
     // ── Interval / range / view state ────────────────────────────────────
-    const [selectedInterval, setSelectedInterval] = useState<Interval>(windowState.interval || '1day');
+    // When `controlledInterval` is provided, the parent owns the interval
+    // (multi-chart sync flow). Otherwise we keep our own local state.
+    const intervalIsControlled = controlledInterval !== undefined;
+    const [internalInterval, setInternalInterval] = useState<Interval>(windowState.interval || '1day');
+    const selectedInterval: Interval = intervalIsControlled
+        ? (controlledInterval as Interval)
+        : internalInterval;
+    const setSelectedInterval = useCallback((next: Interval) => {
+        // Stays as a no-op for the controlled path — parent will eventually
+        // push a new prop value down. The internal updater stays for the
+        // uncontrolled branch.
+        if (!intervalIsControlled) setInternalInterval(next);
+    }, [intervalIsControlled]);
     const [selectedRange, setSelectedRange] = useState<TimeRange>(windowState.range || '1Y');
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -110,13 +131,17 @@ function TradingChartComponent({
     const ctrlPressedRef = useRef(false);
 
     // ── Portal for TickerSearch in floating window header ────────────────
+    // Disabled in layout mode: the window header is shared across cells,
+    // so each cell relies on `cellOverlay` instead of leaking its search box.
     const [headerPortalTarget, setHeaderPortalTarget] = useState<HTMLElement | null>(null);
     useEffect(() => {
-        if (windowId && !minimal) {
+        if (windowId && !minimal && !inLayoutMode) {
             const el = document.getElementById(`window-header-extra-${windowId}`);
             if (el) setHeaderPortalTarget(el);
+        } else {
+            setHeaderPortalTarget(null);
         }
-    }, [windowId, minimal]);
+    }, [windowId, minimal, inLayoutMode]);
 
     // ── Replay timestamp tracker ─────────────────────────────────────────
     const [replayTimestamp, setReplayTimestamp] = useState<number | null>(null);
@@ -127,7 +152,8 @@ function TradingChartComponent({
             setReplayTimestamp(replayTimeRef.current);
         }
         setSelectedInterval(newInterval);
-    }, []);
+        onIntervalChangeExternal?.(newInterval);
+    }, [setSelectedInterval, onIntervalChangeExternal]);
 
     // dataRef is declared further down (after `data` is loaded) but the chart
     // crosshair needs it. Declare an early stable ref and keep it in sync below.
@@ -143,6 +169,19 @@ function TradingChartComponent({
         whitespaceSeriesRef, lastPriceInfoRef, beforeDestroyCallbackRef,
         chartVersion, hoveredBar,
     } = chartCore;
+
+    // ── Expose chart handle to external orchestrators (multi-chart sync) ─
+    // Fires whenever the underlying chart is recreated (chartVersion bumps).
+    useEffect(() => {
+        if (!onChartReady) return;
+        if (!chartRef.current || !candleSeriesRef.current) return;
+        onChartReady({
+            chart: chartRef.current,
+            candleSeries: candleSeriesRef.current,
+            ticker: currentTicker,
+            interval: selectedInterval,
+        });
+    }, [chartVersion, onChartReady, currentTicker, selectedInterval]);
 
     // ── Live data ────────────────────────────────────────────────────────
     const {
@@ -230,9 +269,13 @@ function TradingChartComponent({
     );
 
     // ── Persist window state ────────────────────────────────────────────
+    // In layout mode the per-cell state lives in `useChartLayoutStore`, so
+    // we *must not* overwrite the shared windowState (which holds the layout
+    // itself). Skipping persistState here is the right thing to do.
     useEffect(() => {
+        if (inLayoutMode) return;
         ticker.persistState(selectedInterval, selectedRange, showVolume, indicators, nextInstanceIdRef.current);
-    }, [currentTicker, selectedInterval, selectedRange, showVolume, indicators]);
+    }, [currentTicker, selectedInterval, selectedRange, showVolume, indicators, inLayoutMode]);
 
     // ── Broadcast active chart for AI agent ─────────────────────────────
     useEffect(() => {
@@ -447,6 +490,10 @@ function TradingChartComponent({
                     case 'circle': primitive = new CirclePrimitive(drawing); break;
                     case 'triangle': primitive = new TrianglePrimitive(drawing); break;
                     case 'measure': primitive = new MeasurePrimitive(drawing); break;
+                    case 'arrow': primitive = new ArrowPrimitive(drawing); break;
+                    case 'text': primitive = new TextPrimitive(drawing); break;
+                    case 'price_range': primitive = new PriceRangePrimitive(drawing); break;
+                    case 'date_range': primitive = new DateRangePrimitive(drawing); break;
                 }
                 if (primitive) {
                     series.attachPrimitive(primitive);
@@ -796,6 +843,28 @@ function TradingChartComponent({
                 const np1 = series.coordinateToPrice(dragState.p1ScreenY + dy); const np2 = series.coordinateToPrice(dragState.p2ScreenY + dy); const np3 = series.coordinateToPrice(dragState.p3ScreenY + dy);
                 if (r1 && r2 && r3 && np1 != null && np2 != null && np3 != null) updateDrawingPoints(dragState.drawingId, { point1: { time: r1.time, price: np1, logical: r1.logical }, point2: { time: r2.time, price: np2, logical: r2.logical }, point3: { time: r3.time, price: np3, logical: r3.logical } });
             }
+        } else if (dragState.drawingType === 'rectangle' && (dragState.dragMode === 'anchor3' || dragState.dragMode === 'anchor4')) {
+            // Rectangle non-diagonal corners. :p3 = (x2,y1)=TR shifts point1.price + point2.time;
+            // :p4 = (x1,y2)=BL shifts point1.time + point2.price. The opposite axis of each
+            // corner is held by re-asserting the existing values for the unchanged components.
+            const resolved = getTimeAtX(mouseX);
+            const newPrice = sp(series.coordinateToPrice(mouseY), mouseX);
+            if (resolved && newPrice != null) {
+                const cur = drawings.find(d => d.id === dragState.drawingId);
+                if (cur && cur.type === 'rectangle') {
+                    if (dragState.dragMode === 'anchor3') {
+                        updateDrawingPoints(dragState.drawingId, {
+                            point1: { time: cur.point1.time, price: newPrice, logical: cur.point1.logical },
+                            point2: { time: resolved.time, price: cur.point2.price, logical: resolved.logical },
+                        });
+                    } else {
+                        updateDrawingPoints(dragState.drawingId, {
+                            point1: { time: resolved.time, price: cur.point1.price, logical: resolved.logical },
+                            point2: { time: cur.point2.time, price: newPrice, logical: cur.point2.logical },
+                        });
+                    }
+                }
+            }
         } else if (dragState.dragMode === 'anchor1') {
             const resolved = getTimeAtX(mouseX); const newPrice = sp(series.coordinateToPrice(mouseY), mouseX);
             if (resolved && newPrice != null) updateDrawingPoints(dragState.drawingId, { point1: { time: resolved.time, price: newPrice, logical: resolved.logical } });
@@ -818,7 +887,7 @@ function TradingChartComponent({
                 }
             }
         }
-    }, [dragState, updateHorizontalLinePrice, updateVerticalLineTime, updateDrawingPoints]);
+    }, [dragState, drawings, updateHorizontalLinePrice, updateVerticalLineTime, updateDrawingPoints]);
 
     const handleDragEnd = useCallback(() => {
         if (dragState.active) {
@@ -841,6 +910,17 @@ function TradingChartComponent({
             },
         });
     }, [dragState.active, activeTool]);
+
+    // Global cursor while dragging: closed hand for body translation, default
+    // arrow for handle reshaping. Restored when the drag ends. We force this
+    // at the <body> level because lightweight-charts only controls the cursor
+    // on hover, not during our custom drag.
+    useEffect(() => {
+        if (!dragState.active) return;
+        const prev = document.body.style.cursor;
+        document.body.style.cursor = dragState.dragMode === 'translate' ? 'grabbing' : 'default';
+        return () => { document.body.style.cursor = prev; };
+    }, [dragState.active, dragState.dragMode]);
 
     // ── Keyboard shortcuts ─────────────────────────────────────────────
     useEffect(() => {
@@ -1057,6 +1137,11 @@ function TradingChartComponent({
                     <div className="relative flex-1 overflow-hidden" data-chart-container>
                         {!minimal && <ChartOHLCOverlay />}
                         {!minimal && <ChartIndicatorLegend />}
+                        {cellOverlay && (
+                            <div className="absolute top-1 left-1 z-30 pointer-events-auto">
+                                {cellOverlay}
+                            </div>
+                        )}
 
                         {/* Price overlay (lightweight-charts price label) */}
                         <div

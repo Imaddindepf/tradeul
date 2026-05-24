@@ -13,6 +13,7 @@ import type {
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { HorizontalLineDrawing } from './types';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
+import { BODY_HIT_TOLERANCE, bodyHit } from './hitTesting';
 
 // ─── Renderer ────────────────────────────────────────────────────────────────
 
@@ -80,8 +81,7 @@ class HLineRenderer implements IPrimitivePaneRenderer {
         ctx.fillText(tagText, tagX + tagW / 2, y + 0.5);
       }
 
-      // Drag handles when selected
-      if (this._isSelected) {
+      if (this._isSelected || this._isHovered) {
         const handlePositions = [mediaSize.width * 0.25, mediaSize.width * 0.5, mediaSize.width * 0.75];
         for (const hx of handlePositions) {
           ctx.beginPath();
@@ -155,11 +155,9 @@ class HLinePaneView implements IPrimitivePaneView {
     );
   }
 
-  hitTest(x: number, y: number): PrimitiveHoveredItem | null {
+  hitTest(_x: number, y: number): PrimitiveHoveredItem | null {
     if (!this._active) return null;
-    if (Math.abs(y - this._y) < 8) {
-      return { cursorStyle: 'ns-resize', externalId: this._id, zOrder: 'top' };
-    }
+    if (Math.abs(y - this._y) < BODY_HIT_TOLERANCE) return bodyHit(this._id);
     return null;
   }
 }

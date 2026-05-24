@@ -13,6 +13,13 @@ import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { RayDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
+import {
+  BODY_HIT_TOLERANCE,
+  HANDLE_RENDER_RADIUS,
+  bodyHit,
+  distToRay,
+  firstHandleHit,
+} from './hitTesting';
 
 class RayRenderer implements IPrimitivePaneRenderer {
   constructor(
@@ -59,7 +66,7 @@ class RayRenderer implements IPrimitivePaneRenderer {
       if (this._isSelected) {
         for (const [x, y] of [[this._x1, this._y1], [this._x2, this._y2]]) {
           ctx.beginPath();
-          ctx.arc(x, y, 5, 0, Math.PI * 2);
+          ctx.arc(x, y, HANDLE_RENDER_RADIUS, 0, Math.PI * 2);
           ctx.fillStyle = this._color;
           ctx.fill();
           ctx.strokeStyle = '#ffffff';
@@ -93,12 +100,14 @@ class RayPaneView implements IPrimitivePaneView {
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
     if (this._x1 === 0 && this._x2 === 0) return null;
-    if (Math.hypot(x - this._x1, y - this._y1) < 12)
-      return { cursorStyle: 'crosshair', externalId: this._id + ':p1', zOrder: 'top' };
-    if (Math.hypot(x - this._x2, y - this._y2) < 12)
-      return { cursorStyle: 'crosshair', externalId: this._id + ':p2', zOrder: 'top' };
-    const dist = pointToRayDistance(x, y, this._x1, this._y1, this._x2, this._y2);
-    if (dist < 8) return { cursorStyle: 'grab', externalId: this._id, zOrder: 'top' };
+    const handle = firstHandleHit(x, y, this._id, [
+      [this._x1, this._y1, ':p1'],
+      [this._x2, this._y2, ':p2'],
+    ]);
+    if (handle) return handle;
+    if (distToRay(x, y, this._x1, this._y1, this._x2, this._y2) < BODY_HIT_TOLERANCE) {
+      return bodyHit(this._id);
+    }
     return null;
   }
 }
@@ -121,8 +130,8 @@ export class RayPrimitive implements ISeriesPrimitive<Time> {
 
   detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
 
-  updateDrawing(drawing: RayDrawing, isSelected: boolean, _isHovered?: boolean, dataTimes?: number[]): void {
-    this._drawing = drawing; this._isSelected = isSelected;
+  updateDrawing(drawing: RayDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
+    this._drawing = drawing; this._isSelected = isSelected || !!isHovered;
     if (dataTimes) this._dataTimes = dataTimes;
     this.updateAllViews(); this._requestUpdate?.();
   }
@@ -144,12 +153,4 @@ export class RayPrimitive implements ISeriesPrimitive<Time> {
 
   paneViews(): readonly IPrimitivePaneView[] { this.updateAllViews(); return [this._paneView]; }
   hitTest(x: number, y: number): PrimitiveHoveredItem | null { return this._paneView.hitTest(x, y); }
-}
-
-function pointToRayDistance(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
-  const dx = x2 - x1, dy = y2 - y1;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.hypot(px - x1, py - y1);
-  const t = Math.max(0, ((px - x1) * dx + (py - y1) * dy) / lenSq); // No upper clamp — ray extends
-  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }

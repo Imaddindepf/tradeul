@@ -24,6 +24,11 @@ import type {
   CircleDrawing,
   TriangleDrawing,
   MeasureDrawing,
+  ArrowDrawing,
+  ArrowDirection,
+  TextDrawing,
+  PriceRangeDrawing,
+  DateRangeDrawing,
   PendingDrawing,
 } from '@/components/chart/primitives/types';
 import { FIB_LEVELS, DRAWING_COLORS, TOOL_CLICKS } from '@/components/chart/primitives/types';
@@ -42,6 +47,11 @@ export type {
   CircleDrawing,
   TriangleDrawing,
   MeasureDrawing,
+  ArrowDrawing,
+  ArrowDirection,
+  TextDrawing,
+  PriceRangeDrawing,
+  DateRangeDrawing,
 };
 
 // ============================================================================
@@ -261,6 +271,27 @@ export function useChartDrawings(ticker: string) {
     return drawing;
   }, [selectedColor, lineWidth, commitDrawings]);
 
+  const addArrow = useCallback((point: DrawingPoint, direction: ArrowDirection = 'up'): ArrowDrawing => {
+    const drawing: ArrowDrawing = {
+      id: generateId(), type: 'arrow', point1: point, direction,
+      color: selectedColor, lineWidth, lineStyle: 'solid',
+    };
+    commitDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [selectedColor, lineWidth, commitDrawings]);
+
+  const addText = useCallback((point: DrawingPoint, text: string = 'Texto'): TextDrawing => {
+    const drawing: TextDrawing = {
+      id: generateId(), type: 'text', point1: point, text,
+      fontSize: 12, background: true,
+      color: selectedColor, lineWidth, lineStyle: 'solid',
+    };
+    commitDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [selectedColor, lineWidth, commitDrawings]);
+
   // ============================================================================
   // Create drawings — 2-click
   // ============================================================================
@@ -328,6 +359,26 @@ export function useChartDrawings(ticker: string) {
     const drawing: MeasureDrawing = {
       id: generateId(), type: 'measure', point1: p1, point2: p2,
       color: '#64748b', lineWidth: 1, lineStyle: 'dashed',
+    };
+    commitDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [commitDrawings]);
+
+  const addPriceRange = useCallback((p1: DrawingPoint, p2: DrawingPoint): PriceRangeDrawing => {
+    const drawing: PriceRangeDrawing = {
+      id: generateId(), type: 'price_range', point1: p1, point2: p2,
+      color: '#10b981', lineWidth: 1, lineStyle: 'dashed',
+    };
+    commitDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [commitDrawings]);
+
+  const addDateRange = useCallback((p1: DrawingPoint, p2: DrawingPoint): DateRangeDrawing => {
+    const drawing: DateRangeDrawing = {
+      id: generateId(), type: 'date_range', point1: p1, point2: p2,
+      color: '#60a5fa', lineWidth: 1, lineStyle: 'dashed',
     };
     commitDrawings(prev => [...prev, drawing]);
     setSelectedDrawingId(drawing.id);
@@ -500,6 +551,12 @@ export function useChartDrawings(ticker: string) {
         case 'vertical_line':
           drawing = addVerticalLine(time);
           break;
+        case 'arrow':
+          drawing = addArrow(point, 'up');
+          break;
+        case 'text':
+          drawing = addText(point, 'Texto');
+          break;
       }
       setActiveTool('none');
       return drawing;
@@ -521,6 +578,8 @@ export function useChartDrawings(ticker: string) {
         case 'rectangle': drawing = addRectangle(p1, point); break;
         case 'circle': drawing = addCircle(p1, point); break;
         case 'measure': drawing = addMeasure(p1, point); break;
+        case 'price_range': drawing = addPriceRange(p1, point); break;
+        case 'date_range': drawing = addDateRange(p1, point); break;
       }
       setPendingDrawing(null);
       setTentativeEndpoint(null);
@@ -565,7 +624,7 @@ export function useChartDrawings(ticker: string) {
     return null;
   }, [activeTool, pendingDrawing, addHorizontalLine, addVerticalLine, addTrendline,
     addRay, addExtendedLine, addFibonacci, addRectangle, addCircle, addMeasure,
-    addParallelChannel, addTriangle]);
+    addParallelChannel, addTriangle, addArrow, addText, addPriceRange, addDateRange]);
 
   const updateTentativeEndpoint = useCallback((x: number, y: number, price: number) => {
     if (pendingDrawing) {
@@ -618,6 +677,10 @@ export function useChartDrawings(ticker: string) {
     addCircle,
     addTriangle,
     addMeasure,
+    addArrow,
+    addText,
+    addPriceRange,
+    addDateRange,
     removeDrawing,
     clearAllDrawings,
 

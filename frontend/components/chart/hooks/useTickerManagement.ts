@@ -19,15 +19,21 @@ export function useTickerManagement(
     initialTicker: string,
     tickerSearchRef: MutableRefObject<TickerSearchRef | null>,
     onTickerChange?: (ticker: string) => void,
+    options?: { inLayoutMode?: boolean },
 ) {
+    const inLayoutMode = options?.inLayoutMode ?? false;
     const { state: windowState, updateState: updateWindowState } = useWindowState<ChartWindowState>();
     const windowId = useCurrentWindowId?.();
     const { openWindow, updateWindow } = useFloatingWindowActions();
     const ws = useWebSocket();
     const linkBroadcast = useLinkGroupSubscription();
 
-    const [currentTicker, setCurrentTicker] = useState(windowState.ticker || initialTicker);
-    const [inputValue, setInputValue] = useState(windowState.ticker || initialTicker);
+    // In layout mode the parent (ChartCell) owns the ticker. We always seed
+    // from `initialTicker` and ignore `windowState.ticker` (which is shared
+    // by all cells and would clobber each other otherwise).
+    const seedTicker = inLayoutMode ? initialTicker : (windowState.ticker || initialTicker);
+    const [currentTicker, setCurrentTicker] = useState(seedTicker);
+    const [inputValue, setInputValue] = useState(seedTicker);
     const [marketSession, setMarketSession] = useState<MarketSession | null>(null);
     const [tickerMeta, setTickerMeta] = useState<TickerMeta | null>(null);
 
@@ -81,10 +87,12 @@ export function useTickerManagement(
         }
     }, [windowId, updateWindow]);
 
-    // Sync when windowState.ticker arrives late (store hydration race condition)
-    const hasAppliedWindowState = useRef(!!windowState.ticker);
+    // Sync when windowState.ticker arrives late (store hydration race condition).
+    // Disabled in layout mode.
+    const hasAppliedWindowState = useRef(inLayoutMode ? true : !!windowState.ticker);
 
     useEffect(() => {
+        if (inLayoutMode) return;
         if (windowState.ticker && windowState.ticker !== currentTicker && !hasAppliedWindowState.current) {
             hasAppliedWindowState.current = true;
             setCurrentTicker(windowState.ticker);
@@ -92,17 +100,18 @@ export function useTickerManagement(
         } else if (windowState.ticker) {
             hasAppliedWindowState.current = true;
         }
-    }, [windowState.ticker]);
+    }, [windowState.ticker, inLayoutMode]);
 
-    // Update when external ticker prop changes
+    // Update when external ticker prop changes. In layout mode we *always*
+    // honour initialTicker (the parent is the source of truth).
     useEffect(() => {
-        if (hasAppliedWindowState.current) {
+        if (!inLayoutMode && hasAppliedWindowState.current) {
             hasAppliedWindowState.current = false;
             return;
         }
         setCurrentTicker(initialTicker);
         setInputValue(initialTicker);
-    }, [initialTicker]);
+    }, [initialTicker, inLayoutMode]);
 
     // Link group: subscribe to ticker broadcasts
     useEffect(() => {

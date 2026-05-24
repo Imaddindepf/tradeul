@@ -14,6 +14,7 @@ import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { VerticalLineDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
+import { BODY_HIT_TOLERANCE, bodyHit } from './hitTesting';
 
 class VLineRenderer implements IPrimitivePaneRenderer {
   constructor(
@@ -80,9 +81,7 @@ class VLinePaneView implements IPrimitivePaneView {
 
   hitTest(x: number, _y: number): PrimitiveHoveredItem | null {
     if (!this._active) return null;
-    if (Math.abs(x - this._x) < 8) {
-      return { cursorStyle: 'ew-resize', externalId: this._id, zOrder: 'top' };
-    }
+    if (Math.abs(x - this._x) < BODY_HIT_TOLERANCE) return bodyHit(this._id);
     return null;
   }
 }
@@ -127,9 +126,9 @@ export class VerticalLinePrimitive implements ISeriesPrimitive<Time> {
 
   detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
 
-  updateDrawing(drawing: VerticalLineDrawing, isSelected: boolean, _isHovered?: boolean, dataTimes?: number[]): void {
+  updateDrawing(drawing: VerticalLineDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
     this._drawing = drawing;
-    this._isSelected = isSelected;
+    this._isSelected = isSelected || !!isHovered;
     if (dataTimes) this._dataTimes = dataTimes;
     this.updateAllViews();
     this._requestUpdate?.();

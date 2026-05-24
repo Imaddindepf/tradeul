@@ -13,6 +13,12 @@ import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { CircleDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
+import {
+  HANDLE_RENDER_RADIUS,
+  bodyHit,
+  firstHandleHit,
+  inEllipse,
+} from './hitTesting';
 
 class CircleRenderer implements IPrimitivePaneRenderer {
   constructor(
@@ -38,16 +44,9 @@ class CircleRenderer implements IPrimitivePaneRenderer {
       resetLineStyle(ctx);
 
       if (this._isSelected) {
-        // Center dot
-        ctx.beginPath();
-        ctx.arc(this._cx, this._cy, 4, 0, Math.PI * 2);
-        ctx.fillStyle = this._color;
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Edge handles (N, S, E, W)
+        // Edge handles only (N, S, E, W). The center is part of the body,
+        // not a separate target — a click on the center translates the
+        // whole circle.
         const handles = [
           [this._cx, this._cy - this._ry],
           [this._cx, this._cy + this._ry],
@@ -56,7 +55,7 @@ class CircleRenderer implements IPrimitivePaneRenderer {
         ];
         for (const [hx, hy] of handles) {
           ctx.beginPath();
-          ctx.arc(hx, hy, 4, 0, Math.PI * 2);
+          ctx.arc(hx, hy, HANDLE_RENDER_RADIUS, 0, Math.PI * 2);
           ctx.fillStyle = this._color;
           ctx.fill();
           ctx.strokeStyle = '#ffffff';
@@ -98,17 +97,19 @@ class CirclePaneView implements IPrimitivePaneView {
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
     if (this._rx < 1 && this._ry < 1) return null;
-    // Center — translate entire circle (not anchor)
-    if (Math.hypot(x - this._cx, y - this._cy) < 12)
-      return { cursorStyle: 'move', externalId: this._id, zOrder: 'top' };
-    // Edge anchor
-    if (Math.hypot(x - this._ex, y - this._ey) < 12)
-      return { cursorStyle: 'crosshair', externalId: this._id + ':p2', zOrder: 'top' };
-    // Inside ellipse?
-    const nx = (x - this._cx) / this._rx;
-    const ny = (y - this._cy) / this._ry;
-    const d = nx * nx + ny * ny;
-    if (d <= 1.15) return { cursorStyle: 'grab', externalId: this._id, zOrder: 'top' };
+    // 4 edge handles (N, S, E, W). All map to :p2 because the drag pipeline
+    // updates point2 from the cursor position — the ellipse adapts both rx
+    // and ry naturally as the user drags any of the four cardinal anchors.
+    const handle = firstHandleHit(x, y, this._id, [
+      [this._cx + this._rx, this._cy, ':p2'],
+      [this._cx - this._rx, this._cy, ':p2'],
+      [this._cx, this._cy - this._ry, ':p2'],
+      [this._cx, this._cy + this._ry, ':p2'],
+    ]);
+    if (handle) return handle;
+    if (inEllipse(x, y, this._cx, this._cy, this._rx, this._ry)) {
+      return bodyHit(this._id);
+    }
     return null;
   }
 }
@@ -131,8 +132,8 @@ export class CirclePrimitive implements ISeriesPrimitive<Time> {
 
   detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
 
-  updateDrawing(drawing: CircleDrawing, isSelected: boolean, _isHovered?: boolean, dataTimes?: number[]): void {
-    this._drawing = drawing; this._isSelected = isSelected;
+  updateDrawing(drawing: CircleDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
+    this._drawing = drawing; this._isSelected = isSelected || !!isHovered;
     if (dataTimes) this._dataTimes = dataTimes;
     this.updateAllViews(); this._requestUpdate?.();
   }

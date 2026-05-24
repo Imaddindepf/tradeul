@@ -83,6 +83,9 @@ const TriangleIcon = ({ className }: { className?: string }) => (
 const TextIcon = ({ className }: { className?: string }) => (
   <I className={className}><path d="M7 7h14M14 7v16" strokeWidth="2" /><path d="M10 23h8" strokeWidth="1.5" /></I>
 );
+const ArrowMarkerIcon = ({ className }: { className?: string }) => (
+  <I className={className}><path d="M14 4v18" strokeWidth="1.8" /><path d="M9 9l5-5 5 5" strokeWidth="1.8" fill="none" /></I>
+);
 const NoteIcon = ({ className }: { className?: string }) => (
   <I className={className}><rect x="5" y="5" width="18" height="18" rx="2" /><path d="M9 10h10M9 14h7" strokeWidth="1.2" /></I>
 );
@@ -98,6 +101,12 @@ const BrushIcon = ({ className }: { className?: string }) => (
 // --- Measurement ---
 const MeasureIcon = ({ className }: { className?: string }) => (
   <I className={className}><rect x="5" y="5" width="18" height="18" rx="1" strokeDasharray="3 2" /><path d="M5 14h18" strokeWidth="1" /><path d="M14 5v18" strokeWidth="1" /><path d="M9 12l5-5 5 5" strokeWidth="1" fill="none" /></I>
+);
+const PriceRangeIcon = ({ className }: { className?: string }) => (
+  <I className={className}><rect x="4" y="9" width="20" height="10" rx="0.8" fill="currentColor" opacity="0.12" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 2" /><path d="M14 5v3M14 20v3" strokeWidth="1.4" /><path d="M11 8l3-3 3 3M11 20l3 3 3-3" strokeWidth="1.2" fill="none" /></I>
+);
+const DateRangeIcon = ({ className }: { className?: string }) => (
+  <I className={className}><rect x="9" y="4" width="10" height="20" rx="0.8" fill="currentColor" opacity="0.12" stroke="currentColor" strokeWidth="1.2" strokeDasharray="3 2" /><path d="M5 14h3M20 14h3" strokeWidth="1.4" /><path d="M8 11l-3 3 3 3M20 11l3 3-3 3" strokeWidth="1.2" fill="none" /></I>
 );
 const RulerIcon = ({ className }: { className?: string }) => (
   <I className={className}><path d="M6 22L22 6" strokeWidth="1.5" /><path d="M9 19l2-2M12 16l2-2M15 13l2-2M18 10l2-2" strokeWidth="1.2" /></I>
@@ -187,7 +196,8 @@ const SIDEBAR_CATEGORIES: ToolCategory[] = [
   {
     id: 'text',
     tools: [
-      { id: 'text', label: 'Text', icon: TextIcon, enabled: false },
+      { id: 'text', label: 'Texto', icon: TextIcon, enabled: true },
+      { id: 'arrow', label: 'Flecha', icon: ArrowMarkerIcon, enabled: true },
       { id: 'note', label: 'Note', icon: NoteIcon, enabled: false },
       { id: 'price_label', label: 'Price Label', icon: PriceLabelIcon, enabled: false },
     ],
@@ -213,6 +223,8 @@ const SIDEBAR_CATEGORIES: ToolCategory[] = [
     id: 'measure',
     tools: [
       { id: 'measure', label: 'Measure', shortcut: 'M', icon: MeasureIcon, enabled: true },
+      { id: 'price_range', label: 'Price Range', icon: PriceRangeIcon, enabled: true },
+      { id: 'date_range', label: 'Date Range', icon: DateRangeIcon, enabled: true },
       { id: 'ruler', label: 'Ruler', icon: RulerIcon, enabled: false },
     ],
   },
@@ -247,6 +259,7 @@ function findCategoryForTool(toolId: string): string | null {
 const ENABLED_TOOLS = new Set<string>([
   'none', 'trendline', 'horizontal_line', 'vertical_line', 'ray', 'extended_line',
   'parallel_channel', 'fibonacci', 'rectangle', 'circle', 'triangle', 'measure',
+  'text', 'arrow', 'price_range', 'date_range',
 ]);
 
 // ============================================================================

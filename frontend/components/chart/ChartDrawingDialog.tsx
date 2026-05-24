@@ -15,6 +15,11 @@ import type {
     CircleDrawing,
     TriangleDrawing,
     MeasureDrawing,
+    ArrowDrawing,
+    ArrowDirection,
+    TextDrawing,
+    PriceRangeDrawing,
+    DateRangeDrawing,
 } from './primitives/types';
 import { FIB_LEVELS } from './primitives/types';
 import { colorWithAlpha, alphaFromColor, type LineStyle } from './primitives/canvasStyles';
@@ -55,6 +60,10 @@ const TYPE_LABEL: Record<DrawingType, string> = {
     circle: 'Círculo',
     triangle: 'Triángulo',
     measure: 'Regla de medida',
+    arrow: 'Flecha',
+    text: 'Texto',
+    price_range: 'Rango de precio',
+    date_range: 'Rango de fecha',
 };
 
 const HAS_FILL: Record<DrawingType, boolean> = {
@@ -69,6 +78,10 @@ const HAS_FILL: Record<DrawingType, boolean> = {
     circle: true,
     triangle: true,
     measure: false,
+    arrow: false,
+    text: false,
+    price_range: false,
+    date_range: false,
 };
 
 const DIALOG_WIDTH = 380;
@@ -358,6 +371,77 @@ function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
                     onChange={(levels) => onUpdate({ levels } as Partial<FibonacciDrawing>)}
                 />
             )}
+
+            {drawing.type === 'arrow' && (
+                <Row label="Dirección">
+                    <ArrowDirectionPicker
+                        value={(drawing as ArrowDrawing).direction}
+                        onChange={(d) => onUpdate({ direction: d } as Partial<ArrowDrawing>)}
+                    />
+                </Row>
+            )}
+
+            {drawing.type === 'text' && (
+                <>
+                    <Row label="Texto">
+                        <textarea
+                            value={(drawing as TextDrawing).text}
+                            onChange={(e) => onUpdate({ text: e.target.value } as Partial<TextDrawing>)}
+                            rows={2}
+                            className="flex-1 px-2 py-1 text-[12px] rounded border border-[color:var(--color-border)] bg-[color:var(--color-surface)] focus:outline-none focus:border-[color:var(--color-primary)] resize-none"
+                        />
+                    </Row>
+                    <Row label="Tamaño">
+                        <input
+                            type="range"
+                            min={9}
+                            max={32}
+                            step={1}
+                            value={(drawing as TextDrawing).fontSize}
+                            onChange={(e) => onUpdate({ fontSize: Number(e.target.value) } as Partial<TextDrawing>)}
+                            className="flex-1"
+                        />
+                        <span className="ml-2 text-[11px] tabular-nums w-8 text-right">{(drawing as TextDrawing).fontSize}px</span>
+                    </Row>
+                    <Row label="Fondo">
+                        <label className="flex items-center gap-2 text-[12px]">
+                            <input
+                                type="checkbox"
+                                checked={(drawing as TextDrawing).background}
+                                onChange={(e) => onUpdate({ background: e.target.checked } as Partial<TextDrawing>)}
+                            />
+                            <span className="text-[color:var(--color-muted-fg)]">Píldora coloreada</span>
+                        </label>
+                    </Row>
+                </>
+            )}
+        </div>
+    );
+}
+
+function ArrowDirectionPicker({ value, onChange }: { value: ArrowDirection; onChange: (d: ArrowDirection) => void }) {
+    const dirs: Array<{ d: ArrowDirection; label: string }> = [
+        { d: 'up', label: '↑' },
+        { d: 'down', label: '↓' },
+        { d: 'left', label: '←' },
+        { d: 'right', label: '→' },
+    ];
+    return (
+        <div className="flex gap-1.5">
+            {dirs.map(({ d, label }) => (
+                <button
+                    key={d}
+                    type="button"
+                    onClick={() => onChange(d)}
+                    className={`w-8 h-7 rounded border text-[14px] leading-none transition-colors ${
+                        value === d
+                            ? 'border-[color:var(--color-primary)] bg-[color:var(--color-primary)]/10 text-[color:var(--color-primary)]'
+                            : 'border-[color:var(--color-border)] text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)] hover:bg-[color:var(--color-surface-hover)]'
+                    }`}
+                >
+                    {label}
+                </button>
+            ))}
         </div>
     );
 }
@@ -399,15 +483,28 @@ function CoordinatesTab({ drawing, onUpdate }: CoordinatesTabProps) {
         case 'rectangle':
         case 'circle':
         case 'measure':
+        case 'price_range':
+        case 'date_range':
             return <TwoPointEditor drawing={drawing} onUpdate={onUpdate} />;
         case 'parallel_channel':
         case 'triangle':
             return <ThreePointEditor drawing={drawing} onUpdate={onUpdate} />;
+        case 'arrow':
+        case 'text':
+            return (
+                <div className="space-y-2 text-[12px]">
+                    <PointEditor
+                        index={1}
+                        point={drawing.point1}
+                        onChange={(p) => onUpdate({ point1: p } as Partial<Drawing>)}
+                    />
+                </div>
+            );
     }
 }
 
 interface TwoPointEditorProps {
-    drawing: TrendlineDrawing | RayDrawing | ExtendedLineDrawing | FibonacciDrawing | RectangleDrawing | CircleDrawing | MeasureDrawing;
+    drawing: TrendlineDrawing | RayDrawing | ExtendedLineDrawing | FibonacciDrawing | RectangleDrawing | CircleDrawing | MeasureDrawing | PriceRangeDrawing | DateRangeDrawing;
     onUpdate: (patch: Partial<Drawing>) => void;
 }
 

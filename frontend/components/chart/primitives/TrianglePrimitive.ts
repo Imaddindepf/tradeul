@@ -13,6 +13,12 @@ import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { TriangleDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
+import {
+  HANDLE_RENDER_RADIUS,
+  bodyHit,
+  firstHandleHit,
+  inTriangle,
+} from './hitTesting';
 
 class TriRenderer implements IPrimitivePaneRenderer {
   constructor(
@@ -42,7 +48,7 @@ class TriRenderer implements IPrimitivePaneRenderer {
       if (this._isSelected) {
         for (const [x, y] of [[this._x1, this._y1], [this._x2, this._y2], [this._x3, this._y3]]) {
           ctx.beginPath();
-          ctx.arc(x, y, 5, 0, Math.PI * 2);
+          ctx.arc(x, y, HANDLE_RENDER_RADIUS, 0, Math.PI * 2);
           ctx.fillStyle = this._color;
           ctx.fill();
           ctx.strokeStyle = '#ffffff';
@@ -82,14 +88,15 @@ class TriPaneView implements IPrimitivePaneView {
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
     if (this._x1 === 0 && this._x2 === 0) return null;
-    for (const [px, py, label] of [
-      [this._x1, this._y1, ':p1'], [this._x2, this._y2, ':p2'], [this._x3, this._y3, ':p3'],
-    ] as [number, number, string][]) {
-      if (Math.hypot(x - px, y - py) < 12)
-        return { cursorStyle: 'crosshair', externalId: this._id + label, zOrder: 'top' };
+    const handle = firstHandleHit(x, y, this._id, [
+      [this._x1, this._y1, ':p1'],
+      [this._x2, this._y2, ':p2'],
+      [this._x3, this._y3, ':p3'],
+    ]);
+    if (handle) return handle;
+    if (inTriangle(x, y, this._x1, this._y1, this._x2, this._y2, this._x3, this._y3)) {
+      return bodyHit(this._id);
     }
-    if (pointInTriangle(x, y, this._x1, this._y1, this._x2, this._y2, this._x3, this._y3))
-      return { cursorStyle: 'grab', externalId: this._id, zOrder: 'top' };
     return null;
   }
 }
@@ -112,8 +119,8 @@ export class TrianglePrimitive implements ISeriesPrimitive<Time> {
 
   detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
 
-  updateDrawing(drawing: TriangleDrawing, isSelected: boolean, _isHovered?: boolean, dataTimes?: number[]): void {
-    this._drawing = drawing; this._isSelected = isSelected;
+  updateDrawing(drawing: TriangleDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
+    this._drawing = drawing; this._isSelected = isSelected || !!isHovered;
     if (dataTimes) this._dataTimes = dataTimes;
     this.updateAllViews(); this._requestUpdate?.();
   }
@@ -139,13 +146,4 @@ export class TrianglePrimitive implements ISeriesPrimitive<Time> {
 
   paneViews(): readonly IPrimitivePaneView[] { this.updateAllViews(); return [this._paneView]; }
   hitTest(x: number, y: number): PrimitiveHoveredItem | null { return this._paneView.hitTest(x, y); }
-}
-
-function pointInTriangle(px: number, py: number, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): boolean {
-  const d1 = (px - x2) * (y1 - y2) - (x1 - x2) * (py - y2);
-  const d2 = (px - x3) * (y2 - y3) - (x2 - x3) * (py - y3);
-  const d3 = (px - x1) * (y3 - y1) - (x3 - x1) * (py - y1);
-  const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-  const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-  return !(hasNeg && hasPos);
 }

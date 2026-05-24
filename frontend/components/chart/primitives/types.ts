@@ -27,7 +27,11 @@ export type DrawingType =
   | 'parallel_channel'
   | 'circle'
   | 'triangle'
-  | 'measure';
+  | 'measure'
+  | 'arrow'
+  | 'text'
+  | 'price_range'
+  | 'date_range';
 
 export type DrawingTool = 'none' | DrawingType;
 
@@ -111,6 +115,44 @@ export interface MeasureDrawing extends BaseDrawing {
   point2: DrawingPoint;
 }
 
+/** Single-anchor directional marker. Renders as an arrow head pointing at the
+ *  anchor from `direction` (the tail extends outward; the tip sits on the
+ *  anchor — same way TradingView mounts its "Arrow" tool). */
+export type ArrowDirection = 'up' | 'down' | 'left' | 'right';
+
+export interface ArrowDrawing extends BaseDrawing {
+  type: 'arrow';
+  point1: DrawingPoint;
+  direction: ArrowDirection;
+}
+
+/** Single-anchor text annotation. The anchor is the top-left corner of the
+ *  rendered label box (no draggable resize box — handle = the anchor itself).
+ */
+export interface TextDrawing extends BaseDrawing {
+  type: 'text';
+  point1: DrawingPoint;
+  text: string;
+  fontSize: number;        // px
+  background: boolean;     // true → filled pill, false → transparent
+}
+
+/** Vertical-only measurement: locks X (uses point1.time for both ends) and
+ *  reports Δprice + percentage between point1.price and point2.price. */
+export interface PriceRangeDrawing extends BaseDrawing {
+  type: 'price_range';
+  point1: DrawingPoint;
+  point2: DrawingPoint;
+}
+
+/** Horizontal-only measurement: locks Y (uses point1.price for both ends) and
+ *  reports bar count + Δtime between point1.time and point2.time. */
+export interface DateRangeDrawing extends BaseDrawing {
+  type: 'date_range';
+  point1: DrawingPoint;
+  point2: DrawingPoint;
+}
+
 export type Drawing =
   | HorizontalLineDrawing
   | VerticalLineDrawing
@@ -122,7 +164,11 @@ export type Drawing =
   | RectangleDrawing
   | CircleDrawing
   | TriangleDrawing
-  | MeasureDrawing;
+  | MeasureDrawing
+  | ArrowDrawing
+  | TextDrawing
+  | PriceRangeDrawing
+  | DateRangeDrawing;
 
 // ============================================================================
 // Fibonacci default levels
@@ -169,4 +215,8 @@ export const TOOL_CLICKS: Record<DrawingType, number> = {
   measure: 2,
   parallel_channel: 3,
   triangle: 3,
+  arrow: 1,
+  text: 1,
+  price_range: 2,
+  date_range: 2,
 };

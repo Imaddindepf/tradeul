@@ -20,6 +20,50 @@ export interface TradingChartProps {
     minimal?: boolean;
     onOpenChart?: () => void;
     onOpenNews?: () => void;
+
+    /**
+     * Optional controlled-interval. When provided, TradingChart treats this
+     * value as the source of truth and ignores its internal state. Used by
+     * the multi-chart layout system to keep cells in sync.
+     */
+    controlledInterval?: ChartInterval;
+    /** Fires whenever the user changes the interval inside the chart. */
+    onIntervalChange?: (interval: ChartInterval) => void;
+
+    /**
+     * Fires once the chart's underlying lightweight-charts API is ready.
+     * Used by external orchestrators (e.g. multi-chart sync wiring) to wire
+     * crosshair and visible-range subscriptions without reaching into refs.
+     *
+     * `chart` is the IChartApi instance, `candleSeries` the main candlestick
+     * series. Both are stable for the lifetime of the underlying chart.
+     */
+    onChartReady?: (api: TradingChartHandle) => void;
+
+    /**
+     * When rendered inside a layout grid we may want to overlay a small
+     * cell-level badge in the upper-left corner (e.g. "cell-1 ⨯"). Components
+     * that opt in to layout mode supply that via this slot.
+     */
+    cellOverlay?: import('react').ReactNode;
+
+    /**
+     * When true, the chart hides the floating-window-only chrome bits
+     * (header portal mount, fullscreen toggle). Used inside multi-chart
+     * layouts where the *parent window* owns those affordances.
+     */
+    inLayoutMode?: boolean;
+}
+
+/**
+ * Public imperative handle exposed via `onChartReady`. Contains the bare
+ * minimum needed by external orchestrators — *not* the full chart API.
+ */
+export interface TradingChartHandle {
+    chart: unknown;
+    candleSeries: unknown;
+    ticker: string;
+    interval: ChartInterval;
 }
 
 export type Interval = ChartInterval;

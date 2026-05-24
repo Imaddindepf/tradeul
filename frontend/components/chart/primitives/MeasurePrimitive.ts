@@ -12,6 +12,13 @@ import type {
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { MeasureDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
+import {
+  HANDLE_RENDER_RADIUS,
+  ZONE_HIT_PADDING,
+  bodyHit,
+  firstHandleHit,
+  inBox,
+} from './hitTesting';
 
 class MeasureRenderer implements IPrimitivePaneRenderer {
   constructor(
@@ -104,11 +111,10 @@ class MeasureRenderer implements IPrimitivePaneRenderer {
         ctx.fillText(lines[i], labelX + labelW / 2, labelY + padV + fontSize / 2 + i * (fontSize + 3));
       }
 
-      // Anchor dots
       if (this._isSelected) {
         for (const [ax, ay] of [[this._x1, this._y1], [this._x2, this._y2]]) {
           ctx.beginPath();
-          ctx.arc(ax, ay, 5, 0, Math.PI * 2);
+          ctx.arc(ax, ay, HANDLE_RENDER_RADIUS, 0, Math.PI * 2);
           ctx.fillStyle = borderColor;
           ctx.fill();
           ctx.strokeStyle = '#ffffff';
@@ -145,16 +151,14 @@ class MeasurePaneView implements IPrimitivePaneView {
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
     if (this._x1 === 0 && this._x2 === 0) return null;
-    if (Math.hypot(x - this._x1, y - this._y1) < 12)
-      return { cursorStyle: 'crosshair', externalId: this._id + ':p1', zOrder: 'top' };
-    if (Math.hypot(x - this._x2, y - this._y2) < 12)
-      return { cursorStyle: 'crosshair', externalId: this._id + ':p2', zOrder: 'top' };
-    const left = Math.min(this._x1, this._x2);
-    const right = Math.max(this._x1, this._x2);
-    const top = Math.min(this._y1, this._y2);
-    const bot = Math.max(this._y1, this._y2);
-    if (x >= left - 5 && x <= right + 5 && y >= top - 5 && y <= bot + 5)
-      return { cursorStyle: 'grab', externalId: this._id, zOrder: 'top' };
+    const handle = firstHandleHit(x, y, this._id, [
+      [this._x1, this._y1, ':p1'],
+      [this._x2, this._y2, ':p2'],
+    ]);
+    if (handle) return handle;
+    if (inBox(x, y, this._x1, this._y1, this._x2, this._y2, ZONE_HIT_PADDING)) {
+      return bodyHit(this._id);
+    }
     return null;
   }
 }
@@ -177,8 +181,8 @@ export class MeasurePrimitive implements ISeriesPrimitive<Time> {
 
   detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
 
-  updateDrawing(drawing: MeasureDrawing, isSelected: boolean, _isHovered?: boolean, dataTimes?: number[]): void {
-    this._drawing = drawing; this._isSelected = isSelected;
+  updateDrawing(drawing: MeasureDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
+    this._drawing = drawing; this._isSelected = isSelected || !!isHovered;
     if (dataTimes) this._dataTimes = dataTimes;
     this.updateAllViews(); this._requestUpdate?.();
   }
