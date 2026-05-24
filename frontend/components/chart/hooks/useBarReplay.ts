@@ -1,8 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
-import { CHART_COLORS, INTERVAL_SECONDS, WHITESPACE_BAR_COUNT, type ChartBar, type Interval, type IndicatorInstance } from '../constants';
+import {
+    CHART_COLORS,
+    INTERVAL_SECONDS,
+    WHITESPACE_BAR_COUNT,
+    type ChartBar,
+    type Interval,
+    type IndicatorInstance,
+} from '../constants';
 import { getSessionColor } from './useSessionBackground';
+import { computeHeikinAshi } from '../utils/heikinAshi';
+import type { ChartCandleStyle } from '@/stores/useUserPreferencesStore';
+
+function toCandleData(bars: ChartBar[], style: ChartCandleStyle): any[] {
+    if (style === 'line' || style === 'area') {
+        return bars.map(b => ({ time: b.time as UTCTimestamp, value: b.close }));
+    }
+    const src = style === 'heikin-ashi' ? computeHeikinAshi(bars) : bars;
+    return src.map(b => ({
+        time: b.time as UTCTimestamp,
+        open: b.open, high: b.high, low: b.low, close: b.close,
+    }));
+}
+
+function toCandleUpdate(bar: ChartBar, style: ChartCandleStyle): any {
+    if (style === 'line' || style === 'area') {
+        return { time: bar.time as UTCTimestamp, value: bar.close };
+    }
+    return {
+        time: bar.time as UTCTimestamp,
+        open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+    };
+}
 
 export type ReplayMode = 'idle' | 'selecting' | 'playing' | 'paused';
 
@@ -48,7 +78,10 @@ export function useBarReplay(
     setReplayTimestamp: (ts: number | null) => void,
     replayTimeRef: MutableRefObject<number | null>,
     loadForward: () => Promise<boolean>,
+    candleStyle: ChartCandleStyle = 'candles',
 ) {
+    const candleStyleRef = useRef(candleStyle);
+    candleStyleRef.current = candleStyle;
     const [mode, setMode] = useState<ReplayMode>('idle');
     const [currentIndex, setCurrentIndex] = useState(0);
     const [startIndex, setStartIndex] = useState(0);
@@ -78,9 +111,7 @@ export function useBarReplay(
 
         const slice = chartData.slice(0, idx + 1);
 
-        candle.setData(slice.map(b => ({
-            time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close,
-        })));
+        candle.setData(toCandleData(slice, candleStyleRef.current));
         volume.setData(slice.map(b => ({
             time: b.time as UTCTimestamp,
             value: b.volume,
@@ -128,9 +159,14 @@ export function useBarReplay(
         const bar = chartData[idx];
         if (!candle || !volume || !bar) return;
 
-        candle.update({
-            time: bar.time as UTCTimestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close,
-        });
+        const style = candleStyleRef.current;
+        if (style === 'heikin-ashi') {
+            // HA depends on previous HA values, so a single-bar .update() would be
+            // incorrect. Re-render the visible slice — cheap enough during replay.
+            candle.setData(toCandleData(chartData.slice(0, idx + 1), style));
+        } else {
+            candle.update(toCandleUpdate(bar, style));
+        }
         volume.update({
             time: bar.time as UTCTimestamp,
             value: bar.volume,
@@ -260,9 +296,7 @@ export function useBarReplay(
         const volume = volumeSeriesRef.current;
         const session = sessionBgSeriesRef.current;
         if (candle && d.length > 0) {
-            candle.setData(d.map(b => ({
-                time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close,
-            })));
+            candle.setData(toCandleData(d, candleStyleRef.current));
         }
         if (volume && d.length > 0) {
             volume.setData(d.map(b => ({

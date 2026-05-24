@@ -1,10 +1,11 @@
-import { Sparkles, Bot } from 'lucide-react';
+import { Sparkles, Bot, Maximize2, Minimize2, Settings, RotateCcw } from 'lucide-react';
 import type { IChartApi } from 'lightweight-charts';
 import { buildChartSnapshot } from './buildChartSnapshot';
 import { INDICATOR_TYPE_DEFAULTS, type ChartBar, type IndicatorInstance } from './constants';
 import type { IndicatorResults } from '@/hooks/useIndicatorWorker';
 import type { Drawing } from '@/hooks/useChartDrawings';
 import type { ChartContext } from '@/components/ai-agent/types';
+import { useChartContext } from './ChartContext';
 
 export interface ContextMenuState {
     visible: boolean;
@@ -13,6 +14,12 @@ export interface ContextMenuState {
     candle: ChartBar | null;
 }
 
+/**
+ * Right-click menu organised into sections:
+ *   1. Chart actions   — reset zoom, settings, fullscreen
+ *   2. AI analysis     — quick prompts about the current candle / chart
+ *   3. Free-text input — ask anything
+ */
 export function ChartContextMenu({
     state, ticker, interval, range, data, indicatorResults, drawings, activeIndicators, chartApi, onClose,
 }: {
@@ -27,6 +34,7 @@ export function ChartContextMenu({
     chartApi: IChartApi | null;
     onClose: () => void;
 }) {
+    const chartCtx = useChartContext();
     if (!state.visible) return null;
 
     const dispatchChartAsk = (prompt: string) => {
@@ -36,7 +44,7 @@ export function ChartContextMenu({
             return defaults ? `${defaults.name}${i.params.length ? ' ' + i.params.length : ''}` : i.type.toUpperCase();
         });
 
-        const chartCtx: ChartContext = {
+        const ctx: ChartContext = {
             ticker, interval, range,
             activeIndicators: activeIndicatorNames,
             currentPrice: data.length > 0 ? data[data.length - 1].close : null,
@@ -47,7 +55,7 @@ export function ChartContextMenu({
             } : null,
         };
 
-        window.dispatchEvent(new CustomEvent('agent:chart-ask', { detail: { chartContext: chartCtx, prompt } }));
+        window.dispatchEvent(new CustomEvent('agent:chart-ask', { detail: { chartContext: ctx, prompt } }));
         onClose();
     };
 
@@ -55,7 +63,7 @@ export function ChartContextMenu({
         ? new Date(state.candle.time * 1000).toISOString().slice(0, 10)
         : '';
 
-    const items = state.candle
+    const aiItems = state.candle
         ? [
             { label: 'Analyze this candle', prompt: `Analyze the candle at ${candleDateISO} for ${ticker}` },
             { label: 'Why did this move?', prompt: `Why did ${ticker} move like this on ${candleDateISO}?` },
@@ -69,32 +77,66 @@ export function ChartContextMenu({
             { label: 'Entry/exit points', prompt: `Suggest entry and exit points for ${ticker}` },
         ];
 
+    const handleResetZoom = () => {
+        chartApi?.timeScale().fitContent();
+        onClose();
+    };
+    const handleSettings = () => {
+        chartCtx.openSettings();
+        onClose();
+    };
+    const handleFullscreen = () => {
+        chartCtx.toggleFullscreen();
+        onClose();
+    };
+
+    const sectionLabel = 'px-3 py-1 text-[9px] uppercase tracking-wider text-[color:var(--color-muted-fg)]/70 font-semibold';
+    const itemClass = 'w-full text-left px-3 py-1.5 text-[11px] text-[color:var(--color-fg)] hover:bg-[color:var(--color-primary)]/10 hover:text-[color:var(--color-primary)] flex items-center gap-2';
+
     return (
         <>
             <div className="fixed inset-0 z-[9998]" onClick={onClose} />
             <div
-                className="absolute z-[9999] bg-surface rounded-lg shadow-xl border border-border py-1 min-w-[200px]"
+                className="absolute z-[9999] bg-[color:var(--color-surface)] rounded-lg shadow-xl border border-[color:var(--color-border)] py-1 min-w-[220px]"
                 style={{ left: state.x, top: state.y }}
             >
-                <div className="px-3 py-1.5 flex items-center gap-1.5 border-b border-border-subtle">
-                    <Bot className="w-3.5 h-3.5 text-blue-500" />
-                    <span className="text-[10px] font-semibold text-foreground/80">AI Chart Analysis</span>
+                {/* Section 1 — Chart actions */}
+                <div className={sectionLabel}>Chart</div>
+                <button onClick={handleResetZoom} className={itemClass}>
+                    <RotateCcw className="w-3 h-3 text-[color:var(--color-muted-fg)] flex-shrink-0" />
+                    Reset zoom
+                </button>
+                <button onClick={handleSettings} className={itemClass}>
+                    <Settings className="w-3 h-3 text-[color:var(--color-muted-fg)] flex-shrink-0" />
+                    Chart settings…
+                </button>
+                <button onClick={handleFullscreen} className={itemClass}>
+                    {chartCtx.isFullscreen
+                        ? <Minimize2 className="w-3 h-3 text-[color:var(--color-muted-fg)] flex-shrink-0" />
+                        : <Maximize2 className="w-3 h-3 text-[color:var(--color-muted-fg)] flex-shrink-0" />}
+                    {chartCtx.isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                </button>
+
+                {/* Section 2 — AI Analysis */}
+                <div className="border-t border-[color:var(--color-border-subtle)] mt-1 pt-1">
+                    <div className="px-3 py-1 flex items-center gap-1.5">
+                        <Bot className="w-3 h-3 text-blue-500" />
+                        <span className="text-[9px] uppercase tracking-wider text-[color:var(--color-muted-fg)]/70 font-semibold">AI Analysis</span>
+                    </div>
+                    {aiItems.map((item, i) => (
+                        <button key={i} onClick={() => dispatchChartAsk(item.prompt)} className={itemClass}>
+                            <Sparkles className="w-3 h-3 text-blue-400 flex-shrink-0" />
+                            {item.label}
+                        </button>
+                    ))}
                 </div>
-                {items.map((item, i) => (
-                    <button
-                        key={i}
-                        onClick={() => dispatchChartAsk(item.prompt)}
-                        className="w-full text-left px-3 py-1.5 text-[11px] text-foreground hover:bg-primary/10 hover:text-primary flex items-center gap-2"
-                    >
-                        <Sparkles className="w-3 h-3 text-blue-400 flex-shrink-0" />
-                        {item.label}
-                    </button>
-                ))}
-                <div className="border-t border-border-subtle px-3 py-1.5">
+
+                {/* Section 3 — Free-text prompt */}
+                <div className="border-t border-[color:var(--color-border-subtle)] mt-1 px-3 py-1.5">
                     <input
                         type="text"
-                        placeholder="Ask anything about this chart..."
-                        className="w-full text-[11px] text-foreground bg-surface-hover border border-border rounded px-2 py-1 focus:outline-none focus:border-primary"
+                        placeholder="Ask anything about this chart…"
+                        className="w-full text-[11px] text-[color:var(--color-fg)] bg-[color:var(--color-surface-hover)] border border-[color:var(--color-border)] rounded px-2 py-1 focus:outline-none focus:border-[color:var(--color-primary)]"
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
                                 dispatchChartAsk((e.target as HTMLInputElement).value.trim());

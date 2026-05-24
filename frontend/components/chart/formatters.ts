@@ -7,7 +7,8 @@ export function formatVolume(vol: number): string {
     return vol.toString();
 }
 
-export function formatPrice(price: number): string {
+export function formatPrice(price: number | null | undefined): string {
+    if (price == null || !Number.isFinite(price)) return '—';
     if (price >= 1000) return price.toFixed(0);
     if (price >= 100) return price.toFixed(1);
     if (price >= 1) return price.toFixed(2);

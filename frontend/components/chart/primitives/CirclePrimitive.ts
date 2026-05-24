@@ -12,13 +12,14 @@ import type {
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { CircleDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
+import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 
 class CircleRenderer implements IPrimitivePaneRenderer {
   constructor(
     private _cx: number, private _cy: number,
     private _rx: number, private _ry: number,
     private _color: string, private _fillColor: string,
-    private _lineWidth: number, private _isSelected: boolean,
+    private _lineWidth: number, private _lineStyle: LineStyle, private _isSelected: boolean,
   ) {}
 
   draw(target: CanvasRenderingTarget2D): void {
@@ -29,9 +30,12 @@ class CircleRenderer implements IPrimitivePaneRenderer {
       ctx.ellipse(this._cx, this._cy, this._rx, this._ry, 0, 0, Math.PI * 2);
       ctx.fillStyle = this._fillColor;
       ctx.fill();
+      const strokeWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
       ctx.strokeStyle = this._color;
-      ctx.lineWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
+      ctx.lineWidth = strokeWidth;
+      applyLineStyle(ctx, this._lineStyle, strokeWidth);
       ctx.stroke();
+      resetLineStyle(ctx);
 
       if (this._isSelected) {
         // Center dot
@@ -69,16 +73,19 @@ class CirclePaneView implements IPrimitivePaneView {
   private _rx = 0; private _ry = 0;
   private _ex = 0; private _ey = 0; // edge point for hit testing
   private _color = '#3b82f6'; private _fillColor = 'rgba(59,130,246,0.1)';
-  private _lineWidth = 1; private _isSelected = false; private _id = '';
+  private _lineWidth = 1; private _lineStyle: LineStyle = 'solid';
+  private _isSelected = false; private _id = '';
 
   update(cx: number, cy: number, ex: number, ey: number,
-    color: string, fillColor: string, lineWidth: number, isSelected: boolean, id: string): void {
+    color: string, fillColor: string, lineWidth: number, lineStyle: LineStyle,
+    isSelected: boolean, id: string): void {
     this._cx = cx; this._cy = cy;
     this._ex = ex; this._ey = ey;
     this._rx = Math.abs(ex - cx);
     this._ry = Math.abs(ey - cy);
     this._color = color; this._fillColor = fillColor;
-    this._lineWidth = lineWidth; this._isSelected = isSelected; this._id = id;
+    this._lineWidth = lineWidth; this._lineStyle = lineStyle;
+    this._isSelected = isSelected; this._id = id;
   }
 
   zOrder(): 'normal' { return 'normal'; }
@@ -86,7 +93,7 @@ class CirclePaneView implements IPrimitivePaneView {
   renderer(): IPrimitivePaneRenderer | null {
     if (this._rx < 1 && this._ry < 1) return null;
     return new CircleRenderer(this._cx, this._cy, this._rx, this._ry,
-      this._color, this._fillColor, this._lineWidth, this._isSelected);
+      this._color, this._fillColor, this._lineWidth, this._lineStyle, this._isSelected);
   }
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
@@ -138,11 +145,11 @@ export class CirclePrimitive implements ISeriesPrimitive<Time> {
     const x2 = timeToPixelX(this._drawing.point2.time, this._dataTimes, ts);
     const y2 = this._series.priceToCoordinate(this._drawing.point2.price);
     if (x1 === null || y1 === null || x2 === null || y2 === null) {
-      this._paneView.update(0, 0, 0, 0, '', '', 0, false, ''); return;
+      this._paneView.update(0, 0, 0, 0, '', '', 0, 'solid', false, ''); return;
     }
     this._paneView.update(x1, y1 as number, x2, y2 as number,
       this._drawing.color, this._drawing.fillColor, this._drawing.lineWidth,
-      this._isSelected, this._drawing.id);
+      this._drawing.lineStyle, this._isSelected, this._drawing.id);
   }
 
   paneViews(): readonly IPrimitivePaneView[] { this.updateAllViews(); return [this._paneView]; }

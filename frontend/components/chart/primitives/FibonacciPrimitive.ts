@@ -13,6 +13,7 @@ import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { FibonacciDrawing } from './types';
 import { FIB_LEVELS } from './types';
 import { timeToPixelX } from './coordinateUtils';
+import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 
 const LEVEL_COLORS: Record<number, string> = {
   0:     '#787b86',
@@ -34,6 +35,8 @@ class FibRenderer implements IPrimitivePaneRenderer {
     private _x2: number,
     private _levels: { level: number; y: number; price: number }[],
     private _baseColor: string,
+    private _lineWidth: number,
+    private _lineStyle: LineStyle,
     private _isSelected: boolean,
   ) {}
 
@@ -55,17 +58,28 @@ class FibRenderer implements IPrimitivePaneRenderer {
         ctx.globalAlpha = 1;
       }
 
-      // Level lines + labels
+      // Level lines + labels.
+      // Boundary levels (0 and 1) always render with the user-selected line
+      // style. Intermediate levels (.236, .382, .5, .618, .786) keep the
+      // dashed-by-default look unless the user explicitly switched to dotted
+      // — solid is treated as the override that solidifies everything.
+      const baseStroke = this._isSelected ? this._lineWidth + 0.5 : this._lineWidth;
       for (const { level, y, price } of this._levels) {
         const color = getLevelColor(level);
+        const isBoundary = level === 0 || level === 1;
+        const style: LineStyle = isBoundary
+          ? this._lineStyle
+          : this._lineStyle === 'solid'
+            ? 'dashed'
+            : this._lineStyle;
         ctx.beginPath();
         ctx.strokeStyle = color;
-        ctx.lineWidth = this._isSelected ? 1.5 : 1;
-        ctx.setLineDash(level === 0 || level === 1 ? [] : [4, 3]);
+        ctx.lineWidth = baseStroke;
+        applyLineStyle(ctx, style, baseStroke);
         ctx.moveTo(left, y);
         ctx.lineTo(right, y);
         ctx.stroke();
-        ctx.setLineDash([]);
+        resetLineStyle(ctx);
 
         const pctLabel = (level * 100).toFixed(1) + '%';
         const priceLabel = price < 1 ? price.toFixed(4) : price.toFixed(2);
@@ -100,23 +114,30 @@ class FibPaneView implements IPrimitivePaneView {
   private _x2 = 0;
   private _levels: { level: number; y: number; price: number }[] = [];
   private _baseColor = '#3b82f6';
+  private _lineWidth = 1;
+  private _lineStyle: LineStyle = 'solid';
   private _isSelected = false;
   private _id = '';
 
   update(
     x1: number, x2: number,
     levels: { level: number; y: number; price: number }[],
-    baseColor: string, isSelected: boolean, id: string,
+    baseColor: string, lineWidth: number, lineStyle: LineStyle,
+    isSelected: boolean, id: string,
   ): void {
     this._x1 = x1; this._x2 = x2; this._levels = levels;
-    this._baseColor = baseColor; this._isSelected = isSelected; this._id = id;
+    this._baseColor = baseColor; this._lineWidth = lineWidth;
+    this._lineStyle = lineStyle; this._isSelected = isSelected; this._id = id;
   }
 
   zOrder(): 'normal' { return 'normal'; }
 
   renderer(): IPrimitivePaneRenderer | null {
     if (this._levels.length < 2) return null;
-    return new FibRenderer(this._x1, this._x2, this._levels, this._baseColor, this._isSelected);
+    return new FibRenderer(
+      this._x1, this._x2, this._levels, this._baseColor,
+      this._lineWidth, this._lineStyle, this._isSelected,
+    );
   }
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
@@ -187,7 +208,7 @@ export class FibonacciPrimitive implements ISeriesPrimitive<Time> {
     const x2 = timeToPixelX(this._drawing.point2.time, this._dataTimes, ts);
 
     if (x1 === null || x2 === null) {
-      this._paneView.update(0, 0, [], '', false, '');
+      this._paneView.update(0, 0, [], '', 1, 'solid', false, '');
       return;
     }
 
@@ -204,7 +225,8 @@ export class FibonacciPrimitive implements ISeriesPrimitive<Time> {
 
     this._paneView.update(
       x1, x2, computedLevels,
-      this._drawing.color, this._isSelected, this._drawing.id,
+      this._drawing.color, this._drawing.lineWidth, this._drawing.lineStyle,
+      this._isSelected, this._drawing.id,
     );
   }
 

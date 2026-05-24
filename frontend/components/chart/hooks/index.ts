@@ -7,6 +7,7 @@ export { useChartZoom } from './useChartZoom';
 export { useChartNews } from './useChartNews';
 export { useSessionBackground } from './useSessionBackground';
 export { useEarningsMarkers } from './useEarningsMarkers';
+export { useEventMarkers } from './useEventMarkers';
 export { useTickerManagement } from './useTickerManagement';
 export type { TickerMeta } from './useTickerManagement';
 export { useBarReplay } from './useBarReplay';

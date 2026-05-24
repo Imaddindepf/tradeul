@@ -12,6 +12,7 @@ import type {
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { ParallelChannelDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
+import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 
 class ChannelRenderer implements IPrimitivePaneRenderer {
   constructor(
@@ -20,12 +21,11 @@ class ChannelRenderer implements IPrimitivePaneRenderer {
     private _x3: number, private _y3: number,   // C (bottom-left)
     private _x4: number, private _y4: number,   // D (bottom-right, derived)
     private _color: string, private _fillColor: string,
-    private _lineWidth: number, private _isSelected: boolean,
+    private _lineWidth: number, private _lineStyle: LineStyle, private _isSelected: boolean,
   ) {}
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useMediaCoordinateSpace(({ context: ctx }) => {
-      // Fill between the two lines
       ctx.beginPath();
       ctx.moveTo(this._x1, this._y1);
       ctx.lineTo(this._x2, this._y2);
@@ -35,21 +35,26 @@ class ChannelRenderer implements IPrimitivePaneRenderer {
       ctx.fillStyle = this._fillColor;
       ctx.fill();
 
-      // Main line (A → B)
-      ctx.beginPath();
+      const strokeWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
       ctx.strokeStyle = this._color;
-      ctx.lineWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
+      ctx.lineWidth = strokeWidth;
+      applyLineStyle(ctx, this._lineStyle, strokeWidth);
+
+      ctx.beginPath();
       ctx.moveTo(this._x1, this._y1);
       ctx.lineTo(this._x2, this._y2);
       ctx.stroke();
 
-      // Parallel line (C → D)
       ctx.beginPath();
       ctx.moveTo(this._x3, this._y3);
       ctx.lineTo(this._x4, this._y4);
       ctx.stroke();
 
-      // Middle line (dashed)
+      resetLineStyle(ctx);
+
+      // Middle line is always dashed at low opacity — kept as a visual
+      // reference of the channel's centroid regardless of the user's chosen
+      // line style for the boundaries.
       const mx1 = (this._x1 + this._x3) / 2, my1 = (this._y1 + this._y3) / 2;
       const mx2 = (this._x2 + this._x4) / 2, my2 = (this._y2 + this._y4) / 2;
       ctx.beginPath();
@@ -59,7 +64,7 @@ class ChannelRenderer implements IPrimitivePaneRenderer {
       ctx.moveTo(mx1, my1);
       ctx.lineTo(mx2, my2);
       ctx.stroke();
-      ctx.setLineDash([]);
+      resetLineStyle(ctx);
       ctx.globalAlpha = 1;
 
       if (this._isSelected) {
@@ -96,15 +101,18 @@ class ChannelPaneView implements IPrimitivePaneView {
   private _x1 = 0; private _y1 = 0; private _x2 = 0; private _y2 = 0;
   private _x3 = 0; private _y3 = 0; private _x4 = 0; private _y4 = 0;
   private _color = '#3b82f6'; private _fillColor = 'rgba(59,130,246,0.08)';
-  private _lineWidth = 2; private _isSelected = false; private _id = '';
+  private _lineWidth = 2; private _lineStyle: LineStyle = 'solid';
+  private _isSelected = false; private _id = '';
 
   update(x1: number, y1: number, x2: number, y2: number,
     x3: number, y3: number, x4: number, y4: number,
-    color: string, fillColor: string, lineWidth: number, isSelected: boolean, id: string): void {
+    color: string, fillColor: string, lineWidth: number, lineStyle: LineStyle,
+    isSelected: boolean, id: string): void {
     this._x1 = x1; this._y1 = y1; this._x2 = x2; this._y2 = y2;
     this._x3 = x3; this._y3 = y3; this._x4 = x4; this._y4 = y4;
     this._color = color; this._fillColor = fillColor;
-    this._lineWidth = lineWidth; this._isSelected = isSelected; this._id = id;
+    this._lineWidth = lineWidth; this._lineStyle = lineStyle;
+    this._isSelected = isSelected; this._id = id;
   }
 
   zOrder(): 'normal' { return 'normal'; }
@@ -113,7 +121,7 @@ class ChannelPaneView implements IPrimitivePaneView {
     if (this._x1 === 0 && this._x2 === 0) return null;
     return new ChannelRenderer(this._x1, this._y1, this._x2, this._y2,
       this._x3, this._y3, this._x4, this._y4,
-      this._color, this._fillColor, this._lineWidth, this._isSelected);
+      this._color, this._fillColor, this._lineWidth, this._lineStyle, this._isSelected);
   }
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
@@ -183,7 +191,7 @@ export class ParallelChannelPrimitive implements ISeriesPrimitive<Time> {
     const y2 = this._series.priceToCoordinate(this._drawing.point2.price);
 
     if (x1 === null || y1 === null || x2 === null || y2 === null) {
-      this._paneView.update(0, 0, 0, 0, 0, 0, 0, 0, '', '', 0, false, ''); return;
+      this._paneView.update(0, 0, 0, 0, 0, 0, 0, 0, '', '', 0, 'solid', false, ''); return;
     }
 
     // D = C + (B - A) in price space. C shares X with A, D shares X with B.
@@ -197,6 +205,7 @@ export class ParallelChannelPrimitive implements ISeriesPrimitive<Time> {
       x1, y1 as number, x2, y2 as number,
       x1, y3 as number, x2, y4 as number,
       this._drawing.color, this._drawing.fillColor, this._drawing.lineWidth,
+      this._drawing.lineStyle,
       this._isSelected, this._drawing.id,
     );
   }

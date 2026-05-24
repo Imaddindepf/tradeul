@@ -157,21 +157,35 @@ const _getVar = (v: string, fallback: string) =>
 export function getChartColors() {
     return {
         background: _getVar('--color-bg', '#ffffff'),
-        gridColor: _getVar('--color-border-subtle', '#f1f5f9'),
+        gridColor: _getVar('--color-chart-grid', '#f1f5f9'),
         borderColor: _getVar('--color-border', '#e2e8f0'),
         textColor: _getVar('--color-muted-fg', '#64748b'),
         textStrong: _getVar('--color-fg', '#334155'),
-        upColor: '#10b981',
-        downColor: '#ef4444',
-        upColorLight: '#d1fae5',
-        downColorLight: '#fee2e2',
-        volumeUp: 'rgba(16, 185, 129, 0.3)',
-        volumeDown: 'rgba(239, 68, 68, 0.3)',
-        crosshair: '#3b82f6',
-        watermark: 'rgba(100, 116, 139, 0.07)',
+        upColor: _getVar('--color-chart-up', '#10b981'),
+        downColor: _getVar('--color-chart-down', '#ef4444'),
+        volumeUp: _getVar('--color-chart-up-soft', 'rgba(16, 185, 129, 0.3)'),
+        volumeDown: _getVar('--color-chart-down-soft', 'rgba(239, 68, 68, 0.3)'),
+        crosshair: _getVar('--color-chart-crosshair', '#3b82f6'),
+        watermark: _getVar('--color-chart-watermark', 'rgba(100, 116, 139, 0.07)'),
+        markerEarnings: _getVar('--color-chart-marker-earnings', '#2563eb'),
+        markerNews: _getVar('--color-chart-marker-news', '#f59e0b'),
+        success: _getVar('--color-success', '#10b981'),
+        warning: _getVar('--color-warning', '#f59e0b'),
+        danger: _getVar('--color-danger', '#ef4444'),
+        primary: _getVar('--color-primary', '#2563eb'),
+        replay: _getVar('--color-chart-replay', '#ea580c'),
     };
 }
 
+/**
+ * Module-load snapshot of chart colors. Kept for backwards compatibility with
+ * hooks that read theme-derived colors at render time without subscribing to
+ * theme changes. New code should call `getChartColors()` on demand.
+ *
+ * NOTE: this snapshot does not reflect theme switches (light↔dark). The chart
+ * instance subscribes to theme changes inside `useChartInit` and re-applies
+ * the colors via `applyOptions`.
+ */
 export const CHART_COLORS = getChartColors();
 
 export const INDICATOR_COLORS = {

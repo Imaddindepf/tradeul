@@ -12,6 +12,7 @@ import type {
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { RectangleDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
+import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 
 class RectRenderer implements IPrimitivePaneRenderer {
   constructor(
@@ -22,6 +23,7 @@ class RectRenderer implements IPrimitivePaneRenderer {
     private _color: string,
     private _fillColor: string,
     private _lineWidth: number,
+    private _lineStyle: LineStyle,
     private _isSelected: boolean,
   ) {}
 
@@ -33,14 +35,15 @@ class RectRenderer implements IPrimitivePaneRenderer {
       const h = Math.abs(this._y2 - this._y1);
       if (w < 1 || h < 1) return;
 
-      // Fill
       ctx.fillStyle = this._fillColor;
       ctx.fillRect(left, top, w, h);
 
-      // Stroke
+      const strokeWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
       ctx.strokeStyle = this._color;
-      ctx.lineWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
+      ctx.lineWidth = strokeWidth;
+      applyLineStyle(ctx, this._lineStyle, strokeWidth);
       ctx.strokeRect(left, top, w, h);
+      resetLineStyle(ctx);
 
       // Anchor dots when selected
       if (this._isSelected) {
@@ -70,17 +73,19 @@ class RectPaneView implements IPrimitivePaneView {
   private _color = '#3b82f6';
   private _fillColor = 'rgba(59,130,246,0.1)';
   private _lineWidth = 1;
+  private _lineStyle: LineStyle = 'solid';
   private _isSelected = false;
   private _id = '';
 
   update(
     x1: number, y1: number, x2: number, y2: number,
-    color: string, fillColor: string, lineWidth: number,
+    color: string, fillColor: string, lineWidth: number, lineStyle: LineStyle,
     isSelected: boolean, id: string,
   ): void {
     this._x1 = x1; this._y1 = y1; this._x2 = x2; this._y2 = y2;
     this._color = color; this._fillColor = fillColor;
-    this._lineWidth = lineWidth; this._isSelected = isSelected; this._id = id;
+    this._lineWidth = lineWidth; this._lineStyle = lineStyle;
+    this._isSelected = isSelected; this._id = id;
   }
 
   zOrder(): 'normal' { return 'normal'; }
@@ -89,7 +94,7 @@ class RectPaneView implements IPrimitivePaneView {
     if (this._x1 === 0 && this._x2 === 0) return null;
     return new RectRenderer(
       this._x1, this._y1, this._x2, this._y2,
-      this._color, this._fillColor, this._lineWidth, this._isSelected,
+      this._color, this._fillColor, this._lineWidth, this._lineStyle, this._isSelected,
     );
   }
 
@@ -161,7 +166,7 @@ export class RectanglePrimitive implements ISeriesPrimitive<Time> {
     const y2 = this._series.priceToCoordinate(this._drawing.point2.price);
 
     if (x1 === null || y1 === null || x2 === null || y2 === null) {
-      this._paneView.update(0, 0, 0, 0, '', '', 0, false, '');
+      this._paneView.update(0, 0, 0, 0, '', '', 0, 'solid', false, '');
       return;
     }
 
@@ -170,6 +175,7 @@ export class RectanglePrimitive implements ISeriesPrimitive<Time> {
       this._drawing.color,
       this._drawing.fillColor,
       this._drawing.lineWidth,
+      this._drawing.lineStyle,
       this._isSelected,
       this._drawing.id,
     );

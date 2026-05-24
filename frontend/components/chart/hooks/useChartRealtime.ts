@@ -7,6 +7,7 @@ import { getSessionColor } from './useSessionBackground';
 import { buildWhitespace } from './useChartData';
 import { IncrementalIndicatorEngine } from '../IncrementalIndicatorEngine';
 import type { IndicatorInstance } from '../constants';
+import type { ChartCandleStyle } from '@/stores/useUserPreferencesStore';
 
 export function useChartRealtime(
     chartRef: MutableRefObject<IChartApi | null>,
@@ -21,7 +22,10 @@ export function useChartRealtime(
     indicators: IndicatorInstance[],
     registerUpdateHandler: (handler: ((bar: HookChartBar, isNewBar: boolean) => void) | null) => void,
     isReplayActive = false,
+    candleStyle: ChartCandleStyle = 'candles',
 ) {
+    const candleStyleRef = useRef(candleStyle);
+    candleStyleRef.current = candleStyle;
     const engineRef = useRef<IncrementalIndicatorEngine | null>(null);
     const isReplayActiveRef = useRef(isReplayActive);
     isReplayActiveRef.current = isReplayActive;
@@ -55,13 +59,26 @@ export function useChartRealtime(
             if (!candleSeries || !volumeSeries) return;
 
             try {
-                candleSeries.update({
-                    time: bar.time as UTCTimestamp,
-                    open: bar.open,
-                    high: bar.high,
-                    low: bar.low,
-                    close: bar.close,
-                });
+                const style = candleStyleRef.current;
+                if (style === 'line' || style === 'area') {
+                    candleSeries.update({
+                        time: bar.time as UTCTimestamp,
+                        value: bar.close,
+                    } as any);
+                } else if (style === 'heikin-ashi') {
+                    // HA realtime would require tracking previous HA values per series. The
+                    // candle visual updates on the next full data sync (typically <1s) so we
+                    // intentionally skip the OHLC update here to avoid showing incorrect HA
+                    // values mid-bar. Volume + indicators still update normally below.
+                } else {
+                    candleSeries.update({
+                        time: bar.time as UTCTimestamp,
+                        open: bar.open,
+                        high: bar.high,
+                        low: bar.low,
+                        close: bar.close,
+                    });
+                }
 
                 lastPriceInfoRef.current = { close: bar.close, open: bar.open };
 

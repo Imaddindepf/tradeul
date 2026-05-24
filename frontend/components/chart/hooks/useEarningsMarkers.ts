@@ -1,48 +1,86 @@
-import { useEffect, useRef, useState } from 'react';
-import type { MutableRefObject } from 'react';
-import type { ISeriesApi } from 'lightweight-charts';
-import { EarningsMarkerPrimitive } from '../primitives/EarningsMarkerPrimitive';
-import type { ChartBar, Interval } from '../constants';
+/**
+ * useEarningsMarkers
+ *
+ * Loads full earnings records for the current ticker and exposes them in the
+ * format required by `useEventMarkers`. The full record is attached to each
+ * marker's `payload` so the click popup can render without a second fetch.
+ *
+ * The primitive itself is owned by `useEventMarkers`, which combines earnings
+ * + news (and any future event streams) into a single chart primitive for
+ * visual consistency.
+ */
+import { useEffect, useMemo, useState } from 'react';
+import type { ChartEvent } from '../primitives/EventMarkerPrimitive';
+
+/**
+ * Full earnings record as returned by `/api/v1/earnings/ticker/{ticker}`.
+ * Optional fields are typed as `number | null` because the backend may not
+ * have data for projected/estimated rows yet.
+ */
+export interface EarningsRecord {
+    symbol: string;
+    company_name: string | null;
+    report_date: string;
+    time_slot: 'BMO' | 'AMC' | string;
+    fiscal_quarter: string | null;
+    eps_estimate: number | null;
+    eps_actual: number | null;
+    eps_surprise_pct: number | null;
+    beat_eps: boolean | null;
+    revenue_estimate: number | null;
+    revenue_actual: number | null;
+    revenue_surprise_pct: number | null;
+    beat_revenue: boolean | null;
+    guidance_direction: string | null;
+    guidance_commentary: string | null;
+    key_highlights: string | null;
+    importance: number | null;
+    date_status: string | null;
+    eps_method: string | null;
+    revenue_method: string | null;
+    previous_eps: number | null;
+    previous_revenue: number | null;
+    status: string | null;
+    source: string | null;
+}
 
 export function useEarningsMarkers(
-    candleSeriesRef: MutableRefObject<ISeriesApi<any> | null>,
-    data: ChartBar[],
-    selectedInterval: Interval,
     currentTicker: string,
-    showEarningsMarkers: boolean,
+    enabled: boolean,
 ) {
-    const [earningsDates, setEarningsDates] = useState<{ date: string; time_slot: string }[]>([]);
-    const earningsPrimitiveRef = useRef<EarningsMarkerPrimitive | null>(null);
+    const [records, setRecords] = useState<EarningsRecord[]>([]);
 
     useEffect(() => {
-        if (!currentTicker) return;
+        if (!currentTicker) {
+            setRecords([]);
+            return;
+        }
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        fetch(`${apiUrl}/api/v1/earnings/ticker/${currentTicker.toUpperCase()}/dates?limit=100`)
+        const controller = new AbortController();
+        fetch(
+            `${apiUrl}/api/v1/earnings/ticker/${currentTicker.toUpperCase()}?limit=100`,
+            { signal: controller.signal },
+        )
             .then(res => res.ok ? res.json() : null)
             .then(d => {
-                if (d?.dates) setEarningsDates(d.dates);
+                if (d?.earnings && Array.isArray(d.earnings)) setRecords(d.earnings);
+                else setRecords([]);
             })
-            .catch(() => setEarningsDates([]));
+            .catch(err => {
+                if (err.name !== 'AbortError') setRecords([]);
+            });
+        return () => controller.abort();
     }, [currentTicker]);
 
-    useEffect(() => {
-        if (!candleSeriesRef.current || !data || data.length === 0) return;
+    const events = useMemo<ChartEvent[]>(() => {
+        if (!enabled) return [];
+        return records.map(r => ({
+            date: r.report_date,
+            kind: 'earnings' as const,
+            label: r.time_slot,
+            payload: r,
+        }));
+    }, [records, enabled]);
 
-        if (!earningsPrimitiveRef.current) {
-            earningsPrimitiveRef.current = new EarningsMarkerPrimitive();
-            candleSeriesRef.current.attachPrimitive(earningsPrimitiveRef.current);
-        }
-
-        const primitive = earningsPrimitiveRef.current;
-        primitive.setVisible(showEarningsMarkers);
-        primitive.setInterval(selectedInterval);
-        primitive.setDataTimes(data.map(b => b.time));
-        primitive.setEarnings(earningsDates);
-
-        return () => {
-            earningsPrimitiveRef.current = null;
-        };
-    }, [showEarningsMarkers, earningsDates, data, selectedInterval]);
-
-    return { earningsDates, earningsPrimitiveRef };
+    return { earningsRecords: records, earningsEvents: events };
 }

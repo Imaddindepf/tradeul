@@ -12,13 +12,14 @@ import type {
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { ExtendedLineDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
+import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 
 class ExtLineRenderer implements IPrimitivePaneRenderer {
   constructor(
     private _x1: number, private _y1: number,
     private _x2: number, private _y2: number,
     private _color: string, private _lineWidth: number,
-    private _isDashed: boolean, private _isSelected: boolean,
+    private _lineStyle: LineStyle, private _isSelected: boolean,
   ) {}
 
   draw(target: CanvasRenderingTarget2D): void {
@@ -36,14 +37,15 @@ class ExtLineRenderer implements IPrimitivePaneRenderer {
         endY = this._y1 + dy * 10000;
       }
 
+      const strokeWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
       ctx.beginPath();
       ctx.strokeStyle = this._color;
-      ctx.lineWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
-      if (this._isDashed) ctx.setLineDash([6, 4]);
+      ctx.lineWidth = strokeWidth;
+      applyLineStyle(ctx, this._lineStyle, strokeWidth);
       ctx.moveTo(startX, startY);
       ctx.lineTo(endX, endY);
       ctx.stroke();
-      ctx.setLineDash([]);
+      resetLineStyle(ctx);
 
       if (this._isSelected) {
         for (const [x, y] of [[this._x1, this._y1], [this._x2, this._y2]]) {
@@ -63,13 +65,13 @@ class ExtLineRenderer implements IPrimitivePaneRenderer {
 class ExtLinePaneView implements IPrimitivePaneView {
   private _x1 = 0; private _y1 = 0; private _x2 = 0; private _y2 = 0;
   private _color = '#3b82f6'; private _lineWidth = 2;
-  private _isDashed = false; private _isSelected = false; private _id = '';
+  private _lineStyle: LineStyle = 'solid'; private _isSelected = false; private _id = '';
 
   update(x1: number, y1: number, x2: number, y2: number,
-    color: string, lineWidth: number, isDashed: boolean, isSelected: boolean, id: string): void {
+    color: string, lineWidth: number, lineStyle: LineStyle, isSelected: boolean, id: string): void {
     this._x1 = x1; this._y1 = y1; this._x2 = x2; this._y2 = y2;
     this._color = color; this._lineWidth = lineWidth;
-    this._isDashed = isDashed; this._isSelected = isSelected; this._id = id;
+    this._lineStyle = lineStyle; this._isSelected = isSelected; this._id = id;
   }
 
   zOrder(): 'top' { return 'top'; }
@@ -77,7 +79,7 @@ class ExtLinePaneView implements IPrimitivePaneView {
   renderer(): IPrimitivePaneRenderer | null {
     if (this._x1 === 0 && this._x2 === 0) return null;
     return new ExtLineRenderer(this._x1, this._y1, this._x2, this._y2,
-      this._color, this._lineWidth, this._isDashed, this._isSelected);
+      this._color, this._lineWidth, this._lineStyle, this._isSelected);
   }
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
@@ -124,11 +126,11 @@ export class ExtendedLinePrimitive implements ISeriesPrimitive<Time> {
     const x2 = timeToPixelX(this._drawing.point2.time, this._dataTimes, ts);
     const y2 = this._series.priceToCoordinate(this._drawing.point2.price);
     if (x1 === null || y1 === null || x2 === null || y2 === null) {
-      this._paneView.update(0, 0, 0, 0, '', 0, false, false, ''); return;
+      this._paneView.update(0, 0, 0, 0, '', 0, 'solid', false, ''); return;
     }
     this._paneView.update(x1, y1 as number, x2, y2 as number,
       this._drawing.color, this._drawing.lineWidth,
-      this._drawing.lineStyle === 'dashed', this._isSelected, this._drawing.id);
+      this._drawing.lineStyle, this._isSelected, this._drawing.id);
   }
 
   paneViews(): readonly IPrimitivePaneView[] { this.updateAllViews(); return [this._paneView]; }

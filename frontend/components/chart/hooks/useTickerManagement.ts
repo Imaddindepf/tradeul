@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { MutableRefObject } from 'react';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
-import { useFloatingWindow, useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { useLinkGroupSubscription } from '@/hooks/useLinkGroup';
 import { getMarketSession } from '@/lib/api';
 import type { MarketSession } from '@/lib/types';
@@ -22,7 +22,7 @@ export function useTickerManagement(
 ) {
     const { state: windowState, updateState: updateWindowState } = useWindowState<ChartWindowState>();
     const windowId = useCurrentWindowId?.();
-    const { openWindow, updateWindow } = useFloatingWindow();
+    const { openWindow, updateWindow } = useFloatingWindowActions();
     const ws = useWebSocket();
     const linkBroadcast = useLinkGroupSubscription();
 

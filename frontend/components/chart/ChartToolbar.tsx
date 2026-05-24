@@ -2,6 +2,7 @@
 
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import type { DrawingTool } from './primitives/types';
+import type { MagnetMode } from './ChartContext';
 
 // ============================================================================
 // SVG Icon Base
@@ -116,35 +117,15 @@ const MagnetIcon = ({ className }: { className?: string }) => (
 );
 
 // --- Utility ---
-const LockIcon = ({ className }: { className?: string }) => (
-  <I className={className}><rect x="8" y="13" width="12" height="10" rx="1.5" /><path d="M10 13V9a4 4 0 018 0v4" /></I>
-);
-const UnlockIcon = ({ className }: { className?: string }) => (
-  <I className={className}><rect x="8" y="13" width="12" height="10" rx="1.5" /><path d="M18 13V9a4 4 0 00-8 0" /></I>
-);
-const EyeIcon = ({ className }: { className?: string }) => (
-  <I className={className}><path d="M2 14s4-8 12-8 12 8 12 8-4 8-12 8-12-8-12-8z" /><circle cx="14" cy="14" r="3.5" /></I>
-);
-const EyeOffIcon = ({ className }: { className?: string }) => (
-  <I className={className}><path d="M4 4l20 20" strokeWidth="1.8" /><path d="M11.5 11.5a3.5 3.5 0 004.9 4.9" /><path d="M7 8c-2.5 2-5 6-5 6s4 8 12 8c1.5 0 3-.3 4.2-.9" /><path d="M21 20c2.5-2 5-6 5-6s-4-8-12-8c-.8 0-1.5.1-2.2.2" /></I>
-);
+// Trash kept here for the "Clear all" sidebar action. Lock/visibility/star/
+// settings icons live in `./icons.tsx` and are used by the header instead, so
+// duplicate copies were removed from this file.
 const TrashIcon = ({ className }: { className?: string }) => (
   <I className={className}><path d="M6 7h16M10 7V5.5a1.5 1.5 0 011.5-1.5h5a1.5 1.5 0 011.5 1.5V7" /><path d="M8 7v14a2 2 0 002 2h8a2 2 0 002-2V7" /><path d="M12 11v7M16 11v7" strokeWidth="1.2" /></I>
 );
-const StarIcon = ({ className }: { className?: string }) => (
-  <I className={className}><path d="M14 4l3.1 6.3 7 1-5 4.9 1.2 6.9L14 19.8l-6.3 3.3 1.2-6.9-5-4.9 7-1L14 4z" /></I>
-);
-const SettingsIcon = ({ className }: { className?: string }) => (
-  <I className={className}><circle cx="14" cy="14" r="3" /><path d="M14 3v3M14 22v3M3 14h3M22 14h3M6.1 6.1l2.1 2.1M19.8 19.8l2.1 2.1M6.1 21.9l2.1-2.1M19.8 8.2l2.1-2.1" strokeWidth="1.3" /></I>
-);
 
-// --- Indicators (TradingView-style: 3 candles / oscillator bars) ---
-export const IndicatorsIcon = ({ className }: { className?: string }) => (
-  <I className={className}>
-    <path d="M7 8v12M14 6v16M21 10v8" strokeWidth="2.2" strokeLinecap="round" />
-    <path d="M7 11v4M14 9v5M21 12v3" strokeWidth="3.5" strokeLinecap="round" opacity="0.3" />
-  </I>
-);
+// NOTE: `IndicatorsIcon` lives in `./icons.tsx` (single source of truth) and is
+// imported by `ChartIndicatorMenu`. No copy is exported from this file.
 
 // ============================================================================
 // Tool Category Structure
@@ -252,22 +233,6 @@ const SIDEBAR_CATEGORIES: ToolCategory[] = [
   },
 ];
 
-// Top header tools — compact quick-access
-const HEADER_TOOLS: ToolDef[] = [
-  { id: 'none', label: 'Cursor', shortcut: 'Esc', icon: CursorIcon, enabled: true },
-  { id: 'crosshair_mode', label: 'Crosshair', icon: CrosshairIcon, enabled: false },
-  { id: 'trendline', label: 'Trend Line', shortcut: 'T', icon: TrendlineIcon, enabled: true },
-  { id: 'horizontal_line', label: 'Horizontal Line', shortcut: 'H', icon: HLineIcon, enabled: true },
-  { id: 'vertical_line', label: 'Vertical Line', shortcut: 'V', icon: VLineIcon, enabled: true },
-  { id: 'ray', label: 'Ray', shortcut: 'Y', icon: RayIcon, enabled: true },
-  { id: 'fibonacci', label: 'Fib Retracement', shortcut: 'F', icon: FibIcon, enabled: true },
-  { id: 'rectangle', label: 'Rectangle', shortcut: 'R', icon: RectIcon, enabled: true },
-  { id: 'circle', label: 'Circle', shortcut: 'C', icon: CircleIcon, enabled: true },
-  { id: 'measure', label: 'Measure', shortcut: 'M', icon: MeasureIcon, enabled: true },
-  { id: 'brush', label: 'Brush', icon: BrushIcon, enabled: false },
-  { id: 'magnet', label: 'Magnet', icon: MagnetIcon, enabled: false },
-];
-
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -288,8 +253,6 @@ const ENABLED_TOOLS = new Set<string>([
 // ChartToolbar — Left Sidebar
 // ============================================================================
 
-type MagnetMode = 'off' | 'weak' | 'strong';
-
 interface ChartToolbarProps {
   activeTool: DrawingTool;
   setActiveTool: (tool: DrawingTool) => void;
@@ -297,8 +260,6 @@ interface ChartToolbarProps {
   clearAllDrawings: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
-  drawingsVisible: boolean;
-  toggleDrawingsVisibility: () => void;
   magnetMode: MagnetMode;
   onCycleMagnet: () => void;
 }
@@ -310,13 +271,10 @@ function ChartToolbarComponent({
   clearAllDrawings,
   zoomIn,
   zoomOut,
-  drawingsVisible,
-  toggleDrawingsVisibility,
   magnetMode,
   onCycleMagnet,
 }: ChartToolbarProps) {
   const [openFlyout, setOpenFlyout] = useState<string | null>(null);
-  const [locked, setLocked] = useState(false);
   const flyoutRef = useRef<HTMLDivElement>(null);
 
   // Last-selected tool per category
@@ -372,7 +330,7 @@ function ChartToolbarComponent({
   const btnDisabled = 'text-muted-fg/50 cursor-default';
 
   return (
-    <div className="w-[38px] flex-shrink-0 bg-surface-hover border-r border-border flex flex-col items-center pt-1.5 pb-1 select-none z-10">
+    <div className="relative w-[38px] flex-shrink-0 bg-surface-hover border-r border-border flex flex-col items-center pt-1.5 pb-1 select-none z-50">
 
       {SIDEBAR_CATEGORIES.map((cat, idx) => {
         const isActive = activeCatId === cat.id;
@@ -462,30 +420,11 @@ function ChartToolbarComponent({
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Bottom utilities */}
-      <div className="flex flex-col items-center">
-        <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: '#cbd5e1' }} />
-
-        {/* Lock */}
-        <button
-          onClick={() => setLocked(!locked)}
-          className={`${btnBase} ${locked ? 'text-primary bg-primary/10' : btnIdle}`}
-          title={locked ? 'Unlock drawings' : 'Lock drawings'}
-        >
-          {locked ? <LockIcon className="w-[18px] h-[18px]" /> : <UnlockIcon className="w-[18px] h-[18px]" />}
-        </button>
-
-        {/* Visibility */}
-        <button
-          onClick={toggleDrawingsVisibility}
-          className={`${btnBase} ${!drawingsVisible ? 'text-muted-fg/50' : btnIdle}`}
-          title={drawingsVisible ? 'Hide drawings' : 'Show drawings'}
-        >
-          {drawingsVisible ? <EyeIcon className="w-[18px] h-[18px]" /> : <EyeOffIcon className="w-[18px] h-[18px]" />}
-        </button>
-
-        {/* Trash */}
-        {drawingCount > 0 && (
+      {/* Bottom utilities — lock/visibility/settings live in the header to
+          avoid duplication. Only "clear all" remains here as a sidebar action. */}
+      {drawingCount > 0 && (
+        <div className="flex flex-col items-center">
+          <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: 'var(--color-border)' }} />
           <button
             onClick={clearAllDrawings}
             className={`${btnBase} text-muted-fg hover:text-red-500 hover:bg-red-500/10`}
@@ -493,62 +432,10 @@ function ChartToolbarComponent({
           >
             <TrashIcon className="w-[18px] h-[18px]" />
           </button>
-        )}
-
-        <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: 'var(--color-border)' }} />
-
-        {/* Favorites */}
-        <button className={`${btnBase} ${btnDisabled}`} title="Favorites (coming soon)">
-          <StarIcon className="w-[18px] h-[18px]" />
-        </button>
-
-        {/* Settings */}
-        <button className={`${btnBase} ${btnDisabled}`} title="Chart settings (coming soon)">
-          <SettingsIcon className="w-[18px] h-[18px]" />
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export const ChartToolbar = memo(ChartToolbarComponent);
-
-// ============================================================================
-// HeaderDrawingTools — inline tools for the top header bar
-// ============================================================================
-
-interface HeaderDrawingToolsProps {
-  activeTool: DrawingTool;
-  setActiveTool: (tool: DrawingTool) => void;
-}
-
-function HeaderDrawingToolsComponent({ activeTool, setActiveTool }: HeaderDrawingToolsProps) {
-  return (
-    <div className="flex items-center gap-px">
-      {HEADER_TOOLS.map(({ id, icon: ToolIcon, label, shortcut, enabled }) => {
-        const isActive = activeTool === id;
-        return (
-          <button
-            key={id}
-            onClick={() => {
-              if (!enabled) return;
-              setActiveTool((id === activeTool && id !== 'none' ? 'none' : id) as DrawingTool);
-            }}
-            className={`w-[22px] h-[22px] flex items-center justify-center rounded-[3px] transition-colors ${
-              !enabled
-                ? 'text-muted-fg/50 cursor-default'
-                : isActive
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-fg hover:text-foreground hover:bg-surface-hover'
-            }`}
-            title={`${label}${shortcut ? ` (${shortcut})` : ''}${!enabled ? ' — coming soon' : ''}`}
-          >
-            <ToolIcon className="w-[13px] h-[13px]" />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-export const HeaderDrawingTools = memo(HeaderDrawingToolsComponent);

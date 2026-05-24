@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
-import type { IChartApi, ISeriesApi, CandlestickData, HistogramData, UTCTimestamp, LogicalRange, WhitespaceData } from 'lightweight-charts';
+import type {
+    IChartApi,
+    ISeriesApi,
+    CandlestickData,
+    BarData,
+    LineData,
+    HistogramData,
+    UTCTimestamp,
+    LogicalRange,
+    WhitespaceData,
+} from 'lightweight-charts';
 import { CHART_COLORS, INTERVAL_SECONDS, WHITESPACE_BAR_COUNT, type ChartBar, type Interval } from '../constants';
+import { computeHeikinAshi } from '../utils/heikinAshi';
+import type { ChartCandleStyle } from '@/stores/useUserPreferencesStore';
 
 /** Build future whitespace entries so the time axis shows upcoming dates. */
 export function buildWhitespace(lastTime: number, gap: number, count: number): WhitespaceData[] {
@@ -10,6 +22,35 @@ export function buildWhitespace(lastTime: number, gap: number, count: number): W
         ws.push({ time: (lastTime + gap * i) as UTCTimestamp });
     }
     return ws;
+}
+
+/**
+ * Build the data array shape required by the active candle series.
+ *  - Candlestick / Bar: full OHLC
+ *  - Line / Area: { time, value: close }
+ *  - Heikin-Ashi: candlestick shape with HA-transformed OHLC
+ */
+function buildSeriesData(bars: ChartBar[], style: ChartCandleStyle): any[] {
+    if (style === 'line' || style === 'area') {
+        const out: LineData[] = bars.map(bar => ({
+            time: bar.time as UTCTimestamp,
+            value: bar.close,
+        }));
+        return out;
+    }
+    const source = style === 'heikin-ashi' ? computeHeikinAshi(bars) : bars;
+    if (style === 'bars') {
+        const out: BarData[] = source.map(bar => ({
+            time: bar.time as UTCTimestamp,
+            open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+        }));
+        return out;
+    }
+    const out: CandlestickData[] = source.map(bar => ({
+        time: bar.time as UTCTimestamp,
+        open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+    }));
+    return out;
 }
 
 /**
@@ -22,22 +63,20 @@ export function useChartData(
     volumeSeriesRef: MutableRefObject<ISeriesApi<any> | null>,
     whitespaceSeriesRef: MutableRefObject<ISeriesApi<any> | null>,
     lastPriceInfoRef: MutableRefObject<{ close: number; open: number }>,
-    newsMarkersRef: MutableRefObject<any>,
     data: ChartBar[],
     currentTicker: string,
     selectedInterval: Interval,
-    showNewsMarkers: boolean,
     hasMore: boolean,
     loadingMore: boolean,
     loadMore: () => Promise<any>,
     replayControlsDataRef?: MutableRefObject<boolean>,
     chartVersion?: number,
+    candleStyle: ChartCandleStyle = 'candles',
 ) {
     const prevDataLengthRef = useRef(0);
     const prevTickerRef = useRef(currentTicker);
     const [isScrolledAway, setIsScrolledAway] = useState(false);
 
-    // Update chart data
     useEffect(() => {
         if (!candleSeriesRef.current || !volumeSeriesRef.current) return;
         if (!data || data.length === 0) return;
@@ -57,15 +96,14 @@ export function useChartData(
             savedLogicalRange = timeScale.getVisibleLogicalRange();
         }
 
-        const candleData: CandlestickData[] = data.map(bar => ({
-            time: bar.time as UTCTimestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close,
-        }));
+        const seriesData = buildSeriesData(data, candleStyle);
         const volumeData: HistogramData[] = data.map(bar => ({
-            time: bar.time as UTCTimestamp, value: bar.volume,
+            time: bar.time as UTCTimestamp,
+            value: bar.volume,
             color: bar.close >= bar.open ? CHART_COLORS.volumeUp : CHART_COLORS.volumeDown,
         }));
 
-        candleSeriesRef.current.setData(candleData);
+        candleSeriesRef.current.setData(seriesData);
         volumeSeriesRef.current.setData(volumeData);
 
         if (whitespaceSeriesRef.current) {
@@ -88,13 +126,8 @@ export function useChartData(
         }
 
         prevDataLengthRef.current = data.length;
+    }, [data, currentTicker, candleStyle]);
 
-        if (!showNewsMarkers && newsMarkersRef.current) {
-            newsMarkersRef.current.setMarkers([]);
-        }
-    }, [data, currentTicker, showNewsMarkers]);
-
-    // Auto-load more on scroll + detect scrolled away
     const loadMorePendingRef = useRef(false);
     const hasMoreRef = useRef(hasMore);
     hasMoreRef.current = hasMore;

@@ -12,6 +12,7 @@ import type {
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { TrendlineDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
+import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 
 // ─── Renderer ────────────────────────────────────────────────────────────────
 
@@ -23,20 +24,21 @@ class TrendlineRenderer implements IPrimitivePaneRenderer {
     private _y2: number,
     private _color: string,
     private _lineWidth: number,
-    private _isDashed: boolean,
+    private _lineStyle: LineStyle,
     private _isSelected: boolean,
   ) {}
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useMediaCoordinateSpace(({ context: ctx }) => {
+      const strokeWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
       ctx.beginPath();
       ctx.strokeStyle = this._color;
-      ctx.lineWidth = this._isSelected ? this._lineWidth + 1 : this._lineWidth;
-      if (this._isDashed) ctx.setLineDash([6, 4]);
+      ctx.lineWidth = strokeWidth;
+      applyLineStyle(ctx, this._lineStyle, strokeWidth);
       ctx.moveTo(this._x1, this._y1);
       ctx.lineTo(this._x2, this._y2);
       ctx.stroke();
-      ctx.setLineDash([]);
+      resetLineStyle(ctx);
 
       // Anchor dots when selected
       if (this._isSelected) {
@@ -63,20 +65,20 @@ class TrendlinePaneView implements IPrimitivePaneView {
   private _y2 = 0;
   private _color = '#3b82f6';
   private _lineWidth = 2;
-  private _isDashed = false;
+  private _lineStyle: LineStyle = 'solid';
   private _isSelected = false;
   private _id = '';
 
   update(
     x1: number, y1: number, x2: number, y2: number,
-    color: string, lineWidth: number, isDashed: boolean,
+    color: string, lineWidth: number, lineStyle: LineStyle,
     isSelected: boolean, id: string,
   ): void {
     this._x1 = x1; this._y1 = y1;
     this._x2 = x2; this._y2 = y2;
     this._color = color;
     this._lineWidth = lineWidth;
-    this._isDashed = isDashed;
+    this._lineStyle = lineStyle;
     this._isSelected = isSelected;
     this._id = id;
   }
@@ -87,7 +89,7 @@ class TrendlinePaneView implements IPrimitivePaneView {
     if (this._x1 === 0 && this._x2 === 0) return null;
     return new TrendlineRenderer(
       this._x1, this._y1, this._x2, this._y2,
-      this._color, this._lineWidth, this._isDashed, this._isSelected,
+      this._color, this._lineWidth, this._lineStyle, this._isSelected,
     );
   }
 
@@ -158,7 +160,7 @@ export class TrendlinePrimitive implements ISeriesPrimitive<Time> {
     const y2 = this._series.priceToCoordinate(this._drawing.point2.price);
 
     if (x1 === null || y1 === null || x2 === null || y2 === null) {
-      this._paneView.update(0, 0, 0, 0, '', 0, false, false, '');
+      this._paneView.update(0, 0, 0, 0, '', 0, 'solid', false, '');
       return;
     }
 
@@ -166,7 +168,7 @@ export class TrendlinePrimitive implements ISeriesPrimitive<Time> {
       x1, y1 as number, x2, y2 as number,
       this._drawing.color,
       this._drawing.lineWidth,
-      this._drawing.lineStyle === 'dashed',
+      this._drawing.lineStyle,
       this._isSelected,
       this._drawing.id,
     );
@@ -198,3 +200,4 @@ function pointToSegmentDistance(
   const projY = y1 + t * dy;
   return Math.hypot(px - projX, py - projY);
 }
+

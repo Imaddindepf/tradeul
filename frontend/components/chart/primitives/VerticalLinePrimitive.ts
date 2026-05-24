@@ -13,13 +13,14 @@ import type {
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { VerticalLineDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
+import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 
 class VLineRenderer implements IPrimitivePaneRenderer {
   constructor(
     private _x: number,
     private _color: string,
     private _lineWidth: number,
-    private _isDashed: boolean,
+    private _lineStyle: LineStyle,
     private _isSelected: boolean,
   ) {}
 
@@ -28,14 +29,15 @@ class VLineRenderer implements IPrimitivePaneRenderer {
       const x = Math.round(this._x) + 0.5;
       if (x < -10 || x > mediaSize.width + 10) return;
 
+      const strokeWidth = this._isSelected ? this._lineWidth + 0.5 : this._lineWidth;
       ctx.beginPath();
       ctx.strokeStyle = this._color;
-      ctx.lineWidth = this._isSelected ? this._lineWidth + 0.5 : this._lineWidth;
-      if (this._isDashed) ctx.setLineDash([6, 4]);
+      ctx.lineWidth = strokeWidth;
+      applyLineStyle(ctx, this._lineStyle, strokeWidth);
       ctx.moveTo(x, 0);
       ctx.lineTo(x, mediaSize.height);
       ctx.stroke();
-      ctx.setLineDash([]);
+      resetLineStyle(ctx);
 
       if (this._isSelected) {
         const handles = [mediaSize.height * 0.25, mediaSize.height * 0.5, mediaSize.height * 0.75];
@@ -58,13 +60,13 @@ class VLinePaneView implements IPrimitivePaneView {
   private _active = false;
   private _color = '#3b82f6';
   private _lineWidth = 2;
-  private _isDashed = false;
+  private _lineStyle: LineStyle = 'solid';
   private _isSelected = false;
   private _id = '';
 
-  update(x: number, color: string, lineWidth: number, isDashed: boolean, isSelected: boolean, id: string): void {
+  update(x: number, color: string, lineWidth: number, lineStyle: LineStyle, isSelected: boolean, id: string): void {
     this._x = x; this._active = true; this._color = color;
-    this._lineWidth = lineWidth; this._isDashed = isDashed;
+    this._lineWidth = lineWidth; this._lineStyle = lineStyle;
     this._isSelected = isSelected; this._id = id;
   }
 
@@ -73,7 +75,7 @@ class VLinePaneView implements IPrimitivePaneView {
 
   renderer(): IPrimitivePaneRenderer | null {
     if (!this._active) return null;
-    return new VLineRenderer(this._x, this._color, this._lineWidth, this._isDashed, this._isSelected);
+    return new VLineRenderer(this._x, this._color, this._lineWidth, this._lineStyle, this._isSelected);
   }
 
   hitTest(x: number, _y: number): PrimitiveHoveredItem | null {
@@ -143,7 +145,7 @@ export class VerticalLinePrimitive implements ISeriesPrimitive<Time> {
     const timeText = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
     this._paneView.update(x, this._drawing.color, this._drawing.lineWidth,
-      this._drawing.lineStyle === 'dashed', this._isSelected, this._drawing.id);
+      this._drawing.lineStyle, this._isSelected, this._drawing.id);
     this._timeAxisView.update(x, timeText, this._drawing.color, true);
   }
 

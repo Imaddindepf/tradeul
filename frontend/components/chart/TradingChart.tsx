@@ -1,12 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ISeriesPrimitive, Time, UTCTimestamp } from 'lightweight-charts';
-import { RefreshCw, Maximize2, Minimize2, Radio, Newspaper, ChevronDown } from 'lucide-react';
+import type { ISeriesPrimitive, Time } from 'lightweight-charts';
 import { useLiveChartData } from '@/hooks/useLiveChartData';
-import { useChartDrawings } from '@/hooks/useChartDrawings';
-import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
+import { useChartDrawings, type Drawing } from '@/hooks/useChartDrawings';
+import {
+    useUserPreferencesStore,
+    selectFont,
+    selectChartPrefs,
+    type ChartCandleStyle,
+} from '@/stores/useUserPreferencesStore';
 import { TickerSearch, type TickerSearchRef } from '@/components/common/TickerSearch';
 import { TrendlinePrimitive } from './primitives/TrendlinePrimitive';
 import { HorizontalLinePrimitive } from './primitives/HorizontalLinePrimitive';
@@ -21,14 +25,18 @@ import { TrianglePrimitive } from './primitives/TrianglePrimitive';
 import { MeasurePrimitive } from './primitives/MeasurePrimitive';
 import { TentativePrimitive } from './primitives/TentativePrimitive';
 import { timeToPixelX } from './primitives/coordinateUtils';
-import { ChartToolbar, HeaderDrawingTools, IndicatorsIcon } from './ChartToolbar';
+import { ChartToolbar } from './ChartToolbar';
 import { IndicatorSettingsDialog } from './IndicatorSettingsDialog';
 import { ChartContextMenu, type ContextMenuState } from './ChartContextMenu';
 import {
-    CHART_COLORS, INTERVALS, INDICATOR_TYPE_DEFAULTS, RIGHT_OFFSET_BARS, getInstanceLabel,
-    type ChartBar, type TradingChartProps, type Interval, type TimeRange,
+    RIGHT_OFFSET_BARS,
+    type TradingChartProps,
+    type Interval,
+    type TimeRange,
+    type ChartBar,
 } from './constants';
-import { formatPrice, formatVolume } from './formatters';
+import { formatVolume } from './formatters';
+import { RefreshIcon } from './icons';
 
 // Hooks
 import {
@@ -41,11 +49,23 @@ import {
     useChartNews,
     useSessionBackground,
     useEarningsMarkers,
+    useEventMarkers,
     useTickerManagement,
     useBarReplay,
     useExtendedHoursPrice,
 } from './hooks';
-import type { ReplaySpeed } from './hooks';
+
+// New UI sub-components
+import { ChartProvider, type ChartContextValue, type CandleStyle, type MagnetMode } from './ChartContext';
+import { ChartHeader } from './ChartHeader';
+import { ChartOHLCOverlay } from './ChartOHLCOverlay';
+import { ChartIndicatorLegend } from './ChartIndicatorLegend';
+import { ChartReplayOverlay } from './ChartReplayOverlay';
+import { ChartRealtimeJump } from './ChartLiveBadge';
+import { ChartDrawingDialog } from './ChartDrawingDialog';
+import { ChartSettingsDialog } from './ChartSettingsDialog';
+import { ChartEarningsPopup } from './ChartEarningsPopup';
+import type { EarningsRecord } from './hooks/useEarningsMarkers';
 
 // ============================================================================
 // Component
@@ -56,28 +76,34 @@ function TradingChartComponent({
     onTickerChange,
     minimal = false,
     onOpenChart,
-    onOpenNews
+    onOpenNews,
 }: TradingChartProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const tickerSearchRef = useRef<TickerSearchRef>(null);
     const priceOverlayRef = useRef<HTMLDivElement>(null);
 
-    // User preferences
+    // ── User preferences ────────────────────────────────────────────────
     const font = useUserPreferencesStore(selectFont);
+    const chartPrefs = useUserPreferencesStore(selectChartPrefs);
+    const setCandleStylePref = useUserPreferencesStore(s => s.setCandleStyle);
+    const setChartGridVisible = useUserPreferencesStore(s => s.setChartGridVisible);
+    const setChartWatermarkVisible = useUserPreferencesStore(s => s.setChartWatermarkVisible);
+    const setChartLogScale = useUserPreferencesStore(s => s.setChartLogScale);
     const fontFamily = `var(--font-${font})`;
 
-    // ── Ticker Management ────────────────────────────────────────────────
+    // ── Ticker management ────────────────────────────────────────────────
     const ticker = useTickerManagement(initialTicker, tickerSearchRef, onTickerChange);
-    const { currentTicker, inputValue, setInputValue, windowId, windowState, openWindow, tickerMeta, isMarketOpen } = ticker;
+    const {
+        currentTicker, inputValue, setInputValue, windowId, windowState,
+        openWindow, tickerMeta, isMarketOpen,
+    } = ticker;
 
-    // ── Interval / Range state ───────────────────────────────────────────
+    // ── Interval / range / view state ────────────────────────────────────
     const [selectedInterval, setSelectedInterval] = useState<Interval>(windowState.interval || '1day');
     const [selectedRange, setSelectedRange] = useState<TimeRange>(windowState.range || '1Y');
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const [showIntervalDropdown, setShowIntervalDropdown] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
-    // ── Magnet mode (snap to OHLC) ───────────────────────────────────────
-    type MagnetMode = 'off' | 'weak' | 'strong';
     const [magnetMode, setMagnetMode] = useState<MagnetMode>('off');
     const magnetModeRef = useRef<MagnetMode>('off');
     magnetModeRef.current = magnetMode;
@@ -92,7 +118,7 @@ function TradingChartComponent({
         }
     }, [windowId, minimal]);
 
-    // ── Replay ────────────────────────────────────────────────────────────
+    // ── Replay timestamp tracker ─────────────────────────────────────────
     const [replayTimestamp, setReplayTimestamp] = useState<number | null>(null);
     const replayTimeRef = useRef<number | null>(null);
 
@@ -103,59 +129,77 @@ function TradingChartComponent({
         setSelectedInterval(newInterval);
     }, []);
 
-    // ── Chart Initialization ─────────────────────────────────────────────
-    const chartCore = useChartInit(containerRef, currentTicker, selectedInterval, fontFamily, priceOverlayRef);
-    const { chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef, whitespaceSeriesRef, lastPriceInfoRef, beforeDestroyCallbackRef, chartVersion, hoveredBar } = chartCore;
+    // dataRef is declared further down (after `data` is loaded) but the chart
+    // crosshair needs it. Declare an early stable ref and keep it in sync below.
+    const dataRefForChart = useRef<ChartBar[]>([]);
 
-    // ── Live Data ────────────────────────────────────────────────────────
-    const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, loadForward, registerUpdateHandler, registerExtendedHoursHandler } = useLiveChartData(currentTicker, selectedInterval, replayTimestamp);
+    // ── Chart initialization ────────────────────────────────────────────
+    const chartCore = useChartInit(
+        containerRef, currentTicker, selectedInterval, fontFamily, priceOverlayRef,
+        { candleStyle: chartPrefs.candleStyle, dataRef: dataRefForChart },
+    );
+    const {
+        chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef,
+        whitespaceSeriesRef, lastPriceInfoRef, beforeDestroyCallbackRef,
+        chartVersion, hoveredBar,
+    } = chartCore;
+
+    // ── Live data ────────────────────────────────────────────────────────
+    const {
+        data, loading, loadingMore, error, hasMore, isLive,
+        refetch, loadMore, loadForward, registerUpdateHandler, registerExtendedHoursHandler,
+    } = useLiveChartData(currentTicker, selectedInterval, replayTimestamp);
 
     // ── Indicators ───────────────────────────────────────────────────────
     const ind = useChartIndicators(chartRef, data, currentTicker, selectedInterval, selectedRange, windowState);
     const {
-        indicators, setIndicators, nextInstanceIdRef,
+        indicators, nextInstanceIdRef,
         showVolume, setShowVolume,
         showNewsMarkers, setShowNewsMarkers,
         showEarningsMarkers, setShowEarningsMarkers,
         selectedIndicator, setSelectedIndicator,
         legendExpanded, setLegendExpanded,
         indicatorSettingsOpen, setIndicatorSettingsOpen, indicatorSettingsPos,
-        showIndicatorDropdown, setShowIndicatorDropdown, indicatorDropdownRef,
         indicatorResults,
         indicatorSeriesRef, panelPaneIndexRef,
         addIndicator, openIndicatorSettings, removeIndicator, onApplyIndicatorSettings,
         workerReady, calculate, clearCache,
     } = ind;
 
-    // ── Replay gate ref (shared between useChartData and useBarReplay) ──
+    // ── Replay-gate ref (shared between useChartData and useBarReplay) ──
     const replayControlsDataRef = useRef(false);
 
-    // ── Chart Data Updates ───────────────────────────────────────────────
+    // ── News + Earnings event streams (consolidated into one primitive) ─
     const news = useChartNews(candleSeriesRef, data, selectedInterval, currentTicker, showNewsMarkers, openWindow);
-    const { newsMarkersRef, newsTimeMapRef, showNewsMarkersRef, handleNewsMarkerClickRef } = news;
+    const { newsEvents, newsTimeMapRef, showNewsMarkersRef, handleNewsMarkerClickRef } = news;
+    const { earningsEvents } = useEarningsMarkers(currentTicker, showEarningsMarkers);
 
+    const eventStreams = useMemo(() => [earningsEvents, newsEvents], [earningsEvents, newsEvents]);
+    const { primitiveRef: eventPrimitiveRef } = useEventMarkers({
+        candleSeriesRef, data, streams: eventStreams, chartVersion,
+    });
+
+    // ── Chart data updates (candle/volume/whitespace) ───────────────────
     const { isScrolledAway } = useChartData(
-        chartRef, candleSeriesRef, volumeSeriesRef, whitespaceSeriesRef, lastPriceInfoRef, newsMarkersRef,
-        data, currentTicker, selectedInterval, showNewsMarkers, hasMore, loadingMore, loadMore,
-        replayControlsDataRef, chartVersion,
+        chartRef, candleSeriesRef, volumeSeriesRef, whitespaceSeriesRef, lastPriceInfoRef,
+        data, currentTicker, selectedInterval, hasMore, loadingMore, loadMore,
+        replayControlsDataRef, chartVersion, chartPrefs.candleStyle,
     );
 
-    // ── Session Background ───────────────────────────────────────────────
+    // ── Session background ──────────────────────────────────────────────
     useSessionBackground(sessionBgSeriesRef, data, selectedInterval, replayControlsDataRef);
 
-    // ── Earnings Markers ─────────────────────────────────────────────────
-    const { earningsPrimitiveRef } = useEarningsMarkers(candleSeriesRef, data, selectedInterval, currentTicker, showEarningsMarkers);
-
-    // ── Bar Replay (MUST run AFTER useChartData/useSessionBackground) ───
+    // ── Bar replay (runs after useChartData / useSessionBackground) ─────
     const replay = useBarReplay(
         chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef, whitespaceSeriesRef,
         indicatorSeriesRef, lastPriceInfoRef, data, selectedInterval,
         indicators, indicatorResults, replayControlsDataRef, chartVersion,
-        setReplayTimestamp, replayTimeRef, loadForward,
+        setReplayTimestamp, replayTimeRef, loadForward, chartPrefs.candleStyle,
     );
 
-    // ── Indicator Series on Chart ────────────────────────────────────────
     const isReplayActive = replay.replayState.mode !== 'idle';
+
+    // ── Indicator series on chart ───────────────────────────────────────
     useIndicatorSeries(
         chartRef, indicatorSeriesRef, panelPaneIndexRef,
         indicators, indicatorResults, data, currentTicker,
@@ -164,36 +208,33 @@ function TradingChartComponent({
         chartVersion, isReplayActive,
     );
 
-    // ── Realtime Updates ─────────────────────────────────────────────────
+    // ── Realtime updates ────────────────────────────────────────────────
     useChartRealtime(
         chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef, whitespaceSeriesRef,
-        indicatorSeriesRef, lastPriceInfoRef, data, selectedInterval, indicators, registerUpdateHandler,
-        isReplayActive,
+        indicatorSeriesRef, lastPriceInfoRef, data, selectedInterval, indicators,
+        registerUpdateHandler, isReplayActive, chartPrefs.candleStyle,
     );
 
-    // ── Extended Hours Price (pre/post market label on daily+) ──────────
+    // ── Extended hours price (pre/post market label on daily+) ─────────
     useExtendedHoursPrice({
-        candleSeriesRef,
-        priceOverlayRef,
-        selectedInterval,
+        candleSeriesRef, priceOverlayRef, selectedInterval,
         currentSession: ticker.marketSession?.current_session ?? null,
         ticker: currentTicker,
-        isReplayActive,
-        registerExtendedHoursHandler,
+        isReplayActive, registerExtendedHoursHandler,
     });
 
-    // ── Zoom / Time Range ────────────────────────────────────────────────
+    // ── Zoom / time range ───────────────────────────────────────────────
     const { zoomIn, zoomOut, handleRangeChange } = useChartZoom(
         chartRef, data, currentTicker, selectedInterval, selectedRange,
         handleIntervalChange, setSelectedRange, isReplayActive,
     );
 
-    // ── Persist window state ─────────────────────────────────────────────
+    // ── Persist window state ────────────────────────────────────────────
     useEffect(() => {
         ticker.persistState(selectedInterval, selectedRange, showVolume, indicators, nextInstanceIdRef.current);
     }, [currentTicker, selectedInterval, selectedRange, showVolume, indicators]);
 
-    // ── Broadcast active chart for AI agent ──────────────────────────────
+    // ── Broadcast active chart for AI agent ─────────────────────────────
     useEffect(() => {
         if (!data || data.length === 0 || !currentTicker) return;
         const detail = { ticker: currentTicker, interval: selectedInterval, range: selectedRange, barCount: data.length };
@@ -201,7 +242,7 @@ function TradingChartComponent({
         return () => { window.dispatchEvent(new CustomEvent('agent:chart-active', { detail: null })); };
     }, [currentTicker, selectedInterval, selectedRange, data?.length]);
 
-    // ── AI Context Menu ──────────────────────────────────────────────────
+    // ── AI context menu ─────────────────────────────────────────────────
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0, candle: null });
     const handleChartContextMenu = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
@@ -215,33 +256,60 @@ function TradingChartComponent({
         });
     }, [hoveredBar]);
 
-    // ====================================================================
-    // Drawing Tools
-    // ====================================================================
+    // ────────────────────────────────────────────────────────────────────
+    // Drawing tools
+    // ────────────────────────────────────────────────────────────────────
     const {
         drawings, activeTool, isDrawing, selectedDrawingId, hoveredDrawingId,
         pendingDrawing, tentativeEndpoint,
+        locked: drawingsLocked, toggleLocked: toggleDrawingsLocked,
+        canUndo, canRedo, undo, redo,
         setActiveTool, cancelDrawing, handleChartClick, updateTentativeEndpoint,
         removeDrawing, clearAllDrawings, selectDrawing,
         updateHorizontalLinePrice, updateVerticalLineTime, updateDrawingPoints,
-        updateDrawingLineWidth, updateDrawingColor, startDragging, stopDragging,
+        updateDrawing, replaceDrawing,
+        startDragging, stopDragging,
         findDrawingNearPrice, setHoveredDrawing, colors: drawingColors,
     } = useChartDrawings(currentTicker);
 
     const [drawingsVisible, setDrawingsVisible] = useState(true);
     const toggleDrawingsVisibility = useCallback(() => setDrawingsVisible(prev => !prev), []);
 
-    const [editPopup, setEditPopup] = useState<{ visible: boolean; drawingId: string | null; x: number; y: number }>({ visible: false, drawingId: null, x: 0, y: 0 });
+    const [editPopup, setEditPopup] = useState<{ visible: boolean; drawingId: string | null; x: number; y: number }>(
+        { visible: false, drawingId: null, x: 0, y: 0 },
+    );
     const editingDrawing = editPopup.drawingId ? drawings.find(d => d.id === editPopup.drawingId) : null;
+
+    // Earnings click popup
+    const [earningsPopup, setEarningsPopup] = useState<{
+        visible: boolean;
+        record: EarningsRecord | null;
+        x: number;
+        y: number;
+    }>({ visible: false, record: null, x: 0, y: 0 });
+    const openEarningsPopup = useCallback((p: { record: EarningsRecord; x: number; y: number }) => {
+        setEarningsPopup({ visible: true, record: p.record, x: p.x, y: p.y });
+    }, []);
+    const closeEarningsPopup = useCallback(() => {
+        setEarningsPopup({ visible: false, record: null, x: 0, y: 0 });
+    }, []);
+    const openEarningsPopupRef = useRef(openEarningsPopup);
+    openEarningsPopupRef.current = openEarningsPopup;
 
     const openEditPopup = useCallback((drawingId: string, x: number, y: number) => {
         setEditPopup({ visible: true, drawingId, x, y });
         selectDrawing(drawingId);
     }, [selectDrawing]);
     const closeEditPopup = useCallback(() => setEditPopup({ visible: false, drawingId: null, x: 0, y: 0 }), []);
-    const handleEditColor = useCallback((color: string) => { if (editPopup.drawingId) updateDrawingColor(editPopup.drawingId, color); }, [editPopup.drawingId, updateDrawingColor]);
-    const handleEditLineWidth = useCallback((width: number) => { if (editPopup.drawingId) updateDrawingLineWidth(editPopup.drawingId, width); }, [editPopup.drawingId, updateDrawingLineWidth]);
-    const handleEditDelete = useCallback(() => { if (editPopup.drawingId) { removeDrawing(editPopup.drawingId); closeEditPopup(); } }, [editPopup.drawingId, removeDrawing, closeEditPopup]);
+    const handleDialogUpdate = useCallback((patch: Partial<Drawing>) => {
+        if (editPopup.drawingId) updateDrawing(editPopup.drawingId, patch);
+    }, [editPopup.drawingId, updateDrawing]);
+    const handleDialogReplace = useCallback((next: Drawing) => {
+        if (editPopup.drawingId) replaceDrawing(editPopup.drawingId, next);
+    }, [editPopup.drawingId, replaceDrawing]);
+    const handleDialogDelete = useCallback(() => {
+        if (editPopup.drawingId) { removeDrawing(editPopup.drawingId); closeEditPopup(); }
+    }, [editPopup.drawingId, removeDrawing, closeEditPopup]);
 
     // Drawing primitive refs
     const drawingPrimitivesRef = useRef<Map<string, ISeriesPrimitive<Time>>>(new Map());
@@ -251,6 +319,8 @@ function TradingChartComponent({
     dataTimesRef.current = dataTimes;
     const dataRef = useRef(data);
     dataRef.current = data;
+    // Keep the chart's hover-resolution data ref in sync.
+    dataRefForChart.current = data;
 
     // Stable refs for event handlers
     const activeToolRef = useRef(activeTool); activeToolRef.current = activeTool;
@@ -263,7 +333,7 @@ function TradingChartComponent({
     const replayModeRef = useRef(replay.replayState.mode); replayModeRef.current = replay.replayState.mode;
     const selectStartPointRef = useRef(replay.selectStartPoint); selectStartPointRef.current = replay.selectStartPoint;
 
-    // ── Ctrl key tracking for magnet snap ─────────────────────────────────
+    // ── Ctrl key tracking for magnet snap ───────────────────────────────
     useEffect(() => {
         const down = (e: KeyboardEvent) => { if (e.key === 'Control' || e.key === 'Meta') ctrlPressedRef.current = true; };
         const up = (e: KeyboardEvent) => { if (e.key === 'Control' || e.key === 'Meta') ctrlPressedRef.current = false; };
@@ -271,41 +341,28 @@ function TradingChartComponent({
         window.addEventListener('keydown', down);
         window.addEventListener('keyup', up);
         window.addEventListener('blur', blur);
-        return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
+        return () => {
+            window.removeEventListener('keydown', down);
+            window.removeEventListener('keyup', up);
+            window.removeEventListener('blur', blur);
+        };
     }, []);
 
-    /**
-     * Snap a raw price to the nearest OHLC value of the bar at screen X.
-     * Returns the original price if magnet is not active or no bar is found.
-     *
-     * Magnet activates when:
-     *  - Ctrl/Cmd is held (temporary toggle), OR
-     *  - magnetMode is 'weak' or 'strong' (permanent, Ctrl disables temporarily)
-     *
-     * Weak: only snaps when cursor is within 40% of bar range from an OHLC value.
-     * Strong: always snaps to nearest OHLC.
-     */
+    /** Magnet: snap raw price to nearest OHLC of bar at screenX. */
     const snapPriceToOHLC = useCallback((rawPrice: number, screenX: number): number => {
         const ctrl = ctrlPressedRef.current;
         const mode = magnetModeRef.current;
         const hasToolActive = activeToolRef.current !== 'none';
-
-        // Magnet only works when a drawing tool is active
         if (!hasToolActive) return rawPrice;
-
-        // Determine if snap should be active:
-        // Ctrl toggles: if magnet off → Ctrl enables; if magnet on → Ctrl disables
         const shouldSnap = mode === 'off' ? ctrl : !ctrl;
         if (!shouldSnap) return rawPrice;
 
         const chart = chartRef.current;
         const series = candleSeriesRef.current;
         if (!chart || !series) return rawPrice;
-
         const ts = chart.timeScale();
         const time = ts.coordinateToTime(screenX);
         if (time == null) return rawPrice;
-
         const bar = dataRef.current.find(d => d.time === (time as number));
         if (!bar) return rawPrice;
 
@@ -316,48 +373,55 @@ function TradingChartComponent({
             const dist = Math.abs(rawPrice - ohlc[i]);
             if (dist < minDist) { minDist = dist; closest = ohlc[i]; }
         }
-
         if (mode === 'weak' && !ctrl) {
             const barRange = bar.high - bar.low;
             const threshold = barRange > 0 ? barRange * 0.4 : Math.abs(bar.close) * 0.005;
             if (minDist > threshold) return rawPrice;
         }
-
         return closest;
     }, []);
     const snapPriceRef = useRef(snapPriceToOHLC);
     snapPriceRef.current = snapPriceToOHLC;
 
-    // ── Pre-destroy cleanup: detach all primitives before chart.remove() ──
+    // ── Pre-destroy cleanup: detach all primitives before chart.remove() ─
     beforeDestroyCallbackRef.current = () => {
         const series = candleSeriesRef.current;
         if (series) {
             for (const [, prim] of drawingPrimitivesRef.current) {
-                try { series.detachPrimitive(prim); } catch { }
+                try { series.detachPrimitive(prim); } catch { /* */ }
             }
             if (tentativePrimitiveRef.current) {
-                try { series.detachPrimitive(tentativePrimitiveRef.current); } catch { }
+                try { series.detachPrimitive(tentativePrimitiveRef.current); } catch { /* */ }
             }
-            if (earningsPrimitiveRef.current) {
-                try { series.detachPrimitive(earningsPrimitiveRef.current); } catch { }
+            if (eventPrimitiveRef.current) {
+                try { series.detachPrimitive(eventPrimitiveRef.current); } catch { /* */ }
             }
         }
         drawingPrimitivesRef.current.clear();
         tentativePrimitiveRef.current = null;
-        earningsPrimitiveRef.current = null;
         indicatorSeriesRef.current.clear();
         panelPaneIndexRef.current.clear();
     };
 
-    // ── Sync drawings to primitives ──────────────────────────────────────
+    // ── Sync drawings to primitives (respects drawingsVisible) ──────────
     useEffect(() => {
         if (!candleSeriesRef.current || dataTimes.length === 0) return;
         const series = candleSeriesRef.current;
         const currentPrimitives = drawingPrimitivesRef.current;
 
+        // Drawings hidden → detach everything
+        if (!drawingsVisible) {
+            for (const [, prim] of currentPrimitives) {
+                try { series.detachPrimitive(prim); } catch { /* */ }
+            }
+            currentPrimitives.clear();
+            return;
+        }
+
+        // Remove primitives whose drawing no longer exists
         for (const [id, primitive] of currentPrimitives) {
             if (!drawings.find(d => d.id === id)) {
-                try { series.detachPrimitive(primitive); } catch { }
+                try { series.detachPrimitive(primitive); } catch { /* */ }
                 currentPrimitives.delete(id);
             }
         }
@@ -391,9 +455,9 @@ function TradingChartComponent({
                 }
             }
         }
-    }, [drawings, selectedDrawingId, hoveredDrawingId, chartVersion, dataTimes]);
+    }, [drawings, selectedDrawingId, hoveredDrawingId, chartVersion, dataTimes, drawingsVisible]);
 
-    // ── Auto-loadMore for out-of-range drawings ──────────────────────────
+    // ── Auto-loadMore for out-of-range drawings ─────────────────────────
     const autoLoadTriggeredRef = useRef(false);
     useEffect(() => { autoLoadTriggeredRef.current = false; }, [selectedInterval]);
     useEffect(() => {
@@ -402,8 +466,8 @@ function TradingChartComponent({
         if (autoLoadTriggeredRef.current) return;
         const firstDataTime = dataTimes[0];
         const hasOutOfRange = drawings.some(d => {
-            if (d.type === "horizontal_line") return false;
-            if (d.type === "vertical_line") return (d as any).time < firstDataTime;
+            if (d.type === 'horizontal_line') return false;
+            if (d.type === 'vertical_line') return (d as any).time < firstDataTime;
             const dd = d as any;
             if (dd.point1 && dd.point1.time < firstDataTime) return true;
             if (dd.point2 && dd.point2.time < firstDataTime) return true;
@@ -416,7 +480,7 @@ function TradingChartComponent({
         }
     }, [drawings, dataTimes, hasMore, loadingMore, loadMore]);
 
-    // ── Tentative drawing primitive ──────────────────────────────────────
+    // ── Tentative drawing primitive ─────────────────────────────────────
     useEffect(() => {
         if (!candleSeriesRef.current || dataTimes.length === 0) return;
         const series = candleSeriesRef.current;
@@ -427,19 +491,24 @@ function TradingChartComponent({
         if (pendingDrawing) {
             tentativePrimitiveRef.current.setDataTimes(dataTimes);
             tentativePrimitiveRef.current.setState({
-                type: pendingDrawing.type, point1: pendingDrawing.point1, point2: pendingDrawing.point2,
-                screenX: tentativeEndpoint?.x ?? -1, screenY: tentativeEndpoint?.y ?? -1,
-                mousePrice: tentativeEndpoint?.price ?? pendingDrawing.point1.price, color: drawingColors[0],
+                type: pendingDrawing.type,
+                point1: pendingDrawing.point1,
+                point2: pendingDrawing.point2,
+                screenX: tentativeEndpoint?.x ?? -1,
+                screenY: tentativeEndpoint?.y ?? -1,
+                mousePrice: tentativeEndpoint?.price ?? pendingDrawing.point1.price,
+                color: drawingColors[0],
             });
         } else {
             tentativePrimitiveRef.current.setState(null);
         }
     }, [pendingDrawing, tentativeEndpoint, drawingColors, chartVersion, dataTimes]);
 
-    // ── Drag state ───────────────────────────────────────────────────────
+    // ── Drag state ──────────────────────────────────────────────────────
+    type DragMode = 'translate' | 'anchor1' | 'anchor2' | 'anchor3' | 'anchor4' | 'mid1' | 'mid2';
     const [dragState, setDragState] = useState<{
         active: boolean; drawingId: string | null; drawingType: string | null;
-        dragMode: 'translate' | 'anchor1' | 'anchor2' | 'anchor3' | 'anchor4' | 'mid1' | 'mid2';
+        dragMode: DragMode;
         startScreenX: number; startScreenY: number;
         p1ScreenX: number; p1ScreenY: number; p2ScreenX: number; p2ScreenY: number;
         p3ScreenX: number; p3ScreenY: number;
@@ -462,7 +531,7 @@ function TradingChartComponent({
         return { time: extrapolatedTime, logical };
     };
 
-    // ── Click handler for selection/news ──────────────────────────────────
+    // ── Click handler: selection / news / event markers ────────────────
     useEffect(() => {
         if (!chartRef.current || !candleSeriesRef.current) return;
         const chart = chartRef.current;
@@ -475,6 +544,16 @@ function TradingChartComponent({
             if (activeToolRef.current !== 'none') return;
             const price = candleSeriesRef.current.coordinateToPrice(param.point.y);
             if (price === null) return;
+            // Earnings marker hit-test (chart-pane coords). Open the details popup.
+            const earningsHit = eventPrimitiveRef.current?.hitTestEvent(param.point.x, param.point.y);
+            if (earningsHit && earningsHit.kind === 'earnings' && earningsHit.payload) {
+                openEarningsPopupRef.current({
+                    record: earningsHit.payload as EarningsRecord,
+                    x: param.point.x,
+                    y: param.point.y,
+                });
+                return;
+            }
             if (showNewsMarkersRef.current && param.time && newsTimeMapRef.current.has(param.time as number)) {
                 handleNewsMarkerClickRef.current(param.time as number);
                 return;
@@ -484,7 +563,8 @@ function TradingChartComponent({
                 const hit = (primitive as any).hitTest?.(param.point.x, param.point.y);
                 if (hit) {
                     const eid = (hit.externalId ?? '') as string;
-                    hitId = (eid.endsWith(':p1') || eid.endsWith(':p2') || eid.endsWith(':p3') || eid.endsWith(':p4') || eid.endsWith(':m1') || eid.endsWith(':m2')) ? eid.slice(0, -3) : eid;
+                    hitId = (eid.endsWith(':p1') || eid.endsWith(':p2') || eid.endsWith(':p3') || eid.endsWith(':p4') || eid.endsWith(':m1') || eid.endsWith(':m2'))
+                        ? eid.slice(0, -3) : eid;
                     break;
                 }
             }
@@ -502,7 +582,7 @@ function TradingChartComponent({
         return () => { chart.unsubscribeClick(handleClick); chart.unsubscribeDblClick(handleDoubleClick); };
     }, [chartVersion]);
 
-    // ── DOM click for drawing tools ──────────────────────────────────────
+    // ── DOM click for drawing tools ─────────────────────────────────────
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
@@ -525,7 +605,7 @@ function TradingChartComponent({
         return () => container.removeEventListener('click', handleDrawingClick);
     }, [chartVersion]);
 
-    // ── Hover detection ──────────────────────────────────────────────────
+    // ── Hover detection ─────────────────────────────────────────────────
     useEffect(() => {
         if (!chartRef.current) return;
         const chart = chartRef.current;
@@ -547,7 +627,7 @@ function TradingChartComponent({
         return () => { chart.unsubscribeCrosshairMove(handleCrosshairMove); };
     }, [dragState.active, setHoveredDrawing, chartVersion]);
 
-    // ── Mouse tracking for tentative drawing ─────────────────────────────
+    // ── Mouse tracking for tentative drawing endpoint ───────────────────
     useEffect(() => {
         if (!chartRef.current || !candleSeriesRef.current) return;
         const chart = chartRef.current;
@@ -562,16 +642,14 @@ function TradingChartComponent({
         return () => { chart.unsubscribeCrosshairMove(handleMove); };
     }, [chartVersion]);
 
-    // ── Magnet: snap crosshair to nearest OHLC on mouse move ─────────────
+    // ── Magnet: snap crosshair to nearest OHLC on mouse move ────────────
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
-
         const handleMouseMove = (e: MouseEvent) => {
             const chart = chartRef.current;
             const series = candleSeriesRef.current;
             if (!chart || !series) return;
-
             const ctrl = ctrlPressedRef.current;
             const mode = magnetModeRef.current;
             const hasToolActive = activeToolRef.current !== 'none';
@@ -582,14 +660,11 @@ function TradingChartComponent({
             const rect = container.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
-
             const ts = chart.timeScale();
             const time = ts.coordinateToTime(x);
             if (time == null) return;
-
             const rawPrice = series.coordinateToPrice(y);
             if (rawPrice === null) return;
-
             const bar = dataRef.current.find(d => d.time === (time as number));
             if (!bar) return;
 
@@ -600,20 +675,14 @@ function TradingChartComponent({
                 const dist = Math.abs(rawPrice - ohlc[i]);
                 if (dist < minDist) { minDist = dist; closest = ohlc[i]; }
             }
-
             if (mode === 'weak' && !ctrl) {
                 const barRange = bar.high - bar.low;
                 const threshold = barRange > 0 ? barRange * 0.4 : Math.abs(bar.close) * 0.005;
                 if (minDist > threshold) return;
             }
-
             chart.setCrosshairPosition(closest, time, series);
         };
-
-        const handleMouseLeave = () => {
-            chartRef.current?.clearCrosshairPosition();
-        };
-
+        const handleMouseLeave = () => { chartRef.current?.clearCrosshairPosition(); };
         container.addEventListener('mousemove', handleMouseMove);
         container.addEventListener('mouseleave', handleMouseLeave);
         return () => {
@@ -622,15 +691,16 @@ function TradingChartComponent({
         };
     }, [chartVersion]);
 
-    // ── Drag handlers ────────────────────────────────────────────────────
+    // ── Drag handlers ───────────────────────────────────────────────────
     const handleDragStart = useCallback((e: React.MouseEvent) => {
         if (activeTool !== 'none' || !candleSeriesRef.current || !containerRef.current || !chartRef.current) return;
         if (editPopup.visible) return;
+        if (drawingsLocked) return;
         const rect = containerRef.current.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         let hitId: string | null = null;
-        let dragMode: typeof dragState.dragMode = 'translate';
+        let dragMode: DragMode = 'translate';
         for (const [, primitive] of drawingPrimitivesRef.current) {
             const hit = (primitive as any).hitTest?.(mouseX, mouseY);
             if (hit) {
@@ -670,7 +740,7 @@ function TradingChartComponent({
         setDragState({ active: true, drawingId: hitId, drawingType: drawing.type, dragMode, startScreenX: mouseX, startScreenY: mouseY, p1ScreenX, p1ScreenY, p2ScreenX, p2ScreenY, p3ScreenX, p3ScreenY });
         selectDrawing(hitId);
         startDragging();
-    }, [activeTool, drawings, selectDrawing, startDragging, editPopup.visible, dataTimes]);
+    }, [activeTool, drawings, selectDrawing, startDragging, editPopup.visible, dataTimes, drawingsLocked]);
 
     const handleDragMove = useCallback((e: React.MouseEvent) => {
         if (!dragState.active || !dragState.drawingId || !candleSeriesRef.current || !containerRef.current || !chartRef.current) return;
@@ -763,14 +833,37 @@ function TradingChartComponent({
         if (!chartRef.current) return;
         const toolActive = activeTool !== 'none';
         chartRef.current.applyOptions({
-            handleScroll: { mouseWheel: !dragState.active, pressedMouseMove: !dragState.active && !toolActive, horzTouchDrag: !dragState.active, vertTouchDrag: false },
+            handleScroll: {
+                mouseWheel: !dragState.active,
+                pressedMouseMove: !dragState.active && !toolActive,
+                horzTouchDrag: !dragState.active,
+                vertTouchDrag: false,
+            },
         });
     }, [dragState.active, activeTool]);
 
-    // Keyboard shortcuts
+    // ── Keyboard shortcuts ─────────────────────────────────────────────
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.target as HTMLElement).tagName === 'INPUT') return;
+            const tag = (e.target as HTMLElement).tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+            // Undo / redo
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    if (canRedo) redo();
+                } else {
+                    if (canUndo) undo();
+                }
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+                e.preventDefault();
+                if (canRedo) redo();
+                return;
+            }
+
             switch (e.key) {
                 case 'Escape': cancelDrawing(); selectDrawing(null); break;
                 case 'h': case 'H': setActiveTool(activeTool === 'horizontal_line' ? 'none' : 'horizontal_line'); break;
@@ -795,30 +888,33 @@ function TradingChartComponent({
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [activeTool, selectedDrawingId, cancelDrawing, selectDrawing, setActiveTool, removeDrawing, replay]);
+    }, [activeTool, selectedDrawingId, cancelDrawing, selectDrawing, setActiveTool, removeDrawing, replay, canUndo, canRedo, undo, redo]);
 
-    // Drawing / Replay cursor
+    // Drawing / replay cursor
     useEffect(() => {
         if (!containerRef.current) return;
         containerRef.current.style.cursor = (isDrawing || replay.replayState.mode === 'selecting') ? 'crosshair' : 'default';
     }, [isDrawing, replay.replayState.mode]);
 
-    // ====================================================================
+    // ────────────────────────────────────────────────────────────────────
     // Fullscreen
-    // ====================================================================
-    const toggleFullscreen = () => {
+    // ────────────────────────────────────────────────────────────────────
+    const toggleFullscreen = useCallback(() => {
         const container = containerRef.current?.parentElement?.parentElement;
         if (!container) return;
         if (!document.fullscreenElement) { container.requestFullscreen(); setIsFullscreen(true); }
         else { document.exitFullscreen(); setIsFullscreen(false); }
-    };
+    }, []);
 
     useEffect(() => {
         const forceChartResize = () => {
             if (chartRef.current && containerRef.current) {
                 const w = containerRef.current.clientWidth;
                 const h = containerRef.current.clientHeight;
-                if (w > 0 && h > 0) { chartRef.current.applyOptions({ width: w, height: h }); chartRef.current.timeScale().applyOptions({ rightOffset: RIGHT_OFFSET_BARS, barSpacing: 8 }); }
+                if (w > 0 && h > 0) {
+                    chartRef.current.applyOptions({ width: w, height: h });
+                    chartRef.current.timeScale().applyOptions({ rightOffset: RIGHT_OFFSET_BARS, barSpacing: 8 });
+                }
             }
         };
         const fsTimers: ReturnType<typeof setTimeout>[] = [];
@@ -830,326 +926,350 @@ function TradingChartComponent({
         return () => { document.removeEventListener('fullscreenchange', handleFullscreenChange); fsTimers.forEach(clearTimeout); };
     }, []);
 
-    // ====================================================================
+    // ────────────────────────────────────────────────────────────────────
+    // Apply grid / log-scale preferences live
+    // ────────────────────────────────────────────────────────────────────
+    useEffect(() => {
+        const chart = chartRef.current;
+        if (!chart) return;
+        chart.applyOptions({
+            grid: {
+                vertLines: { visible: chartPrefs.gridVisible },
+                horzLines: { visible: chartPrefs.gridVisible },
+            },
+            rightPriceScale: {
+                mode: chartPrefs.logScale ? 1 /* PriceScaleMode.Logarithmic */ : 0 /* Normal */,
+            },
+        });
+    }, [chartPrefs.gridVisible, chartPrefs.logScale, chartVersion]);
+
+    // ────────────────────────────────────────────────────────────────────
     // Computed display values
-    // ====================================================================
+    // ────────────────────────────────────────────────────────────────────
     const displayBar = hoveredBar || (data.length > 0 ? data[data.length - 1] : null);
-    const prevBar = data.length > 1 ? data[data.length - 2] : null;
-    const priceChange = displayBar && prevBar ? displayBar.close - prevBar.close : 0;
-    const priceChangePercent = displayBar && prevBar && prevBar.close !== 0 ? ((priceChange / prevBar.close) * 100) : 0;
-    const isPositive = priceChange >= 0;
-    const activeIndicatorCount = indicators.filter(i => i.visible).length + (showVolume ? 1 : 0) + (showNewsMarkers ? 1 : 0) + (showEarningsMarkers ? 1 : 0);
+    const prevBar = useMemo(() => {
+        if (!displayBar || data.length < 2) return null;
+        const idx = data.findIndex(b => b.time === displayBar.time);
+        if (idx > 0) return data[idx - 1];
+        return data[data.length - 2] ?? null;
+    }, [displayBar, data]);
+    const activeIndicatorCount = indicators.filter(i => i.visible).length
+        + (showVolume ? 1 : 0) + (showNewsMarkers ? 1 : 0) + (showEarningsMarkers ? 1 : 0);
     const showLiveIndicator = isLive && isMarketOpen;
 
-    // ====================================================================
-    // RENDER
-    // ====================================================================
-    return (
-        <div className="h-full flex flex-col bg-surface border border-border rounded-lg overflow-hidden">
-            {minimal ? (
-                <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface-hover">
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-foreground/80 tracking-wide">PRICE CHART</span>
-                        <span className="text-[10px] text-muted-fg">1 Year</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {onOpenChart && <button onClick={onOpenChart} className="text-xs font-bold text-primary hover:text-primary transition-colors" title="Open Chart Window">G <span className="font-normal">&gt;</span></button>}
-                        {onOpenNews && <button onClick={onOpenNews} className="text-xs font-bold text-primary hover:text-primary transition-colors" title="Open News Window">N <span className="font-normal">&gt;</span></button>}
-                    </div>
-                </div>
-            ) : (
-                <div className="flex items-center gap-0.5 px-1 py-[2px] border-b border-border bg-surface text-[11px]" style={{ fontFamily }}>
-                    {/* Timeframe selector */}
-                    <div className="relative">
-                        <button onClick={() => setShowIntervalDropdown(!showIntervalDropdown)} className="flex items-center gap-0.5 px-1.5 py-1 rounded hover:bg-surface-hover text-foreground font-medium text-[12px]">
-                            {INTERVALS.find(i => i.interval === selectedInterval)?.shortLabel || '1D'}
-                            <ChevronDown className="w-3 h-3 text-muted-fg" />
-                        </button>
-                        {showIntervalDropdown && (
-                            <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowIntervalDropdown(false)} />
-                                <div className="absolute top-full left-0 mt-1 bg-surface border border-border rounded-lg shadow-xl z-50 min-w-[140px] py-1">
-                                    <div className="px-2 py-0.5 text-[9px] text-muted-fg font-semibold uppercase tracking-wider">Minutes</div>
-                                    {INTERVALS.filter(i => ['1min', '2min', '5min', '15min', '30min'].includes(i.interval)).map((int) => (
-                                        <button key={int.interval} onClick={() => { handleIntervalChange(int.interval); setShowIntervalDropdown(false); }}
-                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-surface-hover ${selectedInterval === int.interval ? 'bg-primary/10 text-primary font-medium' : 'text-foreground/80'}`}>
-                                            {int.label}
-                                        </button>
-                                    ))}
-                                    <div className="border-t border-border-subtle my-0.5" />
-                                    <div className="px-2 py-0.5 text-[9px] text-muted-fg font-semibold uppercase tracking-wider">Hours</div>
-                                    {INTERVALS.filter(i => ['1hour', '4hour', '12hour'].includes(i.interval)).map((int) => (
-                                        <button key={int.interval} onClick={() => { handleIntervalChange(int.interval); setShowIntervalDropdown(false); }}
-                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-surface-hover ${selectedInterval === int.interval ? 'bg-primary/10 text-primary font-medium' : 'text-foreground/80'}`}>
-                                            {int.label}
-                                        </button>
-                                    ))}
-                                    <div className="border-t border-border-subtle my-0.5" />
-                                    <div className="px-2 py-0.5 text-[9px] text-muted-fg font-semibold uppercase tracking-wider">Days+</div>
-                                    {INTERVALS.filter(i => ['1day', '1week', '1month', '3month', '1year'].includes(i.interval)).map((int) => (
-                                        <button key={int.interval} onClick={() => { handleIntervalChange(int.interval); setShowIntervalDropdown(false); }}
-                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-surface-hover ${selectedInterval === int.interval ? 'bg-primary/10 text-primary font-medium' : 'text-foreground/80'}`}>
-                                            {int.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-                    </div>
-                    <div className="w-px h-4 bg-muted" />
-                    <button className="p-1 rounded hover:bg-surface-hover text-muted-fg" title="Candle Type">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 4v4M9 14v6M15 4v6M15 18v2" /><rect x="7" y="8" width="4" height="6" rx="0.5" fill="currentColor" stroke="none" /><rect x="13" y="10" width="4" height="8" rx="0.5" stroke="currentColor" fill="none" /></svg>
-                    </button>
-                    <div className="w-px h-4 bg-muted" />
-                    <HeaderDrawingTools activeTool={activeTool} setActiveTool={setActiveTool} />
-                    <div className="w-px h-4 bg-muted" />
-                    {/* Indicators dropdown */}
-                    <div className="relative" ref={indicatorDropdownRef}>
-                        <button onClick={() => setShowIndicatorDropdown(!showIndicatorDropdown)} className={`flex items-center gap-1 px-1.5 py-1 rounded hover:bg-surface-hover text-[12px] font-medium ${showIndicatorDropdown || activeIndicatorCount > 0 ? 'text-primary' : 'text-muted-fg'}`} title="Indicators">
-                            <IndicatorsIcon className="w-[14px] h-[14px]" />
-                            <span>Indicadores</span>
-                            {activeIndicatorCount > 0 && <span className="text-[8px] bg-primary text-white rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">{activeIndicatorCount}</span>}
-                            <ChevronDown className="w-3 h-3 text-muted-fg" />
-                        </button>
-                        {showIndicatorDropdown && (
-                            <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorDropdown(false)} />
-                                <div className="absolute top-full left-0 mt-1 bg-surface border border-border rounded-lg shadow-xl z-50 min-w-[200px] max-h-[420px] overflow-y-auto py-1">
-                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-muted-fg uppercase tracking-wider bg-surface-hover border-b border-border-subtle sticky top-0">Overlays</div>
-                                    {[{ type: 'sma', label: 'SMA' }, { type: 'ema', label: 'EMA' }, { type: 'bb', label: 'Bollinger Bands' }, { type: 'keltner', label: 'Keltner Channels' }, { type: 'vwap', label: 'VWAP' }].map(p => (
-                                        <button key={p.type} onClick={() => addIndicator(p.type)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover text-foreground/80"><span className="flex-1 text-left">{p.label}</span></button>
-                                    ))}
-                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-muted-fg uppercase tracking-wider bg-surface-hover border-y border-border-subtle">Oscillators</div>
-                                    {[{ type: 'rsi', label: 'RSI' }, { type: 'macd', label: 'MACD' }, { type: 'stoch', label: 'Stochastic' }, { type: 'adx', label: 'ADX / DMI' }].map(p => (
-                                        <button key={p.type} onClick={() => addIndicator(p.type)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover text-foreground/80"><span className="flex-1 text-left">{p.label}</span></button>
-                                    ))}
-                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-muted-fg uppercase tracking-wider bg-surface-hover border-y border-border-subtle">Volatility & Volume</div>
-                                    {[{ type: 'atr', label: 'ATR' }, { type: 'squeeze', label: 'TTM Squeeze' }, { type: 'obv', label: 'OBV' }, { type: 'rvol', label: 'RVOL' }].map(p => (
-                                        <button key={p.type} onClick={() => addIndicator(p.type)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover text-foreground/80"><span className="flex-1 text-left">{p.label}</span></button>
-                                    ))}
-                                    <button onClick={() => setShowVolume(!showVolume)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover ${showVolume ? 'text-primary font-medium' : 'text-foreground/80'}`}>
-                                        <span className="flex-1 text-left">Volume</span>{showVolume && <span className="text-emerald-500 text-[9px]">&#10003;</span>}
-                                    </button>
-                                    <div className="border-t border-border-subtle mt-1" />
-                                    <button onClick={() => setShowNewsMarkers(!showNewsMarkers)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover ${showNewsMarkers ? 'text-amber-600' : 'text-foreground/80'}`}>
-                                        <Newspaper className="w-3.5 h-3.5 flex-shrink-0" /><span className="flex-1 text-left">News Markers</span>{showNewsMarkers && <span className="text-emerald-500 text-[9px]">&#10003;</span>}
-                                    </button>
-                                    <button onClick={() => setShowEarningsMarkers(!showEarningsMarkers)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-surface-hover ${showEarningsMarkers ? 'text-blue-600' : 'text-foreground/80'}`}>
-                                        <span className="w-3.5 h-3.5 flex-shrink-0 text-center font-bold text-[9px] leading-3 border border-current rounded-full">E</span><span className="flex-1 text-left">Earnings</span>{showEarningsMarkers && <span className="text-emerald-500 text-[9px]">&#10003;</span>}
-                                    </button>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                    <div className="w-px h-4 bg-muted" />
-                    <button className="p-1 rounded hover:bg-surface-hover text-muted-fg" title="Layout"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="3" width="8" height="8" rx="1" /><rect x="3" y="13" width="8" height="8" rx="1" /><rect x="13" y="13" width="8" height="8" rx="1" /></svg></button>
-                    <div className="w-px h-4 bg-muted" />
-                    <button className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-surface-hover text-muted-fg text-[12px]" title="Alert"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9" /><path d="M12 8v4l2 2" /><path d="M20 4l1.5-1.5M4 4L2.5 2.5" /></svg><span>Alerta</span></button>
-                    {replay.replayState.mode === 'idle' ? (
-                        <button onClick={replay.enterSelectingMode} className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-surface-hover text-muted-fg text-[12px]" title="Replay">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polygon points="11,5 3,10 11,15" /><polygon points="20,5 12,10 20,15" /></svg>
-                            <span>Replay</span>
-                        </button>
-                    ) : replay.replayState.mode === 'selecting' ? (
-                        <div className="flex items-center gap-1 px-1.5 py-1 rounded bg-primary/10 text-primary text-[11px] font-medium">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></svg>
-                            <span>Click en el gráfico para elegir punto de inicio</span>
-                            <button onClick={replay.exitReplay} className="ml-1 px-1 rounded hover:bg-primary/15 text-primary">✕</button>
-                        </div>
-                    ) : (
-                        <div className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-surface-hover border border-border">
-                            <button onClick={() => replay.stepBackward()} className="p-0.5 rounded hover:bg-muted text-foreground/80" title="Step Back (Shift+←)">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11,5 3,12 11,19" fill="currentColor" /><line x1="19" y1="5" x2="19" y2="19" /></svg>
-                            </button>
-                            <button onClick={replay.togglePlay} className="p-0.5 rounded hover:bg-muted text-foreground/80" title={replay.replayState.mode === 'playing' ? 'Pause (Shift+↓)' : 'Play (Shift+↓)'}>
-                                {replay.replayState.mode === 'playing' ? (
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
-                                ) : (
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20" /></svg>
-                                )}
-                            </button>
-                            <button onClick={() => replay.stepForward()} className="p-0.5 rounded hover:bg-muted text-foreground/80" title="Step Forward (Shift+→)">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13,5 21,12 13,19" fill="currentColor" /><line x1="5" y1="5" x2="5" y2="19" /></svg>
-                            </button>
-                            <button onClick={replay.cycleSpeed} className="px-1.5 py-0.5 rounded hover:bg-muted text-[10px] font-bold text-foreground/80 min-w-[32px]" title="Speed">
-                                {replay.replayState.speed}x
-                            </button>
-                            <div className="text-[10px] text-muted-fg px-1 tabular-nums">
-                                {replay.replayState.currentIndex - replay.replayState.startIndex}/{replay.replayState.totalBars - replay.replayState.startIndex}
-                            </div>
-                            <button onClick={replay.exitReplay} className="p-0.5 rounded hover:bg-red-500/15 text-red-500 ml-0.5" title="Exit Replay">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                            </button>
-                        </div>
-                    )}
-                    <div className="w-px h-4 bg-muted" />
-                    <div className="flex-1" />
-                    <button className="p-1 rounded hover:bg-surface-hover text-muted-fg" title="Undo"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 10h13a4 4 0 0 1 0 8H11" /><path d="M7 6l-4 4 4 4" /></svg></button>
-                    <button className="p-1 rounded hover:bg-surface-hover text-muted-fg" title="Redo"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 10H8a4 4 0 0 0 0 8h5" /><path d="M17 6l4 4-4 4" /></svg></button>
-                    <button onClick={toggleFullscreen} className="p-1 rounded hover:bg-surface-hover text-muted-fg" title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
-                        {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                    </button>
-                </div>
-            )}
+    const cycleMagnet = useCallback(() => {
+        setMagnetMode(m => m === 'off' ? 'weak' : m === 'weak' ? 'strong' : 'off');
+    }, []);
 
-            <div className="flex flex-1 overflow-hidden">
-                {!minimal && (
-                    <ChartToolbar activeTool={activeTool} setActiveTool={setActiveTool} drawingCount={drawings.length} clearAllDrawings={clearAllDrawings} zoomIn={zoomIn} zoomOut={zoomOut} drawingsVisible={drawingsVisible} toggleDrawingsVisibility={toggleDrawingsVisibility} magnetMode={magnetMode} onCycleMagnet={() => setMagnetMode(m => m === 'off' ? 'weak' : m === 'weak' ? 'strong' : 'off')} />
+    const takeScreenshot = useCallback(() => {
+        const chart = chartRef.current;
+        if (!chart) return;
+        const canvas = chart.takeScreenshot();
+        canvas.toBlob((blob) => {
+            if (!blob) return;
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentTicker}_${selectedInterval}_${new Date().toISOString().slice(0, 10)}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }, [currentTicker, selectedInterval]);
+
+    // ────────────────────────────────────────────────────────────────────
+    // Context value
+    // ────────────────────────────────────────────────────────────────────
+    const ctxValue: ChartContextValue = {
+        chartRef, candleSeriesRef, volumeSeriesRef, containerRef,
+        currentTicker, tickerMeta, isMarketOpen,
+        selectedInterval, selectedRange,
+        handleIntervalChange, handleRangeChange,
+        data, hoveredBar, displayBar, prevBar,
+        loading, loadingMore, hasMore, error, refetch,
+        indicators, indicatorResults,
+        showVolume, setShowVolume,
+        showNewsMarkers, setShowNewsMarkers,
+        showEarningsMarkers, setShowEarningsMarkers,
+        addIndicator, removeIndicator, openIndicatorSettings,
+        setSelectedIndicator, selectedIndicator,
+        legendExpanded, setLegendExpanded,
+        activeIndicatorCount,
+        isLive, showLiveIndicator, isScrolledAway,
+        replayState: replay.replayState,
+        isReplayActive,
+        enterSelectingMode: replay.enterSelectingMode,
+        exitReplay: replay.exitReplay,
+        togglePlay: replay.togglePlay,
+        stepForward: replay.stepForward,
+        stepBackward: replay.stepBackward,
+        cycleSpeed: replay.cycleSpeed,
+        activeTool, setActiveTool,
+        drawingCount: drawings.length, clearAllDrawings,
+        drawingsVisible, toggleDrawingsVisibility,
+        drawingsLocked, toggleDrawingsLocked,
+        canUndo, canRedo, undo, redo,
+        isFullscreen, toggleFullscreen,
+        magnetMode, cycleMagnet, setMagnetMode,
+        zoomIn, zoomOut,
+        candleStyle: chartPrefs.candleStyle as CandleStyle,
+        setCandleStyle: (s: CandleStyle) => setCandleStylePref(s as ChartCandleStyle),
+        gridVisible: chartPrefs.gridVisible,
+        setGridVisible: setChartGridVisible,
+        watermarkVisible: chartPrefs.watermarkVisible,
+        setWatermarkVisible: setChartWatermarkVisible,
+        logScale: chartPrefs.logScale,
+        setLogScale: setChartLogScale,
+        openSettings: () => setSettingsOpen(true),
+        closeSettings: () => setSettingsOpen(false),
+        settingsOpen,
+        takeScreenshot,
+        fontFamily,
+    };
+
+    // ────────────────────────────────────────────────────────────────────
+    // RENDER
+    // ────────────────────────────────────────────────────────────────────
+    return (
+        <ChartProvider value={ctxValue}>
+            <div className="h-full flex flex-col bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-lg overflow-hidden">
+                {minimal ? (
+                    <MinimalHeader onOpenChart={onOpenChart} onOpenNews={onOpenNews} />
+                ) : (
+                    <ChartHeader />
                 )}
 
-                <div className="relative flex-1 overflow-hidden" data-chart-container>
-                    {/* OHLC Legend */}
+                <div className="flex flex-1 overflow-hidden">
                     {!minimal && (
-                        <div className="absolute top-1 left-2 z-10 text-[10px] pointer-events-none" style={{ fontFamily, maxWidth: '85%' }}>
-                            <div className="flex items-center gap-1 flex-wrap">
-                                {tickerMeta?.icon_url ? (
-                                    <img src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/proxy/logo?url=${encodeURIComponent(tickerMeta.icon_url)}`} alt="" className="w-4 h-4 rounded-sm object-contain pointer-events-auto" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                                ) : (
-                                    <div className="w-4 h-4 rounded-sm bg-blue-500 flex items-center justify-center text-white text-[8px] font-bold flex-shrink-0">{currentTicker?.[0] || '?'}</div>
-                                )}
-                                <span className="font-semibold text-foreground">{tickerMeta?.company_name || currentTicker}</span>
-                                {tickerMeta?.exchange && <span className="text-muted-fg text-[9px]">{tickerMeta.exchange}</span>}
-                                {displayBar && (
-                                    <>
-                                        <span className="text-muted-fg ml-1">O<span className="text-foreground/80 font-medium">{formatPrice(displayBar.open)}</span></span>
-                                        <span className="text-muted-fg">H<span className="text-emerald-600 font-medium">{formatPrice(displayBar.high)}</span></span>
-                                        <span className="text-muted-fg">L<span className="text-red-500 font-medium">{formatPrice(displayBar.low)}</span></span>
-                                        <span className="text-muted-fg">C<span className="text-foreground/80 font-medium">{formatPrice(displayBar.close)}</span></span>
-                                        {prevBar && <span className={`font-medium ${isPositive ? 'text-emerald-600' : 'text-red-500'}`}>{isPositive ? '+' : ''}{priceChange.toFixed(2)} ({isPositive ? '+' : ''}{priceChangePercent.toFixed(2)}%)</span>}
-                                    </>
-                                )}
+                        <ChartToolbar
+                            activeTool={activeTool}
+                            setActiveTool={setActiveTool}
+                            drawingCount={drawings.length}
+                            clearAllDrawings={clearAllDrawings}
+                            zoomIn={zoomIn}
+                            zoomOut={zoomOut}
+                            magnetMode={magnetMode}
+                            onCycleMagnet={cycleMagnet}
+                        />
+                    )}
+
+                    <div className="relative flex-1 overflow-hidden" data-chart-container>
+                        {!minimal && <ChartOHLCOverlay />}
+                        {!minimal && <ChartIndicatorLegend />}
+
+                        {/* Price overlay (lightweight-charts price label) */}
+                        <div
+                            ref={priceOverlayRef}
+                            style={{
+                                position: 'absolute',
+                                right: 0,
+                                display: 'none',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                color: 'white',
+                                padding: '1px 4px',
+                                borderRadius: '2px',
+                                textAlign: 'center',
+                                zIndex: 20,
+                                pointerEvents: 'none',
+                                minWidth: '50px',
+                            }}
+                        />
+
+                        <ChartReplayOverlay />
+                        {replay.replayState.mode === 'idle' && <ChartRealtimeJump />}
+
+                        {dragState.active && (
+                            <div
+                                className="absolute inset-0 z-50"
+                                style={{
+                                    cursor: dragState.dragMode === 'mid1' || dragState.dragMode === 'mid2'
+                                        ? 'ns-resize'
+                                        : dragState.dragMode !== 'translate'
+                                            ? 'crosshair'
+                                            : dragState.drawingType === 'horizontal_line'
+                                                ? 'ns-resize'
+                                                : dragState.drawingType === 'vertical_line'
+                                                    ? 'ew-resize'
+                                                    : 'grabbing',
+                                }}
+                                onMouseMove={handleDragMove}
+                                onMouseUp={handleDragEnd}
+                                onMouseLeave={handleDragEnd}
+                            />
+                        )}
+
+                        {isDrawing && (
+                            <div className="absolute top-1 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-2 py-1 bg-[color:var(--color-primary)] text-white text-[10px] font-medium rounded shadow-lg">
+                                <span>
+                                    {pendingDrawing
+                                        ? 'Click el segundo punto'
+                                        : activeTool === 'horizontal_line'
+                                            ? 'Click para colocar la línea'
+                                            : 'Click el primer punto'}
+                                </span>
+                                <button onClick={cancelDrawing} className="hover:bg-white/10 rounded px-1">✕</button>
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    {/* Indicator Legend */}
-                    {indicators.filter(i => i.visible).length > 0 && (
-                        <div className="absolute top-5 left-2 z-10 pointer-events-none">
-                            <div className="pointer-events-auto flex items-center gap-1 mb-0.5">
-                                <button onClick={() => setLegendExpanded(!legendExpanded)} className="text-[10px] text-muted-fg hover:text-foreground font-medium flex items-center gap-0.5">
-                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">{legendExpanded ? <path d="M19 9l-7 7-7-7" /> : <path d="M9 5l7 7-7 7" />}</svg>
-                                    <span>{indicators.filter(i => i.visible).length}</span>
-                                </button>
-                            </div>
-                            {legendExpanded && (
-                                <div className="flex flex-col gap-0.5 mt-0.5">
-                                    {indicators.filter(i => i.visible).map(inst => {
-                                        const label = getInstanceLabel(inst);
-                                        const mainColor = (inst.styles.color || inst.styles.upperColor || inst.styles.macdColor || inst.styles.kColor || inst.styles.adxColor || inst.styles.onColor || '#888') as string;
-                                        return (
-                                            <div key={inst.id} className={`flex items-center gap-1.5 pointer-events-auto group px-1 rounded cursor-pointer ${selectedIndicator === inst.id ? 'bg-primary/10 ring-1 ring-primary' : 'hover:bg-surface-hover'}`} onClick={() => setSelectedIndicator(inst.id)}>
-                                                <span className="w-3 h-[2px] rounded" style={{ background: mainColor }}></span>
-                                                <span className="text-[11px] text-foreground font-medium cursor-pointer" onDoubleClick={(e) => openIndicatorSettings(inst.id, e)}>{label}</span>
-                                                <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-                                                    <button onClick={(e) => { e.stopPropagation(); openIndicatorSettings(inst.id, e); }} className="text-muted-fg hover:text-foreground/80" title="Settings"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" /></svg></button>
-                                                    <button onClick={(e) => { e.stopPropagation(); removeIndicator(inst.id); }} className="text-muted-fg hover:text-red-500" title="Remove"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6M10 11v6M14 11v6" /></svg></button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    )}
+                        {editPopup.visible && editingDrawing && (
+                            <ChartDrawingDialog
+                                drawing={editingDrawing}
+                                colors={drawingColors}
+                                initialX={editPopup.x}
+                                initialY={editPopup.y}
+                                containerWidth={containerRef.current?.clientWidth || 300}
+                                containerHeight={containerRef.current?.clientHeight || 200}
+                                onClose={closeEditPopup}
+                                onUpdate={handleDialogUpdate}
+                                onReplace={handleDialogReplace}
+                                onDelete={handleDialogDelete}
+                            />
+                        )}
 
-                    {/* Price overlay */}
-                    <div ref={priceOverlayRef} style={{ position: 'absolute', right: 0, display: 'none', flexDirection: 'column', alignItems: 'center', color: 'white', padding: '1px 4px', borderRadius: '2px', textAlign: 'center', zIndex: 20, pointerEvents: 'none', minWidth: '50px' }} />
+                        {earningsPopup.visible && earningsPopup.record && (
+                            <ChartEarningsPopup
+                                record={earningsPopup.record}
+                                ticker={currentTicker}
+                                x={earningsPopup.x}
+                                y={earningsPopup.y}
+                                containerWidth={containerRef.current?.clientWidth || 300}
+                                containerHeight={containerRef.current?.clientHeight || 200}
+                                onClose={closeEarningsPopup}
+                            />
+                        )}
 
-                    {replay.replayState.mode !== 'idle' && replay.replayState.mode !== 'selecting' && (
-                        <div className="absolute top-2 right-14 z-20 flex items-center gap-1.5 px-2 py-1 bg-orange-500/90 text-white text-[10px] font-bold rounded shadow-lg tracking-wider">
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 3,10 11,15" /><polygon points="20,5 12,10 20,15" /></svg>
-                            REPLAY
-                        </div>
-                    )}
-                    {isScrolledAway && isLive && replay.replayState.mode === 'idle' && (
-                        <button onClick={() => chartRef.current?.timeScale().scrollToRealTime()} className="absolute bottom-3 right-14 z-20 flex items-center gap-1 px-2 py-1 bg-primary text-white text-[10px] font-medium rounded shadow-lg hover:bg-blue-700 transition-colors">
-                            <Radio className="w-2.5 h-2.5" /> Realtime
-                        </button>
-                    )}
-
-                    {dragState.active && (
-                        <div className="absolute inset-0 z-50" style={{ cursor: dragState.dragMode === 'mid1' || dragState.dragMode === 'mid2' ? 'ns-resize' : dragState.dragMode !== 'translate' ? 'crosshair' : dragState.drawingType === 'horizontal_line' ? 'ns-resize' : dragState.drawingType === 'vertical_line' ? 'ew-resize' : 'grabbing' }} onMouseMove={handleDragMove} onMouseUp={handleDragEnd} onMouseLeave={handleDragEnd} />
-                    )}
-
-                    {isDrawing && (
-                        <div className="absolute top-1 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-2 py-1 bg-blue-500 text-white text-[10px] font-medium rounded shadow-lg">
-                            <span>{pendingDrawing ? 'Click second point' : activeTool === 'horizontal_line' ? 'Click to place line' : 'Click first point'}</span>
-                            <button onClick={cancelDrawing} className="hover:bg-blue-600 rounded px-1">✕</button>
-                        </div>
-                    )}
-
-                    {/* Edit popup */}
-                    {editPopup.visible && editingDrawing && (
-                        <>
-                            <div className="absolute inset-0 z-40" onClick={closeEditPopup} />
-                            <div className="absolute z-50 bg-surface rounded-lg shadow-xl border border-border p-3 min-w-[160px]" style={{ left: Math.min(editPopup.x, (containerRef.current?.clientWidth || 300) - 180), top: Math.min(editPopup.y, (containerRef.current?.clientHeight || 200) - 150) }}>
-                                <div className="text-xs font-semibold text-foreground mb-2 pb-2 border-b border-border-subtle">Edit line</div>
-                                <div className="mb-3">
-                                    <div className="text-[10px] text-muted-fg mb-1.5">Color</div>
-                                    <div className="flex gap-1.5">
-                                        {drawingColors.map(color => (
-                                            <button key={color} onClick={() => handleEditColor(color)} className={`w-5 h-5 rounded-full transition-all ${editingDrawing.color === color ? 'ring-2 ring-offset-1 ring-muted-fg scale-110' : 'hover:scale-110'}`} style={{ backgroundColor: color }} />
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="mb-3">
-                                    <div className="text-[10px] text-muted-fg mb-1.5">Width</div>
-                                    <div className="flex gap-1">
-                                        {[1, 2, 3, 4].map(width => (
-                                            <button key={width} onClick={() => handleEditLineWidth(width)} className={`flex-1 h-6 flex items-center justify-center rounded border transition-all ${editingDrawing.lineWidth === width ? 'bg-blue-500/10 border-blue-300' : 'border-border hover:bg-surface-hover'}`}>
-                                                <div className="rounded-full" style={{ width: '16px', height: `${width}px`, backgroundColor: editingDrawing.color }} />
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="flex gap-2 pt-2 border-t border-border-subtle">
-                                    <button onClick={handleEditDelete} className="flex-1 px-2 py-1 text-[10px] font-medium text-red-600 bg-red-500/10 rounded hover:bg-red-500/15">Delete</button>
-                                    <button onClick={closeEditPopup} className="flex-1 px-2 py-1 text-[10px] font-medium text-foreground/80 bg-surface-inset rounded hover:bg-muted">Close</button>
+                        {loading && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-[color:var(--color-surface)]/90 z-10">
+                                <div className="flex items-center gap-2 text-[color:var(--color-muted-fg)]">
+                                    <RefreshIcon className="w-5 h-5 animate-spin text-[color:var(--color-primary)]" />
+                                    <span className="text-sm">Cargando {currentTicker}...</span>
                                 </div>
                             </div>
-                        </>
-                    )}
+                        )}
+                        {error && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-[color:var(--color-surface)]/90 z-10">
+                                <div className="text-center">
+                                    <p className="text-[color:var(--color-danger)] text-sm mb-2">No se pudo cargar el gráfico</p>
+                                    <p className="text-[color:var(--color-muted-fg)] text-xs mb-3">{error}</p>
+                                    <button onClick={refetch} className="px-4 py-1.5 bg-[color:var(--color-primary)] text-white text-xs rounded-md hover:bg-[color:var(--color-primary-hover)] transition-colors">
+                                        Reintentar
+                                    </button>
+                                </div>
+                            </div>
+                        )}
 
-                    {loading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-surface/90 z-10">
-                            <div className="flex items-center gap-2 text-muted-fg"><RefreshCw className="w-5 h-5 animate-spin text-blue-500" /><span className="text-sm">Loading {currentTicker}...</span></div>
-                        </div>
-                    )}
-                    {error && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-surface/90 z-10">
-                            <div className="text-center"><p className="text-red-500 text-sm mb-2">Failed to load chart</p><p className="text-muted-fg text-xs mb-3">{error}</p><button onClick={refetch} className="px-4 py-1.5 bg-primary text-white text-xs rounded-md hover:bg-blue-700 transition-colors">Retry</button></div>
-                        </div>
-                    )}
+                        {headerPortalTarget && createPortal(
+                            <form
+                                onSubmit={ticker.handleTickerChange}
+                                className="flex items-center text-[11px]"
+                                onMouseDown={(e) => e.stopPropagation()}
+                            >
+                                <TickerSearch
+                                    ref={tickerSearchRef}
+                                    value={inputValue}
+                                    onChange={setInputValue}
+                                    onSelect={ticker.handleTickerSelect}
+                                    placeholder="Ticker"
+                                    className="w-16"
+                                    autoFocus={false}
+                                />
+                            </form>,
+                            headerPortalTarget,
+                        )}
 
-                    {headerPortalTarget && createPortal(
-                        <form onSubmit={ticker.handleTickerChange} className="flex items-center text-[11px]" onMouseDown={(e) => e.stopPropagation()}>
-                            <TickerSearch ref={tickerSearchRef} value={inputValue} onChange={setInputValue} onSelect={ticker.handleTickerSelect} placeholder="Ticker" className="w-16" autoFocus={false} />
-                        </form>,
-                        headerPortalTarget
-                    )}
+                        <div
+                            ref={containerRef}
+                            className="h-full w-full"
+                            onMouseDown={activeTool === 'none' && !minimal ? handleDragStart : undefined}
+                            onContextMenu={!minimal ? handleChartContextMenu : undefined}
+                            style={{
+                                cursor:
+                                    hoveredDrawingId && activeTool === 'none'
+                                        ? 'grab'
+                                        : isDrawing
+                                            ? 'crosshair'
+                                            : 'default',
+                            }}
+                        />
 
-                    <div ref={containerRef} className="h-full w-full" onMouseDown={activeTool === 'none' && !minimal ? handleDragStart : undefined} onContextMenu={!minimal ? handleChartContextMenu : undefined} style={{ cursor: hoveredDrawingId && activeTool === 'none' ? 'grab' : isDrawing ? 'crosshair' : 'default' }} />
+                        <ChartSettingsDialog />
 
-                    {ctxMenu.visible && (
-                        <ChartContextMenu state={ctxMenu} ticker={currentTicker} interval={selectedInterval} range={selectedRange} data={data} indicatorResults={indicatorResults} drawings={drawings} activeIndicators={indicators.filter(i => i.visible)} chartApi={chartRef.current} onClose={() => setCtxMenu(prev => ({ ...prev, visible: false }))} />
-                    )}
-                </div>
-            </div>
-
-            {!minimal && (
-                <div className="flex items-center justify-end px-2 py-0.5 border-t border-border-subtle text-[9px]" style={{ fontFamily }}>
-                    <div className="flex items-center gap-2 text-muted-fg">
-                        {displayBar && <span className="font-mono">V:{formatVolume(displayBar.volume)}</span>}
-                        {loadingMore && <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-500" />}
-                        <span>{data.length.toLocaleString()} bars</span>
-                        {hasMore && !loadingMore && <span>← more</span>}
+                        {ctxMenu.visible && (
+                            <ChartContextMenu
+                                state={ctxMenu}
+                                ticker={currentTicker}
+                                interval={selectedInterval}
+                                range={selectedRange}
+                                data={data}
+                                indicatorResults={indicatorResults}
+                                drawings={drawings}
+                                activeIndicators={indicators.filter(i => i.visible)}
+                                chartApi={chartRef.current}
+                                onClose={() => setCtxMenu(prev => ({ ...prev, visible: false }))}
+                            />
+                        )}
                     </div>
                 </div>
-            )}
 
-            {indicatorSettingsOpen && (
-                <IndicatorSettingsDialog indicatorId={indicatorSettingsOpen} instanceData={indicators.find(i => i.id === indicatorSettingsOpen)} onClose={() => setIndicatorSettingsOpen(null)} onApply={onApplyIndicatorSettings} position={indicatorSettingsPos} />
-            )}
+                {!minimal && (
+                    <div
+                        className="flex items-center justify-end px-2 py-0.5 border-t border-[color:var(--color-border-subtle)] text-[9px]"
+                        style={{ fontFamily }}
+                    >
+                        <div className="flex items-center gap-2 text-[color:var(--color-muted-fg)]">
+                            {displayBar && <span className="font-mono">V:{formatVolume(displayBar.volume)}</span>}
+                            {loadingMore && <RefreshIcon className="w-2.5 h-2.5 animate-spin text-[color:var(--color-primary)]" />}
+                            <span>{data.length.toLocaleString()} bars</span>
+                            {hasMore && !loadingMore && <span>← more</span>}
+                        </div>
+                    </div>
+                )}
+
+                {indicatorSettingsOpen && (
+                    <IndicatorSettingsDialog
+                        indicatorId={indicatorSettingsOpen}
+                        instanceData={indicators.find(i => i.id === indicatorSettingsOpen)}
+                        onClose={() => setIndicatorSettingsOpen(null)}
+                        onApply={onApplyIndicatorSettings}
+                        position={indicatorSettingsPos}
+                    />
+                )}
+            </div>
+        </ChartProvider>
+    );
+}
+
+function MinimalHeader({
+    onOpenChart, onOpenNews,
+}: { onOpenChart?: () => void; onOpenNews?: () => void }) {
+    return (
+        <div className="flex items-center justify-between px-3 py-1.5 border-b border-[color:var(--color-border)] bg-[color:var(--color-surface-hover)]">
+            <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-[color:var(--color-fg)]/80 tracking-wide">PRICE CHART</span>
+                <span className="text-[10px] text-[color:var(--color-muted-fg)]">1 Year</span>
+            </div>
+            <div className="flex items-center gap-2">
+                {onOpenChart && (
+                    <button
+                        onClick={onOpenChart}
+                        className="text-xs font-bold text-[color:var(--color-primary)] hover:opacity-80"
+                        title="Abrir gráfico"
+                    >
+                        G <span className="font-normal">&gt;</span>
+                    </button>
+                )}
+                {onOpenNews && (
+                    <button
+                        onClick={onOpenNews}
+                        className="text-xs font-bold text-[color:var(--color-primary)] hover:opacity-80"
+                        title="Abrir noticias"
+                    >
+                        N <span className="font-normal">&gt;</span>
+                    </button>
+                )}
+            </div>
         </div>
     );
 }

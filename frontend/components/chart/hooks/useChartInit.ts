@@ -6,6 +6,8 @@ import {
     ColorType,
     CrosshairMode,
     CandlestickSeries,
+    BarSeries,
+    AreaSeries,
     HistogramSeries,
     LineSeries,
     LineStyle,
@@ -19,6 +21,18 @@ import {
 } from 'lightweight-charts';
 import { getUserTimezone, getTimezoneAbbrev } from '@/lib/date-utils';
 import { getChartColors, INTERVAL_SECONDS, RIGHT_OFFSET_BARS, type ChartBar, type Interval } from '../constants';
+import type { ChartCandleStyle } from '@/stores/useUserPreferencesStore';
+
+interface UseChartInitOptions {
+    candleStyle?: ChartCandleStyle;
+    /**
+     * Ref to the raw OHLC data array. Used by the crosshair handler so that we
+     * always resolve OHLC from source data instead of from the visible series
+     * (line/area series only have `{time, value}` and would otherwise produce
+     * `undefined` OHLC fields when the user switches chart style).
+     */
+    dataRef?: MutableRefObject<ChartBar[]>;
+}
 
 export function useChartInit(
     containerRef: MutableRefObject<HTMLDivElement | null>,
@@ -26,7 +40,10 @@ export function useChartInit(
     selectedInterval: Interval,
     fontFamily: string,
     priceOverlayRef: MutableRefObject<HTMLDivElement | null>,
+    options: UseChartInitOptions = {},
 ) {
+    const candleStyle: ChartCandleStyle = options.candleStyle ?? 'candles';
+    const dataRef = options.dataRef;
     const chartRef = useRef<IChartApi | null>(null);
     const candleSeriesRef = useRef<ISeriesApi<any> | null>(null);
     const volumeSeriesRef = useRef<ISeriesApi<any> | null>(null);
@@ -145,12 +162,54 @@ export function useChartInit(
             sessionBgSeriesRef.current = null;
         }
 
-        const candleSeries = chart.addSeries(CandlestickSeries, {
-            upColor: CHART_COLORS.upColor, downColor: CHART_COLORS.downColor,
-            wickUpColor: CHART_COLORS.upColor, wickDownColor: CHART_COLORS.downColor,
-            borderVisible: false, priceLineVisible: true, priceLineWidth: 1,
-            priceLineColor: CHART_COLORS.crosshair, priceLineStyle: LineStyle.Dotted, lastValueVisible: false,
-        });
+        let candleSeries: ISeriesApi<any>;
+        if (candleStyle === 'bars') {
+            candleSeries = chart.addSeries(BarSeries, {
+                upColor: CHART_COLORS.upColor,
+                downColor: CHART_COLORS.downColor,
+                priceLineVisible: true,
+                priceLineWidth: 1,
+                priceLineColor: CHART_COLORS.crosshair,
+                priceLineStyle: LineStyle.Dotted,
+                lastValueVisible: false,
+            });
+        } else if (candleStyle === 'line') {
+            candleSeries = chart.addSeries(LineSeries, {
+                color: CHART_COLORS.crosshair,
+                lineWidth: 2,
+                priceLineVisible: true,
+                priceLineWidth: 1,
+                priceLineColor: CHART_COLORS.crosshair,
+                priceLineStyle: LineStyle.Dotted,
+                lastValueVisible: false,
+            });
+        } else if (candleStyle === 'area') {
+            candleSeries = chart.addSeries(AreaSeries, {
+                lineColor: CHART_COLORS.crosshair,
+                topColor: CHART_COLORS.volumeUp,
+                bottomColor: 'rgba(37, 99, 235, 0.04)',
+                lineWidth: 2,
+                priceLineVisible: true,
+                priceLineWidth: 1,
+                priceLineColor: CHART_COLORS.crosshair,
+                priceLineStyle: LineStyle.Dotted,
+                lastValueVisible: false,
+            });
+        } else {
+            // 'candles' and 'heikin-ashi' both use Candlestick; HA transforms data upstream.
+            candleSeries = chart.addSeries(CandlestickSeries, {
+                upColor: CHART_COLORS.upColor,
+                downColor: CHART_COLORS.downColor,
+                wickUpColor: CHART_COLORS.upColor,
+                wickDownColor: CHART_COLORS.downColor,
+                borderVisible: false,
+                priceLineVisible: true,
+                priceLineWidth: 1,
+                priceLineColor: CHART_COLORS.crosshair,
+                priceLineStyle: LineStyle.Dotted,
+                lastValueVisible: false,
+            });
+        }
         candleSeriesRef.current = candleSeries;
 
         // Price overlay timer (countdown for intraday, price-only for daily+)
@@ -230,11 +289,23 @@ export function useChartInit(
         chart.subscribeCrosshairMove((param) => {
             if (!param.point) return;
             if (!param.time || !param.seriesData) { setHoveredBar(null); return; }
+            const time = param.time as number;
+            // Always resolve OHLC from the source data array so we work regardless
+            // of which candleStyle is active (line/area series only carry `value`).
+            const source = dataRef?.current;
+            if (source && source.length > 0) {
+                const bar = source.find(b => b.time === time);
+                if (bar) {
+                    setHoveredBar(bar);
+                    return;
+                }
+            }
+            // Fallback for candles/bars/heikin-ashi when no dataRef is wired.
             const candleData = param.seriesData.get(candleSeries) as CandlestickData | undefined;
             const volumeData = param.seriesData.get(volumeSeries) as HistogramData | undefined;
-            if (candleData && volumeData) {
+            if (candleData && typeof candleData.open === 'number' && volumeData) {
                 setHoveredBar({
-                    time: param.time as number, open: candleData.open as number,
+                    time, open: candleData.open as number,
                     high: candleData.high as number, low: candleData.low as number,
                     close: candleData.close as number, volume: volumeData.value as number,
                 });
@@ -282,7 +353,7 @@ export function useChartInit(
             candleSeriesRef.current = null;
             volumeSeriesRef.current = null;
         };
-    }, [currentTicker, fontFamily, selectedInterval]);
+    }, [currentTicker, fontFamily, selectedInterval, candleStyle]);
 
     // Update watermark when ticker changes
     useEffect(() => {

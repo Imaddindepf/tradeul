@@ -12,6 +12,7 @@ import type {
 } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { HorizontalLineDrawing } from './types';
+import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 
 // ─── Renderer ────────────────────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ class HLineRenderer implements IPrimitivePaneRenderer {
     private _y: number,
     private _color: string,
     private _lineWidth: number,
-    private _isDashed: boolean,
+    private _lineStyle: LineStyle,
     private _isSelected: boolean,
     private _isHovered: boolean,
     private _label: string,
@@ -33,16 +34,16 @@ class HLineRenderer implements IPrimitivePaneRenderer {
       if (y < -10 || y > mediaSize.height + 10) return;
 
       const active = this._isSelected || this._isHovered;
+      const strokeWidth = active ? this._lineWidth + 0.5 : this._lineWidth;
 
-      // Main line
       ctx.beginPath();
       ctx.strokeStyle = this._color;
-      ctx.lineWidth = active ? this._lineWidth + 0.5 : this._lineWidth;
-      if (this._isDashed) ctx.setLineDash([6, 4]);
+      ctx.lineWidth = strokeWidth;
+      applyLineStyle(ctx, this._lineStyle, strokeWidth);
       ctx.moveTo(0, y);
       ctx.lineTo(mediaSize.width, y);
       ctx.stroke();
-      ctx.setLineDash([]);
+      resetLineStyle(ctx);
 
       // Price tag on the right edge
       const tagText = this._label || this._priceText;
@@ -125,7 +126,7 @@ class HLinePaneView implements IPrimitivePaneView {
   private _active = false;
   private _color = '#3b82f6';
   private _lineWidth = 2;
-  private _isDashed = false;
+  private _lineStyle: LineStyle = 'solid';
   private _isSelected = false;
   private _isHovered = false;
   private _label = '';
@@ -133,11 +134,11 @@ class HLinePaneView implements IPrimitivePaneView {
   private _id = '';
 
   update(
-    y: number, color: string, lineWidth: number, isDashed: boolean,
+    y: number, color: string, lineWidth: number, lineStyle: LineStyle,
     isSelected: boolean, isHovered: boolean, label: string, priceText: string, id: string,
   ): void {
     this._y = y; this._active = true; this._color = color;
-    this._lineWidth = lineWidth; this._isDashed = isDashed;
+    this._lineWidth = lineWidth; this._lineStyle = lineStyle;
     this._isSelected = isSelected; this._isHovered = isHovered;
     this._label = label; this._priceText = priceText; this._id = id;
   }
@@ -149,7 +150,7 @@ class HLinePaneView implements IPrimitivePaneView {
   renderer(): IPrimitivePaneRenderer | null {
     if (!this._active) return null;
     return new HLineRenderer(
-      this._y, this._color, this._lineWidth, this._isDashed,
+      this._y, this._color, this._lineWidth, this._lineStyle,
       this._isSelected, this._isHovered, this._label, this._priceText,
     );
   }
@@ -212,13 +213,13 @@ export class HorizontalLinePrimitive implements ISeriesPrimitive<Time> {
     }
 
     const price = this._drawing.price;
-    const priceText = price < 1 ? price.toFixed(4) : price < 100 ? price.toFixed(2) : price.toFixed(2);
+    const priceText = price < 1 ? price.toFixed(4) : price.toFixed(2);
 
     this._paneView.update(
       y as number,
       this._drawing.color,
       this._drawing.lineWidth,
-      this._drawing.lineStyle === 'dashed',
+      this._drawing.lineStyle,
       this._isSelected,
       this._isHovered,
       this._drawing.label || '',

@@ -1,17 +1,38 @@
-import { useEffect, useRef, useCallback } from 'react';
+/**
+ * useChartNews
+ *
+ * Loads news articles for the current ticker and exposes them as:
+ *  1. `newsEvents`: a stream consumed by useEventMarkers to render N circles in
+ *     the time-axis (consistent with earnings markers).
+ *  2. `newsPriceLinesRef`: horizontal price lines anchored to each article
+ *     (kept on the chart pane — visually distinct from the time-axis markers).
+ *  3. `newsTimeMap`: lookup so click handlers on the chart can open the news
+ *     popup for a given timestamp.
+ *
+ * Previously this hook drew chart-pane markers via `setMarkers()` while
+ * earnings used a time-axis primitive — visually inconsistent. The new flow
+ * keeps both kinds of markers in the same primitive while preserving the
+ * existing click → open-popup behavior.
+ */
+import { useEffect, useMemo, useRef, useCallback } from 'react';
 import type { MutableRefObject } from 'react';
-import {
-    createSeriesMarkers,
-    type ISeriesApi,
-    type SeriesMarker,
-    type Time,
-    type UTCTimestamp,
-} from 'lightweight-charts';
+import type { ISeriesApi } from 'lightweight-charts';
 import { useArticlesByTicker } from '@/stores/useNewsStore';
 import { getUserTimezone } from '@/lib/date-utils';
 import { roundToInterval } from '../formatters';
 import { ChartNewsPopup } from '../ChartNewsPopup';
+import type { ChartEvent } from '../primitives/EventMarkerPrimitive';
 import type { ChartBar, Interval } from '../constants';
+
+interface NewsArticle {
+    published?: string;
+    tickerPrices?: Record<string, number>;
+    [key: string]: unknown;
+}
+
+interface OpenWindowFn {
+    (opts: any): void;
+}
 
 export function useChartNews(
     candleSeriesRef: MutableRefObject<ISeriesApi<any> | null>,
@@ -19,97 +40,123 @@ export function useChartNews(
     selectedInterval: Interval,
     currentTicker: string,
     showNewsMarkers: boolean,
-    openWindow: (opts: any) => void,
+    openWindow: OpenWindowFn,
 ) {
     const tickerNews = useArticlesByTicker(currentTicker);
-
-    const newsMarkersRef = useRef<any>(null);
     const newsPriceLinesRef = useRef<any[]>([]);
-    const newsTimeMapRef = useRef<Map<number, any[]>>(new Map());
+    const newsTimeMapRef = useRef<Map<number, NewsArticle[]>>(new Map());
 
-    useEffect(() => {
-        if (!candleSeriesRef.current || !data || data.length === 0) return;
+    /**
+     * Build the time map (timestamp → list of articles) for click-to-open.
+     * Always populated when news are visible; the map is also used to know
+     * which dates to emit as event markers.
+     */
+    const newsEvents = useMemo<ChartEvent[]>(() => {
+        newsTimeMapRef.current = new Map();
+        if (!showNewsMarkers || tickerNews.length === 0 || data.length === 0) return [];
 
-        for (const line of newsPriceLinesRef.current) {
-            try { candleSeriesRef.current.removePriceLine(line); } catch { /* */ }
-        }
-        newsPriceLinesRef.current = [];
-        newsTimeMapRef.current.clear();
-
-        if (newsMarkersRef.current) {
-            newsMarkersRef.current.setMarkers([]);
-        }
-
-        if (!showNewsMarkers || tickerNews.length === 0) return;
-
-        const newsMarkers: SeriesMarker<Time>[] = [];
-
-        const candleDataMap = new Map<number, { time: number; open: number; high: number; low: number; close: number }>();
+        const tz = getUserTimezone();
+        const candleDataMap = new Map<number, ChartBar>();
         for (const bar of data) {
             const roundedTime = roundToInterval(bar.time, selectedInterval);
-            candleDataMap.set(roundedTime, { time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+            candleDataMap.set(roundedTime, bar);
         }
 
-        for (const news of tickerNews) {
+        const eventsByDate = new Map<string, ChartEvent>();
+        for (const news of tickerNews as unknown as NewsArticle[]) {
             if (!news.published) continue;
-
             const newsDate = new Date(news.published);
             const newsTimestamp = Math.floor(newsDate.getTime() / 1000);
             const roundedNewsTime = roundToInterval(newsTimestamp, selectedInterval);
             const candleMatch = candleDataMap.get(roundedNewsTime);
+            if (!candleMatch) continue;
 
-            if (candleMatch) {
-                if (!newsTimeMapRef.current.has(candleMatch.time)) {
-                    newsTimeMapRef.current.set(candleMatch.time, []);
-                }
-                newsTimeMapRef.current.get(candleMatch.time)!.push(news);
+            // Track timestamp → articles for click handler.
+            const bucket = newsTimeMapRef.current.get(candleMatch.time) ?? [];
+            bucket.push(news);
+            newsTimeMapRef.current.set(candleMatch.time, bucket);
 
-                let newsPrice: number;
-                const tickerUpper = currentTicker.toUpperCase();
-
-                if (news.tickerPrices && news.tickerPrices[tickerUpper]) {
-                    newsPrice = news.tickerPrices[tickerUpper];
-                } else {
-                    const secondsInMinute = newsDate.getSeconds();
-                    const ratio = secondsInMinute / 60;
-                    newsPrice = candleMatch.open + (candleMatch.close - candleMatch.open) * ratio;
-                }
-
-                newsMarkers.push({
-                    time: candleMatch.time as UTCTimestamp,
-                    position: 'aboveBar',
-                    color: '#f59e0b',
-                    shape: 'arrowDown',
-                    text: '📰',
-                    size: 2,
+            // One marker per calendar date (no clustering of dozens of N's).
+            const dateStr = new Date(candleMatch.time * 1000).toLocaleDateString('en-CA', { timeZone: tz });
+            if (!eventsByDate.has(dateStr)) {
+                eventsByDate.set(dateStr, {
+                    date: dateStr,
+                    kind: 'news',
+                    label: news.published,
+                    payload: { ticker: currentTicker, articleTimestamp: candleMatch.time },
                 });
-
-                const priceLine = candleSeriesRef.current!.createPriceLine({
-                    price: newsPrice,
-                    color: '#f59e0b',
-                    lineWidth: 2,
-                    lineStyle: 2,
-                    axisLabelVisible: true,
-                    title: `📰 ${newsDate.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', hour12: false })}`,
-                });
-                newsPriceLinesRef.current.push(priceLine);
             }
         }
 
-        newsMarkers.sort((a, b) => (a.time as number) - (b.time as number));
-        const uniqueMarkers = newsMarkers.filter((marker, index, self) =>
-            index === self.findIndex(m => m.time === marker.time)
-        );
+        return Array.from(eventsByDate.values());
+    }, [showNewsMarkers, tickerNews, data, selectedInterval, currentTicker]);
 
-        if (newsMarkersRef.current) {
-            newsMarkersRef.current.setMarkers(uniqueMarkers);
-        } else if (candleSeriesRef.current && uniqueMarkers.length > 0) {
-            newsMarkersRef.current = createSeriesMarkers(candleSeriesRef.current, uniqueMarkers);
+    /**
+     * Maintain horizontal price lines on the chart pane, one per article that
+     * matches a candle. These are visually distinct from the markers and serve
+     * to highlight the price level at which the news happened.
+     */
+    useEffect(() => {
+        const series = candleSeriesRef.current;
+        if (!series) return;
+
+        for (const line of newsPriceLinesRef.current) {
+            try { series.removePriceLine(line); } catch { /* */ }
         }
+        newsPriceLinesRef.current = [];
+
+        if (!showNewsMarkers || tickerNews.length === 0 || data.length === 0) return;
+
+        const tz = getUserTimezone();
+        const candleDataMap = new Map<number, ChartBar>();
+        for (const bar of data) {
+            const roundedTime = roundToInterval(bar.time, selectedInterval);
+            candleDataMap.set(roundedTime, bar);
+        }
+
+        const seenPrices = new Set<number>();
+        for (const news of tickerNews as unknown as NewsArticle[]) {
+            if (!news.published) continue;
+            const newsDate = new Date(news.published);
+            const newsTimestamp = Math.floor(newsDate.getTime() / 1000);
+            const roundedNewsTime = roundToInterval(newsTimestamp, selectedInterval);
+            const candleMatch = candleDataMap.get(roundedNewsTime);
+            if (!candleMatch) continue;
+
+            const tickerUpper = currentTicker.toUpperCase();
+            let newsPrice: number;
+            if (news.tickerPrices && news.tickerPrices[tickerUpper]) {
+                newsPrice = news.tickerPrices[tickerUpper];
+            } else {
+                const secondsInMinute = newsDate.getSeconds();
+                const ratio = secondsInMinute / 60;
+                newsPrice = candleMatch.open + (candleMatch.close - candleMatch.open) * ratio;
+            }
+
+            // Avoid creating duplicate price lines for the same exact level.
+            const rounded = Math.round(newsPrice * 100);
+            if (seenPrices.has(rounded)) continue;
+            seenPrices.add(rounded);
+
+            const timeLabel = newsDate.toLocaleTimeString('en-US', {
+                timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
+            });
+            const priceLine = series.createPriceLine({
+                price: newsPrice,
+                color: 'var(--color-chart-marker-news, #f59e0b)',
+                lineWidth: 2,
+                lineStyle: 2,
+                axisLabelVisible: true,
+                title: timeLabel,
+            });
+            newsPriceLinesRef.current.push(priceLine);
+        }
+
         return () => {
-            newsMarkersRef.current = null;
+            for (const line of newsPriceLinesRef.current) {
+                try { series.removePriceLine(line); } catch { /* */ }
+            }
             newsPriceLinesRef.current = [];
-            newsTimeMapRef.current.clear();
         };
     }, [showNewsMarkers, tickerNews, data, selectedInterval, currentTicker]);
 
@@ -117,14 +164,10 @@ export function useChartNews(
         const newsAtTime = newsTimeMapRef.current.get(time);
         if (newsAtTime && newsAtTime.length > 0) {
             openWindow({
-                title: `📰 News: ${currentTicker}`,
-                content: <ChartNewsPopup ticker={currentTicker} articles={newsAtTime} />,
-                width: 400,
-                height: 300,
-                x: 300,
-                y: 150,
-                minWidth: 320,
-                minHeight: 200,
+                title: `News: ${currentTicker}`,
+                content: <ChartNewsPopup ticker={currentTicker} articles={newsAtTime as any} />,
+                width: 400, height: 300, x: 300, y: 150,
+                minWidth: 320, minHeight: 200,
             });
         }
     }, [currentTicker, openWindow]);
@@ -136,10 +179,11 @@ export function useChartNews(
 
     return {
         tickerNews,
-        newsMarkersRef,
+        newsEvents,
         newsPriceLinesRef,
         newsTimeMapRef,
         showNewsMarkersRef,
         handleNewsMarkerClickRef,
+        handleNewsMarkerClick,
     };
 }
