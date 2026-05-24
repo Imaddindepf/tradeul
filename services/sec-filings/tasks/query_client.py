@@ -82,7 +82,7 @@ class SECQueryClient:
         Args:
             query: Lucene query string (e.g., "formType:8-K AND filedAt:[2024-01-01 TO 2024-01-31]")
             from_index: Índice de inicio para paginación
-            size: Tamaño de página (max 50)
+            size: Tamaño de página (max 50, impuesto por SEC-API.io)
             
         Returns:
             Dict con response del API o None si hay error
@@ -100,8 +100,23 @@ class SECQueryClient:
             response = await self.client.post(url, json=payload)
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            # Log con cuerpo de la respuesta para diagnóstico (p. ej. límites del proveedor)
+            body_preview = ""
+            try:
+                body_preview = e.response.text[:500]
+            except Exception:
+                pass
+            print(
+                f"❌ Query API HTTP {e.response.status_code} | "
+                f"query={query!r} from={from_index} size={size} | body={body_preview}"
+            )
+            return None
         except Exception as e:
-            print(f"❌ Query API error: {e}")
+            print(
+                f"❌ Query API error: {e} | "
+                f"query={query!r} from={from_index} size={size}"
+            )
             return None
     
     async def backfill_date_range(

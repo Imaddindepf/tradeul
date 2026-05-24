@@ -39,7 +39,7 @@ class RedisClient:
                 self.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                max_connections=50
+                max_connections=200
             )
             await self._client.ping()
             logger.info("Connected to Redis", url=self.redis_url)

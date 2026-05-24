@@ -130,9 +130,19 @@ async def feed_status():
     except Exception:
         pass
 
+    consumer_last = None
+    if consumer and consumer.get_stats().get("last_tweet_at"):
+        try:
+            from datetime import datetime as _dt
+            dt = _dt.fromisoformat(consumer.get_stats()["last_tweet_at"])
+            consumer_last = dt.timestamp()
+        except Exception:
+            pass
+
+    latest = max(filter(None, [last_news_published_at, consumer_last]), default=None)
     since: int | None = None
-    if last_news_published_at:
-        since = int(time.time() - last_news_published_at)
+    if latest:
+        since = int(time.time() - latest)
 
     return {
         "feed": "live" if redis_ok else "degraded",
@@ -430,10 +440,16 @@ async def trader_ws_stream(websocket: WebSocket):
                     if action == "subscribe":
                         tickers = msg.get("tickers", [])
                         subscribed_tickers = {t.upper() for t in tickers if isinstance(t, str)}
+                        filter_desc = list(subscribed_tickers) or ["*"]
                         await websocket.send_json({
                             "type": "subscribed",
-                            "tickers": list(subscribed_tickers) or ["*"],
+                            "tickers": filter_desc,
                         })
+                        logger.info(
+                            "trader_ws_subscribed",
+                            key_id=trader.key_id,
+                            tickers=filter_desc,
+                        )
 
                     elif action == "status":
                         # El cliente pregunta si el feed está vivo
@@ -484,9 +500,24 @@ async def trader_ws_stream(websocket: WebSocket):
                             item_tickers = {t.upper() for t in item.get("tickers", [])}
                             if not item_tickers.intersection(subscribed_tickers):
                                 continue
-                        await websocket.send_json(_sanitize_for_trader(item))
-                    except Exception:
-                        pass
+                        sanitized = _sanitize_for_trader(item)
+                        await websocket.send_json(sanitized)
+                        logger.info(
+                            "trader_ws_news_sent",
+                            key_id=trader.key_id,
+                            news_id=sanitized.get("id", ""),
+                            news_type=sanitized.get("type", ""),
+                            tickers=sanitized.get("tickers", []),
+                        )
+                    except WebSocketDisconnect:
+                        raise
+                    except Exception as send_err:
+                        logger.error(
+                            "trader_ws_send_failed",
+                            key_id=trader.key_id,
+                            news_id=item.get("id", "") if 'item' in dir() else "",
+                            error=str(send_err),
+                        )
 
             # ── Heartbeat Redis: verificar el circuito completo ───────────
             # Publicamos en nuestro canal privado y esperamos recibirlo.

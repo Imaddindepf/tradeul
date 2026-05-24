@@ -85,20 +85,21 @@ async def _resolve_key(
     key_id = key_data["key_id"]
     rate_limit = int(key_data.get("rate_limit", settings.trader_rate_limit))
 
-    # Rate limiting: INCR + EXPIRE atómico
-    rl_key = _rl_key(key_id)
-    pipe = redis.pipeline()
-    pipe.incr(rl_key)
-    pipe.expire(rl_key, 60)
-    results = await pipe.execute()
-    current_count = results[0]
+    # rate_limit <= 0  ⇒  sin límite (coincide con DEFAULT_RATE_LIMIT=0 del gateway)
+    if rate_limit > 0:
+        rl_key = _rl_key(key_id)
+        pipe = redis.pipeline()
+        pipe.incr(rl_key)
+        pipe.expire(rl_key, 60)
+        results = await pipe.execute()
+        current_count = results[0]
 
-    if current_count > rate_limit:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Rate limit exceeded: {rate_limit} req/min",
-            headers={"Retry-After": "60"},
-        )
+        if current_count > rate_limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded: {rate_limit} req/min",
+                headers={"Retry-After": "60"},
+            )
 
     # Actualizar last_used_at de forma no bloqueante (fire-and-forget)
     import asyncio

@@ -101,15 +101,37 @@ class InstrumentContextRepository:
 
         detail_maps = await self._load_detail_maps(instrument_rows)
         instruments = []
+        skipped_orphans = 0
         for row in instrument_rows:
             base = InstrumentBase.model_validate(row)
             details = detail_maps.get(base.offering_type, {}).get(base.id)
             if details is None:
-                raise ValueError(
-                    f"Missing detail row for instrument_id={base.id} "
-                    f"type={base.offering_type.value}"
+                # Defensive: tolerate orphan rows in `instruments` whose matching
+                # `*_details` row is missing (data inconsistency from the v2 seed
+                # of 2026-05-02/03 left ~98% of instruments without detail).
+                # We log and skip so the endpoint still returns the rest of the
+                # context (ticker info, completed offerings, instruments that DO
+                # have detail). See `Missing detail row` warnings in logs to
+                # identify which instruments need backfilling.
+                logger.warning(
+                    "orphan_instrument_skipped",
+                    instrument_id=str(base.id),
+                    ticker=base.ticker,
+                    offering_type=base.offering_type.value,
+                    security_name=base.security_name,
                 )
+                skipped_orphans += 1
+                continue
             instruments.append(self._compose_instrument(base, details))
+
+        if skipped_orphans:
+            logger.warning(
+                "instrument_context_orphans",
+                ticker=ticker,
+                skipped=skipped_orphans,
+                kept=len(instruments),
+                total=len(instrument_rows),
+            )
 
         completed_offerings: list[CompletedOffering] = []
         if include_completed_offerings:

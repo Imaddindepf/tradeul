@@ -348,40 +348,57 @@ async def get_filings_live(
         date_to=date_to,
     )
     
-    print(f" SEC Query: {lucene_query}")
-    
+    print(f"📊 SEC Query: {lucene_query} | from={from_index} size={page_size}")
+
+    # SEC-API.io impone un máximo de 50 por petición. Si el cliente pide más,
+    # dividimos internamente en sub-batches de 50 y concatenamos, para no
+    # romper la paginación existente del frontend ni exponer el límite externo.
+    SEC_API_MAX_SIZE = 50
+
     try:
-        # Query directo a SEC API con paginación
-        response = await query_client.query_filings(lucene_query, from_index, min(page_size, 100))
-        
-        if not response or 'filings' not in response:
-            return FilingsListResponse(
-                filings=[],
-                total=0,
-                page=1,
-                page_size=page_size,
-                message="No filings found"
-            )
-        
-        # Parsear filings
-        filings = []
-        for filing_data in response['filings']:
-            filing = query_client.parse_filing(filing_data)
-            if filing:
-                # Convertir a dict con camelCase
-                filing_dict = filing.model_dump(by_alias=True)
-                filings.append(filing_dict)
-        
-        total = response.get('total', {}).get('value', len(filings))
-        
+        all_filings: List[dict] = []
+        total = 0
+        remaining = page_size
+        current_from = from_index
+        first_response = True
+
+        while remaining > 0:
+            batch_size = min(remaining, SEC_API_MAX_SIZE)
+            response = await query_client.query_filings(lucene_query, current_from, batch_size)
+
+            if not response or 'filings' not in response:
+                # Cortar el loop: ya no hay más resultados o falló la query.
+                # El error real (si lo hubo) ya se loggeó dentro de query_filings.
+                break
+
+            if first_response:
+                total = response.get('total', {}).get('value', 0)
+                first_response = False
+
+            batch_filings = response['filings']
+            for filing_data in batch_filings:
+                filing = query_client.parse_filing(filing_data)
+                if filing:
+                    all_filings.append(filing.model_dump(by_alias=True))
+
+            # Si el proveedor devolvió menos de lo pedido, no hay más páginas
+            if len(batch_filings) < batch_size:
+                break
+
+            remaining -= batch_size
+            current_from += batch_size
+
         return FilingsListResponse(
-            filings=filings,
-            total=total,
+            filings=all_filings,
+            total=total or len(all_filings),
             page=1,
             page_size=page_size,
-            message=f"Found {len(filings)} filings (live from SEC API)"
+            message=(
+                f"Found {len(all_filings)} filings (live from SEC API)"
+                if all_filings else "No filings found"
+            ),
         )
-    
+
     except Exception as e:
         print(f"❌ Error querying live filings: {e}")
         raise HTTPException(

@@ -185,7 +185,7 @@ services:
       - DB_PORT=55433
       - DB_NAME=dilutiontracker
       - DB_USER=dilution_admin
-      - DB_PASSWORD=DilTracker2026
+      - DB_PASSWORD=${DT_DB_PASSWORD}
       - REDIS_HOST=127.0.0.1
       - REDIS_PORT=6379
       - POSTGRES_HOST=172.18.0.2
@@ -1308,6 +1308,51 @@ services:
       driver: "json-file"
       options:
         max-size: "5m"
+        max-file: "3"
+
+  # =============================================
+  # BAR BUILDER - Multi-timeframe OHLC bar aggregation + Live Bar Store
+  # =============================================
+  # Consumes per-second aggregates from Polygon WS (stream:realtime:aggregates)
+  # and builds 1/2/5/10/15/30/60/240/720 min bars.
+  #
+  # Publishes:
+  #   - stream:bars:{tf}min        (closed bars, for alert_engine)
+  #   - bars:{tf}min:latest        (closed bars hash, for lookups)
+  #   - bars:{tf}min:current       (IN-FORMATION bars hash, for zero-gap charts)
+  #
+  # HTTP API on port 8050:
+  #   - GET  /health
+  #   - POST /hydrate {"symbols": [...]}   (api_gateway calls this when opening
+  #     a fresh ticker so the live bar is populated before WS catches up)
+  bar_builder:
+    build:
+      context: ./services/bar_builder
+      dockerfile: Dockerfile
+    container_name: tradeul_bar_builder
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      STREAM_AGGREGATES: stream:realtime:aggregates
+      POLYGON_API_KEY: ${POLYGON_API_KEY}
+      PUBLISH_CURRENT_INTERVAL: "1.0"
+      HTTP_PORT: "8050"
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - tradeul_network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
         max-file: "3"
 
 volumes:

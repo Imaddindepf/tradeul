@@ -14,6 +14,7 @@ Datos vienen de Redis hash ticker:chain (poblado por data_maintenance).
 92% de tickers NO tienen cadena → overhead = 1 HGET (~0.05ms).
 """
 
+import re
 import time
 from datetime import datetime as dt
 from typing import Optional, List, Tuple
@@ -21,6 +22,67 @@ from typing import Optional, List, Tuple
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _instrument_suffix(ticker: str) -> str:
+    """
+    Return the instrument-type suffix of a ticker, or '' for common stock.
+
+    Polygon uses the trailing letter(s) to distinguish related instruments
+    issued by the same company:
+      W  → warrants   (SOUNW, SBFMW …)
+      R  → rights     (AACGR …)
+      U  → units      (OACCU …)
+      p  → preferred  (TFINp, LOBpA …)
+
+    A chain between two tickers is only valid when both have the SAME suffix
+    (i.e. both are common stock, or both are warrants, etc.). Mixing types —
+    e.g. SBFM (common) ↔ SBFMW (warrant) — produces false chains that redirect
+    the common-stock chart to warrant price data.
+
+    This guardrail mirrors the same logic in
+    services/data_maintenance/tasks/build_ticker_chain.py so the API gateway
+    never serves a chained chart that crosses instrument types, even if the
+    underlying Redis hash was populated by an older (buggy) builder version.
+    """
+    if not ticker:
+        return ''
+    if re.search(r'p[A-Z]?$', ticker):
+        return 'p'
+    m = re.search(r'[WRU]$', ticker)
+    return m.group(0) if m else ''
+
+
+def _filter_chain_by_suffix(symbol: str, chain: Optional[List[str]]) -> Optional[List[str]]:
+    """
+    Drop chain members whose instrument suffix differs from `symbol`.
+
+    Returns None if the filtered chain has fewer than 2 entries (in that case
+    there is effectively no chain and the caller should fall back to a single-
+    symbol fetch).
+    """
+    if not chain:
+        return chain
+    target = _instrument_suffix(symbol)
+    filtered = [t for t in chain if _instrument_suffix(t) == target]
+    if len(filtered) < 2:
+        if filtered != chain:
+            logger.warning(
+                "ticker_chain_mixed_suffix_filtered_out",
+                symbol=symbol,
+                original_chain=chain,
+                target_suffix=target,
+            )
+        return None
+    if filtered != chain:
+        logger.warning(
+            "ticker_chain_mixed_suffix_filtered",
+            symbol=symbol,
+            original_chain=chain,
+            filtered_chain=filtered,
+            target_suffix=target,
+        )
+    return filtered
 
 # In-process cache to avoid repeated Redis calls
 # {symbol: (chain_or_None, timestamp)}
@@ -69,6 +131,9 @@ async def _get_chain_from_reverse_index(symbol: str, redis_client, now: float) -
             if best_chain is None or len(chain) > len(best_chain):
                 best_chain = chain
 
+    # Guardrail: never cross instrument types via the reverse index.
+    best_chain = _filter_chain_by_suffix(symbol, best_chain)
+
     _reverse_chain_cache[symbol] = (best_chain, now)
     if best_chain:
         logger.info("ticker_chain_resolved_via_reverse_index", symbol=symbol, chain=best_chain)
@@ -99,13 +164,19 @@ async def get_ticker_chain(symbol: str, redis_client) -> Optional[List[str]]:
     chain = await redis_client.hget("ticker:chain", symbol)
     chain = _normalize_chain(chain)
 
+    # Guardrail: drop chains that mix instrument types (e.g. common+warrant).
+    # The Redis hash is built by a background job that has historically
+    # generated cross-instrument chains from Polygon's noisy ticker_change
+    # events. This filter keeps the API correct even if Redis is stale.
+    chain = _filter_chain_by_suffix(symbol, chain)
+
     # Fallback: reverse index for legacy/inactive symbols
     if chain is None:
         chain = await _get_chain_from_reverse_index(symbol, redis_client, now)
-    
+
     # Cache result (including None for tickers without chains)
     _chain_cache[symbol] = (chain, now)
-    
+
     return chain
 
 

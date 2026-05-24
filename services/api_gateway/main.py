@@ -54,6 +54,7 @@ from routes.analyst_ratings import router as analyst_ratings_router
 from routes.perplexity_financials import router as perplexity_financials_router
 from routes.developer import router as developer_router, set_redis_client as set_developer_redis
 from routes.public import router as public_router, set_redis_client as set_public_redis
+from routes.bug_reports import router as bug_reports_router, set_redis_client as set_bug_reports_redis
 from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
@@ -135,6 +136,7 @@ async def lifespan(app: FastAPI):
 
     # Configurar router de developer API (trader keys)
     set_developer_redis(redis_client)
+    set_bug_reports_redis(redis_client)
     logger.info("developer_router_configured")
 
     # Configurar router público (landing page, sin auth)
@@ -264,6 +266,7 @@ app.include_router(analyst_ratings_router)  # Analyst ratings & price targets (P
 app.include_router(perplexity_financials_router)  # Balance Sheet + Cash Flow (Perplexity proxy)
 app.include_router(developer_router)               # Trader API key management (Openul stream)
 app.include_router(public_router)                  # Public endpoints (landing page, top movers, sin auth)
+app.include_router(bug_reports_router)             # Dashboard bug report submissions
 
 
 # ============================================================================
@@ -3587,6 +3590,178 @@ async def fetch_polygon_daily_chunk(
     return bars, oldest_time if has_more else None
 
 
+# Map frontend interval strings to bar_builder timeframe (minutes).
+# Daily+ intervals don't need live stitching (they only close at EOD).
+INTERVAL_TO_TF_MIN: dict = {
+    "1min": 1,
+    "2min": 2,
+    "5min": 5,
+    "15min": 15,
+    "30min": 30,
+    "1hour": 60,
+    "4hour": 240,
+    "12hour": 720,
+}
+
+# URL of the bar_builder service (live bar store + hydration HTTP API).
+BAR_BUILDER_URL = os.getenv("BAR_BUILDER_URL", "http://bar_builder:8050")
+
+# Reusable, short-lived HTTP client for fire-and-forget hydrate calls.
+# Created lazily so unit tests / import-time don't open sockets.
+_bar_builder_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_bar_builder_client() -> httpx.AsyncClient:
+    global _bar_builder_http_client
+    if _bar_builder_http_client is None:
+        _bar_builder_http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(2.0, connect=0.5),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _bar_builder_http_client
+
+
+async def _trigger_hydrate(symbol: str, wait: bool = False) -> bool:
+    """
+    POST to bar_builder /hydrate.
+
+    Called when /api/v1/chart can't find an in-formation bar for a symbol —
+    bar_builder will fetch Polygon snapshot+aggs and seed the live store so
+    the next chart request stitches correctly.
+
+    Args:
+        symbol: ticker to hydrate
+        wait: if True, await the hydrate response (so the caller can
+              re-read the live bar within the same request). If False,
+              fire-and-forget (default).
+
+    Returns: True if hydrate completed successfully (only meaningful when wait=True).
+    """
+    try:
+        client = _get_bar_builder_client()
+        timeout = httpx.Timeout(2.5, connect=0.5) if wait else httpx.Timeout(0.5, connect=0.3)
+        resp = await client.post(
+            f"{BAR_BUILDER_URL}/hydrate",
+            json={"symbols": [symbol.upper()]},
+            timeout=timeout,
+        )
+        if not wait:
+            return True
+        if resp.status_code != 200:
+            return False
+        body = resp.json()
+        status = (body.get("results") or {}).get(symbol.upper(), "")
+        return status == "ok"
+    except Exception as e:
+        logger.debug("hydrate_trigger_failed", symbol=symbol, error=str(e))
+        return False
+
+
+async def _stitch_live_bar(
+    chart_data: List[dict],
+    symbol: str,
+    interval: str,
+    is_latest_request: bool,
+) -> List[dict]:
+    """
+    Append/merge the in-formation bar from bars:{tf}min:current onto chart_data.
+
+    This is THE critical step that closes the gap between Polygon REST aggs
+    (which lag) and the live WebSocket stream. Without it, the most recent
+    bar is either missing or shows stale OHLC right after a timeframe switch.
+
+    Behaviour:
+      - Only runs for "latest" requests (no before / no to). For `before`
+        (historical chunks) and `to` (replay) the live bar is irrelevant.
+      - `after` (gap recovery) is treated as "latest" because the frontend
+        wants the freshest tail.
+      - Only runs for intraday intervals that bar_builder supports.
+      - If no live bar in Redis, fire-and-forget hydrate (next call will hit).
+    """
+    if not is_latest_request:
+        return chart_data
+    tf_min = INTERVAL_TO_TF_MIN.get(interval)
+    if tf_min is None:
+        return chart_data
+    if redis_client is None:
+        return chart_data
+
+    try:
+        live_bar = await redis_client.hget(
+            f"bars:{tf_min}min:current", symbol.upper()
+        )
+    except Exception as e:
+        logger.warning("live_bar_read_failed", symbol=symbol, interval=interval, error=str(e))
+        return chart_data
+
+    if not live_bar or not isinstance(live_bar, dict):
+        # Cold ticker: no live bar yet. Hydrate synchronously with a short
+        # timeout so the very first chart load doesn't miss the in-formation
+        # bar. After hydrate completes, bar_builder has already flushed the
+        # current bars to Redis, so we re-read.
+        hydrated = await _trigger_hydrate(symbol, wait=True)
+        if hydrated:
+            try:
+                live_bar = await redis_client.hget(
+                    f"bars:{tf_min}min:current", symbol.upper()
+                )
+            except Exception:
+                live_bar = None
+        if not live_bar or not isinstance(live_bar, dict):
+            # Either hydrate failed/timed out, or even after hydrate there
+            # was no data (e.g. ticker not yet open today). Return as-is and
+            # kick a background retry so future requests benefit.
+            if not hydrated:
+                asyncio.create_task(_trigger_hydrate(symbol, wait=False))
+            return chart_data
+
+    # Convert bar_builder format → frontend format
+    bar_start_ms = live_bar.get("bar_start")
+    if not bar_start_ms:
+        return chart_data
+    live_time = int(bar_start_ms) // 1000
+    open_v = float(live_bar.get("open", 0) or 0)
+    if open_v <= 0:
+        # Defensive: an empty seeded bar somehow leaked. Skip stitching.
+        return chart_data
+
+    live_entry = {
+        "time": live_time,
+        "open": open_v,
+        "high": float(live_bar.get("high", 0) or 0),
+        "low": float(live_bar.get("low", 0) or 0),
+        "close": float(live_bar.get("close", 0) or 0),
+        "volume": int(live_bar.get("volume", 0) or 0),
+    }
+
+    if not chart_data:
+        return [live_entry]
+
+    last = chart_data[-1]
+    last_time = int(last["time"])
+
+    if live_time > last_time:
+        # New bar in formation past the REST tail.
+        return chart_data + [live_entry]
+
+    if live_time == last_time:
+        # Same bucket. The live bar can have a tighter high/low and a
+        # different close because Polygon REST aggs lag a few seconds.
+        # We preserve REST's open (authoritative) and merge the rest.
+        merged = dict(last)
+        merged["high"] = max(float(last["high"]), live_entry["high"])
+        merged["low"] = min(float(last["low"]), live_entry["low"]) if live_entry["low"] > 0 else float(last["low"])
+        merged["close"] = live_entry["close"]
+        # Take the larger volume (REST may have a more complete count for
+        # closed micro-windows; live may have caught newer trades).
+        merged["volume"] = max(int(last["volume"]), live_entry["volume"])
+        return chart_data[:-1] + [merged]
+
+    # live_time < last_time: the REST already moved past the live cache.
+    # This can happen briefly after a bar close. Leave REST as-is.
+    return chart_data
+
+
 @app.get("/api/v1/chart/{symbol}")
 async def get_chart_data(
     symbol: str,
@@ -3641,19 +3816,28 @@ async def get_chart_data(
     
     range_key = f"after:{after}" if after else (f"to:{to}" if to else (before or 'latest'))
     cache_key = f"chart:v3:{symbol}:{interval}:{range_key}:{bars_limit}"
-    
+
+    # "Latest" requests (no before / no to) and "after" requests both want
+    # the live bar stitched at the tail. Historical chunks (before) and
+    # replay (to) don't.
+    is_latest_request = before is None and to is None
+
     try:
         # Check cache first
         if not force_refresh and redis_client:
             cached = await redis_client.get(cache_key)
             if cached:
                 logger.debug("chart_cache_hit", symbol=symbol, interval=interval, before=before)
+                cached_data = cached.get("data", [])
+                stitched_data = await _stitch_live_bar(
+                    cached_data, symbol, interval, is_latest_request
+                )
                 return {
                     "symbol": symbol,
                     "interval": interval,
                     "source": cached.get("source", "unknown"),
-                    "data": cached.get("data", []),
-                    "count": len(cached.get("data", [])),
+                    "data": stitched_data,
+                    "count": len(stitched_data),
                     "oldest_time": cached.get("oldest_time"),
                     "has_more": cached.get("has_more", False),
                     "cached": True,
@@ -3720,13 +3904,20 @@ async def get_chart_data(
         if redis_client and chart_data:
             await redis_client.set(cache_key, result, ttl=cache_ttl)
             logger.info("chart_chunk_cached", symbol=symbol, interval=interval, bars=len(chart_data), before=before)
-        
+
+        # Stitch live in-formation bar from bar_builder's Redis store.
+        # This runs AFTER cache write so cache stores raw REST data and the
+        # live bar is always fresh on every request (no caching of volatile data).
+        stitched_data = await _stitch_live_bar(
+            chart_data, symbol, interval, is_latest_request
+        )
+
         return {
             "symbol": symbol,
             "interval": interval,
             "source": source,
-            "data": chart_data,
-            "count": len(chart_data),
+            "data": stitched_data,
+            "count": len(stitched_data),
             "oldest_time": oldest_time,
             "has_more": has_more,
             "cached": False,

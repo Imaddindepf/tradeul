@@ -84,22 +84,34 @@ class BuildTickerChainTask:
                 chains = await self._scan_all_events(client, tickers)
                 stats["chains_built"] = len(chains)
                 
-                # 3. Clear old hash and populate new one
-                await self.redis.client.delete(TICKER_CHAIN_HASH)
-                
-                pipe = self.redis.client.pipeline()
-                # Store chain for BOTH the active symbol and all legacy aliases.
-                # This guarantees direct HGET for old ticker queries.
-                expanded_entries = 0
+                # 3. Build the new hash mapping with CURRENT-ticker priority.
+                # A ticker can be the CURRENT of one chain *and* a predecessor
+                # of another (e.g. META is the active ticker for Meta Platforms
+                # ['FB','META'] AND is listed as predecessor of METV
+                # ['META','METV'] because the Roundhill Ball Metaverse ETF used
+                # to trade as META). When that happens, the "current" claim
+                # must win — otherwise typing META resolves to the ETF.
+                import orjson
+                new_hash: Dict[str, str] = {}
+                # Pass 1: every ticker that is chain[-1] of its own chain.
                 for symbol, chain in chains.items():
-                    import orjson
+                    if chain and chain[-1].upper() == str(symbol).upper():
+                        new_hash[str(symbol).upper()] = orjson.dumps(chain).decode()
+                # Pass 2: predecessors only if not already claimed as a current.
+                for symbol, chain in chains.items():
+                    if not chain:
+                        continue
                     encoded_chain = orjson.dumps(chain).decode()
-                    members = {symbol, *chain}
-                    for member in members:
-                        pipe.hset(TICKER_CHAIN_HASH, str(member).upper(), encoded_chain)
-                        expanded_entries += 1
-                
-                if chains:
+                    for old in chain[:-1]:
+                        key = str(old).upper()
+                        if key not in new_hash:
+                            new_hash[key] = encoded_chain
+                expanded_entries = len(new_hash)
+
+                await self.redis.client.delete(TICKER_CHAIN_HASH)
+                if new_hash:
+                    pipe = self.redis.client.pipeline()
+                    pipe.hset(TICKER_CHAIN_HASH, mapping=new_hash)
                     await pipe.execute()
                 
                 # Log examples
@@ -198,16 +210,68 @@ class BuildTickerChainTask:
         m = re.search(r'[WRU]$', ticker)
         return m.group(0) if m else ''
 
+    @staticmethod
+    async def _fetch_figi_at(
+        client: httpx.AsyncClient, ticker: str, date_str: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Fetch the composite_figi of `ticker` as it was on `date_str` (YYYY-MM-DD).
+
+        If `date_str` is None, returns the current composite_figi.
+        Returns None on NOT_FOUND, network error, or missing field.
+        """
+        try:
+            url = f"https://api.polygon.io/v3/reference/tickers/{ticker}?apiKey={POLYGON_API_KEY}"
+            if date_str:
+                url += f"&date={date_str}"
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            return data.get("results", {}).get("composite_figi")
+        except Exception:
+            return None
+
+    @staticmethod
+    def _day_before(date_str: str) -> Optional[str]:
+        """Return YYYY-MM-DD for the day before `date_str`, or None on parse error."""
+        from datetime import datetime, timedelta
+        try:
+            d = datetime.strptime(date_str, "%Y-%m-%d").date()
+            return (d - timedelta(days=1)).isoformat()
+        except Exception:
+            return None
+
     async def _scan_all_events(
         self, client: httpx.AsyncClient, tickers: List[str]
     ) -> Dict[str, List[str]]:
-        """Scan ticker_change events for all tickers concurrently."""
+        """Scan ticker_change events for all tickers concurrently.
+
+        Polygon's `/vX/reference/tickers/{T}/events?types=ticker_change` returns
+        a list of events of the shape:
+
+            { ticker_change: { ticker: "<symbol>" }, date: "YYYY-MM-DD" }
+
+        Each event marks the date the listed `ticker` **started** trading. The
+        most recent event therefore corresponds to the current ticker, and an
+        OLD ticker was used between its own event date and the next event date.
+
+        We validate every reported predecessor by fetching its historical
+        `composite_figi` on the day before the next event. Only predecessors
+        whose historical FIGI matches the current ticker's FIGI are accepted.
+
+        This rejects Polygon's noisy cross-instrument events such as METV
+        ("previously META, 2021-06-30") — the FIGI lookup for META on
+        2022-01-30 returns NOT_FOUND, so the link is dropped.
+        """
         chains: Dict[str, List[str]] = {}
         semaphore = asyncio.Semaphore(CONCURRENCY)
         errors = 0
-        
+        figi_rejections = 0
+        inconsistent_events = 0
+
         async def check_ticker(ticker: str):
-            nonlocal errors
+            nonlocal errors, figi_rejections, inconsistent_events
             async with semaphore:
                 try:
                     url = (
@@ -217,74 +281,106 @@ class BuildTickerChainTask:
                     resp = await client.get(url)
                     if resp.status_code != 200:
                         return
-                    
+
                     data = resp.json()
-                    events = data.get("results", {}).get("events", [])
-                    
-                    if not events:
+                    results = data.get("results", {}) or {}
+                    events = results.get("events", []) or []
+                    current_figi = results.get("composite_figi")
+
+                    if not events or not current_figi:
                         return
-                    
-                    # Build chain from events.
-                    # Only include tickers of the SAME instrument type as the
-                    # current ticker (common↔common, warrant↔warrant, etc.).
-                    # Polygon sometimes emits ticker_change events between a
-                    # common stock and its derivative instruments (warrants,
-                    # units, rights) which must NOT be chained together.
-                    current_suffix = self._instrument_suffix(ticker)
-                    chain_set = set()
-                    chain_set.add(ticker)
-                    
+
+                    # Normalize: (date, ticker), sorted ascending. Skip any
+                    # event missing date or ticker.
+                    normalized: List[tuple] = []
                     for event in events:
-                        tc = event.get("ticker_change", {})
-                        old = tc.get("ticker", "")
-                        if old and self._instrument_suffix(old) == current_suffix:
-                            chain_set.add(old)
-                    
-                    if len(chain_set) > 1:
-                        # Order by event dates (oldest first)
-                        ordered = self._order_chain(ticker, events)
-                        # Re-filter ordered chain to same instrument type
-                        ordered = [t for t in ordered if self._instrument_suffix(t) == current_suffix]
-                        if len(ordered) > 1:
-                            chains[ticker] = ordered
-                        
-                except Exception:
+                        tc = event.get("ticker_change", {}) or {}
+                        old = (tc.get("ticker", "") or "").upper()
+                        ev_date = event.get("date", "") or ""
+                        if old and ev_date:
+                            normalized.append((ev_date, old))
+                    if len(normalized) < 2:
+                        # Need at least 2 events (predecessor + current) to
+                        # validate any chain — otherwise the timeline is
+                        # incomplete and we can't know when the predecessor
+                        # stopped being valid.
+                        return
+                    normalized.sort(key=lambda x: x[0])
+
+                    # The most recent event MUST be the current ticker. If
+                    # Polygon's timeline doesn't end with `ticker`, the
+                    # ticker_change graph is inconsistent for our purposes
+                    # (e.g. a warrant whose only event references the common
+                    # stock with no terminal "I became the warrant" event).
+                    if normalized[-1][1] != ticker.upper():
+                        inconsistent_events += 1
+                        return
+
+                    current_suffix = self._instrument_suffix(ticker)
+
+                    # Build (old_ticker, end_date_exclusive) pairs. The end
+                    # date is the date of the NEXT event — i.e. when this old
+                    # ticker stopped being the active symbol.
+                    candidates: List[tuple] = []
+                    for i in range(len(normalized) - 1):
+                        _, old = normalized[i]
+                        next_date = normalized[i + 1][0]
+                        if old == ticker.upper():
+                            continue
+                        # Cheap suffix gate first.
+                        if self._instrument_suffix(old) != current_suffix:
+                            continue
+                        candidates.append((old, next_date))
+
+                    if not candidates:
+                        return
+
+                    # FIGI validation. Runs serially per ticker so the outer
+                    # semaphore still caps total concurrent Polygon calls.
+                    validated_olds: List[tuple] = []
+                    for old, end_date in candidates:
+                        check_date = self._day_before(end_date)
+                        if not check_date:
+                            continue
+                        old_figi = await self._fetch_figi_at(client, old, check_date)
+                        if old_figi == current_figi:
+                            validated_olds.append((end_date, old))
+                        else:
+                            figi_rejections += 1
+                            logger.info(
+                                "ticker_change_rejected_figi_mismatch",
+                                current=ticker,
+                                old=old,
+                                check_date=check_date,
+                                current_figi=current_figi,
+                                old_figi=old_figi,
+                            )
+
+                    if not validated_olds:
+                        return
+
+                    # Order by end_date asc (oldest → newest) and append
+                    # current as the final entry.
+                    validated_olds.sort(key=lambda x: x[0])
+                    ordered = [old for _, old in validated_olds]
+                    ordered.append(ticker.upper())
+
+                    if len(ordered) > 1:
+                        chains[ticker] = ordered
+
+                except Exception as e:
                     errors += 1
-        
+                    logger.debug("check_ticker_error", ticker=ticker, error=str(e))
+
         # Run all concurrently
         tasks = [check_ticker(t) for t in tickers]
         await asyncio.gather(*tasks)
-        
+
         if errors > 0:
             logger.warning("ticker_event_scan_errors", count=errors)
-        
+        if figi_rejections > 0:
+            logger.info("ticker_change_figi_rejections", count=figi_rejections)
+        if inconsistent_events > 0:
+            logger.info("ticker_change_inconsistent_timelines", count=inconsistent_events)
+
         return chains
-    
-    def _order_chain(self, current_ticker: str, events: List[dict]) -> List[str]:
-        """
-        Order ticker chain from oldest to newest.
-        
-        Events have ticker_change.ticker (old ticker) and date.
-        We build the chain chronologically.
-        """
-        # Collect all (date, old_ticker) pairs
-        changes = []
-        for event in events:
-            tc = event.get("ticker_change", {})
-            old_ticker = tc.get("ticker", "")
-            event_date = event.get("date", "")
-            if old_ticker and event_date:
-                changes.append((event_date, old_ticker))
-        
-        # Sort by date ascending (oldest first)
-        changes.sort(key=lambda x: x[0])
-        
-        # Build chain: oldest ticker first, current ticker last
-        chain = [c[1] for c in changes]
-        if current_ticker not in chain:
-            chain.append(current_ticker)
-        elif chain[-1] != current_ticker:
-            chain.remove(current_ticker)
-            chain.append(current_ticker)
-        
-        return chain
