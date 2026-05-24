@@ -34,11 +34,13 @@ import { formatNumber, formatPercent } from '@/lib/formatters';
 import { getUserTimezone } from '@/lib/date-utils';
 import { VirtualizedDataTable } from '@/components/table/VirtualizedDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
+import { EmptyStateBar } from '@/components/table/EmptyStateBar';
 import { TableSettings } from '@/components/table/TableSettings';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLinkGroupPublisher } from '@/hooks/useLinkGroup';
-import { useCloseCurrentWindow, useFloatingWindow, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
+import { useCloseCurrentWindow, useFloatingWindowActions, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
+import { useTabVisibilityResync } from '@/hooks/useTabVisibilityResync';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
 import type { ActiveEventFilters } from '@/stores/useEventFiltersStore';
@@ -852,7 +854,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
   // ========================================================================
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; symbol?: string } | null>(null);
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
   const currentWindowId = useCurrentWindowId();
   const updateWindowComponentState = useUserPreferencesStore((s) => s.updateWindowComponentState);
   const [customEventTypes, setCustomEventTypes] = useState<string[]>(initialEventTypes);
@@ -912,8 +914,16 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
   const setEventsCache = useEventsStore((s) => s.setEvents);
   const appendEventCache = useEventsStore((s) => s.appendEvent);
   const clearCategoryCache = useEventsStore((s) => s.clearCategory);
+  const getCacheTimestamp = useEventsStore((s) => s.getTimestamp);
 
-  const cachedEvents = useMemo(() => eventsCache(categoryId) as MarketEvent[], [eventsCache, categoryId]);
+  const MAX_CACHE_AGE_MS = 6 * 60 * 60 * 1000; // 6h — discard stale cross-session caches
+  const cachedEvents = useMemo(() => {
+    const ts = getCacheTimestamp(categoryId);
+    if (ts && Date.now() - ts > MAX_CACHE_AGE_MS) {
+      return [] as MarketEvent[];
+    }
+    return eventsCache(categoryId) as MarketEvent[];
+  }, [eventsCache, getCacheTimestamp, categoryId]);
   const hasCachedEvents = cachedEvents.length > 0;
 
   const [events, setEvents] = useState<MarketEvent[]>(cachedEvents);
@@ -1013,6 +1023,18 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
 
   // Stable subscription ID for this table instance — survives re-renders, not remounts
   const subIdRef = useRef(`${categoryId}_${Date.now()}`);
+
+  // Trigger para forzar re-suscripción (unsubscribe + subscribe + snapshot fresco)
+  // cuando el usuario vuelve a la pestaña tras un periodo de inactividad.
+  // Equivalente al `action: 'resync'` de las tablas de categoría, pero adaptado
+  // al protocolo de eventos (no existe `resync_events` server-side).
+  const [resyncTrigger, setResyncTrigger] = useState(0);
+
+  useTabVisibilityResync(() => {
+    if (ws.isConnected) {
+      setResyncTrigger((n) => n + 1);
+    }
+  });
 
   // 1) SUBSCRIPTION EFFECT: only depends on connection + event types
   //    Subscribes/unsubscribes and listens for incoming events.
@@ -1442,7 +1464,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         filterDebounceRef.current = null;
       }
     };
-  }, [ws.isConnected, ws.send, activeEventTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ws.isConnected, ws.send, activeEventTypes, resyncTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2) FILTER UPDATE EFFECT: debounced + idempotent
   //    Only sends update_event_filters when filters ACTUALLY change.
@@ -3388,35 +3410,6 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     });
   }, [openWindow, customEventTypes, categoryId, categoryName, applyConfigFromBuilder]);
 
-  // Empty state — only show if subscribed AND no cached data to display
-  if (events.length === 0 && isSubscribed && !hasCachedEvents) {
-    return (
-      <div className="h-full flex flex-row">
-        <div className="flex-1 flex flex-col min-w-0" onContextMenu={handleContextMenu}>
-          <MarketTableLayout
-            title={displayTitle}
-            isLive={ws.isConnected}
-            listName={categoryId}
-            onClose={closeCurrentWindow}
-            rightActions={rightActions}
-          />
-          <div className="flex-1 flex items-center justify-center bg-surface-hover">
-            <div className="text-center p-6">
-              <Activity className="w-8 h-8 text-muted-fg mx-auto mb-2" />
-              <h3 className="text-sm font-semibold text-foreground mb-1">
-                Waiting for events...
-              </h3>
-              <p className="text-muted-fg max-w-xs">
-                {connectionError || 'Events will appear here in real-time as they occur.'}
-              </p>
-            </div>
-          </div>
-          {contextMenu}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-full flex flex-row">
       <div className="flex-1 min-w-0" onContextMenu={handleContextMenu}>
@@ -3424,7 +3417,15 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           table={table}
           showResizeHandles={false}
           stickyHeader={true}
-          isLoading={!isSubscribed && events.length === 0}
+          isLoading={!isSubscribed && events.length === 0 && !hasCachedEvents}
+          emptyState={
+            <EmptyStateBar
+              isConnected={ws.isConnected}
+              count={0}
+              noun="events"
+              error={connectionError}
+            />
+          }
           estimateSize={18}
           overscan={10}
           enableVirtualization={true}

@@ -30,10 +30,11 @@ import { PriceCell } from './PriceCell';
 import type { Ticker } from '@/lib/types';
 import { VirtualizedDataTable } from '@/components/table/VirtualizedDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
+import { EmptyStateBar } from '@/components/table/EmptyStateBar';
 import { TableSettings } from '@/components/table/TableSettings';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLinkGroupPublisher } from '@/hooks/useLinkGroup';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
 
 // Zustand store
 import { useTickersStore, selectOrderedTickers } from '@/stores/useTickersStore';
@@ -42,6 +43,7 @@ import { useMarketSessionStore, selectIsTrading } from '@/stores/useMarketSessio
 // RxJS WebSocket (ya autenticado desde AuthWebSocketProvider)
 import { useListSubscription } from '@/hooks/useRxWebSocket';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
+import { useTabVisibilityResync } from '@/hooks/useTabVisibilityResync';
 
 // User Preferences Store - para persistir configuración de columnas en BD
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
@@ -303,7 +305,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // Command executor para abrir Description
   const { executeTickerCommand } = useCommandExecutor();
   const { publish: publishTicker, hasSubscribers, linkGroup } = useLinkGroupPublisher();
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
 
   // Refs to avoid stale closures inside memoized column definitions.
   // columns useMemo has [] deps for performance, so onClick handlers
@@ -403,22 +405,14 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   );
 
   // ======================================================================
-  // ======================================================================
-  // PAGE VISIBILITY (profesional: resync cuando vuelve de tab inactiva)
+  // PAGE VISIBILITY (resync centralizado al volver de tab inactiva)
   // ======================================================================
 
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && ws.isConnected) {
-        // Tab volvió a ser activa - pedir resync para datos frescos
-        // console.log(`🔄 Tab activa - resyncing ${listName}`);
-        ws.send({ action: 'resync', list: listName });
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [listName, ws.isConnected, ws.send]);
+  useTabVisibilityResync(() => {
+    if (ws.isConnected) {
+      ws.send({ action: 'resync', list: listName });
+    }
+  });
 
   // ======================================================================
   // STREAM SUBSCRIPTIONS
@@ -2250,30 +2244,6 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // RENDER
   // ======================================================================
 
-  // Mensaje cuando no hay datos disponibles
-  if (noDataAvailable && data.length === 0) {
-    return (
-      <div className="h-full flex flex-col">
-        <MarketTableLayout
-          title={title}
-          isLive={ws.isConnected}
-          listName={listName}
-          onClose={onClose}
-        />
-        <div className="flex-1 flex items-center justify-center bg-surface-hover">
-          <div className="text-center p-6">
-            <h3 className="text-lg font-semibold text-foreground mb-2">
-              {t('common.noData')}
-            </h3>
-            <p className="text-sm text-muted-fg max-w-xs">
-              {connectionError || t('scanner.marketClosed')}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       <VirtualizedDataTable
@@ -2281,6 +2251,15 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         showResizeHandles={false}
         stickyHeader={true}
         isLoading={!isReady && !noDataAvailable}
+        emptyState={
+          <EmptyStateBar
+            isConnected={ws.isConnected}
+            count={0}
+            noun="tickers"
+            hint={noDataAvailable ? t('scanner.marketClosed') : undefined}
+            error={connectionError}
+          />
+        }
         estimateSize={18}
         overscan={10}
         enableVirtualization={true}

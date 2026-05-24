@@ -32,7 +32,7 @@ import { Newspaper, ExternalLink, Info } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
 
 // Floating windows
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
 
 // Zustand stores
 import { useTickersStore } from '@/stores/useTickersStore';
@@ -189,7 +189,7 @@ function MiniNewsWindow({ ticker, articles }: { ticker: string; articles: NewsAr
 
 export default function TickersWithNewsTable({ title, onClose }: TickersWithNewsTableProps) {
   const { t } = useTranslation();
-  const { openWindow } = useFloatingWindow();
+  const { openWindow } = useFloatingWindowActions();
   const { executeTickerCommand } = useCommandExecutor();
   const { publish: publishTicker, hasSubscribers, linkGroup } = useLinkGroupPublisher();
 

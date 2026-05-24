@@ -19,6 +19,7 @@ import {
 } from '@/hooks/useMarketEvents';
 import { getEventLabel, getEventColor, ALERT_BY_EVENT_TYPE } from '@/lib/alert-catalog';
 import { cn } from '@/lib/utils';
+import { EmptyStateBar } from '@/components/table/EmptyStateBar';
 
 // ============================================================================
 // TYPES
@@ -261,13 +262,15 @@ export function EventFeed({
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto"
+        className="flex-1 overflow-y-auto flex flex-col"
       >
         {events.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-zinc-500">
-            <span className="text-2xl mb-2"></span>
-            <span className="text-sm">Waiting for events...</span>
-            <span className="text-xs mt-1">Events will appear here in real-time</span>
+          <div className="flex-1 flex flex-col justify-end">
+            <EmptyStateBar
+              isConnected={isSubscribed}
+              count={0}
+              noun="events"
+            />
           </div>
         ) : (
           events.map(event => (

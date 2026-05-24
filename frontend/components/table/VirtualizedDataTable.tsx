@@ -409,22 +409,54 @@ export function VirtualizedDataTable<T>({
             }
         }
       >
-        {isLoading ? (
-          loadingState || (
-            <div className="flex items-center justify-center h-full bg-surface-hover">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4" />
-                <p className="text-foreground font-medium">Loading data...</p>
-              </div>
+        {(isLoading || rows.length === 0) && (
+          <>
+            <table className="w-full border-collapse table-fixed">
+              <thead
+                className={`bg-surface border-b border-border ${stickyHeader ? 'sticky top-0 z-20 shadow-sm' : ''}`}
+                style={{ display: 'block' }}
+              >
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id} style={{ display: 'flex', width: '100%' }}>
+                    {headerGroup.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        className="relative text-left font-semibold text-foreground/80 uppercase tracking-wide border-r border-border-subtle last:border-r-0 bg-[var(--color-table-header)] text-[10px] flex-shrink-0"
+                        style={{
+                          width: header.getSize(),
+                          minWidth: header.getSize(),
+                          maxWidth: header.getSize(),
+                          height: '24px',
+                          lineHeight: '24px',
+                          padding: '0 4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                      >
+                        {header.isPlaceholder ? null : (
+                          <div className="flex items-center gap-2 w-full overflow-hidden">
+                            <div className="flex items-center gap-1 truncate">
+                              {flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+            </table>
+            <div className="flex-1 min-h-[60px]">
+              {isLoading
+                ? (loadingState ?? null)
+                : (emptyState ?? null)}
             </div>
-          )
-        ) : rows.length === 0 ? (
-          emptyState || (
-            <div className="flex items-center justify-center h-full bg-surface-hover">
-              <p className="text-foreground font-medium">No data available</p>
-            </div>
-          )
-        ) : (<>
+          </>
+        )}
+        {!isLoading && rows.length > 0 && (<>
           <table className="w-full border-collapse table-fixed">
             {/* Header */}
             <thead

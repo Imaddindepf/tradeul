@@ -16,6 +16,7 @@ interface EventsCacheActions {
   getEvents: (categoryId: string) => CachedEventEntry[];
   getTimestamp: (categoryId: string) => number | undefined;
   clearCategory: (categoryId: string) => void;
+  reset: () => void;
 }
 
 export const useEventsStore = create<EventsCacheState & EventsCacheActions>()((set, get) => ({
@@ -54,5 +55,9 @@ export const useEventsStore = create<EventsCacheState & EventsCacheActions>()((s
       newTs.delete(categoryId);
       return { cache: newCache, timestamps: newTs };
     });
+  },
+
+  reset: () => {
+    set({ cache: new Map(), timestamps: new Map() });
   },
 }));

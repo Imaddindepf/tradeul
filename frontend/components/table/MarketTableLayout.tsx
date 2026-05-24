@@ -5,8 +5,9 @@ import { useTranslation } from 'react-i18next';
 import { ExternalLink, X } from 'lucide-react';
 import { useAuth } from '@clerk/nextjs';
 import { openScannerWindow } from '@/lib/window-injector';
-import { useFloatingWindow, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useFloatingWindowsList, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { LinkGroupSelector } from '@/components/linking/LinkGroupSelector';
+import { useStableConnectionStatus } from '@/hooks/useStableConnectionStatus';
 
 interface MarketTableLayoutProps {
   title: string;
@@ -24,10 +25,14 @@ export function MarketTableLayout({
   onClose,
 }: MarketTableLayoutProps) {
   const { t } = useTranslation();
-  const { windows, updateWindow } = useFloatingWindow();
+  const { updateWindow } = useFloatingWindowActions();
+  const windows = useFloatingWindowsList();
   const { getToken } = useAuth();
   const windowId = useCurrentWindowId();
   const currentWindow = windowId ? windows.find(w => w.id === windowId) : null;
+  // Absorb transient disconnects (<800 ms) so the badge doesn't flash
+  // "offline" during reconnections, token refreshes, or any other short blip.
+  const stableLive = useStableConnectionStatus(isLive);
 
   const handleOpenNewWindow = async () => {
     if (!listName) return;
@@ -79,9 +84,9 @@ export function MarketTableLayout({
         <h2 className="text-[11px] font-semibold text-foreground">{title}</h2>
 
         <div className="flex items-center gap-1">
-          <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-muted-fg/50'}`} />
-          <span className={`text-[10px] font-medium ${isLive ? 'text-emerald-600' : 'text-muted-fg'}`}>
-            {isLive ? t('common.live') : t('common.offline')}
+          <div className={`w-1.5 h-1.5 rounded-full ${stableLive ? 'bg-emerald-500' : 'bg-muted-fg/50'}`} />
+          <span className={`text-[10px] font-medium ${stableLive ? 'text-emerald-600' : 'text-muted-fg'}`}>
+            {stableLive ? t('common.live') : t('common.offline')}
           </span>
         </div>
 
