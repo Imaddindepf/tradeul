@@ -71,9 +71,57 @@ class WebSocketManager {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private directWsSub: { unsubscribe: () => void } | null = null;
 
+  // Trading day tracking — solo usado en el path de fallback (sin SharedWorker).
+  // En el path SharedWorker es el worker quien detecta el cambio y emite
+  // `trading_day_changed`; aquí lo retransmitimos. En el path directo no hay
+  // worker, así que aplicamos la misma detección server-driven aquí.
+  private currentTradingDate: string | null = null;
+
   private constructor() {
     // Detectar si SharedWorker está disponible
     this.useSharedWorker = typeof SharedWorker !== 'undefined';
+  }
+
+  /**
+   * Detección de cambio de trading day (solo path directo, sin SharedWorker).
+   * El servidor envía `trading_date` en mensajes `connected` y
+   * `market_session_change`. Emitimos un evento sintético `trading_day_changed`
+   * por `allMessagesSubject` cuando detectamos un cambio, manteniendo paridad
+   * semántica con el SharedWorker (ver public/workers/websocket-shared.js).
+   */
+  private detectTradingDayChange(message: any): void {
+    let newDate: string | null = null;
+    let session: string | undefined;
+    let isNewDay = false;
+
+    if (message?.type === 'connected' && message.trading_date) {
+      newDate = message.trading_date;
+      session = message.current_session;
+    } else if (message?.type === 'market_session_change' && message.data) {
+      newDate = message.data.trading_date || null;
+      session = message.data.current_session;
+      isNewDay = !!message.data.is_new_day;
+    } else {
+      return;
+    }
+
+    if (!newDate) return;
+
+    const previousDate = this.currentTradingDate;
+    const changed = previousDate && (isNewDay || previousDate !== newDate);
+    this.currentTradingDate = newDate;
+
+    if (changed) {
+      this.allMessagesSubject.next({
+        type: 'trading_day_changed',
+        data: {
+          previousDate,
+          newDate,
+          session,
+          timestamp: message.timestamp,
+        },
+      } as any);
+    }
   }
 
   static getInstance(): WebSocketManager {
@@ -148,6 +196,10 @@ class WebSocketManager {
       .pipe(
         tap((message: any) => {
           this.allMessagesSubject.next(message);
+          // En el path directo (sin SharedWorker) replicamos la detección
+          // server-driven de cambio de trading day. Emite un evento sintético
+          // `trading_day_changed` cuando trading_date cambia entre mensajes.
+          this.detectTradingDayChange(message);
         }),
         tap((message: WebSocketMessage) => {
           switch (message.type) {
@@ -181,7 +233,7 @@ class WebSocketManager {
             })
           )
         ),
-        catchError((error) => {
+        catchError(() => {
           this.isConnected.next(false);
           return EMPTY;
         })
@@ -326,7 +378,7 @@ class WebSocketManager {
 
     // SharedWorkers se identifican por URL + nombre
     // Usamos el build timestamp para que cada deploy cree un worker nuevo automáticamente
-    const buildVersion = process.env.NEXT_PUBLIC_BUILD_TIMESTAMP || '0';
+    const buildVersion = process.env.NEXT_PUBLIC_BUILD_TIMESTAMP || 'v1';
     this.sharedWorker = new SharedWorker(`/workers/websocket-shared.js?v=${buildVersion}`, {
       name: `tradeul-ws-${buildVersion}`
     });
@@ -362,8 +414,6 @@ class WebSocketManager {
         case 'status':
           // Estado de conexión del worker
           this.isConnected.next(msg.isConnected);
-          if (this.debug) {
-          }
           break;
 
         case 'log':
@@ -378,6 +428,17 @@ class WebSocketManager {
           // SharedWorker necesita un token nuevo para reconectar
           // Emitir evento para que useAuthWebSocket lo maneje
           this.tokenRefreshRequestSubject.next(true);
+          break;
+
+        case 'trading_day_changed':
+          // El SharedWorker detectó cambio de trading_date (al reconectar o
+          // al recibir market_session_change con is_new_day). Lo retransmitimos
+          // al stream React para que `useTradingDayReset` y los handlers
+          // locales de EventTableContent puedan limpiar sus stores.
+          this.allMessagesSubject.next({
+            type: 'trading_day_changed',
+            data: msg.data,
+          } as any);
           break;
       }
     };
@@ -526,11 +587,42 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
   const errors$Ref = useRef(managerRef.current.errors$);
   const tokenRefreshRequest$Ref = useRef(managerRef.current.tokenRefreshRequest$);
 
-  // Inicializar conexión UNA SOLA VEZ
+  // Inicializar conexión UNA SOLA VEZ.
+  //
+  // CRITICAL: `WebSocketManager` is a process-wide singleton that survives
+  // remounts of this hook. If the React component holding this hook
+  // remounts (e.g. AuthWebSocketProvider gets recreated), we MUST NOT
+  // call manager.connect() with the bootstrap URL — that would tear down
+  // the live, token-authenticated connection and trigger 2-3 seconds of
+  // visible "offline" while the WS round-trips through close → reconnect
+  // → backend rejects (no token) → updateToken → reconnect.
+  //
+  // The right behaviour on remount: re-subscribe to the existing streams
+  // and leave the singleton alone. The singleton will keep tracking the
+  // authoritative URL/token via `updateToken()` from AuthWebSocketProvider.
   useEffect(() => {
     if (!isInitializedRef.current) {
-      managerRef.current.connect(url, debug);
-      isInitializedRef.current = true;
+      // Three possible states on each useEffect.fire:
+      //   1. url is empty → caller is still waiting for an auth token.
+      //      Skip connect() AND do NOT mark as initialized — when the
+      //      token arrives the effect will fire again with a real URL
+      //      and we must connect then.
+      //   2. url is set AND the singleton already has a URL configured →
+      //      another component already started the manager. Skip connect()
+      //      to preserve the live connection and mark initialized (we
+      //      only need to read from the singleton from now on).
+      //   3. url is set AND the singleton has no URL → first real
+      //      connect. Call connect() and mark initialized.
+      const hasUrl = !!url;
+      const singletonAlreadyHasUrl = !!managerRef.current.currentUrl;
+      if (hasUrl && !singletonAlreadyHasUrl) {
+        managerRef.current.connect(url, debug);
+        isInitializedRef.current = true;
+      } else if (hasUrl && singletonAlreadyHasUrl) {
+        isInitializedRef.current = true;
+      }
+      // else: url is empty, intentionally do NOT mark initialized —
+      // we want to try again when the caller provides a real URL.
     }
 
     // Suscribirse a cambios de estado

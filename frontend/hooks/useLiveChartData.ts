@@ -85,7 +85,7 @@ const GAP_PARTIAL_MAX_MS = 300_000; // < 5min → partial fetch
 // WebSocket Manager Access
 // ============================================================================
 
-import { useRxWebSocket } from './useRxWebSocket';
+import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 
 // ============================================================================
 // Module-level bar cache (survives unmount/remount)
@@ -139,9 +139,13 @@ export function useLiveChartData(
   const [oldestTime, setOldestTime] = useState<number | null>(cached?.oldestTime ?? null);
   const [isLive, setIsLive] = useState(false);
 
-  // WebSocket connection (uses the existing singleton from useRxWebSocket)
-  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-  const { isConnected, messages$, send } = useRxWebSocket(wsUrl);
+  // WebSocket: use the already-authenticated singleton from AuthWebSocketProvider.
+  // CRITICAL: This hook is mounted EVERY TIME the user opens a chart. Calling
+  // useRxWebSocket(WS_BASE_URL) here used to (re)configure the singleton with
+  // a tokenless URL, racing against the central provider and triggering 2-3s
+  // of "offline" on every chart open. useWebSocket() just reads from the
+  // context — zero side effects on the connection.
+  const { isConnected, messages$, send } = useWebSocket();
 
   // Refs para acceso rápido sin re-renders
   const cachedBars = cached?.bars || [];
@@ -449,39 +453,28 @@ export function useLiveChartData(
           setIsLive(true);
 
         } else if (barTime > lastBar.time) {
-          // NUEVO período → verificar si hay gap entre históricos y tiempo real
+          // NUEVO período. Si hay un gap real (> 1 barra), no inventamos
+          // velas interpoladas — eso pinta una línea falsa y rompe los
+          // indicadores. En su lugar, pedimos al backend las barras reales
+          // (que ahora incluyen el live-bar-stitch desde bar_builder).
           const gapBars = Math.floor((barTime - lastBar.time) / intervalSecs) - 1;
-
-          // Si hay gap pequeño (< 10 barras), rellenar con interpolación
-          // Esto conecta los datos históricos con el tiempo real
-          if (gapBars > 0 && gapBars <= 10) {
-            const startPrice = lastBar.close;
-            const endPrice = newBar.open;
-            const priceStep = (endPrice - startPrice) / (gapBars + 1);
-
-            for (let i = 1; i <= gapBars; i++) {
-              const fillBarTime = lastBar.time + (i * intervalSecs);
-              const interpolatedPrice = startPrice + (priceStep * i);
-
-              const fillBar: ChartBar = {
-                time: fillBarTime,
-                open: interpolatedPrice,
-                high: interpolatedPrice,
-                low: interpolatedPrice,
-                close: interpolatedPrice,
-                volume: 0,  // Sin volumen (gap)
-              };
-
-              if (updateHandlerRef.current) {
-                updateHandlerRef.current(fillBar, true);
-              }
-            }
+          if (gapBars > 0) {
+            // Fire-and-forget. loadForward() consultará /api/v1/chart?after=
+            // que ya viene stitcheado con la barra en formación.
+            void loadForward();
+            // Importante: NO emitimos la newBar todavía. Esperamos a que
+            // loadForward la traiga con el OPEN real del período. Si nunca
+            // llega (mercado cerrado, etc.), el siguiente WS chart_aggregate
+            // se merge-eará contra lastBar cuando barTime vuelva a coincidir.
+            return;
           }
 
-          // Crear la nueva barra actual
+          // Caso normal: nueva vela contigua. El OPEN puede ser inexacto
+          // (es solo el primer trade del WS, no el verdadero open del minuto).
+          // Marcamos la vela como provisional — el siguiente fetchHistorical
+          // o loadForward la sobrescribirá con datos reales del backend.
           lastBarRef.current = newBar;
 
-          // Notificar al chart via callback imperativo
           if (updateHandlerRef.current) {
             updateHandlerRef.current(newBar, true);
           }
@@ -506,7 +499,7 @@ export function useLiveChartData(
       subscription.unsubscribe();
       setIsLive(false);
     };
-  }, [loading, data.length, ticker, isConnected, messages$, send, replayTo]);
+  }, [loading, data.length, ticker, isConnected, messages$, send, replayTo, loadForward]);
 
   // ============================================================================
   // Page Lifecycle: visibility + freeze/resume recovery

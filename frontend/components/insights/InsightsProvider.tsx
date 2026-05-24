@@ -8,8 +8,8 @@
  */
 
 import { useEffect, useRef, ReactNode } from 'react';
-import { useRxWebSocket } from '@/hooks/useRxWebSocket';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useWebSocket } from '@/contexts/AuthWebSocketContext';
+import { useFloatingWindowActions, useFloatingWindowsList } from '@/contexts/FloatingWindowContext';
 import { InsightContent } from './InsightContent';
 
 interface InsightsProviderProps {
@@ -30,9 +30,15 @@ interface InsightEvent {
 }
 
 export function InsightsProvider({ children }: InsightsProviderProps) {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-    const ws = useRxWebSocket(wsUrl);
-    const { openWindow, windows } = useFloatingWindow();
+    // Use the shared, authenticated WebSocket from AuthWebSocketProvider.
+    // Previously this called useRxWebSocket(WS_BASE_URL) directly which
+    // bypassed the central token negotiation and caused the singleton to
+    // (re)connect with an un-authenticated URL, triggering 2-3s of
+    // "offline" while the backend rejected and the provider re-issued
+    // a token via updateToken().
+    const ws = useWebSocket();
+    const { openWindow } = useFloatingWindowActions();
+    const windows = useFloatingWindowsList();
     const hasOpenedTodayRef = useRef<string | null>(null);
 
     useEffect(() => {

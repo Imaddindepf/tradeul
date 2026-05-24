@@ -11,8 +11,8 @@
  */
 
 import { useEffect, useRef, ReactNode } from 'react';
-import { useRxWebSocket } from '@/hooks/useRxWebSocket';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useWebSocket } from '@/contexts/AuthWebSocketContext';
+import { useFloatingWindowActions, useFloatingWindowsList } from '@/contexts/FloatingWindowContext';
 import { MorningNewsContent } from './MorningNewsContent';
 
 interface MorningNewsProviderProps {
@@ -32,9 +32,13 @@ interface MorningNewsEvent {
 }
 
 export function MorningNewsProvider({ children }: MorningNewsProviderProps) {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-    const ws = useRxWebSocket(wsUrl);
-    const { openWindow, windows } = useFloatingWindow();
+    // Use the shared, authenticated WebSocket — never call useRxWebSocket()
+    // directly outside of AuthWebSocketProvider, it races the central
+    // singleton and forces a tokenless connect (see InsightsProvider for
+    // the same reasoning).
+    const ws = useWebSocket();
+    const { openWindow } = useFloatingWindowActions();
+    const windows = useFloatingWindowsList();
     const hasOpenedTodayRef = useRef<string | null>(null);
 
     useEffect(() => {

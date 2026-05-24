@@ -55,7 +55,22 @@ interface AuthWebSocketProviderProps {
 export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) {
     const { getToken, isSignedIn, isLoaded } = useAuth();
 
-    const [wsUrl, setWsUrl] = useState<string>(WS_BASE_URL);
+    // wsUrl starts as `null` to prevent useRxWebSocket from triggering an
+    // unauthenticated WS_BASE_URL connect during the brief window before
+    // Clerk hands us a token. Once the token is fetched, initAuth() below
+    // sets the full token-bearing URL.
+    //
+    // Without this, every remount of this provider would:
+    //   1. start with wsUrl = WS_BASE_URL (no token)
+    //   2. fire `manager.connect(WS_BASE_URL)`
+    //   3. since the singleton has the previous URL (with token) configured,
+    //      connect() would call disconnect() and reconnect with the
+    //      tokenless URL → backend rejects → 2-3s offline → token refresh
+    //      → reconnects.
+    // The defensive guard in useRxWebSocket already handles this for
+    // already-initialized singletons, but using `null` keeps the contract
+    // explicit and protects the cold-start path too.
+    const [wsUrl, setWsUrl] = useState<string | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isReady, setIsReady] = useState(false);
 
@@ -63,8 +78,10 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
     const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
     const hasInitializedRef = useRef(false);
 
-    // WebSocket singleton (usa SharedWorker internamente)
-    const ws = useRxWebSocket(wsUrl);
+    // WebSocket singleton (usa SharedWorker internamente).
+    // Empty string when wsUrl is null → the hook's `if (!url) skip connect`
+    // guard kicks in and we just subscribe to the singleton's state.
+    const ws = useRxWebSocket(wsUrl ?? '');
 
     // =========================================================================
     // INICIALIZACIÓN: Obtener token y conectar
