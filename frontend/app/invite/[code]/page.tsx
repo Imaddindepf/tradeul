@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useAuth, SignInButton } from '@clerk/nextjs';
+import { useAuth } from '@clerk/nextjs';
 import { Loader2, Users, Check, X, AlertTriangle, Copy, ExternalLink } from 'lucide-react';
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
@@ -239,11 +240,25 @@ export default function InvitePage() {
                                     <p className="text-[10px] text-muted-foreground text-center mb-2">
                                         Inicia sesion para continuar
                                     </p>
-                                    <SignInButton mode="modal">
-                                        <button className="w-full py-2 bg-primary hover:bg-primary/90 text-white rounded text-xs font-medium transition-colors">
-                                            Iniciar sesion
-                                        </button>
-                                    </SignInButton>
+                                    {/*
+                                      Use the dedicated /sign-in page with a redirect_url
+                                      query param so Google OAuth returns to /invite/[code]
+                                      and the auto-join useEffect can complete the flow.
+                                      Modal/hash flows lose the invite context after the
+                                      OAuth round-trip (see fix/auth-flow-google-oauth).
+                                    */}
+                                    <Link
+                                        href={`/sign-in?redirect_url=${encodeURIComponent(`/invite/${code}`)}`}
+                                        className="block w-full py-2 bg-primary hover:bg-primary/90 text-white rounded text-xs font-medium transition-colors text-center"
+                                    >
+                                        Iniciar sesion
+                                    </Link>
+                                    <Link
+                                        href={`/sign-up?redirect_url=${encodeURIComponent(`/invite/${code}`)}`}
+                                        className="block w-full mt-2 py-2 bg-muted hover:bg-muted/80 text-foreground rounded text-xs font-medium transition-colors text-center"
+                                    >
+                                        Crear cuenta
+                                    </Link>
                                 </>
                             )}
                         </>

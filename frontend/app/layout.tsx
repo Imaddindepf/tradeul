@@ -88,7 +88,23 @@ export default function RootLayout({
         />
       </head>
       <body className="font-sans antialiased">
-        <ClerkProvider>
+        {/*
+          Explicit Clerk routing config to make every flow predictable:
+            - signInUrl / signUpUrl: where the dedicated pages live.
+            - signInFallbackRedirectUrl / signUpFallbackRedirectUrl: where to
+              go after a successful auth IF the URL doesn't already specify a
+              `redirect_url` query param (which has priority — this is what
+              makes /invite/[code] work correctly after Google OAuth).
+          We deliberately use "fallback" instead of "force" so that invite
+          links can override the destination and bring the user back to the
+          invitation flow.
+        */}
+        <ClerkProvider
+          signInUrl="/sign-in"
+          signUpUrl="/sign-up"
+          signInFallbackRedirectUrl="/workspace"
+          signUpFallbackRedirectUrl="/workspace"
+        >
           <ChunkLoadErrorHandler />
           <I18nProvider>
             <ClientThemeProvider>

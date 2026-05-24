@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
-import { SignIn, SignUp, SignedIn, SignedOut } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
+import { SignIn, SignUp, SignedIn, SignedOut, useAuth } from '@clerk/nextjs';
 import { ArrowRight, X, Zap, Newspaper, BarChart3, Shield, SlidersHorizontal, LineChart, Bell, Target, Layers, ExternalLink, Link2 } from 'lucide-react';
 import { useAppTranslation } from '@/hooks/useAppTranslation';
 import { motion, useScroll, useTransform, useSpring, MotionValue, AnimatePresence } from 'framer-motion';
@@ -1361,6 +1362,8 @@ const FEATURE_INDEX: { code: string; name: string; desc: string }[] = [
 ];
 
 export default function Home() {
+  const router = useRouter();
+  const { isSignedIn, isLoaded } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [authPanel, setAuthPanel] = useState<AuthPanel>('closed');
   const { t } = useAppTranslation();
@@ -1379,6 +1382,29 @@ export default function Home() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Auto-redirect signed-in users straight into the app. Avoids the
+  // "I just logged in but I'm still on the landing page" UX trap and is
+  // also our last line of defence in case any auth flow returns to `/`
+  // instead of `/workspace`.
+  useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      router.replace('/workspace');
+    }
+  }, [isLoaded, isSignedIn, router]);
+
+  // If the URL carries a Clerk SSO callback hash (e.g. when an embedded
+  // SignIn was completed before we removed `routing="hash"`), re-open the
+  // auth panel automatically so the embedded SignIn is mounted and can
+  // finish the OAuth handshake. Belt-and-braces — this is what was breaking
+  // Google sign-ins for invited users.
+  useEffect(() => {
+    if (!mounted) return;
+    const hash = window.location.hash || '';
+    if (hash.includes('sso-callback') || hash.includes('factor-one') || hash.includes('verify')) {
+      setAuthPanel('signin');
+    }
+  }, [mounted]);
 
   // Cerrar panel con Escape
   useEffect(() => {
@@ -1469,9 +1495,22 @@ export default function Home() {
 
           {/* Panel content */}
           <div className="p-6 overflow-y-auto h-[calc(100%-73px)]">
+            {/*
+              IMPORTANT — these embedded SignIn/SignUp are intentionally NOT
+              using `routing="hash"`. With hash routing, OAuth (Google) sends
+              the user back to `/#/sso-callback?...` and the SignIn must be
+              mounted to process the hash. But the auth panel is closed by
+              default, so the callback was silently dropped and the user
+              ended up on the landing page believing the login failed.
+              Default routing is "path", which lets Clerk handle the
+              callback at /sign-in/sso-callback and then redirect using the
+              fallback redirect URL (/workspace). See `docs/CLERK_DEV_A_PROD.md`.
+            */}
             <div className={`transition-all duration-300 ${authPanel === 'signin' ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'}`}>
               {authPanel === 'signin' && (
                 <SignIn
+                  signUpUrl="/sign-up"
+                  fallbackRedirectUrl="/workspace"
                   appearance={{
                     elements: {
                       rootBox: 'w-full',
@@ -1489,13 +1528,14 @@ export default function Home() {
                       footer: 'hidden',
                     },
                   }}
-                  routing="hash"
                 />
               )}
             </div>
             <div className={`transition-all duration-300 ${authPanel === 'signup' ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'}`}>
               {authPanel === 'signup' && (
                 <SignUp
+                  signInUrl="/sign-in"
+                  fallbackRedirectUrl="/workspace"
                   appearance={{
                     elements: {
                       rootBox: 'w-full',
@@ -1513,7 +1553,6 @@ export default function Home() {
                       footer: 'hidden',
                     },
                   }}
-                  routing="hash"
                 />
               )}
             </div>

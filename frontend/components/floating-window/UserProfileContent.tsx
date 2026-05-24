@@ -5,14 +5,24 @@ import { UserProfile } from '@clerk/nextjs';
 import { User } from 'lucide-react';
 
 /**
- * Contenido de la ventana flotante de User Profile
- * Utiliza el componente UserProfile de Clerk con estilos personalizados
+ * Contenido de la ventana flotante de User Profile.
+ *
+ * Uses Clerk's UserProfile in virtual routing — the component manages its
+ * own internal navigation via memory state instead of the URL. This is
+ * required inside a floating window because:
+ *   1. We don't have a dedicated `/profile` route mounted.
+ *   2. `routing="hash"` would collide with the OAuth callback hash flow
+ *      used elsewhere on the same page (e.g. `/workspace#/sso-callback`).
+ *
+ * Clerk recommends `routing="virtual"` for any embedded UserProfile that
+ * isn't sitting at a dedicated path. See the auth flow refactor commit
+ * `fix(auth)` for the broader rationale.
  */
 export function UserProfileContent() {
   return (
     <div className="h-full w-full overflow-auto bg-surface-hover">
       <UserProfile
-        routing="hash"
+        routing="virtual"
         appearance={{
           elements: {
             // Root & Layout
