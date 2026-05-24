@@ -1,0 +1,204 @@
+/**
+ * Canvas styles — overrides de react-grid-layout para encajar con nuestros
+ * tokens de diseño (#0a0a0a surface, #1d1d1f borders, etc.). Importado por
+ * CanvasGrid.tsx.
+ */
+
+@import 'react-grid-layout/css/styles.css';
+@import 'react-resizable/css/styles.css';
+
+/* ============================================================================
+   Reset del chrome por defecto de react-grid-layout
+   ============================================================================ */
+.canvas-grid.react-grid-layout {
+    background: transparent;
+    position: relative;
+}
+
+.canvas-grid .react-grid-item {
+    transition: none !important;
+    background: transparent;
+}
+
+/* Solo animar el movimiento del placeholder, no de los items reales (mejor
+   responsividad al arrastrar). */
+.canvas-grid .react-grid-item.cssTransforms {
+    transition-property: transform !important;
+    transition-duration: 0ms !important;
+}
+
+.canvas-grid .react-grid-item.react-grid-placeholder {
+    background: var(--color-primary, #2997ff) !important;
+    opacity: 0.12 !important;
+    border: 1px dashed var(--color-primary, #2997ff) !important;
+    border-radius: 2px !important;
+    transition-duration: 100ms !important;
+    z-index: 2;
+}
+
+/* ============================================================================
+   Resize handle — sustituye al triángulo gris por defecto
+   ============================================================================ */
+.canvas-grid .react-resizable-handle {
+    background: none !important;
+    padding: 0 !important;
+}
+
+.canvas-grid .react-resizable-handle::after {
+    content: '';
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 6px;
+    height: 6px;
+    border-right: 1px solid var(--color-muted-fg, #86868b);
+    border-bottom: 1px solid var(--color-muted-fg, #86868b);
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+}
+
+.canvas-grid.canvas-edit .react-resizable-handle::after {
+    opacity: 0.6;
+}
+
+.canvas-grid.canvas-edit .react-grid-item:hover .react-resizable-handle::after {
+    opacity: 1;
+}
+
+/* Ocultar el handle cuando no estamos en edit mode (sin afectar al pointer) */
+.canvas-grid:not(.canvas-edit) .react-resizable-handle {
+    pointer-events: none;
+}
+
+/* ============================================================================
+   Dot grid background — visible solo en edit mode
+   ============================================================================ */
+.canvas-grid.canvas-edit {
+    background-image: radial-gradient(
+        circle,
+        var(--color-border, #1d1d1f) 1px,
+        transparent 1px
+    );
+    background-size: 12px 12px;
+    background-position: 0 0;
+}
+
+/* ============================================================================
+   Widget shell — la caja base que envuelve cada widget
+   ============================================================================ */
+.widget-shell {
+    background: var(--color-surface, #0a0a0a);
+    border: 1px solid var(--color-border, #1d1d1f);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
+    border-radius: 2px;
+}
+
+.widget-shell-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 18px;
+    padding: 0 6px;
+    background: var(--color-surface-hover, #111111);
+    border-bottom: 1px solid var(--color-border, #1d1d1f);
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.widget-shell-title {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-fg, #f5f5f7);
+    opacity: 0.85;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.widget-shell-body {
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 4px 6px;
+    font-family: var(--font-mono-selected, monospace);
+    font-size: 10px;
+    line-height: 14px;
+    color: var(--color-fg, #f5f5f7);
+}
+
+/* Drag handle a la izquierda del título (visible en edit mode) */
+.widget-shell-drag {
+    display: none;
+    align-items: center;
+    color: var(--color-muted-fg, #86868b);
+    cursor: grab;
+    margin-right: 4px;
+}
+
+.canvas-edit .widget-shell-drag {
+    display: flex;
+}
+
+.canvas-edit .widget-shell-drag:active {
+    cursor: grabbing;
+}
+
+/* Botones de la derecha del header */
+.widget-shell-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--color-muted-fg, #86868b);
+}
+
+.widget-shell-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    padding: 0;
+}
+
+.widget-shell-action-btn:hover {
+    background: var(--color-muted, #111111);
+    color: var(--color-fg, #f5f5f7);
+}
+
+.widget-shell-action-btn.danger:hover {
+    color: #ef4444;
+}
+
+/* En modo lectura, ocultar el botón de cerrar */
+.canvas-grid:not(.canvas-edit) .widget-shell-close {
+    display: none;
+}
+
+/* ============================================================================
+   Animación sutil de "pulse" al entrar en edit mode (por widget)
+   ============================================================================ */
+@keyframes canvas-edit-enter {
+    0% { box-shadow: 0 0 0 0 var(--color-primary, #2997ff); }
+    100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.canvas-grid.canvas-edit-enter .widget-shell {
+    animation: canvas-edit-enter 600ms ease-out;
+}
+
+/* ============================================================================
+   Drop zone visible cuando se arrastra desde el palette
+   ============================================================================ */
+.canvas-grid.canvas-dropping {
+    outline: 1px dashed var(--color-primary, #2997ff);
+    outline-offset: -1px;
+}

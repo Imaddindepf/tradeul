@@ -6,7 +6,7 @@ import { Search, AlertTriangle, Loader2, ExternalLink, TrendingUp, TrendingDown,
 import { TradingChart } from '@/components/chart/TradingChart';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { TickerSearch, TickerSearchRef } from '@/components/common/TickerSearch';
-import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useWindowState } from '@/contexts/FloatingWindowContext';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 
@@ -160,7 +160,7 @@ type FinancialAnalystWindowState = {
 
 export function FinancialAnalystContent({ initialTicker }: { initialTicker?: string }) {
     const { t, i18n } = useTranslation();
-    const { openWindow } = useFloatingWindow();
+    const { openWindow } = useFloatingWindowActions();
     const { state: windowState, updateState: updateWindowState } = useWindowState<FinancialAnalystWindowState>();
     const font = useUserPreferencesStore(selectFont);
     const fontFamily = `var(--font-${font})`;
