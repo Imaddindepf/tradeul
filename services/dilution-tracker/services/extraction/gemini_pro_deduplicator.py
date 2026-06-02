@@ -36,7 +36,6 @@ logger = structlog.get_logger(__name__)
 GEMINI_MODELS_FALLBACK = [
     "gemini-2.5-pro",           # Más potente disponible
     "gemini-2.5-flash",         # Rápido y con buena cuota
-    "gemini-2.0-flash",         # Fallback adicional
 ]
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 REQUEST_TIMEOUT = 180.0  # 3 minutos - Pro necesita más tiempo con búsqueda

@@ -30,7 +30,7 @@ Return ONLY valid JSON (no markdown, no code blocks) with this structure:
 print("Generating report for NVDA...")
 
 response = client.models.generate_content(
-    model='gemini-2.0-flash-exp',
+    model='gemini-2.5-flash',
     contents=prompt,
     config={'tools': [google_search_tool]}
 )

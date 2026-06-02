@@ -246,7 +246,7 @@ class FANBatchMonitor:
             # Crear job (síncrono, ejecutar en thread)
             def create_job():
                 return self.genai_client.batches.create(
-                    model='gemini-2.0-flash',
+                    model='gemini-2.5-flash',
                     src=requests,
                     config={'display_name': f'fan-auto-{datetime.now().strftime("%H%M%S")}'}
                 )

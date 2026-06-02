@@ -6,8 +6,8 @@ guarantee valid, parseable JSON output. Tables arrive as typed arrays
 (impossible to break via truncation), text content is short markdown
 scoped to individual sections.
 
-Fallback: if structured generation fails, falls back to free-form
-markdown with the legacy Gemini 2.0 Flash path.
+Fallback: if structured generation fails, falls back to the free-form
+markdown path through `make_llm(tier="fast")` (currently Gemini 2.5 Flash).
 """
 from __future__ import annotations
 import json
@@ -342,7 +342,7 @@ async def _synthesize_fallback(
     ticker_info: dict,
     chart_context: dict | None,
 ) -> str:
-    """Fallback path: legacy Gemini 2.0 Flash free-form markdown."""
+    """Fallback path: free-form markdown via `make_llm(tier="fast")`."""
     from langchain_core.messages import SystemMessage, HumanMessage
     from agents._llm_retry import llm_invoke_with_retry
     import re

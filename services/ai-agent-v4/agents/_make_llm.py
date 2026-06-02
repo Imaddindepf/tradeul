@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Model names per tier per provider
 _MODELS = {
     "google": {
-        "fast": "gemini-2.0-flash",
+        "fast": "gemini-2.5-flash",
         "pro": "gemini-2.5-pro",
     },
     "xai": {
