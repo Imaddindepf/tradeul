@@ -7,7 +7,14 @@
  * - 3-click: Parallel channel, Triangle
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import {
+    drawingsBus,
+    shouldReactToDrawingsEvent,
+    useChartLayoutStore,
+    selectDrawingsSyncMode,
+    type DrawingsSyncMode,
+} from '@/components/chart/multichart';
 import type {
   Drawing,
   DrawingType,
@@ -120,7 +127,27 @@ function hexToRgba(hex: string, alpha: number): string {
 // Hook
 // ============================================================================
 
-export function useChartDrawings(ticker: string) {
+export interface UseChartDrawingsOptions {
+  /**
+   * FloatingWindow id this chart belongs to. Used to scope `in_layout`
+   * synchronisation. Pass `null` for charts that live outside a window
+   * (the bus then falls back to global-only matching for them).
+   */
+  windowId?: string | null;
+}
+
+export function useChartDrawings(ticker: string, options?: UseChartDrawingsOptions) {
+  const windowId = options?.windowId ?? null;
+  const syncMode: DrawingsSyncMode = useChartLayoutStore(selectDrawingsSyncMode);
+  const syncModeRef = useRef<DrawingsSyncMode>(syncMode);
+  syncModeRef.current = syncMode;
+
+  /** Stable identity for this hook instance — used to filter own echoes. */
+  const instanceId = useMemo(
+    () => `cd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    [],
+  );
+
   const [drawings, setDrawingsState] = useState<Drawing[]>([]);
   const [activeTool, setActiveTool] = useState<DrawingTool>('none');
   const activeToolRef = useRef(activeTool);
@@ -203,12 +230,65 @@ export function useChartDrawings(ticker: string) {
     setLockedState(!!lockedMap[ticker]);
   }, [ticker, recomputeAvailability]);
 
+  // Tracks the last drawings ref we *applied* from the bus, to skip the
+  // immediate save+emit echo that would otherwise re-broadcast the same state.
+  const lastAppliedFromBusRef = useRef<Drawing[] | null>(null);
+
   useEffect(() => {
     const allDrawings = loadFromStorage();
     allDrawings[tickerRef.current] = drawings;
     saveToStorage(allDrawings);
     drawingsRef.current = drawings;
-  }, [drawings]);
+
+    // Suppress the echo when this state was just applied from a bus event:
+    // the storage write is still desired (idempotent), but we don't want to
+    // re-broadcast back to peers and risk a feedback loop.
+    if (lastAppliedFromBusRef.current === drawings) {
+      lastAppliedFromBusRef.current = null;
+      return;
+    }
+
+    if (syncModeRef.current === 'off') return;
+    drawingsBus.emit({
+      sourceInstanceId: instanceId,
+      ticker: tickerRef.current,
+      windowId,
+      mode: syncModeRef.current,
+    });
+  }, [drawings, instanceId, windowId]);
+
+  /**
+   * Subscribe to cross-instance drawings updates. When a sibling chart for
+   * the same ticker (under the active sync scope) mutates its drawings, we
+   * reload from localStorage so both charts stay in lockstep.
+   */
+  useEffect(() => {
+    const sub = drawingsBus.stream$.subscribe((event) => {
+      if (
+        !shouldReactToDrawingsEvent(event, {
+          instanceId,
+          ticker: tickerRef.current,
+          windowId,
+          mode: syncModeRef.current,
+        })
+      ) {
+        return;
+      }
+      const all = loadFromStorage();
+      const next = all[tickerRef.current] || [];
+      // Apply silently: skip history (this isn't a user action) and avoid
+      // re-emitting via the save effect.
+      suppressHistoryRef.current = true;
+      lastAppliedFromBusRef.current = next;
+      setDrawingsState(next);
+      drawingsRef.current = next;
+      queueMicrotask(() => {
+        suppressHistoryRef.current = false;
+        recomputeAvailability();
+      });
+    });
+    return () => sub.unsubscribe();
+  }, [instanceId, windowId, recomputeAvailability]);
 
   useEffect(() => {
     const map = loadLockedMap();

@@ -53,6 +53,40 @@ export interface TradingChartProps {
      * layouts where the *parent window* owns those affordances.
      */
     inLayoutMode?: boolean;
+
+    /**
+     * Hide the internal horizontal `<ChartHeader>` (timeframes, indicators,
+     * undo/redo, screenshot, fullscreen…). Defaults to `false`. When the
+     * parent renders an *elevated* header at the window level (single-source
+     * for an N-cell layout) it sets this to `true` and consumes the chart
+     * context via `onContextValue`.
+     */
+    hideHeader?: boolean;
+
+    /**
+     * Hide the internal vertical `<ChartToolbar>` (drawing tools). Same
+     * pattern as `hideHeader` — used when the parent renders a single
+     * toolbar at the window level that drives the active cell.
+     */
+    hideToolbar?: boolean;
+
+    /**
+     * Publish the chart's `ChartContextValue` to a parent observer.
+     *
+     * Fires on every render where the context object identity changes,
+     * which is also exactly when the internal `<ChartProvider>` would
+     * propagate a new value to its descendants — so the cost is the same
+     * as the normal in-tree provider. Parent should `null`-check on
+     * unmount cleanup.
+     */
+    onContextValue?: (ctx: import('./ChartContext').ChartContextValue | null) => void;
+
+    /**
+     * The FloatingWindow id this chart instance lives inside. Currently
+     * used to scope drawings synchronisation to siblings in the same
+     * window when the user picks the `in_layout` sync mode.
+     */
+    windowId?: string | null;
 }
 
 /**

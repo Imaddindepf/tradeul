@@ -86,7 +86,16 @@ function TradingChartComponent({
     onChartReady,
     cellOverlay,
     inLayoutMode = false,
+    hideHeader: hideHeaderProp,
+    hideToolbar: hideToolbarProp,
+    onContextValue,
+    windowId: explicitWindowId,
 }: TradingChartProps) {
+    // In layout mode, the parent window owns header and toolbar by default.
+    // Callers can still override per-prop if they want to keep the in-chart
+    // chrome for an unusual case (we don't currently do this in code).
+    const hideHeader = hideHeaderProp ?? inLayoutMode;
+    const hideToolbar = hideToolbarProp ?? inLayoutMode;
     const containerRef = useRef<HTMLDivElement>(null);
     const tickerSearchRef = useRef<TickerSearchRef>(null);
     const priceOverlayRef = useRef<HTMLDivElement>(null);
@@ -313,7 +322,9 @@ function TradingChartComponent({
         updateDrawing, replaceDrawing,
         startDragging, stopDragging,
         findDrawingNearPrice, setHoveredDrawing, colors: drawingColors,
-    } = useChartDrawings(currentTicker);
+    } = useChartDrawings(currentTicker, {
+        windowId: explicitWindowId ?? windowId ?? null,
+    });
 
     const [drawingsVisible, setDrawingsVisible] = useState(true);
     const toggleDrawingsVisibility = useCallback(() => setDrawingsVisible(prev => !prev), []);
@@ -1108,20 +1119,54 @@ function TradingChartComponent({
         fontFamily,
     };
 
+    /*
+      Publish the chart context to a parent observer (ChartContent's
+      elevated header/toolbar bridge).
+
+      Two separate effects so we don't push a null between every re-render:
+        • Push the latest ctxValue on every commit where the listener is
+          present. The dependency intentionally includes `ctxValue` even
+          though it's a fresh object each render — that's the desired
+          cadence (matches the in-tree `<ChartProvider>` propagation).
+        • Push null on unmount / when the listener changes (cell loses
+          focus). That's the single "cleanup" path; we avoid a tear/blink
+          between renders.
+    */
+    useEffect(() => {
+        onContextValue?.(ctxValue);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ctxValue, onContextValue]);
+
+    useEffect(() => {
+        if (!onContextValue) return;
+        return () => onContextValue(null);
+    }, [onContextValue]);
+
     // ────────────────────────────────────────────────────────────────────
     // RENDER
     // ────────────────────────────────────────────────────────────────────
     return (
         <ChartProvider value={ctxValue}>
-            <div className="h-full flex flex-col bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-lg overflow-hidden">
+            {/*
+              In layout mode the chart is a *cell* inside a parent grid — the
+              host paints the surface, so we drop the outer border/rounded
+              corners and let the grid handle the chrome.
+            */}
+            <div
+                className={
+                    inLayoutMode
+                        ? 'h-full flex flex-col bg-[color:var(--color-surface)] overflow-hidden'
+                        : 'h-full flex flex-col bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-lg overflow-hidden'
+                }
+            >
                 {minimal ? (
                     <MinimalHeader onOpenChart={onOpenChart} onOpenNews={onOpenNews} />
                 ) : (
-                    <ChartHeader />
+                    !hideHeader && <ChartHeader />
                 )}
 
                 <div className="flex flex-1 overflow-hidden">
-                    {!minimal && (
+                    {!minimal && !hideToolbar && (
                         <ChartToolbar
                             activeTool={activeTool}
                             setActiveTool={setActiveTool}

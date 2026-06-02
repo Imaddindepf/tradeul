@@ -6,11 +6,12 @@ import { CandleStyleDropdown } from './CandleStyleDropdown';
 import { ChartIndicatorMenu } from './ChartIndicatorMenu';
 import { ChartReplayBar } from './ChartReplayBar';
 import { HeaderDivider } from './HeaderDivider';
+import { HeaderLayoutControls } from './HeaderLayoutControls';
 import { Tooltip } from './Tooltip';
 import {
     UndoIcon, RedoIcon, MaximizeIcon, MinimizeIcon, SettingsIcon,
     AlertIcon, LockIcon, UnlockIcon, EyeIcon, EyeOffIcon,
-    CompareIcon, TemplateIcon, CameraIcon,
+    CompareIcon, CameraIcon,
 } from './icons';
 
 /**
@@ -75,18 +76,8 @@ export function ChartHeader() {
             <ChartIndicatorMenu />
             <HeaderDivider />
 
-            {/* 5. Templates / saved layouts */}
-            <Tooltip content="Plantillas / Layouts (próximamente)">
-                <button
-                    disabled
-                    className="flex items-center gap-1 px-1.5 h-[22px] rounded-[3px] text-[12px] text-[color:var(--color-muted-fg)]/60 cursor-not-allowed"
-                    aria-label="Plantillas"
-                >
-                    <TemplateIcon className="w-[14px] h-[14px]" />
-                    <span>Plantillas</span>
-                </button>
-            </Tooltip>
-            <HeaderDivider />
+            {/* 5. Layout / Sync / Saved layouts (window-scoped, TV-style) */}
+            <HeaderLayoutControls />
 
             {/* 6. Alerts */}
             <Tooltip content="Crear alerta (próximamente)">

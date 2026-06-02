@@ -6,47 +6,45 @@ import { INTERVAL_GROUPS, type Interval } from './constants';
 import { Tooltip } from './Tooltip';
 
 /**
- * ChartTimeframeTabs — replaces the cramped single-dropdown with always-visible
- * primary timeframes plus a dropdown for the long-horizon ones.
+ * ChartTimeframeTabs — single compact trigger showing the current timeframe
+ * followed by a chevron, exactly like TradingView's collapsed timeframe
+ * control. Clicking opens a grouped popover (Minutes / Hours / Days+).
  *
- * "Primary" tabs are shown inline (5m, 15m, 1H, 4H, 1D, 1W); the rest live in
- * a dropdown grouped by Minutes / Hours / Days.
+ * Keeping it compact frees up horizontal space for the rest of the header
+ * (indicators, layout, replay…). Power users still get every timeframe via
+ * the dropdown, plus quick keyboard navigation.
  */
-
-const PRIMARY_INTERVALS: { label: string; interval: Interval }[] = [
-    { label: '1m', interval: '1min' },
-    { label: '5m', interval: '5min' },
-    { label: '15m', interval: '15min' },
-    { label: '1H', interval: '1hour' },
-    { label: '4H', interval: '4hour' },
-    { label: '1D', interval: '1day' },
-    { label: '1W', interval: '1week' },
-];
-
-const PRIMARY_SET = new Set(PRIMARY_INTERVALS.map(p => p.interval));
 
 interface Props {
     selectedInterval: Interval;
     onSelect: (interval: Interval) => void;
 }
 
+const ALL_ITEMS = [
+    ...INTERVAL_GROUPS.intraday,
+    ...INTERVAL_GROUPS.hourly,
+    ...INTERVAL_GROUPS.daily,
+];
+
 export function ChartTimeframeTabs({ selectedInterval, onSelect }: Props) {
     const [open, setOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
+    const wrapperRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!open) return;
-        const handler = (e: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        const onMouseDown = (e: MouseEvent) => {
+            if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
                 setOpen(false);
             }
         };
-        const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-        document.addEventListener('mousedown', handler);
-        document.addEventListener('keydown', esc);
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setOpen(false);
+        };
+        document.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('keydown', onKey);
         return () => {
-            document.removeEventListener('mousedown', handler);
-            document.removeEventListener('keydown', esc);
+            document.removeEventListener('mousedown', onMouseDown);
+            document.removeEventListener('keydown', onKey);
         };
     }, [open]);
 
@@ -55,71 +53,55 @@ export function ChartTimeframeTabs({ selectedInterval, onSelect }: Props) {
         setOpen(false);
     };
 
-    const showsInPrimary = PRIMARY_SET.has(selectedInterval);
-    // Find the label for the "more" dropdown trigger
-    const allItems = [...INTERVAL_GROUPS.intraday, ...INTERVAL_GROUPS.hourly, ...INTERVAL_GROUPS.daily];
-    const moreLabel = showsInPrimary
-        ? '···'
-        : allItems.find(i => i.interval === selectedInterval)?.label ?? '···';
+    const currentLabel =
+        ALL_ITEMS.find((i) => i.interval === selectedInterval)?.label ?? '—';
 
     return (
-        <div className="flex items-center gap-px">
-            {PRIMARY_INTERVALS.map(({ label, interval }) => {
-                const isActive = selectedInterval === interval;
-                return (
-                    <Tooltip key={interval} content={label} placement="bottom">
-                        <button
-                            onClick={() => select(interval)}
-                            className={`px-2 h-[22px] rounded-[3px] text-[11px] font-semibold transition-colors ${
-                                isActive
-                                    ? 'bg-[color:var(--color-primary)]/12 text-[color:var(--color-primary)]'
-                                    : 'text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)] hover:bg-[color:var(--color-surface-hover)]'
-                            }`}
-                        >
-                            {label}
-                        </button>
-                    </Tooltip>
-                );
-            })}
-            <div className="relative" ref={dropdownRef}>
-                <Tooltip content="Más temporalidades" placement="bottom">
-                    <button
-                        onClick={() => setOpen(prev => !prev)}
-                        className={`flex items-center gap-0.5 px-2 h-[22px] rounded-[3px] text-[11px] font-semibold transition-colors ${
-                            !showsInPrimary
-                                ? 'bg-[color:var(--color-primary)]/12 text-[color:var(--color-primary)]'
-                                : 'text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)] hover:bg-[color:var(--color-surface-hover)]'
-                        }`}
-                    >
-                        <span>{moreLabel}</span>
-                        <ChevronDownIcon className="w-3 h-3" />
-                    </button>
-                </Tooltip>
-                {open && (
-                    <div className="absolute top-full left-0 mt-1 bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-md shadow-lg z-50 min-w-[160px] py-1">
-                        <DropdownGroup
-                            title="Minutes"
-                            items={INTERVAL_GROUPS.intraday}
-                            selected={selectedInterval}
-                            onSelect={select}
-                        />
-                        <div className="my-0.5 border-t border-[color:var(--color-border-subtle)]" />
-                        <DropdownGroup
-                            title="Hours"
-                            items={INTERVAL_GROUPS.hourly}
-                            selected={selectedInterval}
-                            onSelect={select}
-                        />
-                        <div className="my-0.5 border-t border-[color:var(--color-border-subtle)]" />
-                        <DropdownGroup
-                            title="Days+"
-                            items={INTERVAL_GROUPS.daily}
-                            selected={selectedInterval}
-                            onSelect={select}
-                        />
-                    </div>
-                )}
-            </div>
+        <div className="relative" ref={wrapperRef}>
+            <Tooltip content="Timeframe" placement="bottom">
+                <button
+                    onClick={() => setOpen((v) => !v)}
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                    className={`flex items-center gap-0.5 px-2 h-[22px] rounded-[3px] text-[11px] font-semibold transition-colors ${
+                        open
+                            ? 'bg-[color:var(--color-primary)]/12 text-[color:var(--color-primary)]'
+                            : 'text-[color:var(--color-fg)] hover:bg-[color:var(--color-surface-hover)]'
+                    }`}
+                >
+                    <span>{currentLabel}</span>
+                    <ChevronDownIcon className="w-3 h-3 opacity-70" />
+                </button>
+            </Tooltip>
+
+            {open && (
+                <div
+                    role="menu"
+                    className="absolute top-full left-0 mt-1 bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-md shadow-xl z-50 min-w-[160px] py-1"
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <DropdownGroup
+                        title="Minutos"
+                        items={INTERVAL_GROUPS.intraday}
+                        selected={selectedInterval}
+                        onSelect={select}
+                    />
+                    <div className="my-0.5 border-t border-[color:var(--color-border-subtle)]" />
+                    <DropdownGroup
+                        title="Horas"
+                        items={INTERVAL_GROUPS.hourly}
+                        selected={selectedInterval}
+                        onSelect={select}
+                    />
+                    <div className="my-0.5 border-t border-[color:var(--color-border-subtle)]" />
+                    <DropdownGroup
+                        title="Días"
+                        items={INTERVAL_GROUPS.daily}
+                        selected={selectedInterval}
+                        onSelect={select}
+                    />
+                </div>
+            )}
         </div>
     );
 }
@@ -145,6 +127,8 @@ function DropdownGroup({
                 return (
                     <button
                         key={interval}
+                        role="menuitemradio"
+                        aria-checked={isActive}
                         onClick={() => onSelect(interval)}
                         className={`w-full text-left px-3 py-1 text-[11px] hover:bg-[color:var(--color-surface-hover)] ${
                             isActive

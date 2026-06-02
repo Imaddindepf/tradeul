@@ -8,6 +8,17 @@
 
 export { ChartLayoutContainer } from './ChartLayoutContainer';
 export { ChartWindowHeader } from './ChartWindowHeader';
-export { useChartLayoutStore, selectWindow } from './useChartLayoutStore';
+export {
+    useChartLayoutStore,
+    selectWindow,
+    selectSavedLayouts,
+    selectDrawingsSyncMode,
+} from './useChartLayoutStore';
 export type { WindowLayoutState } from './useChartLayoutStore';
 export type { LayoutId, SyncFlags, CellState, SavedLayout } from './types';
+export {
+    drawingsBus,
+    shouldReactToDrawingsEvent,
+    type DrawingsSyncMode,
+    type DrawingsChangeEvent,
+} from './drawingsSyncBus';

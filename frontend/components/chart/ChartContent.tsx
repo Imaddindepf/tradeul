@@ -1,22 +1,36 @@
 /**
  * ChartContent — root rendered inside every "Chart" FloatingWindow.
  *
- * Owns the per-window layout state and renders, dynamically:
- *   • In `single` mode → one chart cell that behaves exactly like the
- *     pre-multichart `<TradingChart>` did (same UX, same chrome).
- *   • In every other layout → a CSS-grid of cells, each with its own chart.
+ * Owns the per-window layout state and renders a TradingView-style L-shape:
  *
- * Also portals the small "layout / sync / saved / ticker" toolbar into the
- * FloatingWindow's `window-header-extra-${windowId}` slot, just like the
- * original chart did with its ticker search.
+ *   ┌────────────────────────────────────────────────────────────────┐
+ *   │  ChartHeader  (timeframes · indicators · layout · sync · …)    │
+ *   ├──────┬─────────────────────────────────────────────────────────┤
+ *   │  T   │                                                         │
+ *   │  o   │                                                         │
+ *   │  o   │           ChartLayoutContainer (1..16 cells)            │
+ *   │  l   │                                                         │
+ *   │  b   │                                                         │
+ *   │  a   │                                                         │
+ *   │  r   │                                                         │
+ *   └──────┴─────────────────────────────────────────────────────────┘
  *
- * Per-window layout state lives in `useChartLayoutStore`, keyed by windowId,
- * so multiple chart windows have *fully independent* layouts.
+ * The header and the vertical toolbar are rendered *once per window*. They
+ * read the chart context of the *active cell* via a small bridge:
+ *   • the active `<ChartCell>` publishes its `ChartContextValue` via the
+ *     `onContextValue` prop on `<TradingChart>` (see ChartCell.tsx);
+ *   • this component receives that value, stores it in local state, and
+ *     re-injects it through `<ChartProvider>` so the elevated header /
+ *     toolbar consume it exactly as if they lived inside the chart.
+ *
+ * The TickerSearch portal in the FloatingWindow's title bar is owned by
+ * `<ChartWindowHeader>` so the window title always reflects the active
+ * cell's symbol, regardless of how many cells the layout has.
  */
 
 'use client';
 
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { TradingChart } from './TradingChart';
@@ -27,6 +41,9 @@ import {
 import { createChartSyncBus, type ChartSyncBus } from './multichart/chartSyncBus';
 import { ChartLayoutContainer } from './multichart/ChartLayoutContainer';
 import { ChartWindowHeader } from './multichart/ChartWindowHeader';
+import { ChartProvider, type ChartContextValue } from './ChartContext';
+import { ChartHeader } from './ChartHeader';
+import { ChartToolbar } from './ChartToolbar';
 
 interface ChartContentProps {
     ticker?: string;
@@ -41,9 +58,8 @@ function ChartContentComponent({
 }: ChartContentProps) {
     const windowId = useCurrentWindowId?.() ?? null;
 
-    // ── Fast-path: when there is no FloatingWindow context (chart rendered
-    //    inline somewhere unusual) we just render a plain TradingChart and
-    //    avoid wiring the multi-chart store at all.
+    // Fast-path: chart rendered outside a FloatingWindow. We just render a
+    // plain TradingChart with its own self-contained chrome.
     if (!windowId) {
         return (
             <TradingChart
@@ -69,8 +85,6 @@ export default ChartContent;
 
 // ============================================================================
 // ChartWindowRoot — does the actual coordination once a windowId is known.
-// Kept separate from the entry point so the hook order is stable even when
-// the no-windowId branch above takes the fast path.
 // ============================================================================
 
 interface ChartWindowRootProps {
@@ -89,21 +103,25 @@ function ChartWindowRoot({
     const ensureWindow = useChartLayoutStore((s) => s.ensureWindow);
     const win = useChartLayoutStore(selectWindow(windowId));
 
-    // Initialise this window's layout state if it doesn't exist yet. The
-    // store action is idempotent; if persisted state already has this
-    // windowId (page reload), this is a no-op and we render its data.
+    /*
+      Initialise this window's layout state if it doesn't exist yet. The
+      store action is idempotent: if persisted state already has this
+      windowId (page reload), this is a no-op.
+    */
     useEffect(() => {
         if (!win) ensureWindow(windowId, initialTicker);
     }, [win, windowId, initialTicker, ensureWindow]);
 
-    // ── Per-window sync bus ──────────────────────────────────────────────
+    // Per-window sync bus, instantiated lazily and disposed on unmount.
     const busRef = useRef<ChartSyncBus | null>(null);
     if (busRef.current === null) busRef.current = createChartSyncBus();
     useEffect(() => () => busRef.current?.dispose(), []);
 
-    // ── Notify the host whenever the active cell's ticker changes ────────
-    // Preserves the legacy `onTickerChange` callback semantics so consumers
-    // (data tables, FloatingWindow titles) keep working.
+    /*
+      Notify the host whenever the active cell's ticker changes. This keeps
+      the legacy `onTickerChange` contract working (data tables, window title
+      updates, etc.) regardless of how many cells the layout has.
+    */
     const activeCell = win ? win.cells[win.activeCellId] : null;
     const lastNotifiedTickerRef = useRef<string | null>(null);
     useEffect(() => {
@@ -113,12 +131,23 @@ function ChartWindowRoot({
         onTickerChange?.(activeCell.ticker);
     }, [activeCell?.ticker, onTickerChange]);
 
-    // ── Header portal target ──────────────────────────────────────────────
+    /*
+      Bridge state: the active cell publishes its ChartContextValue here.
+      The elevated <ChartHeader> and <ChartToolbar> consume it through
+      <ChartProvider>. Switching active cells flips which cell holds the
+      bridge callback — cleanup pushes null, then the new owner pushes its
+      own ctx within the same paint (see TradingChart's effect).
+    */
+    const [activeCtx, setActiveCtx] = useState<ChartContextValue | null>(null);
+    const handleActiveCtx = useCallback((ctx: ChartContextValue | null) => {
+        setActiveCtx(ctx);
+    }, []);
+
+    // Header portal target (FloatingWindow's title-bar slot).
     const headerPortalTarget = useHeaderPortalTarget(windowId);
 
     const cellCount = win ? Object.keys(win.cells).length : 0;
 
-    // ── Until ensureWindow has run we don't have state to render yet ─────
     if (!win) return null;
 
     return (
@@ -128,7 +157,48 @@ function ChartWindowRoot({
                 headerPortalTarget,
             )}
 
-            <ChartLayoutContainer windowId={windowId} bus={busRef.current!} />
+            {/*
+              `activeCtx` is null for one frame on first mount and during the
+              brief gap when the active cell changes (old cleanup → new push).
+              We render the elevated chrome inside the bridge so consumers
+              that call `useChartContext()` always see a real value; when
+              `activeCtx` is null the inner chrome falls back to a skeleton
+              row that matches the final height to avoid layout shift.
+            */}
+            <div className="h-full w-full flex flex-col bg-[color:var(--color-surface)] overflow-hidden">
+                {activeCtx ? (
+                    <ChartProvider value={activeCtx}>
+                        <ElevatedHeaderRow windowId={windowId} />
+                        <div className="flex flex-1 min-h-0 overflow-hidden">
+                            <ElevatedToolbar
+                                ctx={activeCtx}
+                                windowId={windowId}
+                            />
+                            <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+                                <ChartLayoutContainer
+                                    windowId={windowId}
+                                    bus={busRef.current!}
+                                    onActiveContextValue={handleActiveCtx}
+                                />
+                            </div>
+                        </div>
+                    </ChartProvider>
+                ) : (
+                    <>
+                        <HeaderSkeleton />
+                        <div className="flex flex-1 min-h-0 overflow-hidden">
+                            <ToolbarSkeleton />
+                            <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+                                <ChartLayoutContainer
+                                    windowId={windowId}
+                                    bus={busRef.current!}
+                                    onActiveContextValue={handleActiveCtx}
+                                />
+                            </div>
+                        </div>
+                    </>
+                )}
+            </div>
 
             {/* Hint for screen-readers / SEO when the layout has multiple cells */}
             {cellCount > 1 && exchange && (
@@ -137,6 +207,59 @@ function ChartWindowRoot({
                 </span>
             )}
         </>
+    );
+}
+
+// ============================================================================
+// Elevated header — single instance per window, drives the active cell.
+// We keep this trivial so it stays close to a memo'd <ChartHeader>; the
+// extra wrapper exists for future window-level affordances (e.g. tab strip).
+// ============================================================================
+
+function ElevatedHeaderRow({ windowId }: { windowId: string }) {
+    void windowId;
+    return <ChartHeader />;
+}
+
+// ============================================================================
+// Elevated toolbar — pulls drawing/active-tool wiring straight from ctx.
+// We don't show drawing tools when the active cell hasn't published a ctx
+// yet; the skeleton handles that case.
+// ============================================================================
+
+function ElevatedToolbar({
+    ctx,
+    windowId,
+}: {
+    ctx: ChartContextValue;
+    windowId: string;
+}) {
+    void windowId;
+    return (
+        <ChartToolbar
+            activeTool={ctx.activeTool as never}
+            setActiveTool={ctx.setActiveTool}
+            drawingCount={ctx.drawingCount}
+            clearAllDrawings={ctx.clearAllDrawings}
+            zoomIn={ctx.zoomIn}
+            zoomOut={ctx.zoomOut}
+            magnetMode={ctx.magnetMode}
+            onCycleMagnet={ctx.cycleMagnet}
+        />
+    );
+}
+
+// ── Skeletons ───────────────────────────────────────────────────────────────
+
+function HeaderSkeleton() {
+    return (
+        <div className="h-[27px] border-b border-[color:var(--color-border)] bg-[color:var(--color-surface)]" />
+    );
+}
+
+function ToolbarSkeleton() {
+    return (
+        <div className="w-[38px] flex-shrink-0 bg-surface-hover border-r border-border" />
     );
 }
 
@@ -157,7 +280,6 @@ function useHeaderPortalTarget(windowId: string) {
                 setTarget(el);
                 return;
             }
-            // Try again on next frame for ~10 frames (covers any mount race).
             requestAnimationFrame(find);
         };
         find();

@@ -29,6 +29,7 @@ import { filter } from 'rxjs/operators';
 import { TradingChart } from '../TradingChart';
 import type { ChartInterval } from '@/hooks/useLiveChartData';
 import type { TradingChartHandle } from '../constants';
+import type { ChartContextValue } from '../ChartContext';
 import { useChartLayoutStore } from './useChartLayoutStore';
 import type { ChartSyncBus } from './chartSyncBus';
 import type { CellState, SyncFlags } from './types';
@@ -46,6 +47,15 @@ interface ChartCellProps {
     showCellBadge: boolean;
     /** Total cell count — used to label the badge nicely. */
     totalCells: number;
+    /**
+     * Publish the active cell's `ChartContextValue` to the host. The host
+     * (ChartContent) re-injects that value into a `<ChartProvider>` so the
+     * window-level header and toolbar drive the active cell exclusively.
+     *
+     * Cells call this *only* while `isActive` — that's the whole point of
+     * the bridge: only one publisher at a time, no fan-out concerns.
+     */
+    onActiveContextValue?: (ctx: ChartContextValue | null) => void;
 }
 
 export function ChartCell({
@@ -57,6 +67,7 @@ export function ChartCell({
     onActivate,
     showCellBadge,
     totalCells,
+    onActiveContextValue,
 }: ChartCellProps) {
     const setCellTicker = useChartLayoutStore((s) => s.setCellTicker);
     const setCellInterval = useChartLayoutStore((s) => s.setCellInterval);
@@ -203,6 +214,12 @@ export function ChartCell({
         );
     }, [showCellBadge, totalCells, cellState.id, isActive, onActivate]);
 
+    // Only the active cell publishes its ChartContextValue upward. Switching
+    // active cells flips which TradingChart sees the bridge callback — when
+    // the old active cell loses it, its own cleanup-effect pushes `null` so
+    // we never end up with a stale context bound to a non-active cell.
+    const publishContext = isActive ? onActiveContextValue : undefined;
+
     return (
         <div
             className="h-full w-full"
@@ -211,11 +228,13 @@ export function ChartCell({
             <TradingChart
                 ticker={cellState.ticker}
                 inLayoutMode
+                windowId={windowId}
                 controlledInterval={cellState.interval}
                 onTickerChange={handleTickerChange}
                 onIntervalChange={handleIntervalChange}
                 onChartReady={handleChartReady}
                 cellOverlay={overlay}
+                onContextValue={publishContext}
             />
         </div>
     );

@@ -3,6 +3,11 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import type { DrawingTool } from './primitives/types';
 import type { MagnetMode } from './ChartContext';
+import {
+    useChartLayoutStore,
+    selectDrawingsSyncMode,
+    type DrawingsSyncMode,
+} from './multichart';
 
 // ============================================================================
 // SVG Icon Base
@@ -290,6 +295,15 @@ function ChartToolbarComponent({
   const [openFlyout, setOpenFlyout] = useState<string | null>(null);
   const flyoutRef = useRef<HTMLDivElement>(null);
 
+  // ── Drawings sync mode (global preference) ────────────────────────────
+  const drawingsSyncMode = useChartLayoutStore(selectDrawingsSyncMode);
+  const setDrawingsSyncMode = useChartLayoutStore((s) => s.setDrawingsSyncMode);
+  const cycleDrawingsSync = useCallback(() => {
+    const order: DrawingsSyncMode[] = ['off', 'in_layout', 'global'];
+    const next = order[(order.indexOf(drawingsSyncMode) + 1) % order.length];
+    setDrawingsSyncMode(next);
+  }, [drawingsSyncMode, setDrawingsSyncMode]);
+
   // Last-selected tool per category
   const [lastTool, setLastTool] = useState<Record<string, string>>(() => {
     try { return JSON.parse(localStorage.getItem('chart-toolbar-last') || '{}'); } catch { return {}; }
@@ -433,6 +447,35 @@ function ChartToolbarComponent({
       {/* Spacer */}
       <div className="flex-1" />
 
+      {/*
+        Drawings sync toggle — cycles off → in_layout → global. Lives at the
+        bottom of the vertical drawing toolbar (TV places sync controls
+        adjacent to the tools they affect).
+      */}
+      <div className="flex flex-col items-center">
+        <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: 'var(--color-border)' }} />
+        <button
+          onClick={cycleDrawingsSync}
+          className={`${btnBase} ${
+            drawingsSyncMode === 'off'
+              ? 'text-muted-fg hover:text-foreground hover:bg-surface-hover'
+              : 'text-primary bg-primary/10'
+          }`}
+          title={
+            drawingsSyncMode === 'off'
+              ? 'Drawings sync: Off — each chart has its own drawings'
+              : drawingsSyncMode === 'in_layout'
+                ? 'Drawings sync: In layout — siblings in this window mirror each other'
+                : 'Drawings sync: Global — every chart with this ticker mirrors'
+          }
+        >
+          <DrawingsSyncIcon mode={drawingsSyncMode} />
+          {drawingsSyncMode !== 'off' && (
+            <div className="absolute left-0 top-[6px] bottom-[6px] w-[2px] rounded-r bg-blue-600" />
+          )}
+        </button>
+      </div>
+
       {/* Bottom utilities — lock/visibility/settings live in the header to
           avoid duplication. Only "clear all" remains here as a sidebar action. */}
       {drawingCount > 0 && (
@@ -448,6 +491,39 @@ function ChartToolbarComponent({
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================================
+// DrawingsSyncIcon — three small line-art variants matching the TV style
+// (chain link with a slash / chain link / chain link with a globe orbit).
+// ============================================================================
+
+function DrawingsSyncIcon({ mode }: { mode: DrawingsSyncMode }) {
+  if (mode === 'off') {
+    return (
+      <I className="w-[18px] h-[18px]" size={18}>
+        <path d="M11 9l-2 2a3 3 0 104 4l1-1" />
+        <path d="M17 19l2-2a3 3 0 10-4-4l-1 1" />
+        <path d="M5 5l18 18" strokeWidth="1.6" />
+      </I>
+    );
+  }
+  if (mode === 'in_layout') {
+    return (
+      <I className="w-[18px] h-[18px]" size={18}>
+        <path d="M11 9l-2 2a3 3 0 104 4l1-1" />
+        <path d="M17 19l2-2a3 3 0 10-4-4l-1 1" />
+      </I>
+    );
+  }
+  // global
+  return (
+    <I className="w-[18px] h-[18px]" size={18}>
+      <path d="M11 9l-2 2a3 3 0 104 4l1-1" />
+      <path d="M17 19l2-2a3 3 0 10-4-4l-1 1" />
+      <circle cx="14" cy="14" r="11" strokeWidth="0.9" strokeDasharray="2 1.5" opacity="0.5" />
+    </I>
   );
 }
 

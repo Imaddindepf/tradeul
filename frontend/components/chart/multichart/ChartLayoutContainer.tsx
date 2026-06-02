@@ -18,13 +18,23 @@ import {
     cellId as makeCellId,
 } from './layoutTemplates';
 import type { ChartSyncBus } from './chartSyncBus';
+import type { ChartContextValue } from '../ChartContext';
 
 interface ChartLayoutContainerProps {
     windowId: string;
     bus: ChartSyncBus;
+    /**
+     * Forwarded to the *active* cell so it can publish its `ChartContextValue`
+     * upward — see `ChartCell` for the rationale.
+     */
+    onActiveContextValue?: (ctx: ChartContextValue | null) => void;
 }
 
-export function ChartLayoutContainer({ windowId, bus }: ChartLayoutContainerProps) {
+export function ChartLayoutContainer({
+    windowId,
+    bus,
+    onActiveContextValue,
+}: ChartLayoutContainerProps) {
     const win = useChartLayoutStore(selectWindow(windowId));
     const setActiveCellId = useChartLayoutStore((s) => s.setActiveCellId);
 
@@ -47,28 +57,34 @@ export function ChartLayoutContainer({ windowId, bus }: ChartLayoutContainerProp
     if (!win) return null;
     const { activeCellId, sync } = win;
 
-    const showCellBadge = tpl.cellCount > 1;
+    const isMulti = tpl.cellCount > 1;
+    const showCellBadge = isMulti;
 
+    /*
+      TradingView uses a 1-pixel gap (rendered as the surrounding bg) between
+      cells in multi-chart, and zero gap in single mode. We match by using a
+      gap of 1px when multi, none when single, and lean on each cell's ring
+      to draw the thin border that gives the grid its TV look.
+    */
     return (
         <div
-            className="flex-1 min-h-0 overflow-hidden p-0.5 gap-0.5 grid w-full h-full"
+            className="flex-1 min-h-0 overflow-hidden grid w-full h-full bg-[color:var(--color-border)]"
             style={{
                 gridTemplateColumns: tpl.grid.columns,
                 gridTemplateRows: tpl.grid.rows,
                 gridTemplateAreas: tpl.grid.areas,
+                gap: isMulti ? '1px' : undefined,
             }}
         >
             {cellList.map(({ idx, state }) => (
                 <div
                     key={state.id}
                     style={{ gridArea: cellArea(idx) }}
-                    className={`min-w-0 min-h-0 overflow-hidden ${
-                        tpl.cellCount > 1
-                            ? `rounded-sm ring-1 ${
-                                activeCellId === state.id
-                                    ? 'ring-[color:var(--color-primary)]/50'
-                                    : 'ring-[color:var(--color-border-subtle)]'
-                            }`
+                    className={`min-w-0 min-h-0 overflow-hidden bg-[color:var(--color-surface)] ${
+                        isMulti
+                            ? activeCellId === state.id
+                                ? 'ring-1 ring-inset ring-[color:var(--color-primary)]/60'
+                                : ''
                             : ''
                     }`}
                 >
@@ -81,6 +97,7 @@ export function ChartLayoutContainer({ windowId, bus }: ChartLayoutContainerProp
                         onActivate={() => setActiveCellId(windowId, state.id)}
                         showCellBadge={showCellBadge}
                         totalCells={tpl.cellCount}
+                        onActiveContextValue={onActiveContextValue}
                     />
                 </div>
             ))}

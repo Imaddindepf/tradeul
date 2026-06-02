@@ -32,6 +32,7 @@ import {
     createCell,
 } from './types';
 import { getLayoutTemplate, cellId } from './layoutTemplates';
+import type { DrawingsSyncMode } from './drawingsSyncBus';
 
 // ============================================================================
 // Per-window state
@@ -49,6 +50,13 @@ export interface ChartLayoutState {
     windows: Record<string, WindowLayoutState>;
     /** Shared, account-wide named template library. */
     savedLayouts: SavedLayout[];
+    /**
+     * Global preference for cross-instance drawings synchronisation:
+     *   • `off`        — independent drawings per chart instance.
+     *   • `in_layout`  — siblings in the same window with the same ticker.
+     *   • `global`     — any chart in the workspace with the same ticker.
+     */
+    drawingsSyncMode: DrawingsSyncMode;
 
     // ── Ensure / read ─────────────────────────────────────────────────────
     /**
@@ -82,6 +90,9 @@ export interface ChartLayoutState {
     loadSavedLayout: (windowId: string, savedId: string) => void;
     renameSavedLayout: (savedId: string, name: string) => void;
     deleteSavedLayout: (savedId: string) => void;
+
+    // ── Drawings sync mode (global preference) ────────────────────────────
+    setDrawingsSyncMode: (mode: DrawingsSyncMode) => void;
 }
 
 // ============================================================================
@@ -167,6 +178,7 @@ export const useChartLayoutStore = create<ChartLayoutState>()(
         (set) => ({
             windows: {},
             savedLayouts: [],
+            drawingsSyncMode: 'in_layout',
 
             // ── Ensure ────────────────────────────────────────────────────
             ensureWindow: (windowId, initialTicker) =>
@@ -412,14 +424,19 @@ export const useChartLayoutStore = create<ChartLayoutState>()(
                 set((state) => ({
                     savedLayouts: state.savedLayouts.filter((s) => s.id !== savedId),
                 })),
+
+            // ── Drawings sync mode (global) ───────────────────────────────
+            setDrawingsSyncMode: (mode) =>
+                set(() => ({ drawingsSyncMode: mode })),
         }),
         {
             name: STORAGE_KEY,
             storage: createJSONStorage(() => localStorage),
-            version: 2,
+            version: 3,
             partialize: (state) => ({
                 windows: state.windows,
                 savedLayouts: state.savedLayouts,
+                drawingsSyncMode: state.drawingsSyncMode,
             }),
         },
     ),
@@ -434,3 +451,5 @@ export const selectWindow = (windowId: string | null) =>
         windowId ? s.windows[windowId] ?? null : null;
 
 export const selectSavedLayouts = (s: ChartLayoutState) => s.savedLayouts;
+
+export const selectDrawingsSyncMode = (s: ChartLayoutState) => s.drawingsSyncMode;
