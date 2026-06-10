@@ -149,18 +149,24 @@ class AlertEngine:
         for d in self.detectors:
             d.reset_daily()
         self.state_cache.clear()
-        self._stats = {"alerts": 0, "ticks": 0}
+        # Debe incluir TODAS las claves que leen _stats_loop y el hot path:
+        # un reset parcial provocaba KeyError 'last_ticks' y crash diario a las 04:00.
+        self._stats = {"alerts": 0, "ticks": 0, "last_alerts": 0, "last_ticks": 0, "tick_times": []}
         try:
             await self.raw_redis.xtrim(STREAM_ALERTS, maxlen=0)
         except Exception as e:
             logger.error(f"Trim error: {e}")
-        await self._refresh_enriched_cache()
-        if self.baseline:
+        # clear_if_empty: si el snapshot nuevo aún no existe, vaciar el cache
+        # de ayer en vez de conservarlo. Extremos y baselines se siembran solo
+        # si hay datos del día; si no, quedan limpios y se re-siembran cuando
+        # llegue el snapshot del premarket (vía _refresh_enriched_cache periódico).
+        await self._refresh_enriched_cache(clear_if_empty=True)
+        if self.baseline and self._enriched_cache:
             syms = list(self._enriched_cache.keys())
             await self.baseline.load_all(syms, current_trading_date)
             for d in self.detectors:
                 d.set_baseline(self.baseline)
-        if self.price_detector:
+        if self.price_detector and self._enriched_cache:
             self._init_extremes()
         logger.info("Daily reset complete")
 
@@ -192,7 +198,9 @@ class AlertEngine:
             except Exception as e:
                 if "NOGROUP" in str(e):
                     try:
-                        await self.raw_redis.xgroup_create(stream, group, id="0", mkstream=True)
+                        # '$' = solo mensajes nuevos: recrear con '0' hacia
+                        # replay del backlog completo => alertas duplicadas
+                        await self.raw_redis.xgroup_create(stream, group, id="$", mkstream=True)
                         continue
                     except Exception:
                         pass
@@ -222,7 +230,8 @@ class AlertEngine:
             except Exception as e:
                 if "NOGROUP" in str(e):
                     try:
-                        await self.raw_redis.xgroup_create(stream, group, id="0", mkstream=True)
+                        # '$' = solo nuevos (evitar replay de halts viejos)
+                        await self.raw_redis.xgroup_create(stream, group, id="$", mkstream=True)
                         continue
                     except Exception:
                         pass
@@ -412,10 +421,16 @@ class AlertEngine:
         except Exception:
             return None
 
-    async def _refresh_enriched_cache(self):
+    async def _refresh_enriched_cache(self, clear_if_empty: bool = False):
         try:
             raw = await self.raw_redis.hgetall("snapshot:enriched:latest")
             if not raw:
+                # En el reset diario el snapshot aún no existe (se borra a las
+                # 3:00 y se reconstruye en premarket). Sin esto se conservaba
+                # el cache de AYER y _init_extremes sembraba el detector con
+                # máximos/mínimos del día anterior (alertas espurias/suprimidas).
+                if clear_if_empty:
+                    self._enriched_cache = {}
                 return
             raw.pop(b"__meta__", None)
             raw.pop("__meta__", None)

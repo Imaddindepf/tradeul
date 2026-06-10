@@ -125,10 +125,12 @@ class PriceWindowTracker:
         self.next_index: int = 0
         
         # Pre-allocated numpy arrays (contiguous memory)
-        # Using int64 for timestamps, float64 for prices (need decimals!)
+        # int32 para timestamps: unix seconds cabe hasta 2038 y reduce el
+        # array de timestamps a la mitad (con 20K+ simbolos son cientos de MB).
+        # float64 para precios: precision completa, no negociable para traders.
         self.timestamps = np.zeros(
             (self._capacity, self.config.window_size),
-            dtype=np.int64
+            dtype=np.int32
         )
         self.prices = np.zeros(
             (self._capacity, self.config.window_size),
@@ -596,24 +598,44 @@ class PriceWindowTracker:
     def clear_all(self) -> int:
         """
         Clear all data (for new trading day).
-        
+
+        Reset COMPLETO: vacia tambien symbol_index y devuelve la capacidad
+        expandida al baseline. Antes se conservaban el indice y los arrays
+        crecidos, asi que los simbolos se acumulaban entre dias (IPOs,
+        tickers esporadicos, delistados) y la memoria solo podia crecer
+        (trinquete: llego a 22.5K simbolos / ~2.5 GB). Los simbolos activos
+        se re-registran solos con el primer aggregate del dia.
+
         Returns:
             Number of symbols cleared
         """
         count = len(self.symbol_index)
-        
-        # Reset all arrays
-        self.timestamps.fill(0)
-        self.prices.fill(0.0)
-        self.heads.fill(0)
-        self.counts.fill(0)
-        self._last_update_second.fill(0)
-        
-        # Keep symbol_index mapping (symbols don't change)
-        # Just reset their data
-        
-        logger.info("price_window_tracker_cleared", symbols=count)
-        
+
+        baseline = self.config.max_symbols
+        if self._capacity > baseline:
+            # Reasignar al baseline: libera de verdad la memoria expandida
+            self.timestamps = np.zeros((baseline, self.config.window_size), dtype=np.int32)
+            self.prices = np.zeros((baseline, self.config.window_size), dtype=np.float64)
+            self.heads = np.zeros(baseline, dtype=np.int32)
+            self.counts = np.zeros(baseline, dtype=np.int32)
+            self._last_update_second = np.zeros(baseline, dtype=np.int64)
+            self._capacity = baseline
+        else:
+            self.timestamps.fill(0)
+            self.prices.fill(0.0)
+            self.heads.fill(0)
+            self.counts.fill(0)
+            self._last_update_second.fill(0)
+
+        self.symbol_index = {}
+        self.next_index = 0
+
+        logger.info(
+            "price_window_tracker_cleared",
+            symbols=count,
+            capacity=self._capacity,
+        )
+
         return count
 
 

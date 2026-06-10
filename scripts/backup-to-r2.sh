@@ -12,6 +12,20 @@
 
 set -euo pipefail
 
+# Fallo NUNCA silencioso: entre el 13-may y el 9-jun-2026 el backup estuvo
+# roto (tar fallaba por scripts/init_db.sql ausente) y nadie se enteró.
+# Cualquier error aborta con rastro en el log, en syslog y en un fichero
+# de estado que el watchdog puede vigilar.
+STATUS_FILE="/var/log/tradeul-backup-status"
+on_error() {
+    local line=$1
+    echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] \033[0;31m❌ BACKUP FALLIDO en línea ${line}\033[0m"
+    logger -t tradeul-backup -p user.err "BACKUP FALLIDO en línea ${line} del script"
+    echo "FAILED $(date '+%Y-%m-%d %H:%M:%S') line=${line}" > "$STATUS_FILE"
+    exit 1
+}
+trap 'on_error $LINENO' ERR
+
 # --- Configuración ---
 BACKUP_DIR="/tmp/tradeul-backup"
 PROJECT_DIR="/opt/tradeul"
@@ -89,12 +103,13 @@ log "Redis dump completado: $REDIS_SIZE"
 log "Copiando configuración..."
 CONFIG_FILE="$BACKUP_DIR/config_${TIMESTAMP}.tar.gz"
 
+# Sin 2>/dev/null: si falta un archivo, queremos verlo en el log (un tar
+# fallando en silencio fue la causa de 28 días sin backups).
 tar czf "$CONFIG_FILE" \
     -C "$PROJECT_DIR" \
     .env \
     docker-compose.yml \
-    scripts/init_db.sql \
-    2>/dev/null
+    scripts/init_db.sql
 
 CONFIG_SIZE=$(du -sh "$CONFIG_FILE" | cut -f1)
 log "Config backup completado: $CONFIG_SIZE"
@@ -136,7 +151,15 @@ log "Subiendo a Cloudflare R2..."
 DAILY_PATH="${R2_REMOTE}/daily/${DATE}"
 rclone copy "$BACKUP_DIR/" "$DAILY_PATH/" --progress --transfers 4 2>&1 | tail -5
 
-log "Subido a R2: $DAILY_PATH"
+# Verificar que la subida llegó de verdad (rclone en pipe no aborta con set -e)
+UPLOADED_COUNT=$(rclone ls "$DAILY_PATH/" 2>/dev/null | wc -l)
+LOCAL_COUNT=$(ls -1 "$BACKUP_DIR/" | wc -l)
+if [ "$UPLOADED_COUNT" -lt "$LOCAL_COUNT" ]; then
+    error "Subida incompleta a R2: ${UPLOADED_COUNT}/${LOCAL_COUNT} archivos"
+    false  # dispara el trap ERR
+fi
+
+log "Subido a R2: $DAILY_PATH (${UPLOADED_COUNT} archivos verificados)"
 
 # Si es domingo, copiar también como backup semanal
 if [ "$DAY_OF_WEEK" -eq 7 ]; then
@@ -183,6 +206,7 @@ END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
 echo "============================================================"
+echo "OK $(date '+%Y-%m-%d %H:%M:%S') duration=${DURATION}s files=${UPLOADED_COUNT}" > "$STATUS_FILE"
 log "BACKUP COMPLETADO en ${DURATION}s"
 echo "  📦 TimescaleDB: $PGDUMP_SIZE"
 echo "  📦 Redis:       $REDIS_SIZE"

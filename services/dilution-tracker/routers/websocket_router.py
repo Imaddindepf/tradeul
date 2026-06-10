@@ -135,7 +135,10 @@ class ConnectionManager:
         self._redis = await aioredis.from_url(
             f"redis://:{settings.redis_password}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
             encoding="utf-8",
-            decode_responses=True
+            decode_responses=True,
+            socket_keepalive=True,
+            health_check_interval=30,
+            retry_on_timeout=True
         )
         
         pubsub = self._redis.pubsub()

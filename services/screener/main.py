@@ -146,7 +146,13 @@ async def lifespan(app: FastAPI):
     
     # Initialize Redis connection for indicator export
     try:
-        redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+        redis_client = aioredis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_keepalive=True,
+            health_check_interval=30,
+            retry_on_timeout=True,
+        )
         await redis_client.ping()
         logger.info("redis_connected", url=settings.redis_url)
     except Exception as e:

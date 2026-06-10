@@ -273,6 +273,14 @@ class ReactiveFilingOrchestratorV2:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                # NOGROUP: recrear el grupo en vez de quedar en error infinito
+                if "NOGROUP" in str(exc):
+                    logger.warning("reactive_orchestrator_group_missing_recreating")
+                    try:
+                        await self._ensure_group()
+                        continue
+                    except Exception as group_exc:
+                        logger.error("reactive_orchestrator_group_recreate_failed", error=str(group_exc))
                 logger.error("reactive_orchestrator_loop_error", error=str(exc))
                 await asyncio.sleep(2)
 
@@ -393,7 +401,14 @@ class ReactiveFilingOrchestratorV2:
             )
         else:
             redis_url = f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
-        return await aioredis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+        return await aioredis.from_url(
+            redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+            socket_keepalive=True,
+            health_check_interval=30,
+            retry_on_timeout=True,
+        )
 
 
 def _safe_filing_date(value: Any):

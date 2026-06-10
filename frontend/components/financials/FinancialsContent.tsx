@@ -168,7 +168,7 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
 // API
 // ============================================================================
 
-const API_URL = process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhost:8000';
 
 // ============================================================================
 // MAIN COMPONENT

@@ -263,13 +263,16 @@ class MaintenanceOrchestrator:
                 except Exception as e:
                     logger.warning(f"Failed to delete pattern {pattern}: {e}")
             
-            # Publicar evento de nuevo día
+            # Publicar evento de nuevo día.
+            # action debe ser "clear_caches": el consumidor (cache_cleaner.js
+            # del websocket_server) exige ese valor exacto; con
+            # "caches_cleared" este publish se ignoraba en silencio.
             await self.redis.client.publish(
                 "trading:new_day",
                 json.dumps({
                     "event": "new_trading_day",
                     "date": target_date.isoformat(),
-                    "action": "caches_cleared"
+                    "action": "clear_caches"
                 })
             )
             

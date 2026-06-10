@@ -37,8 +37,10 @@ def set_timescale_client(client):
 
 # ── Caches ──
 
-_rrg_cache: Dict[str, Tuple[float, dict]] = {}
+from bounded_cache import BoundedTTLCache
+
 RRG_CACHE_TTL = 300  # 5 min for trail (historical)
+_rrg_cache = BoundedTTLCache(maxsize=64, ttl_seconds=RRG_CACHE_TTL)
 
 _cls_cache: Dict[str, Dict] = {}
 _cls_ts: float = 0
@@ -120,11 +122,7 @@ async def get_rrg(
     snapshot_key = metric_info["snapshot_key"]
 
     cache_key = f"rrg6:{group_by}:{rs_metric}:{benchmark}:{tail_length}:{min_market_cap}"
-    cached = _rrg_cache.get(cache_key)
-    if cached and time.time() - cached[0] < RRG_CACHE_TTL:
-        trail_result = cached[1]
-    else:
-        trail_result = None
+    trail_result = _rrg_cache.get(cache_key)
 
     # ── Load enriched snapshot (always, for live point + market cap filter) ──
     raw_snapshot = await _redis_client.client.hgetall("snapshot:enriched:latest")
@@ -322,7 +320,7 @@ async def get_rrg(
             "sma_slow": sma_slow,
             "mom_sma": mom_sma,
         }
-        _rrg_cache[cache_key] = (time.time(), trail_result)
+        _rrg_cache.set(cache_key, trail_result)
 
     # ══════════════════════════════════════════════
     # Phase 2: LIVE current point from snapshot

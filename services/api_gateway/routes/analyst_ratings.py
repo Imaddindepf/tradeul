@@ -15,9 +15,10 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/analyst-ratings", tags=["analyst-ratings"])
 
-_cache: Dict[str, Any] = {}
-_cache_ts: Dict[str, float] = {}
+from bounded_cache import BoundedTTLCache
+
 CACHE_TTL = 3600  # 1 hour
+_cache = BoundedTTLCache(maxsize=256, ttl_seconds=CACHE_TTL)
 
 _UPSTREAM = "https://www.perplexity.ai/rest/finance/analyst-ratings"
 _BASE_HEADERS = {
@@ -74,9 +75,9 @@ async def get_analyst_ratings(
     if not ticker.isalpha() or len(ticker) > 5:
         raise HTTPException(status_code=400, detail="Invalid ticker")
 
-    now = time.time()
-    if ticker in _cache and (now - _cache_ts.get(ticker, 0)) < CACHE_TTL:
-        return _cache[ticker]
+    cached = _cache.get(ticker)
+    if cached is not None:
+        return cached
 
     try:
         data = _fetch_ratings(ticker)
@@ -84,14 +85,11 @@ async def get_analyst_ratings(
             logger.warning(f"analyst_ratings_fetch_failed ticker={ticker}")
             raise HTTPException(status_code=502, detail="Upstream unavailable")
 
-        _cache[ticker] = data
-        _cache_ts[ticker] = now
+        _cache.set(ticker, data)
         return data
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"analyst_ratings_error ticker={ticker} error={e}")
-        if ticker in _cache:
-            return _cache[ticker]
         raise HTTPException(status_code=502, detail="Failed to fetch analyst ratings")

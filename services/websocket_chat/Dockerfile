@@ -14,6 +14,7 @@ COPY services/websocket_chat/src ./src
 # Expose chat WS port (different from scanner 9000)
 EXPOSE 9001
 
-# Run
-CMD ["node", "src/index.js"]
+# Run. --max-old-space-size=768: sin el flag, V8 limita el heap a ~512MB en
+# un contenedor de 1GB; 768MB deja ~250MB para buffers nativos y overhead.
+CMD ["node", "--max-old-space-size=768", "src/index.js"]
 

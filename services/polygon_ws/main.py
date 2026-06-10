@@ -690,9 +690,12 @@ async def manage_subscriptions():
     
     # Crear consumer group si no existe
     try:
+        # id="$": stream de comandos efímeros; si el grupo se pierde no
+        # queremos reprocesar el backlog de subscribe/unsubscribe obsoletos
         await redis_client.create_consumer_group(
             input_stream,
             consumer_group,
+            id="$",
             mkstream=True
         )
         logger.info(f"Consumer group '{consumer_group}' created")
@@ -781,7 +784,8 @@ async def manage_subscriptions():
                 consumer_group=consumer_group,
                 consumer_name=consumer_name,
                 count=100,
-                block=5000  # 5 segundos
+                block=5000,
+                recreate_id="$"
             )
             
             if messages:
@@ -882,6 +886,7 @@ async def manage_quote_subscriptions():
         await redis_client.create_consumer_group(
             input_stream,
             consumer_group,
+            id="$",
             mkstream=True
         )
         logger.info(f"Consumer group '{consumer_group}' created for quotes")
@@ -909,7 +914,8 @@ async def manage_quote_subscriptions():
                 consumer_group=consumer_group,
                 consumer_name=consumer_name,
                 count=100,
-                block=5000  # 5 segundos
+                block=5000,
+                recreate_id="$"
             )
             
             if messages:
@@ -1010,6 +1016,7 @@ async def manage_catalyst_subscriptions():
         await redis_client.create_consumer_group(
             input_stream,
             consumer_group,
+            id="$",
             mkstream=True
         )
         logger.info(f"Consumer group '{consumer_group}' created for catalyst")
@@ -1038,7 +1045,8 @@ async def manage_catalyst_subscriptions():
                 consumer_group=consumer_group,
                 consumer_name=consumer_name,
                 count=100,
-                block=2000  # 2 segundos (más rápido para alertas)
+                block=2000,
+                recreate_id="$"
             )
             
             if messages:
@@ -1329,6 +1337,7 @@ async def manage_trade_subscriptions():
         await redis_client.create_consumer_group(
             input_stream,
             consumer_group,
+            id="$",
             mkstream=True
         )
         logger.info(f"Consumer group '{consumer_group}' created for trades")
@@ -1356,7 +1365,8 @@ async def manage_trade_subscriptions():
                 consumer_group=consumer_group,
                 consumer_name=consumer_name,
                 count=100,
-                block=5000
+                block=5000,
+                recreate_id="$"
             )
             
             if not messages:

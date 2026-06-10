@@ -172,6 +172,40 @@ function injectNewsContent(
     // ============================================================
     // WEBSOCKET (SharedWorker)
     // ============================================================
+    function wsBaseUrl() {
+      try {
+        const u = new URL(CONFIG.wsUrl);
+        u.searchParams.delete('token');
+        return u.toString();
+      } catch (e) {
+        return CONFIG.wsUrl;
+      }
+    }
+
+    function requestFreshTokenFromOpener() {
+      if (window.opener) {
+        try {
+          window.opener.postMessage(
+            { type: 'tradeul:request-ws-token', requestId: Date.now() },
+            window.location.origin
+          );
+        } catch (e) {
+          console.error('❌ [News Window] Failed to request token from opener:', e);
+        }
+      }
+    }
+
+    window.addEventListener('message', function (event) {
+      if (event.origin !== window.location.origin) return;
+      const d = event.data;
+      if (!d || d.type !== 'tradeul:ws-token' || !workerPort) return;
+      const base = wsBaseUrl();
+      const url = d.token
+        ? base + (base.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(d.token)
+        : base;
+      workerPort.postMessage({ action: 'update_token', url: url, token: d.token });
+    });
+
     function initWebSocket() {
       try {
         
@@ -190,6 +224,9 @@ function injectNewsContent(
               if (msg.isConnected) {
                 workerPort.postMessage({ action: 'subscribe_news' });
               }
+              break;
+            case 'request_fresh_token':
+              requestFreshTokenFromOpener();
               break;
           }
         };

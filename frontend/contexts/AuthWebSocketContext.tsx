@@ -181,6 +181,44 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
     }, [isSignedIn, isAuthenticated, ws.tokenRefreshRequest$, ws.updateToken, getToken]);
 
     // =========================================================================
+    // PUENTE DE TOKEN PARA VENTANAS POPOUT (window.open hijas)
+    // Las ventanas inyectadas (scanner/news/SEC) no tienen contexto de Clerk.
+    // Cuando su SharedWorker pide un token fresco para reconectar, nos lo
+    // solicitan via postMessage y respondemos con un JWT recién emitido.
+    // Sin esto, los popouts quedan bloqueados tras cualquier corte de WS.
+    // =========================================================================
+    useEffect(() => {
+        if (!isSignedIn || !isAuthenticated) return;
+        if (typeof window === 'undefined') return;
+
+        const handler = async (event: MessageEvent) => {
+            // Solo aceptar peticiones del mismo origen.
+            if (event.origin !== window.location.origin) return;
+            const data = event.data;
+            if (!data || data.type !== 'tradeul:request-ws-token') return;
+
+            const source = event.source as WindowProxy | null;
+            if (!source) return;
+
+            try {
+                const freshToken = await getToken({ skipCache: true });
+                source.postMessage(
+                    { type: 'tradeul:ws-token', requestId: data.requestId, token: freshToken || null },
+                    event.origin
+                );
+            } catch (error) {
+                source.postMessage(
+                    { type: 'tradeul:ws-token', requestId: data.requestId, token: null },
+                    event.origin
+                );
+            }
+        };
+
+        window.addEventListener('message', handler);
+        return () => window.removeEventListener('message', handler);
+    }, [isSignedIn, isAuthenticated, getToken]);
+
+    // =========================================================================
     // CONTEXT VALUE
     // =========================================================================
     const contextValue = useMemo(() => ({

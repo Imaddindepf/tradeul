@@ -16,8 +16,11 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["proxy"])
 
-# In-memory cache for logos (simple TTL-less cache, resets on restart)
-_logo_cache: dict[str, bytes] = {}
+# In-memory cache for logos. Acotado: max 1500 logos (~<50MB) con TTL 24h;
+# antes era un dict sin limite que crecia indefinidamente.
+from bounded_cache import BoundedTTLCache
+
+_logo_cache = BoundedTTLCache(maxsize=1500, ttl_seconds=86400)
 
 # Internal service URLs (only accessible within Docker network)
 MARKET_SESSION_URL = "http://market_session:8002"
@@ -347,9 +350,10 @@ async def proxy_logo(symbol: str):
     symbol = symbol.upper()
     
     # Check cache first
-    if symbol in _logo_cache:
+    cached_logo = _logo_cache.get(symbol)
+    if cached_logo is not None:
         return Response(
-            content=_logo_cache[symbol],
+            content=cached_logo,
             media_type="image/png",
             headers={"Cache-Control": "public, max-age=86400"}
         )
@@ -371,7 +375,7 @@ async def proxy_logo(symbol: str):
                     if content[:4] == b'\x89PNG' or content[:2] == b'\xff\xd8':
                         # Cache if small enough (< 100KB)
                         if len(content) < 100000:
-                            _logo_cache[symbol] = content
+                            _logo_cache.set(symbol, content)
                         return Response(
                             content=content,
                             media_type="image/png",

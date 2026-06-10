@@ -40,7 +40,10 @@ class CacheManager:
                 settings.get_redis_url(),
                 encoding="utf-8",
                 decode_responses=True,
-                max_connections=20
+                max_connections=20,
+                socket_keepalive=True,
+                health_check_interval=30,
+                retry_on_timeout=True
             )
             await self._client.ping()
             logger.info("cache_manager_connected")

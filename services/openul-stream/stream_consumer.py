@@ -23,6 +23,7 @@ import structlog
 import orjson
 
 from config import settings
+from publisher import publish_news_item
 
 logger = structlog.get_logger(__name__)
 
@@ -323,14 +324,18 @@ class XFilteredStreamConsumer:
             results = await self._redis.xrevrange(
                 "stream:realtime:quotes", "+", "-", count=50,
             )
+            # Claves str: el cliente se crea con decode_responses=True, así
+            # que las claves bytes (b"symbol") no matcheaban NUNCA y esta
+            # función siempre devolvía None (la detección de reacciones de
+            # precio caía silenciosamente al snapshot retrasado).
             for _msg_id, fields in results:
-                if fields.get(b"symbol", b"").decode() == ticker:
+                if fields.get("symbol", "") == ticker:
                     return {
-                        "bid": float(fields.get(b"bid_price", 0)),
-                        "ask": float(fields.get(b"ask_price", 0)),
-                        "bid_size": int(fields.get(b"bid_size", 0)),
-                        "ask_size": int(fields.get(b"ask_size", 0)),
-                        "ts": int(fields.get(b"timestamp", 0)),
+                        "bid": float(fields.get("bid_price", 0)),
+                        "ask": float(fields.get("ask_price", 0)),
+                        "bid_size": int(fields.get("bid_size", 0)),
+                        "ask_size": int(fields.get("ask_size", 0)),
+                        "ts": int(fields.get("timestamp", 0)),
                     }
         except Exception:
             pass
@@ -490,31 +495,14 @@ class XFilteredStreamConsumer:
             await self._unsubscribe_quotes(tracked)
 
     async def _publish_to_redis(self, item: Dict[str, Any]):
-        """Publish a news item to Redis Stream + Sorted Set."""
-        pipe = self._redis.pipeline()
-
-        payload = json.dumps(item)
-
-        # 1. XADD to Redis Stream (for SSE consumers)
-        pipe.xadd(
-            settings.redis_stream_key,
-            {"data": payload},
-            maxlen=settings.redis_stream_maxlen,
-            approximate=True,
-        )
-
-        # 2. ZADD to sorted set (for historical queries, scored by timestamp)
-        score = item.get("received_ts", time.time())
-        pipe.zadd(settings.redis_latest_key, {payload: score})
-
-        # 3. Trim sorted set
-        pipe.zremrangebyrank(settings.redis_latest_key, 0, -(settings.redis_latest_maxlen + 1))
-
-        # 4. Pub/Sub for instant broadcast
-        pipe.publish("openul:live", payload)
-
-        await pipe.execute()
-
+        """
+        Publish a news item to Redis Stream + Sorted Set + Pub/Sub.
+        Delegates to the shared publisher so the stream id is captured and
+        propagated, enabling resumable SSE delivery.
+        """
+        if not item.get("received_ts"):
+            item["received_ts"] = time.time()
+        await publish_news_item(self._redis, item)
         self._stats["tweets_published"] += 1
         self._stats["last_tweet_at"] = item.get("received_at")
 

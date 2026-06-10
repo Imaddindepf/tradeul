@@ -39,7 +39,15 @@ class RedisClient:
                 self.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                max_connections=200
+                max_connections=200,
+                # Resiliencia ante caidas/reinicios de Redis:
+                # - keepalive detecta sockets medio-muertos (contenedor reiniciado)
+                # - health_check_interval valida conexiones del pool antes de usarlas,
+                #   evitando que una conexion stale haga fallar el primer comando
+                # - retry_on_timeout reintenta comandos en timeouts transitorios
+                socket_keepalive=True,
+                health_check_interval=30,
+                retry_on_timeout=True,
             )
             await self._client.ping()
             logger.info("Connected to Redis", url=self.redis_url)
@@ -476,7 +484,8 @@ class RedisClient:
         consumer_group: str,
         consumer_name: str,
         count: int = 100,
-        block: int = 5000
+        block: int = 5000,
+        recreate_id: str = '0'
     ) -> List[tuple]:
         """
         Read from stream using consumer group
@@ -487,6 +496,9 @@ class RedisClient:
             consumer_name: Consumer name
             count: Max messages to read
             block: Block time in milliseconds
+            recreate_id: ID inicial si el grupo no existe y hay que crearlo.
+                Usar '$' para streams de comandos efímeros (evita reprocesar
+                el backlog entero de comandos obsoletos tras perder el grupo).
         
         Returns:
             List of (stream_name, messages) tuples
@@ -497,7 +509,7 @@ class RedisClient:
                 await self.client.xgroup_create(
                     stream_name,
                     consumer_group,
-                    id='0',
+                    id=recreate_id,
                     mkstream=True
                 )
             except RedisError:
@@ -549,22 +561,24 @@ class RedisClient:
                 count=count
             )
             
-            # Convertir formato de aioredis a tuplas (id, data)
+            # redis-py devuelve fields como dict {key: value}. El código
+            # anterior lo trataba como lista plana → KeyError: 0 en la
+            # primera iteración y este método fallaba SIEMPRE que el stream
+            # tenía mensajes.
             result = []
             for msg_id, fields in messages:
                 data = {}
-                for i in range(0, len(fields), 2):
-                    if i + 1 < len(fields):
-                        key = fields[i].decode() if isinstance(fields[i], bytes) else fields[i]
-                        value = fields[i + 1]
-                        # Intentar deserializar JSON si es posible
-                        if isinstance(value, bytes):
-                            try:
-                                data[key] = orjson.loads(value)
-                            except (orjson.JSONDecodeError, Exception):
-                                data[key] = value.decode()
-                        else:
-                            data[key] = value
+                items = fields.items() if isinstance(fields, dict) else zip(fields[::2], fields[1::2])
+                for k, value in items:
+                    key = k.decode() if isinstance(k, bytes) else k
+                    # Intentar deserializar JSON si es posible
+                    if isinstance(value, bytes):
+                        try:
+                            data[key] = orjson.loads(value)
+                        except Exception:
+                            data[key] = value.decode()
+                    else:
+                        data[key] = value
                 result.append((msg_id.decode() if isinstance(msg_id, bytes) else msg_id, data))
             
             return result

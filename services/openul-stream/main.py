@@ -23,6 +23,7 @@ import structlog
 import redis.asyncio as aioredis
 
 from config import settings
+from publisher import publish_news_item
 from stream_consumer import XFilteredStreamConsumer
 from trader_auth import verify_trader_key_ws, verify_trader_key_http, TraderSession
 
@@ -153,13 +154,38 @@ async def feed_status():
 
 # ── SSE Endpoint (real-time push to frontend) ──────────────────────────
 
+# Hard cap on backfill size to bound the work we do on a long disconnect.
+# An average client offline for hours will still get every message in the
+# Redis Stream (currently 5 000 entries), but a misbehaving client cannot
+# block the event loop forever.
+SSE_BACKFILL_MAX = 1000
+
+
 @app.get("/api/v1/stream")
-async def sse_stream(request: Request):
+async def sse_stream(
+    request: Request,
+    last_event_id_header: Optional[str] = Header(default=None, alias="last-event-id"),
+    last_event_id_query: Optional[str] = QueryParam(
+        default=None,
+        alias="last_event_id",
+        description="Stream id to resume from (alternative to Last-Event-ID header)",
+    ),
+):
     """
-    Server-Sent Events endpoint.
-    Frontend connects here for real-time breaking news push.
-    Uses Redis Pub/Sub for instant delivery.
+    Server-Sent Events endpoint with resumable delivery.
+
+    Each event is emitted with an `id:` line carrying the Redis Stream id.
+    On reconnect, EventSource sends `Last-Event-ID` automatically; we use
+    it (or the `last_event_id` query param as a fallback for clients that
+    cannot set the header) to replay every news item the consumer missed
+    while disconnected, then we drop into the Pub/Sub live loop.
+
+    Subscription order matters: we subscribe to Pub/Sub *before* doing the
+    XRANGE backfill so any item published during the backfill window is
+    captured live and de-duplicated against the backfilled set.
     """
+    last_event_id = last_event_id_header or last_event_id_query
+
     async def event_generator():
         if not redis_client:
             yield f"data: {json.dumps({'error': 'redis not available'})}\n\n"
@@ -168,19 +194,80 @@ async def sse_stream(request: Request):
         pubsub = redis_client.pubsub()
         await pubsub.subscribe("openul:live")
 
-        try:
-            yield f"data: {json.dumps({'type': 'connected', 'ts': datetime.now(timezone.utc).isoformat()})}\n\n"
+        # Track ids we already delivered so we don't duplicate at the
+        # backfill→live boundary. Bounded set; we trim when it grows large.
+        delivered_ids: set[str] = set()
 
+        try:
+            yield (
+                f"data: "
+                f"{json.dumps({'type': 'connected', 'ts': datetime.now(timezone.utc).isoformat(), 'resume_from': last_event_id})}"
+                f"\n\n"
+            )
+
+            # ── Backfill ────────────────────────────────────────────────
+            if last_event_id:
+                try:
+                    entries = await redis_client.xrange(
+                        settings.redis_stream_key,
+                        min=f"({last_event_id}",  # exclusive lower bound
+                        max="+",
+                        count=SSE_BACKFILL_MAX,
+                    )
+                    for entry_id, fields in entries:
+                        try:
+                            item = json.loads(fields.get("data", "{}"))
+                        except json.JSONDecodeError:
+                            continue
+                        item["stream_id"] = entry_id
+                        delivered_ids.add(entry_id)
+                        yield f"id: {entry_id}\ndata: {json.dumps(item)}\n\n"
+                    if entries:
+                        logger.info(
+                            "sse_backfill_sent",
+                            count=len(entries),
+                            from_id=last_event_id,
+                            to_id=entries[-1][0],
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "sse_backfill_error",
+                        error=str(e),
+                        last_event_id=last_event_id,
+                    )
+
+            # ── Live loop ────────────────────────────────────────────────
             while True:
                 if await request.is_disconnected():
                     break
 
-                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                # timeout=15 hace de espera: el sleep(15) adicional que había
+                # tras cada silencio metía hasta 15s de latencia en breaking
+                # news. Ahora la entrega es inmediata en cuanto llega mensaje.
+                msg = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=15.0
+                )
                 if msg and msg["type"] == "message":
-                    yield f"data: {msg['data']}\n\n"
+                    raw = msg["data"]
+                    sid = None
+                    try:
+                        sid = json.loads(raw).get("stream_id")
+                    except json.JSONDecodeError:
+                        pass
+
+                    if sid:
+                        if sid in delivered_ids:
+                            continue  # already delivered via backfill
+                        delivered_ids.add(sid)
+                        # Cap memory: keep only the last 2 000 ids
+                        if len(delivered_ids) > 2000:
+                            delivered_ids = set(list(delivered_ids)[-1000:])
+                        yield f"id: {sid}\ndata: {raw}\n\n"
+                    else:
+                        # Legacy items published without stream_id — still deliver.
+                        yield f"data: {raw}\n\n"
                 else:
                     yield f": keepalive {int(time.time())}\n\n"
-                    await asyncio.sleep(15)
 
         finally:
             await pubsub.unsubscribe("openul:live")
@@ -282,23 +369,21 @@ async def ingest_news(
     }
 
     try:
-        payload = json.dumps(news_item)
-        pipe = redis_client.pipeline()
-        pipe.xadd(settings.redis_stream_key, {"data": payload},
-                  maxlen=settings.redis_stream_maxlen, approximate=True)
-        pipe.zadd(settings.redis_latest_key, {payload: now_utc.timestamp()})
-        pipe.zremrangebyrank(settings.redis_latest_key, 0, -(settings.redis_latest_maxlen + 1))
-        pipe.publish("openul:live", payload)
-        await pipe.execute()
+        stream_id = await publish_news_item(redis_client, news_item)
         global last_news_published_at
         last_news_published_at = time.time()
     except Exception as e:
         logger.error("ingest_redis_error", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to publish news")
 
-    logger.info("ingest_published", id=news_item["id"], source=item.source,
-                text_preview=text[:80])
-    return {"status": "ok", "id": news_item["id"]}
+    logger.info(
+        "ingest_published",
+        id=news_item["id"],
+        stream_id=stream_id,
+        source=item.source,
+        text_preview=text[:80],
+    )
+    return {"status": "ok", "id": news_item["id"], "stream_id": stream_id}
 
 
 # ── REST: Stream history (Redis Stream XRANGE) ─────────────────────────
@@ -309,8 +394,8 @@ async def get_history(
     last_id: Optional[str] = QueryParam(None, description="Last stream ID for pagination"),
 ):
     """
-    Read from Redis Stream directly (XREVRANGE).
-    Useful for backfilling on reconnect.
+    Read from Redis Stream directly (XREVRANGE — newest first).
+    Useful for paginating history backwards.
     """
     if not redis_client:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -332,6 +417,55 @@ async def get_history(
 
     except Exception as e:
         logger.error("get_history_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── REST: Resumable backfill (Redis Stream XRANGE ascending) ───────────
+
+@app.get("/api/v1/backfill")
+async def get_backfill(
+    since_id: str = QueryParam(..., description="Stream ID to resume from (exclusive)"),
+    count: int = QueryParam(500, ge=1, le=2000, description="Max items to return"),
+):
+    """
+    Return every news item with a stream id strictly greater than `since_id`,
+    in chronological order. This is the explicit fallback the frontend uses
+    on `visibilitychange` to fill any gap created by a zombie SSE connection
+    while the tab was inactive.
+
+    Stream ids are Redis-Stream-native ('<unix-ms>-<seq>') so the comparison
+    is monotonic and lossless.
+    """
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    try:
+        entries = await redis_client.xrange(
+            settings.redis_stream_key,
+            min=f"({since_id}",  # exclusive lower bound
+            max="+",
+            count=count,
+        )
+
+        items = []
+        for entry_id, fields in entries:
+            try:
+                item = json.loads(fields.get("data", "{}"))
+                item["stream_id"] = entry_id
+                items.append(item)
+            except json.JSONDecodeError:
+                continue
+
+        return {
+            "status": "OK",
+            "count": len(items),
+            "since_id": since_id,
+            "last_id": entries[-1][0] if entries else since_id,
+            "results": items,
+        }
+
+    except Exception as e:
+        logger.error("get_backfill_error", error=str(e), since_id=since_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 

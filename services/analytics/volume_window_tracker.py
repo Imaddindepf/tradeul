@@ -104,10 +104,12 @@ class VolumeWindowTracker:
         self.next_index: int = 0
         
         # Pre-allocated numpy arrays (contiguous memory)
-        # Using int64 for timestamps (unix seconds) and volumes
+        # int32 para timestamps (unix seconds, valido hasta 2038): mitad de
+        # memoria. int64 para volumenes: el acumulado diario puede superar
+        # 2^31 en dias extremos (meme stocks >2B acciones).
         self.timestamps = np.zeros(
             (self._capacity, self.config.window_size),
-            dtype=np.int64
+            dtype=np.int32
         )
         self.volumes = np.zeros(
             (self._capacity, self.config.window_size),
@@ -481,24 +483,40 @@ class VolumeWindowTracker:
     def clear_all(self) -> int:
         """
         Clear all data (for new trading day).
-        
+
+        Reset COMPLETO: vacia symbol_index y devuelve la capacidad expandida
+        al baseline (ver nota equivalente en PriceWindowTracker.clear_all —
+        sin esto los simbolos se acumulan entre dias y la memoria solo crece).
+
         Returns:
             Number of symbols cleared
         """
         count = len(self.symbol_index)
-        
-        # Reset all arrays
-        self.timestamps.fill(0)
-        self.volumes.fill(0)
-        self.heads.fill(0)
-        self.counts.fill(0)
-        self._last_update_second.fill(0)
-        
-        # Keep symbol_index mapping (symbols don't change)
-        # Just reset their data
-        
-        logger.info("volume_window_tracker_cleared", symbols=count)
-        
+
+        baseline = self.config.max_symbols
+        if self._capacity > baseline:
+            self.timestamps = np.zeros((baseline, self.config.window_size), dtype=np.int32)
+            self.volumes = np.zeros((baseline, self.config.window_size), dtype=np.int64)
+            self.heads = np.zeros(baseline, dtype=np.int32)
+            self.counts = np.zeros(baseline, dtype=np.int32)
+            self._last_update_second = np.zeros(baseline, dtype=np.int64)
+            self._capacity = baseline
+        else:
+            self.timestamps.fill(0)
+            self.volumes.fill(0)
+            self.heads.fill(0)
+            self.counts.fill(0)
+            self._last_update_second.fill(0)
+
+        self.symbol_index = {}
+        self.next_index = 0
+
+        logger.info(
+            "volume_window_tracker_cleared",
+            symbols=count,
+            capacity=self._capacity,
+        )
+
         return count
 
 

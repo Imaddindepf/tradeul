@@ -391,16 +391,40 @@ class SessionDetector:
                 )
             )
             
-            # Update state
+            # Publicar ANTES de actualizar el estado en memoria, con reintentos.
+            # Si actualizáramos el estado primero y Redis fallara justo aquí,
+            # el cambio no se re-detectaría nunca y el DAY_CHANGED se perdería
+            # para siempre (pub/sub no tiene replay): analytics, scanner y
+            # alert_engine operarían todo el día con datos de ayer.
+            published = False
+            for attempt in range(1, 4):
+                try:
+                    await self._save_session_to_redis(status)
+                    await self._publish_session_change_event(event)
+                    published = True
+                    break
+                except Exception as e:
+                    logger.error(
+                        "session_change_publish_failed",
+                        attempt=attempt,
+                        error=str(e)
+                    )
+                    await asyncio.sleep(min(2 ** attempt, 8))
+            
+            if not published:
+                # Estado intacto: la próxima iteración del loop re-detecta el
+                # cambio y vuelve a intentar publicar.
+                logger.error(
+                    "session_change_NOT_published_will_retry",
+                    to_session=str(status.current_session),
+                    is_new_day=day_changed
+                )
+                return None
+            
+            # Update state (solo tras publicar con éxito)
             self.last_session = status.current_session
             self.last_trading_date = status.trading_date
             self.session_change_count += 1
-            
-            # Save to Redis
-            await self._save_session_to_redis(status)
-            
-            # Publish event
-            await self._publish_session_change_event(event)
             
             logger.info(
                 "Session changed",
@@ -442,7 +466,9 @@ class SessionDetector:
             maxlen=1000
         )
         
-        # NUEVO: Publicar eventos al Event Bus
+        # NUEVO: Publicar eventos al Event Bus.
+        # raise_on_error=True: el llamador reintenta; sin esto el EventBus
+        # traga la excepción y el evento se pierde sin posibilidad de retry.
         if self.event_bus:
             # Evento de cambio de sesión
             session_event = create_session_changed_event(
@@ -450,7 +476,7 @@ class SessionDetector:
                 previous_session=event.from_session.value,
                 trading_date=str(event.trading_date)
             )
-            await self.event_bus.publish(session_event)
+            await self.event_bus.publish(session_event, raise_on_error=True)
             
             # Evento de cambio de día (si aplica)
             if event.is_new_day:
@@ -459,7 +485,7 @@ class SessionDetector:
                     previous_date=str(event.trading_date - timedelta(days=1)),
                     session=event.to_session.value
                 )
-                await self.event_bus.publish(day_event)
+                await self.event_bus.publish(day_event, raise_on_error=True)
         
         logger.info("Published session change event", session_event=event.model_dump())
     

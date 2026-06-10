@@ -19,7 +19,7 @@ const http = require("http");
 const Redis = require("ioredis");
 const pino = require("pino");
 const { v4: uuidv4 } = require("uuid");
-const { subscribeToNewDayEvents, subscribeToSessionChangeEvents, subscribeToMorningNewsEvents, setConnectionsRef } = require("./cache_cleaner");
+const { subscribeToNewDayEvents, subscribeToSessionChangeEvents, subscribeToDayChangedEvents, subscribeToMorningNewsEvents, setConnectionsRef } = require("./cache_cleaner");
 const { verifyClerkToken, extractTokenFromUrl, isAuthEnabled } = require("./clerkAuth");
 
 // Logger
@@ -51,10 +51,14 @@ const redis = new Redis({
   maxRetriesPerRequest: null,
 });
 
-// Cliente Redis adicional para comandos normales
+// Cliente Redis adicional para comandos normales (XACK, XGROUP, XINFO, etc.)
+// maxRetriesPerRequest: null → durante un blip/reconexión de Redis los comandos
+// se encolan y reintentan al recuperar la conexión, en vez de fallar con
+// "max retries per request exceeded" (que rompía el auto-healing de los grupos).
 const redisCommands = new Redis({
   ...redisConfig,
   retryStrategy: (times) => Math.min(times * 50, 2000),
+  maxRetriesPerRequest: null,
 });
 
 // Cliente Redis para Pub/Sub (escuchar eventos de nuevo día)
@@ -3622,6 +3626,11 @@ function broadcastChartAggregate(symbol, aggregateData) {
       disconnected.push(connectionId);
       return;
     }
+
+    // Backpressure: descartar frame de chart si el cliente va saturado.
+    if (conn.ws.bufferedAmount > MAX_WS_BUFFERED_BYTES) {
+      return;
+    }
     
     try {
       conn.ws.send(messageStr);
@@ -3683,6 +3692,12 @@ function broadcastQuote(symbol, quoteData) {
     
     if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
       disconnected.push(connectionId);
+      return;
+    }
+
+    // Backpressure: cliente lento → descartar este quote (no bloquear ni
+    // crecer el buffer; el próximo quote reemplaza al descartado).
+    if (conn.ws.bufferedAmount > MAX_WS_BUFFERED_BYTES) {
       return;
     }
     
@@ -3843,7 +3858,7 @@ async function processRankingDeltasStream() {
             "CREATE",
             streamName,
             consumerGroup,
-            "0",  // Empezar desde el inicio del stream
+            "$",  // Solo mensajes NUEVOS: evitar replay masivo de datos viejos en feed real-time
             "MKSTREAM"
           );
           logger.info({ streamName, consumerGroup }, "✅ Consumer group recreated");
@@ -3960,7 +3975,7 @@ async function processAggregatesStream() {
             "CREATE",
             streamName,
             consumerGroup,
-            "0",  // Empezar desde el inicio del stream
+            "$",  // Solo mensajes NUEVOS: evitar replay masivo de datos viejos en feed real-time
             "MKSTREAM"
           );
           logger.info({ streamName, consumerGroup }, "✅ Consumer group recreated");
@@ -4344,8 +4359,10 @@ function broadcastMarketEvent(eventData) {
     }
   }
 
-  // Log with metrics (only when there are subscribers)
-  logger.info(
+  // debug: este log a nivel info genera tal volumen que rota los archivos
+  // de log en minutos y borra la evidencia de crashes (533 reinicios sin
+  // una sola traza). Las métricas agregadas van en los stats periódicos.
+  logger.debug(
     {
       event_type: eventType,
       symbol: symbol,
@@ -4412,7 +4429,7 @@ async function processAlertEngineStream() {
       if (err.message && err.message.includes('NOGROUP')) {
         logger.warn({ streamName: STREAM_NAME }, "Alerts consumer group missing - recreating");
         try {
-          await redisCommands.xgroup("CREATE", STREAM_NAME, CONSUMER_GROUP, "0", "MKSTREAM");
+          await redisCommands.xgroup("CREATE", STREAM_NAME, CONSUMER_GROUP, "$", "MKSTREAM");
           continue;
         } catch (recreateErr) {
           logger.error({ err: recreateErr }, "Failed to recreate alerts consumer group");
@@ -4516,7 +4533,7 @@ async function processQuotesStream() {
             "CREATE",
             streamName,
             consumerGroup,
-            "0",
+            "$",  // Solo mensajes NUEVOS: evitar replay masivo de quotes viejos
             "MKSTREAM"
           );
           logger.info({ streamName, consumerGroup }, "✅ Quotes consumer group recreated");
@@ -4715,6 +4732,69 @@ const wss = new WebSocket.Server({
   path: "/ws/scanner",
 });
 
+// =============================================
+// 💓 HEARTBEAT NATIVO (ping/pong a nivel de protocolo)
+// Detecta y cierra conexiones "zombie" (sockets medio-abiertos que no
+// recibieron FIN, p.ej. tras corte de red). Sin esto, el servidor sigue
+// intentando emitir a sockets muertos y acumula conexiones fantasma.
+// =============================================
+const HEARTBEAT_INTERVAL_MS = 30000;
+
+// Backpressure: límite de bytes en el buffer de envío de un socket. Si un
+// cliente lento acumula más que esto, descartamos frames de feeds de alta
+// frecuencia (quotes/charts/deltas) — el siguiente update los sustituye.
+// Evita que un único cliente lento dispare la memoria del servidor.
+const MAX_WS_BUFFERED_BYTES = 1 * 1024 * 1024; // 1 MB
+
+const heartbeatTimer = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      logger.warn(
+        { connectionId: ws.connectionId },
+        "💀 Terminating zombie connection (no pong received)"
+      );
+      try {
+        ws.terminate();
+      } catch (e) {
+        /* noop */
+      }
+      return;
+    }
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch (e) {
+      /* noop */
+    }
+  });
+}, HEARTBEAT_INTERVAL_MS);
+
+wss.on("close", () => {
+  clearInterval(heartbeatTimer);
+});
+
+// =============================================
+// 🧹 CLEANUP CENTRALIZADO DE CONEXIÓN
+// Un único punto de limpieza para todos los caminos (close, error, terminate).
+// Evita fugas por divergencia entre handlers duplicados.
+// =============================================
+async function removeConnection(connectionId) {
+  try {
+    unsubscribeClientFromAll(connectionId);
+    secFilingsSubscribers.delete(connectionId);
+    benzingaNewsSubscribers.delete(connectionId);
+    benzingaEarningsSubscribers.delete(connectionId);
+    marketEventSubscriptions.delete(connectionId);
+    eventRateLimiters.delete(connectionId);
+    await unsubscribeClientFromAllQuotes(connectionId);
+    await unsubscribeClientFromAllCharts(connectionId);
+  } catch (err) {
+    logger.error({ connectionId, err }, "Error during connection cleanup");
+  } finally {
+    connections.delete(connectionId);
+  }
+}
+
 // Manejar conexiones WebSocket
 wss.on("connection", async (ws, req) => {
   const connectionId = uuidv4();
@@ -4738,11 +4818,27 @@ wss.on("connection", async (ws, req) => {
       user = await verifyClerkToken(token);
       logger.info({ connectionId, userId: user.sub }, "🔐 Authenticated");
     } catch (err) {
-      logger.warn({ connectionId, error: err.message }, "❌ Connection rejected: invalid token");
-      ws.close(4003, "Invalid token");
+      // Distinguir token EXPIRADO (el cliente debe refrescar y reconectar)
+      // de token inválido/revocado (error de auth real). El cliente puede
+      // usar el código de cierre para decidir su estrategia de reconexión.
+      const expired =
+        err && (err.name === "TokenExpiredError" || /jwt expired/i.test(err.message || ""));
+      const closeCode = expired ? 4002 : 4003;
+      const closeReason = expired ? "Token expired" : "Invalid token";
+      logger.warn(
+        { connectionId, error: err.message, closeCode },
+        "❌ Connection rejected: " + closeReason
+      );
+      ws.close(closeCode, closeReason);
       return;
     }
   }
+
+  // Heartbeat nativo: marcamos viva la conexión y la refrescamos en cada pong.
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
 
   connections.set(connectionId, {
     ws,
@@ -5378,30 +5474,14 @@ wss.on("connection", async (ws, req) => {
 
   // Manejar cierre de conexión
   ws.on("close", async () => {
-    unsubscribeClientFromAll(connectionId);
-    secFilingsSubscribers.delete(connectionId);
-    benzingaNewsSubscribers.delete(connectionId);
-    benzingaEarningsSubscribers.delete(connectionId);
-    marketEventSubscriptions.delete(connectionId);
-    eventRateLimiters.delete(connectionId);
-    await unsubscribeClientFromAllQuotes(connectionId);
-    await unsubscribeClientFromAllCharts(connectionId);  // ✅ Limpiar charts
-    connections.delete(connectionId);
+    await removeConnection(connectionId);
     logger.info({ connectionId }, "❌ Client disconnected");
   });
 
   // Manejar errores
   ws.on("error", async (err) => {
     logger.error({ connectionId, err }, "WebSocket error");
-    unsubscribeClientFromAll(connectionId);
-    secFilingsSubscribers.delete(connectionId);
-    benzingaNewsSubscribers.delete(connectionId);
-    benzingaEarningsSubscribers.delete(connectionId);
-    marketEventSubscriptions.delete(connectionId);
-    eventRateLimiters.delete(connectionId);
-    await unsubscribeClientFromAllQuotes(connectionId);
-    await unsubscribeClientFromAllCharts(connectionId);  // ✅ Limpiar charts
-    connections.delete(connectionId);
+    await removeConnection(connectionId);
   });
 });
 
@@ -5721,6 +5801,15 @@ redisSubscriber.on("connect", () => {
       logger.error({ err }, "Failed to subscribe to session change events");
     });
   
+  // Suscribirse al cambio de día (EventBus) - resetea stores del frontend en vivo
+  subscribeToDayChangedEvents(redisSubscriber, lastSnapshots)
+    .then(() => {
+      logger.info("✅ Subscribed to day changed events");
+    })
+    .catch((err) => {
+      logger.error({ err }, "Failed to subscribe to day changed events");
+    });
+  
   // Suscribirse a notificaciones de Morning News Call
   subscribeToMorningNewsEvents(redisSubscriber)
     .then(() => {
@@ -5750,6 +5839,27 @@ server.listen(PORT, () => {
   
   // Primera publicación después de 2 segundos (dar tiempo a que Polygon WS se conecte)
   setTimeout(broadcastPolygonSubscriptionStatus, 2000);
+});
+
+// =============================================
+// 🚨 CRASH VISIBILITY
+// El servicio acumuló cientos de reinicios sin dejar traza alguna.
+// Sin estos handlers, Node termina el proceso ante un unhandledRejection
+// o uncaughtException sin loguear nada útil en pino.
+// =============================================
+process.on("unhandledRejection", (reason) => {
+  // Loguear y seguir: en un broadcaster realtime, matar el proceso por una
+  // promesa huérfana (p.ej. un send a un socket muerto) es peor que el error.
+  logger.fatal(
+    { err: reason instanceof Error ? reason : new Error(String(reason)) },
+    "💥 UNHANDLED PROMISE REJECTION (process kept alive)"
+  );
+});
+
+process.on("uncaughtException", (err) => {
+  // Estado potencialmente corrupto: loguear y salir; Docker reinicia.
+  logger.fatal({ err }, "💥 UNCAUGHT EXCEPTION - exiting");
+  process.exit(1);
 });
 
 // Graceful shutdown

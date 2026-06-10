@@ -37,7 +37,7 @@ import asyncio
 import json
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 
 import httpx
@@ -46,6 +46,9 @@ import structlog
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from zoneinfo import ZoneInfo
+
+ET_TZ = ZoneInfo("America/New_York")
 
 # ============================================================================
 # Configuration
@@ -179,7 +182,9 @@ class Bar:
             "vwap": round(self.vwap, 4),
             "range_pct": round(self.range_pct, 4),
             "body_pct": round(self.body_pct, 2),
-            "bullish": self.is_bullish,
+            # int, no bool: redis-py rechaza bools en XADD y rompia TODA la
+            # publicacion de barras cerradas ("Invalid input of type: 'bool'")
+            "bullish": int(self.is_bullish),
         }
 
 
@@ -203,6 +208,48 @@ class BarAggregator:
         # Statistics
         self.bars_closed = 0
         self.updates_processed = 0
+        # Ventana [start_ms, end_ms) del día ET actual, para detectar el
+        # rollover de día sin convertir timezone en cada aggregate.
+        self._day_window: Optional[tuple] = None
+
+    def _check_day_rollover(self, timestamp_ms: int) -> None:
+        """
+        Detecta el cambio de día de trading (medianoche ET) y DESCARTA las
+        barras a medio formar del día anterior.
+
+        Sin esto, el primer aggregate del día siguiente cerraba y publicaba
+        en stream:bars:* la vela stale de ayer (alert_engine la consumía como
+        recién cerrada), y _current_bars acumulaba símbolos entre días
+        (trinquete de memoria).
+        """
+        if self._day_window is not None:
+            start_ms, end_ms = self._day_window
+            if start_ms <= timestamp_ms < end_ms:
+                return
+
+        dt_et = datetime.fromtimestamp(timestamp_ms / 1000, tz=ET_TZ)
+        day_start = dt_et.replace(hour=0, minute=0, second=0, microsecond=0)
+        next_day = (dt_et + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        new_window = (
+            int(day_start.timestamp() * 1000),
+            int(next_day.timestamp() * 1000),
+        )
+
+        # Solo descartar si el día ET realmente cambió (la ventana puede
+        # recomputarse sin cambio de día en transiciones DST de 23/25h).
+        if self._day_window is not None and self._day_window[0] != new_window[0]:
+            discarded = sum(len(bars) for bars in self._current_bars.values())
+            for tf in TIMEFRAMES:
+                self._current_bars[tf].clear()
+            logger.info(
+                "day_rollover_bars_discarded",
+                new_et_date=day_start.date().isoformat(),
+                bars_discarded=discarded,
+            )
+
+        self._day_window = new_window
 
     def get_bar_start(self, timestamp_ms: int, timeframe_min: int) -> int:
         """Calculate the bar start time for a given timestamp and timeframe."""
@@ -240,6 +287,8 @@ class BarAggregator:
 
         if price_close <= 0 or timestamp_ms <= 0:
             return []
+
+        self._check_day_rollover(timestamp_ms)
 
         completed_bars = []
 
@@ -381,6 +430,13 @@ class Hydrator:
                 results[symbol] = "skipped_cooldown"
                 continue
 
+            # Poda: sin esto el dict crecía con cada símbolo hidratado, para siempre
+            if len(self._cooldown) > 2000:
+                self._cooldown = {
+                    s: t for s, t in self._cooldown.items()
+                    if (now - t) < self._cooldown_seconds
+                }
+
             task = asyncio.create_task(self._hydrate_one(symbol))
             self._inflight[symbol] = task
 
@@ -489,10 +545,9 @@ class Hydrator:
         Returns today's 1-minute bars in chronological order. Polygon's
         aggregates lag the in-formation minute, hence the snapshot merge.
         """
-        # Use America/New_York for the "today" definition.
-        # We use the same calendar day in ET via a UTC offset approximation.
-        # Worst case we hit a 404 for today=before-market; the merge still works.
-        today_et = (datetime.utcnow().date()).isoformat()
+        # Fecha real en ET: con utcnow() entre las 19-20h ET y medianoche ET
+        # se pedía a Polygon el día equivocado (UTC ya va un día por delante).
+        today_et = datetime.now(tz=ET_TZ).date().isoformat()
         url = f"{self.POLYGON_BASE}/v2/aggs/ticker/{symbol}/range/1/minute/{today_et}/{today_et}"
         try:
             resp = await self._client.get(
@@ -598,8 +653,15 @@ class BarBuilderService:
         """Start the bar builder service."""
         logger.info("Starting Bar Builder Service...")
 
-        # Connect to Redis
-        self.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        # Connect to Redis (keepalive + health check para sobrevivir
+        # reinicios del contenedor de Redis sin quedarse con sockets muertos)
+        self.redis = aioredis.from_url(
+            REDIS_URL,
+            decode_responses=True,
+            socket_keepalive=True,
+            health_check_interval=30,
+            retry_on_timeout=True,
+        )
         await self.redis.ping()
         logger.info("Redis connected", url=REDIS_URL)
 
@@ -678,8 +740,24 @@ class BarBuilderService:
                         await self.redis.xack(STREAM_AGGREGATES, CONSUMER_GROUP, msg_id)
 
             except aioredis.ConnectionError:
-                logger.error("Redis connection lost, reconnecting...")
+                # El pool de redis.asyncio reabre conexiones en el siguiente
+                # comando; solo esperamos a que Redis vuelva.
+                logger.error("Redis connection lost, retrying...")
                 await asyncio.sleep(2)
+            except aioredis.ResponseError as e:
+                # Auto-healing: si el grupo desaparecio (FLUSHDB/OOM de Redis),
+                # recrearlo con '$' (solo datos nuevos, feed realtime). Sin esto
+                # el bucle quedaba en error infinito.
+                if "NOGROUP" in str(e):
+                    logger.warning("Consumer group missing - recreating")
+                    try:
+                        await self.redis.xgroup_create(
+                            STREAM_AGGREGATES, CONSUMER_GROUP, id="$", mkstream=True
+                        )
+                        continue
+                    except Exception as recreate_err:
+                        logger.error(f"Failed to recreate consumer group: {recreate_err}")
+                await asyncio.sleep(1)
             except Exception as e:
                 logger.error(f"Error in aggregate consumer: {e}")
                 await asyncio.sleep(1)

@@ -100,6 +100,16 @@ class ReactiveFilingConsumerV2:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                # NOGROUP: el consumer group se perdió (FLUSH/restore de
+                # Redis). Sin esto, el bucle quedaba en error infinito y el
+                # pipeline de filings moría hasta reiniciar el contenedor.
+                if "NOGROUP" in str(exc):
+                    logger.warning("reactive_filing_group_missing_recreating")
+                    try:
+                        await self._ensure_group()
+                        continue
+                    except Exception as group_exc:
+                        logger.error("reactive_filing_group_recreate_failed", error=str(group_exc))
                 logger.error("reactive_filing_loop_error", error=str(exc))
                 await asyncio.sleep(2)
 
@@ -208,7 +218,14 @@ class ReactiveFilingConsumerV2:
             redis_url = f"redis://:{settings.redis_password}@{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
         else:
             redis_url = f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
-        return await aioredis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+        return await aioredis.from_url(
+            redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+            socket_keepalive=True,
+            health_check_interval=30,
+            retry_on_timeout=True,
+        )
 
     def _priority_for(self, form_type: str) -> str:
         normalized = form_type.upper()

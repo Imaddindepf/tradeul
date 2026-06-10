@@ -66,7 +66,10 @@ async def lifespan(app: FastAPI):
         redis_client = await aioredis.from_url(
             redis_url,
             encoding="utf-8",
-            decode_responses=True
+            decode_responses=True,
+            socket_keepalive=True,
+            health_check_interval=30,
+            retry_on_timeout=True
         )
         
         # Test connection

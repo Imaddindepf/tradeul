@@ -117,30 +117,43 @@ async function subscribeToSessionChangeEvents(redisSubscriber, onSessionChange =
         
         const event = JSON.parse(message);
         
+        // Formato EventBus (shared/events/event_bus.py):
+        // { event_type: "session:changed",
+        //   data: { new_session, previous_session, trading_date },
+        //   timestamp }
+        // El parseo anterior leia campos top-level del formato legacy
+        // (from_session/to_session/is_new_day), siempre undefined aqui:
+        // el frontend nunca recibia trading_date y no reseteaba stores.
+        const data = event.data || {};
+        const toSession = data.new_session;
+        const fromSession = data.previous_session;
+        const tradingDate = data.trading_date;
+        
         logger.info(
           {
-            from: event.from_session,
-            to: event.to_session,
-            trading_date: event.trading_date,
-            is_new_day: event.is_new_day,
+            from: fromSession,
+            to: toSession,
+            trading_date: tradingDate,
           },
           " Market session changed"
         );
         
         // Update market session state (for enriched cache key selection)
         if (onSessionChange && typeof onSessionChange === 'function') {
-          onSessionChange(event.to_session);
+          onSessionChange(toSession);
         }
         
-        // Broadcast a todos los clientes conectados
+        // Broadcast a todos los clientes conectados.
+        // is_new_day llega por el evento dedicado events:day:changed
+        // (subscribeToDayChangedEvents); aqui siempre es false.
         const wsMessage = {
           type: "market_session_change",
           data: {
-            from_session: event.from_session,
-            to_session: event.to_session,
-            current_session: event.to_session,
-            trading_date: event.trading_date,
-            is_new_day: event.is_new_day,
+            from_session: fromSession,
+            to_session: toSession,
+            current_session: toSession,
+            trading_date: tradingDate,
+            is_new_day: false,
             timestamp: event.timestamp || new Date().toISOString(),
           },
           timestamp: new Date().toISOString(),
@@ -149,7 +162,7 @@ async function subscribeToSessionChangeEvents(redisSubscriber, onSessionChange =
         const sentCount = broadcastToAll(wsMessage);
         
         logger.info(
-          { sentCount, toSession: event.to_session },
+          { sentCount, toSession },
           "📡 Broadcasted session change to clients"
         );
         
@@ -164,6 +177,67 @@ async function subscribeToSessionChangeEvents(redisSubscriber, onSessionChange =
     );
   } catch (err) {
     logger.error({ err }, "Failed to subscribe to session change events");
+  }
+}
+
+/**
+ * Suscribirse al evento de cambio de día del EventBus (events:day:changed).
+ * Limpia caches locales y notifica al frontend con is_new_day=true para que
+ * el SharedWorker dispare trading_day_changed y los stores se reseteen en vivo.
+ * @param {Object} redisSubscriber - Cliente Redis para suscripción
+ * @param {Map} lastSnapshots - Cache de snapshots a limpiar
+ */
+async function subscribeToDayChangedEvents(redisSubscriber, lastSnapshots) {
+  try {
+    await redisSubscriber.subscribe("events:day:changed", (message, channel) => {
+      try {
+        if (!message) {
+          logger.debug({ channel }, "Subscribed to day changed channel");
+          return;
+        }
+        
+        // Formato EventBus: { event_type: "day:changed",
+        //   data: { new_date, previous_date, session }, timestamp }
+        const event = JSON.parse(message);
+        const data = event.data || {};
+        
+        const clearedCount = lastSnapshots ? lastSnapshots.size : 0;
+        if (lastSnapshots) lastSnapshots.clear();
+        
+        logger.info(
+          { new_date: data.new_date, previous_date: data.previous_date, caches_cleared: clearedCount },
+          "🔄 Trading day changed (EventBus) - caches cleared"
+        );
+        
+        const sentCount = broadcastToAll({
+          type: "market_session_change",
+          data: {
+            from_session: data.session,
+            to_session: data.session,
+            current_session: data.session,
+            trading_date: data.new_date,
+            is_new_day: true,
+            timestamp: event.timestamp || new Date().toISOString(),
+          },
+          timestamp: new Date().toISOString(),
+        });
+        
+        logger.info(
+          { sentCount, newDate: data.new_date },
+          "📡 Broadcasted day change to clients"
+        );
+        
+      } catch (err) {
+        logger.error({ err, message }, "Error processing day changed event");
+      }
+    });
+    
+    logger.info(
+      { channel: "events:day:changed" },
+      "📡 Subscribed to day changed events"
+    );
+  } catch (err) {
+    logger.error({ err }, "Failed to subscribe to day changed events");
   }
 }
 
@@ -266,6 +340,7 @@ function createClearCacheEndpoint(lastSnapshots) {
 module.exports = {
   subscribeToNewDayEvents,
   subscribeToSessionChangeEvents,
+  subscribeToDayChangedEvents,
   subscribeToMorningNewsEvents,
   setConnectionsRef,
   createClearCacheEndpoint,

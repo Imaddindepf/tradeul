@@ -374,6 +374,8 @@ class DirectBatchScorer:
         escribe el resultado en `dilution:batch:last_result` (clave Redis TTL 5min).
         """
         while self._running:
+            r = None
+            pubsub = None
             try:
                 import redis.asyncio as aioredis
                 redis_url = (
@@ -381,7 +383,12 @@ class DirectBatchScorer:
                     f"@{os.getenv('REDIS_HOST', '127.0.0.1')}"
                     f":{os.getenv('REDIS_PORT', '6379')}/0"
                 )
-                r = aioredis.from_url(redis_url)
+                r = aioredis.from_url(
+                    redis_url,
+                    socket_keepalive=True,
+                    health_check_interval=30,
+                    retry_on_timeout=True,
+                )
                 pubsub = r.pubsub()
                 await pubsub.subscribe(BATCH_TRIGGER_CHANNEL)
                 logger.info("direct_batch_scorer_subscribed", channel=BATCH_TRIGGER_CHANNEL)
@@ -409,14 +416,26 @@ class DirectBatchScorer:
                     # Escribir resultado para que data_maintenance lo lea
                     await r.set(BATCH_RESULT_KEY, orjson.dumps(result), ex=300)
 
-                await pubsub.unsubscribe(BATCH_TRIGGER_CHANNEL)
-                await r.aclose()
-
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.error("direct_batch_scorer_listener_error", error=str(exc))
                 await asyncio.sleep(10)  # Reconectar tras error
+            finally:
+                # Cerrar SIEMPRE: antes, un blip de Redis en pubsub.listen()
+                # saltaba el aclose() y se creaba un pool nuevo cada 10s
+                # (fuga de conexiones durante outages prolongados).
+                if pubsub is not None:
+                    try:
+                        await pubsub.unsubscribe(BATCH_TRIGGER_CHANNEL)
+                        await pubsub.aclose()
+                    except Exception:
+                        pass
+                if r is not None:
+                    try:
+                        await r.aclose()
+                    except Exception:
+                        pass
 
     async def _run_once(self):
         t0 = time.monotonic()

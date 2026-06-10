@@ -98,7 +98,10 @@ class VwapConsumer:
                     logger.warn("vwap_consumer_group_missing_recreating")
                     try:
                         await self.redis.create_consumer_group(
-                            STREAM_NAME, CONSUMER_GROUP, start_id="0", mkstream=True
+                            # 'id' es el kwarg correcto ('start_id' lanzaba TypeError
+                            # silencioso y el consumidor moria). '$' = solo mensajes
+                            # nuevos: feed realtime, no reprocesar backlog viejo.
+                            STREAM_NAME, CONSUMER_GROUP, id="$", mkstream=True
                         )
                         continue
                     except Exception:

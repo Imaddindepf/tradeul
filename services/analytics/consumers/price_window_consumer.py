@@ -106,7 +106,9 @@ class PriceWindowConsumer:
                 if 'NOGROUP' in str(e):
                     try:
                         await self.redis.create_consumer_group(
-                            STREAM_NAME, CONSUMER_GROUP, start_id="0", mkstream=True
+                            # 'id' es el kwarg correcto ('start_id' lanzaba TypeError
+                            # silencioso y el consumidor moria). '$' = solo nuevos.
+                            STREAM_NAME, CONSUMER_GROUP, id="$", mkstream=True
                         )
                         continue
                     except Exception:

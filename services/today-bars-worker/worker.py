@@ -136,14 +136,14 @@ def load_existing_data() -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def save_data(df: pd.DataFrame):
-    """Save data to today.parquet, merging with existing."""
-    global cached_tickers
-    
-    if df.empty:
-        return
-    
-    # Load existing data
+# Serializa los read-modify-write de today.parquet: el bucle batch y el
+# endpoint /download escribían concurrentemente (la última escritura ganaba
+# y se perdían filas de la otra).
+_save_lock = asyncio.Lock()
+
+
+def _merge_and_write(df: pd.DataFrame) -> tuple:
+    """Parte síncrona (pandas) de save_data; se ejecuta en un thread."""
     existing = load_existing_data()
     
     if not existing.empty:
@@ -157,14 +157,30 @@ def save_data(df: pd.DataFrame):
     # Ensure directory exists
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
-    # Save to parquet
-    combined.to_parquet(TODAY_FILE, index=False)
+    # Escritura atómica: tmp + os.replace. Antes se escribía directo sobre
+    # el archivo final y los lectores (backtester/screener) podían leer un
+    # parquet truncado a mitad de escritura.
+    tmp_file = TODAY_FILE.with_suffix(".parquet.tmp")
+    combined.to_parquet(tmp_file, index=False)
+    os.replace(tmp_file, TODAY_FILE)
     
-    # Update cached tickers
-    cached_tickers = set(combined["symbol"].unique())
+    return len(combined), set(combined["symbol"].unique())
+
+
+async def save_data(df: pd.DataFrame):
+    """Save data to today.parquet, merging with existing (serializado y atómico)."""
+    global cached_tickers
+    
+    if df.empty:
+        return
+    
+    async with _save_lock:
+        # pandas en thread para no bloquear el event loop de FastAPI
+        total_rows, tickers = await asyncio.to_thread(_merge_and_write, df)
+        cached_tickers = tickers
     
     logger.info("data_saved", 
-        total_rows=len(combined), 
+        total_rows=total_rows, 
         tickers=len(cached_tickers),
         file=str(TODAY_FILE)
     )
@@ -200,7 +216,7 @@ async def batch_update():
     df = await download_batch(all_tickers)
     
     if not df.empty:
-        save_data(df)
+        await save_data(df)
     
     last_batch_time = datetime.now(ET)
     logger.info("batch_update_complete", rows=len(df))
@@ -243,7 +259,7 @@ async def download_tickers(request: TickerRequest):
     df = await download_batch(tickers)
     
     if not df.empty:
-        save_data(df)
+        await save_data(df)
         return {
             "success": True,
             "downloaded": len(df["symbol"].unique()),

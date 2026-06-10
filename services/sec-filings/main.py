@@ -62,7 +62,10 @@ async def lifespan(app: FastAPI):
                 redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                max_connections=10
+                max_connections=10,
+                socket_keepalive=True,
+                health_check_interval=30,
+                retry_on_timeout=True
             )
             await redis_client.ping()
             print("✅ Connected to Redis for SEC Stream")
@@ -437,7 +440,13 @@ async def get_realtime_filings(
             else:
                 redis_url = f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
             
-            redis_client = await aioredis.from_url(redis_url, decode_responses=True)
+            redis_client = await aioredis.from_url(
+                redis_url,
+                decode_responses=True,
+                socket_keepalive=True,
+                health_check_interval=30,
+                retry_on_timeout=True
+            )
         
         import json
         

@@ -48,7 +48,8 @@ let stats = { trades: 0, published: 0, errors: 0 };
 // ── Ensure consumer group ─────────────────────────────────────────────────────
 async function ensureConsumerGroup() {
   try {
-    await redisReader.xgroup("CREATE", STREAM_KEY, CONSUMER_GROUP, "0", "MKSTREAM");
+    // '$' = solo trades nuevos: feed realtime, no reprocesar backlog viejo
+    await redisReader.xgroup("CREATE", STREAM_KEY, CONSUMER_GROUP, "$", "MKSTREAM");
     console.log(`[init] Created consumer group: ${CONSUMER_GROUP}`);
   } catch (err) {
     if (err.message && err.message.includes("BUSYGROUP")) {

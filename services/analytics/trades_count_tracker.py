@@ -122,10 +122,12 @@ class TradesCountTracker:
                 if 'NOGROUP' in str(e):
                     logger.warn("trades_count_consumer_group_missing_recreating")
                     try:
+                        # 'id' es el kwarg correcto ('start_id' lanzaba TypeError
+                        # silencioso y el consumidor moria). '$' = solo nuevos.
                         await self.redis.create_consumer_group(
                             stream_name,
                             consumer_group,
-                            start_id="0",
+                            id="$",
                             mkstream=True
                         )
                         continue

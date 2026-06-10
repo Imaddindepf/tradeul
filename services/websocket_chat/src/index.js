@@ -51,7 +51,9 @@ function createRedisClient(name) {
     port: REDIS_PORT,
     password: REDIS_PASSWORD || undefined,
     retryStrategy: (times) => Math.min(times * 100, 3000),
-    maxRetriesPerRequest: 3,
+    // null → durante un blip/reinicio de Redis los comandos se encolan y
+    // reintentan al reconectar, en vez de fallar con "max retries exceeded"
+    maxRetriesPerRequest: null,
   });
   
   client.on('connect', () => logger.info({ client: name }, 'Redis connected'));
@@ -166,6 +168,10 @@ function handleUnsubscribe(ws, { channel_id, group_id }) {
           online: Array.from(presenceMap.get(target))
         }
       });
+      
+      if (presenceMap.get(target).size === 0) {
+        presenceMap.delete(target);
+      }
     }
   }
 }
@@ -215,57 +221,12 @@ function broadcastToUser(userId, message) {
 // ============================================================================
 
 async function startRedisConsumer() {
-  const streamPatterns = ['stream:chat:channel:*', 'stream:chat:group:*'];
-  
-  // Use PSUBSCRIBE for pattern matching
-  // But for streams, we need to poll - let's use a hybrid approach
-  
-  // For simplicity, poll known active streams
-  const pollStreams = async () => {
-    try {
-      // Get all active targets from subscriptions
-      for (const target of subscriptions.keys()) {
-        const streamKey = `stream:chat:${target}`;
-        
-        try {
-          // Read new messages (non-blocking with XREAD)
-          const results = await redisSubscriber.xread(
-            'COUNT', 100,
-            'BLOCK', 0, // Don't block, just check
-            'STREAMS', streamKey, '$'
-          );
-          
-          if (results) {
-            for (const [stream, messages] of results) {
-              for (const [id, fields] of messages) {
-                const type = fields[1]; // type is at index 1 in flat array
-                const payloadStr = fields[3]; // payload at index 3
-                
-                if (payloadStr) {
-                  const payload = JSON.parse(payloadStr);
-                  
-                  // Broadcast to WebSocket clients
-                  broadcastToTarget(target, {
-                    type: type || 'new_message',
-                    payload
-                  });
-                }
-              }
-            }
-          }
-        } catch (e) {
-          // Stream might not exist yet, ignore
-        }
-      }
-    } catch (error) {
-      logger.error({ error: error.message }, 'Stream poll error');
-    }
-  };
-  
-  // Poll every 100ms for low latency
-  setInterval(pollStreams, 100);
-  
-  // Also use pub/sub for instant notifications
+  // La entrega en tiempo real va integramente por Pub/Sub: el chat_service
+  // publica cada evento en chat:{target} (el stream stream:chat:* es solo
+  // historial/replay). El antiguo polling con XREAD BLOCK 0 cada 100ms
+  // bloqueaba la conexion para siempre (BLOCK 0 = espera infinita) y, con
+  // maxRetriesPerRequest: null, encolaba ~10 comandos/s que nunca se
+  // resolvian -> OOM del heap de V8 a las ~9.5h (crash del 10-jun 07:16).
   const pubsubClient = createRedisClient('pubsub');
   
   // Subscribe to chat channels and user notifications
@@ -358,6 +319,11 @@ wss.on('connection', async (ws, req) => {
       for (const target of clientData.channels) {
         if (subscriptions.has(target)) {
           subscriptions.get(target).delete(ws);
+          // Igual que handleUnsubscribe: sin esto, los Sets vacios quedaban
+          // retenidos para siempre (los targets son UUIDs dinamicos).
+          if (subscriptions.get(target).size === 0) {
+            subscriptions.delete(target);
+          }
         }
         
         // Update presence
@@ -372,6 +338,10 @@ wss.on('connection', async (ws, req) => {
               online: Array.from(presenceMap.get(target))
             }
           });
+          
+          if (presenceMap.get(target).size === 0) {
+            presenceMap.delete(target);
+          }
         }
       }
     }

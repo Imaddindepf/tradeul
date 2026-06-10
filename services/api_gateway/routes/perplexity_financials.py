@@ -24,9 +24,10 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/perplexity-financials", tags=["perplexity-financials"])
 
-_cache: Dict[str, Any] = {}
-_cache_ts: Dict[str, float] = {}
+from bounded_cache import BoundedTTLCache
+
 CACHE_TTL = 4 * 3600  # 4 hours
+_cache = BoundedTTLCache(maxsize=256, ttl_seconds=CACHE_TTL)
 
 _BASE_URL = "https://www.perplexity.ai/rest/finance/financials"
 _BASE_HEADERS = {
@@ -152,9 +153,9 @@ async def get_balance_sheet(
 ):
     ticker = ticker.upper().strip()
     cache_key = f"bs:{ticker}"
-    now = time.time()
-    if cache_key in _cache and (now - _cache_ts.get(cache_key, 0)) < CACHE_TTL:
-        return _cache[cache_key]
+    cached = _cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     data = _fetch_financials(ticker, "BALANCE_SHEET")
     if not data:
@@ -165,8 +166,7 @@ async def get_balance_sheet(
         "ticker": ticker,
         "quarters": sorted(rows, key=lambda r: r.get("date", ""), reverse=True),
     }
-    _cache[cache_key] = result
-    _cache_ts[cache_key] = now
+    _cache.set(cache_key, result)
     return result
 
 
@@ -177,9 +177,9 @@ async def get_cash_flow(
 ):
     ticker = ticker.upper().strip()
     cache_key = f"cf:{ticker}"
-    now = time.time()
-    if cache_key in _cache and (now - _cache_ts.get(cache_key, 0)) < CACHE_TTL:
-        return _cache[cache_key]
+    cached = _cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     data = _fetch_financials(ticker, "CASH_FLOW")
     if not data:
@@ -190,8 +190,7 @@ async def get_cash_flow(
         "ticker": ticker,
         "quarters": sorted(rows, key=lambda r: r.get("date", ""), reverse=True),
     }
-    _cache[cache_key] = result
-    _cache_ts[cache_key] = now
+    _cache.set(cache_key, result)
     return result
 
 
@@ -206,9 +205,9 @@ async def get_cash_summary(
     """
     ticker = ticker.upper().strip()
     cache_key = f"summary:{ticker}"
-    now = time.time()
-    if cache_key in _cache and (now - _cache_ts.get(cache_key, 0)) < CACHE_TTL:
-        return _cache[cache_key]
+    cached = _cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     try:
         result = _build_cash_summary(ticker)
@@ -219,6 +218,5 @@ async def get_cash_summary(
     if not result["quarters"]:
         raise HTTPException(status_code=404, detail="No financial data available")
 
-    _cache[cache_key] = result
-    _cache_ts[cache_key] = now
+    _cache.set(cache_key, result)
     return result

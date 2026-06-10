@@ -60,6 +60,8 @@ class QuoteManager {
   private static readonly MAX_CACHE_SIZE = 500;
   private ws: WebSocket | null = null;
   private url: string = '';
+  private baseWsUrl: string = '';
+  private reconnectAttempts = 0;
   private _isConnected = false;
 
   get isConnected(): boolean {
@@ -234,18 +236,36 @@ class QuoteManager {
     return QuoteManager.instance;
   }
 
-  connect(url: string, debug: boolean = false) {
-    // Si la URL cambió (ej: se añadió token de auth), reconectar
-    if (this.url && this.url !== url && this._isConnected) {
-      this.disconnect();
-    }
+  connect(baseUrl: string, debug: boolean = false) {
+    this.debug = debug;
 
-    if (this.ws && this.url === url && this._isConnected) {
+    // Ya conectados al mismo endpoint base: nada que hacer.
+    if (this.ws && this.baseWsUrl === baseUrl && this._isConnected) {
       return;
     }
 
+    this.baseWsUrl = baseUrl;
+    // Construye la URL con un token FRESCO y conecta.
+    this.refreshUrlAndConnect();
+  }
+
+  // Obtiene un token fresco de Clerk y (re)abre la conexión.
+  // Se llama tanto en la conexión inicial como en CADA reconexión, para
+  // evitar reusar un JWT caducado (causa de "jwt expired" tras un corte).
+  private async refreshUrlAndConnect() {
+    let url = this.baseWsUrl;
+    try {
+      if (this.getTokenFn) {
+        const token = await this.getTokenFn();
+        if (token) {
+          const sep = this.baseWsUrl.includes('?') ? '&' : '?';
+          url = `${this.baseWsUrl}${sep}token=${token}`;
+        }
+      }
+    } catch {
+      // Si falla obtener token, intentamos conectar sin auth (dev/local).
+    }
     this.url = url;
-    this.debug = debug;
     this.doConnect();
   }
 
@@ -256,6 +276,7 @@ class QuoteManager {
 
       this.ws.onopen = () => {
         this._isConnected = true;
+        this.reconnectAttempts = 0;
         this.startHeartbeat();
 
         // Re-suscribir a todos los símbolos activos
@@ -454,10 +475,15 @@ class QuoteManager {
   private scheduleReconnect() {
     if (this.reconnectTimeout) return;
 
+    // Backoff exponencial (1s·2ⁿ, máx 30s) en vez de 3s fijo.
+    const backoff = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    this.reconnectAttempts++;
+
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      this.doConnect();
-    }, 3000);
+      // Reconstruye la URL con un token FRESCO antes de reconectar.
+      this.refreshUrlAndConnect();
+    }, backoff);
   }
 
   getLastQuote(symbol: string): QuoteData | null {
@@ -532,33 +558,13 @@ export function useRealtimeQuote(
   // Inicializar manager y configurar getToken
   useEffect(() => {
     if (!initializedRef.current) {
-      // Configurar getToken primero
-      managerRef.current.setGetToken(getToken);
+      // Configurar getToken con skipCache para forzar token fresco en cada
+      // (re)conexión. El QuoteManager construye la URL con token internamente.
+      managerRef.current.setGetToken(() => getToken({ skipCache: true }));
 
-      // Construir URL con token si estamos autenticados
-      async function initConnection() {
-        const baseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-
-        try {
-          const token = await getToken();
-          let wsUrl = baseUrl;
-
-          if (token) {
-            // Añadir token a la URL
-            const separator = baseUrl.includes('?') ? '&' : '?';
-            wsUrl = `${baseUrl}${separator}token=${token}`;
-          }
-
-          managerRef.current.connect(wsUrl, debug);
-          initializedRef.current = true;
-        } catch (error) {
-          // Si falla obtener token, conectar sin auth
-          managerRef.current.connect(baseUrl, debug);
-          initializedRef.current = true;
-        }
-      }
-
-      initConnection();
+      const baseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+      managerRef.current.connect(baseUrl, debug);
+      initializedRef.current = true;
     }
   }, [debug, getToken]);
 

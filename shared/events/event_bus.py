@@ -111,12 +111,16 @@ class EventBus:
         self.pubsub: Optional[Any] = None
         self.listener_task: Optional[asyncio.Task] = None
     
-    async def publish(self, event: Event) -> None:
+    async def publish(self, event: Event, raise_on_error: bool = False) -> None:
         """
         Publica un evento al bus
         
         Args:
             event: Evento a publicar
+            raise_on_error: si True, propaga el fallo al llamador. Necesario
+                para eventos críticos (p. ej. DAY_CHANGED) donde el publisher
+                debe reintentar: pub/sub no tiene replay y un evento tragado
+                aquí se pierde para siempre.
         """
         try:
             channel = f"events:{event.event_type.value}"
@@ -135,6 +139,8 @@ class EventBus:
                 event_type=event.event_type.value,
                 error=str(e)
             )
+            if raise_on_error:
+                raise
     
     def subscribe(self, event_type: EventType, handler: EventHandler) -> None:
         """
@@ -188,6 +194,32 @@ class EventBus:
         # Iniciar tarea de escucha
         self.listener_task = asyncio.create_task(self._listen_loop())
     
+    async def _resubscribe(self) -> None:
+        """
+        Recrea la conexion Pub/Sub y se re-suscribe a todos los canales.
+
+        Necesario tras una caida/reinicio de Redis: el objeto pubsub antiguo
+        queda ligado a un socket muerto y get_message() falla para siempre.
+        Sin esto, el servicio sigue "healthy" pero sordo a DAY_CHANGED /
+        SESSION_CHANGED (cachés sin resetear, ingest sin despertar, etc.).
+        """
+        if self.pubsub:
+            try:
+                await self.pubsub.close()
+            except Exception:
+                pass
+
+        self.pubsub = self.redis.client.pubsub()
+        channels = [f"events:{event_type.value}" for event_type in self.handlers.keys()]
+        for channel in channels:
+            await self.pubsub.subscribe(channel)
+
+        logger.info(
+            "event_listener_resubscribed",
+            service=self.service_name,
+            channels=channels
+        )
+
     async def _listen_loop(self) -> None:
         """Loop principal de escucha de eventos"""
         try:
@@ -215,6 +247,19 @@ class EventBus:
                         error=str(e)
                     )
                     await asyncio.sleep(1)  # Esperar antes de reintentar
+
+                    # Los errores aqui son casi siempre de conexion (Redis
+                    # caido/reiniciado). Recrear el pubsub; si Redis sigue
+                    # caido fallara y se reintentara en la proxima vuelta.
+                    try:
+                        await self._resubscribe()
+                    except Exception as sub_err:
+                        logger.error(
+                            "event_listener_resubscribe_failed",
+                            service=self.service_name,
+                            error=str(sub_err)
+                        )
+                        await asyncio.sleep(4)
         
         finally:
             if self.pubsub:

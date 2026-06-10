@@ -96,6 +96,13 @@ MANUAL_CHAIN_OVERRIDES: dict[str, List[str]] = {
     # Cantor Equity Partners -> Twenty One Capital
     "CEP": ["CEP", "XXI"],
     "XXI": ["CEP", "XXI"],
+    # Facebook -> Meta Platforms. The ticker "META" was ALSO used by the
+    # Roundhill Ball Metaverse ETF (now "METV") before 2022, so Polygon's
+    # ticker_change graph links META -> METV. Without this override a stale
+    # Redis hash can resolve the META chart to the ETF (~$19) instead of
+    # Meta Platforms (>$500). Pin META/FB to the correct common-stock chain.
+    "META": ["FB", "META"],
+    "FB": ["FB", "META"],
 }
 
 

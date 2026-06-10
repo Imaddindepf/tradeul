@@ -18,10 +18,15 @@ router = APIRouter(prefix="/api/v1/heatmap", tags=["heatmap"])
 # Redis client will be injected from main.py
 redis_client = None
 
-# In-memory cache to reduce Redis reads
-_cache: Dict[str, Any] = {}
-_cache_timestamp: float = 0
+# In-memory cache to reduce Redis reads.
+# BoundedTTLCache: el dict sin limite anterior era la causa #1 del OOM del
+# api_gateway (respuestas treemap de varios MB retenidas por cada combinacion
+# de query params, para siempre). Ademas el timestamp era global, asi que
+# entradas viejas se servian como "frescas" tras cualquier escritura.
+from bounded_cache import BoundedTTLCache
+
 CACHE_TTL_SECONDS = 3  # Cache for 3 seconds
+_cache = BoundedTTLCache(maxsize=64, ttl_seconds=CACHE_TTL_SECONDS)
 
 
 def set_redis_client(client):
@@ -341,18 +346,16 @@ async def get_heatmap_data(
     
     Response is cached for 3 seconds to reduce load.
     """
-    global _cache, _cache_timestamp
-    
     if not redis_client:
         raise HTTPException(status_code=503, detail="Redis not available")
     
     # Build cache key from params
     cache_key = f"{metric}:{size_by}:{min_market_cap}:{max_tickers_per_sector}:{exclude_etfs}:{sectors}:{only_gics}"
     
-    # Check cache
-    now = time.time()
-    if cache_key in _cache and (now - _cache_timestamp) < CACHE_TTL_SECONDS:
-        return _cache[cache_key]
+    # Check cache (TTL por entrada + LRU acotado)
+    cached = _cache.get(cache_key)
+    if cached is not None:
+        return cached
     
     try:
         # 1. Read snapshot from Redis Hash (con fallback a last_close)
@@ -628,8 +631,7 @@ async def get_heatmap_data(
         }
         
         # Update cache
-        _cache[cache_key] = response
-        _cache_timestamp = now
+        _cache.set(cache_key, response)
         
         return response
         

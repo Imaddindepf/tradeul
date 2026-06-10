@@ -172,9 +172,9 @@ class SECStreamManager:
         """
         # Agregar al set de deduplicación
         await self.redis.sadd(self.DEDUP_SET_KEY, accession_no)
-        
-        # Nota: No configuramos TTL en cada key, sino que limpiamos periódicamente
-        # Para mejor performance
+        # TTL deslizante sobre el set completo: la "limpieza periódica"
+        # prometida no existía y el set crecía indefinidamente en Redis.
+        await self.redis.expire(self.DEDUP_SET_KEY, self.DEDUP_TTL)
     
     async def _cache_in_latest(self, filing_data: Dict[str, Any]):
         """

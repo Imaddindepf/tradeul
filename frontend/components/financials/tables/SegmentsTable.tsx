@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 
 // API URL from environment
-const API_URL = process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhost:8000';
 
 // ============================================================================
 // TYPES

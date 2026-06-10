@@ -6,6 +6,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: tradeul_redis
+    restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379" # Solo localhost - NO exponer a internet
     volumes:
@@ -13,7 +14,7 @@ services:
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
     command: >
-      redis-server  --appendonly yes  --maxmemory 5gb  --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD} --rename-command FLUSHDB "" --rename-command FLUSHALL "" --rename-command CONFIG "CONFIG_ADMIN_ONLY" --rename-command SHUTDOWN "SHUTDOWN_ADMIN_ONLY"
+      redis-server  --appendonly yes  --save "3600 1 300 100"  --maxmemory 5gb  --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD} --rename-command FLUSHDB "" --rename-command FLUSHALL "" --rename-command CONFIG "CONFIG_ADMIN_ONLY" --rename-command SHUTDOWN "SHUTDOWN_ADMIN_ONLY"
     logging:
       driver: "json-file"
       options:
@@ -30,7 +31,7 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 6G
+          memory: 8G
         reservations:
           memory: 2G
 
@@ -47,6 +48,7 @@ services:
     volumes:
       - timescale_data:/var/lib/postgresql/data
       - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tradeul_user} -d ${POSTGRES_DB:-tradeul}" ]
       interval: 10s
@@ -478,6 +480,9 @@ services:
       - MAINTENANCE_SCHEDULE=MARKET_CLOSE
       - DILUTION_TRACKER_HOST=172.18.0.1
       - DILUTION_TRACKER_PORT=8009
+      # Polygon S3 flat files (required by FlatFilesWatcher / sync_flat_files)
+      - POLYGON_S3_ACCESS_KEY=${POLYGON_S3_ACCESS_KEY:-}
+      - POLYGON_S3_SECRET_KEY=${POLYGON_S3_SECRET_KEY:-}
     deploy:
       resources:
         limits:
@@ -531,8 +536,10 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        # 50m x5: con 10m x3 el log rotaba en minutos y borraba la evidencia
+        # de los crashes (533 reinicios sin una sola traza)
+        max-size: "50m"
+        max-file: "5"
     depends_on:
       redis:
         condition: service_healthy
@@ -566,11 +573,13 @@ services:
       - tradeul_network
     ports:
       - "127.0.0.1:8000:8000" # Solo accesible via Caddy
+    volumes:
+      - ./data/bug_reports:/data/bug_reports # Persist bug report screenshots across container recreation
     deploy:
       resources:
         limits:
           cpus: "1"
-          memory: 1G
+          memory: 2G
         reservations:
           memory: 512M
 
@@ -882,6 +891,11 @@ services:
     container_name: tradeul_financial_analyst
     env_file:
       - .env
+    environment:
+      # `.env` exposes the key as GEMINI_TRADEUL_AGENT; main.py reads it as
+      # GOOGLE_API_KEY (the canonical name used by `google-genai`). Same
+      # mapping ai_agent_v4 does — keep them aligned.
+      - GOOGLE_API_KEY=${GEMINI_TRADEUL_AGENT}
     restart: unless-stopped
     networks:
       - tradeul_network
@@ -1346,7 +1360,8 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 512M
+          # 1G: con 512M fue OOM-killed (anon-rss llegó exactamente al límite)
+          memory: 1G
         reservations:
           memory: 128M
     logging:

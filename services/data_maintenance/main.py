@@ -412,6 +412,157 @@ class FlatFilesSyncRequest(BaseModel):
     target_date: Optional[str] = None  # ISO format: "2026-01-02"
 
 
+class FlatFilesBackfillRequest(BaseModel):
+    start_date: str  # ISO format inclusive
+    end_date: str    # ISO format inclusive
+    skip_existing: bool = True
+
+
+@app.get("/flat-files/health")
+async def flat_files_health():
+    """
+    Healthcheck dedicado para flat files (consumible por uptime monitors).
+    
+    Devuelve:
+    - credentials_ok: bool        → si las credenciales S3 son válidas
+    - last_synced_date: str       → última fecha de trading sincronizada
+    - last_synced_at: str         → timestamp ISO del último éxito
+    - hours_since_last_sync: float
+    - status: "ok" | "stale" | "no_credentials" | "never_synced"
+    
+    Reglas de status:
+      - no_credentials: faltan POLYGON_S3_*
+      - never_synced:   nunca hubo sync exitoso (servicio recién instalado)
+      - stale:          última sync hace más de 36h (3+ días naturales)
+      - ok:             todo bien
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        ny = ZoneInfo("America/New_York")
+
+        creds = await redis_client.get("flat_files:credentials_ok")
+        # RedisClient deserializa JSON automáticamente; "1" puede llegar como int 1
+        credentials_ok = creds in (1, "1", True)
+
+        last_synced_date = await redis_client.get("flat_files:last_synced_date")
+        last_synced_at = await redis_client.get("flat_files:last_synced_at")
+        last_check_at = await redis_client.get("flat_files:last_check_at")
+        last_error = await redis_client.get("flat_files:last_error")
+
+        hours_since: Optional[float] = None
+        if isinstance(last_synced_at, str) and last_synced_at:
+            try:
+                last_dt = datetime.fromisoformat(last_synced_at)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=ny)
+                hours_since = round(
+                    (datetime.now(ny) - last_dt).total_seconds() / 3600.0, 2
+                )
+            except ValueError:
+                hours_since = None
+
+        if not credentials_ok:
+            status = "no_credentials"
+        elif not last_synced_at:
+            status = "never_synced"
+        elif hours_since is not None and hours_since > 36:
+            status = "stale"
+        else:
+            status = "ok"
+
+        return {
+            "status": status,
+            "credentials_ok": credentials_ok,
+            "last_synced_date": last_synced_date if isinstance(last_synced_date, str) else None,
+            "last_synced_at": last_synced_at if isinstance(last_synced_at, str) else None,
+            "hours_since_last_sync": hours_since,
+            "last_check_at": last_check_at if isinstance(last_check_at, str) else None,
+            "last_error": last_error if isinstance(last_error, str) and last_error else None,
+            "watcher_running": flat_files_watcher.is_running if flat_files_watcher else False,
+        }
+    except Exception as e:
+        logger.error("flat_files_health_failed", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/flat-files/backfill")
+async def flat_files_backfill(request: FlatFilesBackfillRequest):
+    """
+    Backfill manual de un rango de fechas.
+    
+    Procesa cada día de trading en orden cronológico, llamando a
+    Polygon Data para descargar day_aggs + minute_aggs y notificando
+    a Pattern Matching.
+    
+    - skip_existing=True (default): omite días ya marcados como sincronizados
+    - Holidays / fines de semana se descartan automáticamente
+    - Si Polygon todavía no ha publicado un día reciente, se reporta y
+      no se considera fallo (los días posteriores no se procesan).
+    """
+    try:
+        start = date.fromisoformat(request.start_date)
+        end = date.fromisoformat(request.end_date)
+        if end < start:
+            return {"status": "error", "error": "end_date < start_date"}
+
+        sync_task = SyncFlatFilesTask()
+        if not sync_task.has_credentials:
+            return {"status": "error", "error": "missing_s3_credentials"}
+
+        days: list = []
+        cursor = start
+        while cursor <= end:
+            try:
+                if await daily_scheduler._is_trading_day(cursor):
+                    days.append(cursor)
+            except AttributeError:
+                if cursor.weekday() < 5:
+                    days.append(cursor)
+            cursor += timedelta_one_day()
+
+        results = []
+        succeeded = 0
+        for day in days:
+            if request.skip_existing:
+                k = f"flat_files:synced:{day.isoformat()}"
+                if await redis_client.get(k):
+                    results.append({"date": day.isoformat(), "skipped": True})
+                    continue
+            r = await sync_task.sync_for_date(day)
+            results.append(r)
+            if r.get("success"):
+                succeeded += 1
+                await redis_client.set(
+                    f"flat_files:synced:{day.isoformat()}", "1", ttl=86400 * 30
+                )
+                await redis_client.set("flat_files:last_synced_date", day.isoformat())
+                from zoneinfo import ZoneInfo as _Z
+                await redis_client.set(
+                    "flat_files:last_synced_at",
+                    datetime.now(_Z("America/New_York")).isoformat(),
+                )
+            elif r.get("message") == "minute_aggs not available in Polygon yet":
+                # No martilleamos los días posteriores
+                break
+
+        return {
+            "status": "ok",
+            "trading_days_in_range": len(days),
+            "succeeded": succeeded,
+            "results": results,
+        }
+    except ValueError as e:
+        return {"status": "error", "error": f"invalid_date: {e}"}
+    except Exception as e:
+        logger.error("flat_files_backfill_failed", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+def timedelta_one_day():
+    from datetime import timedelta
+    return timedelta(days=1)
+
+
 @app.get("/flat-files/status")
 async def get_flat_files_status():
     """

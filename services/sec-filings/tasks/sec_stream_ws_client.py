@@ -10,6 +10,7 @@ Cliente asíncrono para conectar al WebSocket de SEC Stream API y manejar:
 
 import asyncio
 import json
+import random
 from datetime import datetime
 from typing import Optional, Dict, Any, Callable
 import structlog
@@ -84,11 +85,15 @@ class SECStreamWebSocketClient:
             try:
                 logger.info("connecting_to_sec_stream_ws", url="wss://stream.sec-api.io")
                 
-                # Conectar al WebSocket
-                # SEC Stream requiere que respondamos a ping con pong
+                # Conectar al WebSocket con keepalive PROPIO.
+                # Con ping_interval=None el cliente nunca detectaba conexiones
+                # TCP medio abiertas: el 20-may-2026 el stream se congeló 21
+                # días sin error ni reconexión (async for bloqueado para
+                # siempre). Con ping cada 20s, si el servidor no responde en
+                # ping_timeout se cierra y el bucle de reconexión actúa.
                 self.ws = await websockets.connect(
                     self.stream_url,
-                    ping_interval=None,  # No auto ping (SEC maneja esto)
+                    ping_interval=20,
                     ping_timeout=self.ping_timeout,
                     close_timeout=10
                 )
@@ -224,25 +229,27 @@ class SECStreamWebSocketClient:
             self.stats["errors"] += 1
     
     async def _handle_reconnection(self):
-        """Maneja la lógica de reconexión"""
+        """
+        Maneja la lógica de reconexión: SIEMPRE reintenta, con backoff
+        exponencial + jitter (tope 5 min).
+
+        Antes se rendía tras max_reconnect_attempts (999 × 5s ≈ 83 min):
+        un outage largo de sec-api.io mataba el stream PERMANENTEMENTE
+        mientras /health seguía respondiendo como sano.
+        """
         self.is_connected = False
-        
-        if self.reconnect_attempts >= self.max_reconnect_attempts:
-            logger.error(
-                "max_reconnect_attempts_reached",
-                attempts=self.reconnect_attempts
-            )
-            self.should_reconnect = False
-            return
         
         self.reconnect_attempts += 1
         self.stats["reconnections"] += 1
         
-        delay = self.reconnect_delay * self.reconnect_attempts
-        logger.info(
+        delay = min(self.reconnect_delay * (2 ** min(self.reconnect_attempts - 1, 6)), 300)
+        delay += random.uniform(0, delay * 0.25)
+        
+        log = logger.error if self.reconnect_attempts > 10 else logger.info
+        log(
             "reconnecting_to_sec_stream",
             attempt=self.reconnect_attempts,
-            delay_seconds=delay
+            delay_seconds=round(delay, 1)
         )
         
         await asyncio.sleep(delay)

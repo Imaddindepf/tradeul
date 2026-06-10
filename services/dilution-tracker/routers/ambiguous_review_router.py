@@ -396,4 +396,11 @@ async def _build_redis_client():
         )
     else:
         redis_url = f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
-    return await aioredis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+    return await aioredis.from_url(
+        redis_url,
+        encoding="utf-8",
+        decode_responses=True,
+        socket_keepalive=True,
+        health_check_interval=30,
+        retry_on_timeout=True,
+    )

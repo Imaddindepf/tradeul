@@ -147,13 +147,37 @@ function injectChatContent(
     let typingUsers = [];
     let heartbeatInterval = null;
     let typingTimeout = null;
-    
+
+    // Token mutable: arranca con el inicial y se refresca desde el opener.
+    // Evita reusar un JWT caducado al reconectar (causa de fallos tras un corte).
+    let currentToken = CONFIG.token;
+
+    function requestFreshTokenFromOpener() {
+      if (window.opener) {
+        try {
+          window.opener.postMessage(
+            { type: 'tradeul:request-ws-token', requestId: Date.now() },
+            window.location.origin
+          );
+        } catch (e) {
+          console.error('[Chat] Failed to request token from opener:', e);
+        }
+      }
+    }
+
+    window.addEventListener('message', function (event) {
+      if (event.origin !== window.location.origin) return;
+      const d = event.data;
+      if (d && d.type === 'tradeul:ws-token' && d.token) {
+        currentToken = d.token;
+      }
+    });
     
     // ============================================================
     // WEBSOCKET
     // ============================================================
     function initWebSocket() {
-      const url = CONFIG.wsUrl + '?token=' + encodeURIComponent(CONFIG.token);
+      const url = CONFIG.wsUrl + '?token=' + encodeURIComponent(currentToken);
       
       ws = new WebSocket(url);
       
@@ -195,7 +219,9 @@ function injectChatContent(
         clearInterval(heartbeatInterval);
         render();
         
-        // Reconnect after 3s
+        // Pedir token fresco al opener ANTES de reconectar, para que el
+        // timer reconecte con un JWT válido (no el inicial caducado).
+        requestFreshTokenFromOpener();
         setTimeout(initWebSocket, 3000);
       };
     }
@@ -294,7 +320,7 @@ function injectChatContent(
     async function fetchGroups() {
       try {
         const res = await fetch(CONFIG.apiUrl + '/api/chat/groups', {
-          headers: { Authorization: 'Bearer ' + CONFIG.token }
+          headers: { Authorization: 'Bearer ' + currentToken }
         });
         if (res.ok) {
           groups = await res.json();
@@ -313,7 +339,7 @@ function injectChatContent(
           : '/api/chat/messages/group/' + activeTarget.id;
         
         const headers = activeTarget.type === 'group' 
-          ? { Authorization: 'Bearer ' + CONFIG.token }
+          ? { Authorization: 'Bearer ' + currentToken }
           : {};
         
         const res = await fetch(CONFIG.apiUrl + endpoint, { headers });
@@ -335,7 +361,7 @@ function injectChatContent(
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + CONFIG.token
+            'Authorization': 'Bearer ' + currentToken
           },
           body: JSON.stringify({
             content: content.trim(),

@@ -12,9 +12,25 @@ export async function GET(request: NextRequest) {
     abortController.abort();
   });
 
+  // Native EventSource sends Last-Event-ID on auto-reconnect after the
+  // server emits `id:` lines. Forward it (and accept the query-param
+  // fallback for any client that cannot set the header) so the upstream
+  // can replay missed events.
+  const lastEventIdHeader = request.headers.get('last-event-id');
+  const lastEventIdQuery = new URL(request.url).searchParams.get('last_event_id');
+  const lastEventId = lastEventIdHeader || lastEventIdQuery;
+
+  const upstreamUrl = new URL(`${OPENUL_URL}/api/v1/stream`);
+  if (lastEventIdQuery && !lastEventIdHeader) {
+    upstreamUrl.searchParams.set('last_event_id', lastEventIdQuery);
+  }
+
   try {
-    const upstream = await fetch(`${OPENUL_URL}/api/v1/stream`, {
-      headers: { Accept: 'text/event-stream' },
+    const upstream = await fetch(upstreamUrl, {
+      headers: {
+        Accept: 'text/event-stream',
+        ...(lastEventId ? { 'Last-Event-ID': lastEventId } : {}),
+      },
       signal: abortController.signal,
       cache: 'no-store',
     });

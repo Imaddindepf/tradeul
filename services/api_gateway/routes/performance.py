@@ -29,9 +29,13 @@ _themes_cache: Dict[str, List[Dict]] = {}
 _themes_cache_ts: float = 0
 THEMES_CACHE_TTL = 300
 
-_result_cache: Dict[str, Any] = {}
-_result_cache_ts: Dict[str, float] = {}
+# BoundedTTLCache: las entradas expiradas nunca se eliminaban del dict y los
+# payloads agregados (sector/industry/theme) quedaban retenidos por cada combo
+# de params — contribuia al OOM cronico del api_gateway.
+from bounded_cache import BoundedTTLCache
+
 RESULT_CACHE_TTL = 2
+_result_cache = BoundedTTLCache(maxsize=128, ttl_seconds=RESULT_CACHE_TTL)
 
 _snapshot_cache: List[Dict] = []
 _snapshot_cache_ts: float = 0
@@ -358,10 +362,9 @@ async def _get_performance(
     sector_filter: Optional[str] = None,
 ):
     cache_key = f"{group_by}:{min_market_cap}:{include_movers}:{sector_filter}"
-    now = time.time()
-    cached_ts = _result_cache_ts.get(cache_key, 0)
-    if cache_key in _result_cache and (now - cached_ts) < RESULT_CACHE_TTL:
-        return _result_cache[cache_key]
+    cached = _result_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     snapshot, classifications = await asyncio.gather(
         _load_snapshot(),
@@ -407,8 +410,7 @@ async def _get_performance(
         "total_tickers": sum(r["count"] for r in results),
     }
 
-    _result_cache[cache_key] = response
-    _result_cache_ts[cache_key] = now
+    _result_cache.set(cache_key, response)
     return response
 
 
@@ -418,10 +420,9 @@ async def _get_theme_performance(
     include_movers: bool,
 ):
     cache_key = f"themes:{min_market_cap}:{min_tickers}:{include_movers}"
-    now = time.time()
-    cached_ts = _result_cache_ts.get(cache_key, 0)
-    if cache_key in _result_cache and (now - cached_ts) < RESULT_CACHE_TTL:
-        return _result_cache[cache_key]
+    cached = _result_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     snapshot, themes_map = await asyncio.gather(
         _load_snapshot(),
@@ -464,8 +465,7 @@ async def _get_theme_performance(
         "total_tickers": len(ticker_lookup),
     }
 
-    _result_cache[cache_key] = response
-    _result_cache_ts[cache_key] = now
+    _result_cache.set(cache_key, response)
     return response
 
 
