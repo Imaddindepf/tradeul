@@ -14,6 +14,7 @@ from .compiler import (
 from .evaluator import (
     evaluate_condition, evaluate_ticker,
     get_matching_rules, get_matching_rules_by_owner,
+    set_market_context,
 )
 
 from .system_rules import get_system_rules, CATEGORY_TO_CHANNEL
@@ -27,7 +28,8 @@ __all__ = [
     "AlphaNode", "BetaNode", "TerminalNode", "ReteNetwork",
     "compile_network", "add_rule_to_network", "remove_rule_from_network",
     "evaluate_condition", "evaluate_ticker", "get_matching_rules",
-    "get_matching_rules_by_owner", "get_system_rules", "CATEGORY_TO_CHANNEL",
+    "get_matching_rules_by_owner", "set_market_context",
+    "get_system_rules", "CATEGORY_TO_CHANNEL",
     "filter_params_to_conditions", "user_filter_to_scan_rule", "convert_user_filters",
 ]
 

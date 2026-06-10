@@ -118,3 +118,4 @@ real_results_*.txt
 
 # Local bug-report storage (runtime data, not source)
 data/bug_reports_local/
+data/bug_reports/

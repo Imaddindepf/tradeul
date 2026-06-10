@@ -601,6 +601,30 @@ interface EventFilterParameters {
   // Change Previous Day
   min_change_prev_day_pct?: number; max_change_prev_day_pct?: number;
 
+  // Dilution Risk scores (1-3)
+  min_dilution_overall_risk_score?: number; max_dilution_overall_risk_score?: number;
+  min_dilution_offering_ability_score?: number; max_dilution_offering_ability_score?: number;
+  min_dilution_overhead_supply_score?: number; max_dilution_overhead_supply_score?: number;
+  min_dilution_historical_score?: number; max_dilution_historical_score?: number;
+  min_dilution_cash_need_score?: number; max_dilution_cash_need_score?: number;
+
+  // Index Change filters [Spy5..DiaD] — global market context (SPY/QQQ/DIA)
+  min_spy_chg_5min?: number; max_spy_chg_5min?: number;
+  min_spy_chg_10min?: number; max_spy_chg_10min?: number;
+  min_spy_chg_15min?: number; max_spy_chg_15min?: number;
+  min_spy_chg_30min?: number; max_spy_chg_30min?: number;
+  min_spy_chg_today?: number; max_spy_chg_today?: number;
+  min_qqq_chg_5min?: number; max_qqq_chg_5min?: number;
+  min_qqq_chg_10min?: number; max_qqq_chg_10min?: number;
+  min_qqq_chg_15min?: number; max_qqq_chg_15min?: number;
+  min_qqq_chg_30min?: number; max_qqq_chg_30min?: number;
+  min_qqq_chg_today?: number; max_qqq_chg_today?: number;
+  min_dia_chg_5min?: number; max_dia_chg_5min?: number;
+  min_dia_chg_10min?: number; max_dia_chg_10min?: number;
+  min_dia_chg_15min?: number; max_dia_chg_15min?: number;
+  min_dia_chg_30min?: number; max_dia_chg_30min?: number;
+  min_dia_chg_today?: number; max_dia_chg_today?: number;
+
   // Per-alert custom settings (keys like "aq:running_up", "aq:new_high", etc.)
   [key: `aq:${string}`]: number | undefined;
 }

@@ -31,21 +31,33 @@ import redis
 
 ROOT = Path("/opt/tradeul")
 CATALOG_PATH = ROOT / "shared/config/event_filter_catalog.json"
+CATALOG_V2_PATH = ROOT / "shared/config/filter_catalog.json"
 SNAPSHOT_KEY = "snapshot:enriched:latest"
 META_FIELD = "__meta__"
 
 
+def market_context_bases() -> Set[str]:
+    """Filters resolved from global market context (SPY/QQQ/DIA), not from
+    each symbol's enriched row — excluded from per-symbol coverage."""
+    try:
+        v2 = json.loads(CATALOG_V2_PATH.read_text())
+        return {e["base"] for e in v2.get("filters", []) if e.get("source") == "market"}
+    except Exception:
+        return set()
+
+
 def derive_snapshot_fields(catalog: dict) -> Set[str]:
     fields: Set[str] = set()
+    skip = market_context_bases()
 
     for row in catalog.get("numeric", []):
         data_key = row["dataKey"]
         if data_key in ("change_min", "change_max"):
             fields.add("change_percent")
-        elif data_key.endswith("_min"):
-            fields.add(data_key[:-4])
-        elif data_key.endswith("_max"):
-            fields.add(data_key[:-4])
+        elif data_key.endswith("_min") or data_key.endswith("_max"):
+            base = data_key[:-4]
+            if base not in skip:
+                fields.add(base)
         else:
             fields.add(data_key)
 

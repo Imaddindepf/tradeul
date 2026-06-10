@@ -8,6 +8,19 @@ from typing import Any, Dict, Set, Optional
 from .models import (
     Condition, Operator, ReteNetwork, RuleOwnerType
 )
+from .filter_mapping_generated import MARKET_CONTEXT_FIELDS
+
+# Contexto global de mercado (SPY/QQQ/DIA) actualizado por el scanner en cada
+# ciclo. Los campos en MARKET_CONTEXT_FIELDS se resuelven desde aquí en vez
+# del ticker evaluado (filtros tipo "S&P Change 5 Minute" aplican a todas las
+# filas por igual).
+_market_context: Dict[str, Optional[float]] = {}
+
+
+def set_market_context(ctx: Dict[str, Optional[float]]) -> None:
+    """Reemplaza el contexto global de mercado (llamado por el scanner)."""
+    global _market_context
+    _market_context = ctx
 
 
 def evaluate_condition(ticker_value: Any, condition: Condition) -> bool:
@@ -92,7 +105,10 @@ def evaluate_ticker(ticker: Any, network: ReteNetwork) -> Dict[str, bool]:
     
     for alpha_id, alpha_node in network.alpha_nodes.items():
         field_name = alpha_node.condition.field
-        ticker_value = getattr(ticker, field_name, None)
+        if field_name in MARKET_CONTEXT_FIELDS:
+            ticker_value = _market_context.get(field_name)
+        else:
+            ticker_value = getattr(ticker, field_name, None)
         result = evaluate_condition(ticker_value, alpha_node.condition)
         alpha_results[alpha_id] = result
     

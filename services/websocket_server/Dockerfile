@@ -14,6 +14,9 @@ RUN npm install
 # Copiar código fuente
 COPY services/websocket_server/ ./
 
+# Catálogo compartido de filtros (fuente única de verdad para filter defs)
+COPY shared/config/event_filter_catalog.json ./shared/config/event_filter_catalog.json
+
 # Exponer puerto
 EXPOSE 9000
 

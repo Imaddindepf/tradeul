@@ -14,6 +14,8 @@
  * - Recibe SEC filings en tiempo real (si está suscrito a "SEC_FILINGS")
  */
 
+const fs = require("fs");
+const path = require("path");
 const WebSocket = require("ws");
 const http = require("http");
 const Redis = require("ioredis");
@@ -1137,568 +1139,29 @@ function ps(data, key) {
   return (v !== undefined && v !== null && v !== '') ? String(v) : null;
 }
 
-// ── All numeric filter definitions: [subKey, dataKey, parser] ──
+// ── Filter definitions: loaded from the SHARED CATALOG (single source of truth) ──
+// Source: shared/config/event_filter_catalog.json — generated from
+// shared/config/filter_catalog.json via `python3 scripts/gen_filter_assets.py`.
+// Do NOT hardcode filter defs here; edit the catalog and regenerate.
 // This single list drives buildEventSubscription, applyNumericFilterUpdates,
 // and eventPassesSubscription — no duplication.
-const NUMERIC_FILTER_DEFS = [
-  // === FROM EVENT PAYLOAD (EventRecord fields) ===
-  // Price & basics
-  ['priceMin', 'price_min', pf],
-  ['priceMax', 'price_max', pf],
-  ['rvolMin', 'rvol_min', pf],
-  ['rvolMax', 'rvol_max', pf],
-  ['changeMin', 'change_min', pf],
-  ['changeMax', 'change_max', pf],
-  ['volumeMin', 'volume_min', pi],
-  ['volumeMax', 'volume_max', pi],
-  ['gapPercentMin', 'gap_percent_min', pf],
-  ['gapPercentMax', 'gap_percent_max', pf],
-  ['changeFromOpenMin', 'change_from_open_min', pf],
-  ['changeFromOpenMax', 'change_from_open_max', pf],
-  ['atrPercentMin', 'atr_percent_min', pf],
-  ['atrPercentMax', 'atr_percent_max', pf],
-  ['rsiMin', 'rsi_min', pf],
-  ['rsiMax', 'rsi_max', pf],
-
-  // === FROM ENRICHED CACHE (looked up by symbol) ===
-  // Fundamentals
-  ['marketCapMin', 'market_cap_min', pf],
-  ['marketCapMax', 'market_cap_max', pf],
-  ['floatSharesMin', 'float_shares_min', pf],
-  ['floatSharesMax', 'float_shares_max', pf],
-  ['sharesOutstandingMin', 'shares_outstanding_min', pf],
-  ['sharesOutstandingMax', 'shares_outstanding_max', pf],
-  // Volume windows
-  ['vol1minMin', 'vol_1min_min', pi],
-  ['vol1minMax', 'vol_1min_max', pi],
-  ['vol5minMin', 'vol_5min_min', pi],
-  ['vol5minMax', 'vol_5min_max', pi],
-  ['vol10minMin', 'vol_10min_min', pi],
-  ['vol10minMax', 'vol_10min_max', pi],
-  ['vol15minMin', 'vol_15min_min', pi],
-  ['vol15minMax', 'vol_15min_max', pi],
-  ['vol30minMin', 'vol_30min_min', pi],
-  ['vol30minMax', 'vol_30min_max', pi],
-  // Volume window %
-  ['vol1minPctMin', 'vol_1min_pct_min', pf],
-  ['vol1minPctMax', 'vol_1min_pct_max', pf],
-  ['vol5minPctMin', 'vol_5min_pct_min', pf],
-  ['vol5minPctMax', 'vol_5min_pct_max', pf],
-  ['vol10minPctMin', 'vol_10min_pct_min', pf],
-  ['vol10minPctMax', 'vol_10min_pct_max', pf],
-  ['vol15minPctMin', 'vol_15min_pct_min', pf],
-  ['vol15minPctMax', 'vol_15min_pct_max', pf],
-  ['vol30minPctMin', 'vol_30min_pct_min', pf],
-  ['vol30minPctMax', 'vol_30min_pct_max', pf],
-  // Range windows ($)
-  ['range2minMin', 'range_2min_min', pf],
-  ['range2minMax', 'range_2min_max', pf],
-  ['range5minMin', 'range_5min_min', pf],
-  ['range5minMax', 'range_5min_max', pf],
-  ['range15minMin', 'range_15min_min', pf],
-  ['range15minMax', 'range_15min_max', pf],
-  ['range30minMin', 'range_30min_min', pf],
-  ['range30minMax', 'range_30min_max', pf],
-  ['range60minMin', 'range_60min_min', pf],
-  ['range60minMax', 'range_60min_max', pf],
-  ['range120minMin', 'range_120min_min', pf],
-  ['range120minMax', 'range_120min_max', pf],
-  // Range windows (% of ATR)
-  ['range2minPctMin', 'range_2min_pct_min', pf],
-  ['range2minPctMax', 'range_2min_pct_max', pf],
-  ['range5minPctMin', 'range_5min_pct_min', pf],
-  ['range5minPctMax', 'range_5min_pct_max', pf],
-  ['range15minPctMin', 'range_15min_pct_min', pf],
-  ['range15minPctMax', 'range_15min_pct_max', pf],
-  ['range30minPctMin', 'range_30min_pct_min', pf],
-  ['range30minPctMax', 'range_30min_pct_max', pf],
-  ['range60minPctMin', 'range_60min_pct_min', pf],
-  ['range60minPctMax', 'range_60min_pct_max', pf],
-  ['range120minPctMin', 'range_120min_pct_min', pf],
-  ['range120minPctMax', 'range_120min_pct_max', pf],
-  // Change windows
-  ['chg1minMin', 'chg_1min_min', pf],
-  ['chg1minMax', 'chg_1min_max', pf],
-  ['chg1minDollarsMin', 'chg_1min_dollars_min', pf],
-  ['chg1minDollarsMax', 'chg_1min_dollars_max', pf],
-  ['chg5minMin', 'chg_5min_min', pf],
-  ['chg5minMax', 'chg_5min_max', pf],
-  ['chg5minDollarsMin', 'chg_5min_dollars_min', pf],
-  ['chg5minDollarsMax', 'chg_5min_dollars_max', pf],
-  ['chg10minMin', 'chg_10min_min', pf],
-  ['chg10minMax', 'chg_10min_max', pf],
-  ['chg10minDollarsMin', 'chg_10min_dollars_min', pf],
-  ['chg10minDollarsMax', 'chg_10min_dollars_max', pf],
-  ['chg15minMin', 'chg_15min_min', pf],
-  ['chg15minMax', 'chg_15min_max', pf],
-  ['chg15minDollarsMin', 'chg_15min_dollars_min', pf],
-  ['chg15minDollarsMax', 'chg_15min_dollars_max', pf],
-  ['chg30minMin', 'chg_30min_min', pf],
-  ['chg30minMax', 'chg_30min_max', pf],
-  ['chg30minDollarsMin', 'chg_30min_dollars_min', pf],
-  ['chg30minDollarsMax', 'chg_30min_dollars_max', pf],
-  ['chg60minMin', 'chg_60min_min', pf],
-  ['chg60minMax', 'chg_60min_max', pf],
-  ['chg60minDollarsMin', 'chg_60min_dollars_min', pf],
-  ['chg60minDollarsMax', 'chg_60min_dollars_max', pf],
-  // Quote data
-  ['bidMin', 'bid_min', pf],
-  ['bidMax', 'bid_max', pf],
-  ['askMin', 'ask_min', pf],
-  ['askMax', 'ask_max', pf],
-  ['bidSizeMin', 'bid_size_min', pi],
-  ['bidSizeMax', 'bid_size_max', pi],
-  ['askSizeMin', 'ask_size_min', pi],
-  ['askSizeMax', 'ask_size_max', pi],
-  ['spreadMin', 'spread_min', pf],
-  ['spreadMax', 'spread_max', pf],
-  // Intraday SMA
-  ['sma5Min', 'sma_5_min', pf],
-  ['sma5Max', 'sma_5_max', pf],
-  ['sma8Min', 'sma_8_min', pf],
-  ['sma8Max', 'sma_8_max', pf],
-  ['sma20Min', 'sma_20_min', pf],
-  ['sma20Max', 'sma_20_max', pf],
-  ['sma50Min', 'sma_50_min', pf],
-  ['sma50Max', 'sma_50_max', pf],
-  ['sma200Min', 'sma_200_min', pf],
-  ['sma200Max', 'sma_200_max', pf],
-  // EMA
-  ['ema20Min', 'ema_20_min', pf],
-  ['ema20Max', 'ema_20_max', pf],
-  ['ema50Min', 'ema_50_min', pf],
-  ['ema50Max', 'ema_50_max', pf],
-  // MACD / Stochastic / ADX / Bollinger
-  ['macdLineMin', 'macd_line_min', pf],
-  ['macdLineMax', 'macd_line_max', pf],
-  ['macdHistMin', 'macd_hist_min', pf],
-  ['macdHistMax', 'macd_hist_max', pf],
-  ['stochKMin', 'stoch_k_min', pf],
-  ['stochKMax', 'stoch_k_max', pf],
-  ['stochDMin', 'stoch_d_min', pf],
-  ['stochDMax', 'stoch_d_max', pf],
-  ['adx14Min', 'adx_14_min', pf],
-  ['adx14Max', 'adx_14_max', pf],
-  ['bbUpperMin', 'bb_upper_min', pf],
-  ['bbUpperMax', 'bb_upper_max', pf],
-  ['bbLowerMin', 'bb_lower_min', pf],
-  ['bbLowerMax', 'bb_lower_max', pf],
-  // Daily indicators
-  ['dailySma5Min', 'daily_sma_5_min', pf],
-  ['dailySma5Max', 'daily_sma_5_max', pf],
-  ['dailySma8Min', 'daily_sma_8_min', pf],
-  ['dailySma8Max', 'daily_sma_8_max', pf],
-  ['dailySma10Min', 'daily_sma_10_min', pf],
-  ['dailySma10Max', 'daily_sma_10_max', pf],
-  ['dailySma20Min', 'daily_sma_20_min', pf],
-  ['dailySma20Max', 'daily_sma_20_max', pf],
-  ['dailySma50Min', 'daily_sma_50_min', pf],
-  ['dailySma50Max', 'daily_sma_50_max', pf],
-  ['dailySma200Min', 'daily_sma_200_min', pf],
-  ['dailySma200Max', 'daily_sma_200_max', pf],
-  ['dailyRsiMin', 'daily_rsi_min', pf],
-  ['dailyRsiMax', 'daily_rsi_max', pf],
-  ['high52wMin', 'high_52w_min', pf],
-  ['high52wMax', 'high_52w_max', pf],
-  ['low52wMin', 'low_52w_min', pf],
-  ['low52wMax', 'low_52w_max', pf],
-  // Trades anomaly
-  ['tradesTodayMin', 'trades_today_min', pi],
-  ['tradesTodayMax', 'trades_today_max', pi],
-  ['tradesZScoreMin', 'trades_z_score_min', pf],
-  ['tradesZScoreMax', 'trades_z_score_max', pf],
-  // VWAP
-  ['vwapMin', 'vwap_min', pf],
-  ['vwapMax', 'vwap_max', pf],
-
-  // === NEW: Computed derived fields (real-time from enriched) ===
-  // Dollar volume
-  ['dollarVolumeMin', 'dollar_volume_min', pf],
-  ['dollarVolumeMax', 'dollar_volume_max', pf],
-  // Today's range
-  ['todaysRangeMin', 'todays_range_min', pf],
-  ['todaysRangeMax', 'todays_range_max', pf],
-  ['todaysRangePctMin', 'todays_range_pct_min', pf],
-  ['todaysRangePctMax', 'todays_range_pct_max', pf],
-  // Bid/Ask ratio
-  ['bidAskRatioMin', 'bid_ask_ratio_min', pf],
-  ['bidAskRatioMax', 'bid_ask_ratio_max', pf],
-  // Float turnover
-  ['floatTurnoverMin', 'float_turnover_min', pf],
-  ['floatTurnoverMax', 'float_turnover_max', pf],
-  // Distance from VWAP (%)
-  ['distFromVwapMin', 'dist_from_vwap_min', pf],
-  ['distFromVwapMax', 'dist_from_vwap_max', pf],
-  // Distance from intraday SMAs (%)
-  ['distSma5Min', 'dist_sma_5_min', pf],
-  ['distSma5Max', 'dist_sma_5_max', pf],
-  ['distSma8Min', 'dist_sma_8_min', pf],
-  ['distSma8Max', 'dist_sma_8_max', pf],
-  ['distSma20Min', 'dist_sma_20_min', pf],
-  ['distSma20Max', 'dist_sma_20_max', pf],
-  ['distSma50Min', 'dist_sma_50_min', pf],
-  ['distSma50Max', 'dist_sma_50_max', pf],
-  ['distSma200Min', 'dist_sma_200_min', pf],
-  ['distSma200Max', 'dist_sma_200_max', pf],
-  // Position in range (0-100%)
-  ['posInRangeMin', 'pos_in_range_min', pf],
-  ['posInRangeMax', 'pos_in_range_max', pf],
-  // Below high / Above low ($)
-  ['belowHighMin', 'below_high_min', pf],
-  ['belowHighMax', 'below_high_max', pf],
-  ['aboveLowMin', 'above_low_min', pf],
-  ['aboveLowMax', 'above_low_max', pf],
-  // Position of open (0-100%)
-  ['posOfOpenMin', 'pos_of_open_min', pf],
-  ['posOfOpenMax', 'pos_of_open_max', pf],
-  // Previous day volume
-  ['prevDayVolumeMin', 'prev_day_volume_min', pi],
-  ['prevDayVolumeMax', 'prev_day_volume_max', pi],
-
-  // === NEW: Multi-day changes (from screener daily cache) ===
-  ['change1dMin', 'change_1d_min', pf],
-  ['change1dMax', 'change_1d_max', pf],
-  ['change3dMin', 'change_3d_min', pf],
-  ['change3dMax', 'change_3d_max', pf],
-  ['change5dMin', 'change_5d_min', pf],
-  ['change5dMax', 'change_5d_max', pf],
-  ['change10dMin', 'change_10d_min', pf],
-  ['change10dMax', 'change_10d_max', pf],
-  ['change20dMin', 'change_20d_min', pf],
-  ['change20dMax', 'change_20d_max', pf],
-
-  // === NEW: Average daily volumes ===
-  ['avgVolume5dMin', 'avg_volume_5d_min', pi],
-  ['avgVolume5dMax', 'avg_volume_5d_max', pi],
-  ['avgVolume10dMin', 'avg_volume_10d_min', pi],
-  ['avgVolume10dMax', 'avg_volume_10d_max', pi],
-  ['avgVolume20dMin', 'avg_volume_20d_min', pi],
-  ['avgVolume20dMax', 'avg_volume_20d_max', pi],
-
-  // === NEW: Distance from daily SMAs (%) ===
-  ['distDailySma20Min', 'dist_daily_sma_20_min', pf],
-  ['distDailySma20Max', 'dist_daily_sma_20_max', pf],
-  ['distDailySma50Min', 'dist_daily_sma_50_min', pf],
-  ['distDailySma50Max', 'dist_daily_sma_50_max', pf],
-
-  // === NEW: 52w distances (%) ===
-  ['from52wHighMin', 'from_52w_high_min', pf],
-  ['from52wHighMax', 'from_52w_high_max', pf],
-  ['from52wLowMin', 'from_52w_low_min', pf],
-  ['from52wLowMax', 'from_52w_low_max', pf],
-
-  // === NEW: Daily ADX / ATR / Bollinger position ===
-  ['dailyAdx14Min', 'daily_adx_14_min', pf],
-  ['dailyAdx14Max', 'daily_adx_14_max', pf],
-  ['dailyAtrPercentMin', 'daily_atr_percent_min', pf],
-  ['dailyAtrPercentMax', 'daily_atr_percent_max', pf],
-  ['dailyBbPositionMin', 'daily_bb_position_min', pf],
-  ['dailyBbPositionMax', 'daily_bb_position_max', pf],
-
-  // === Filters aligned with Scanner (from enriched cache) ===
-  ['volumeTodayPctMin', 'volume_today_pct_min', pf],
-  ['volumeTodayPctMax', 'volume_today_pct_max', pf],
-  ['minuteVolumeMin', 'minute_volume_min', pi],
-  ['minuteVolumeMax', 'minute_volume_max', pi],
-  ['priceFromHighMin', 'price_from_high_min', pf],
-  ['priceFromHighMax', 'price_from_high_max', pf],
-  ['priceFromLowMin', 'price_from_low_min', pf],
-  ['priceFromLowMax', 'price_from_low_max', pf],
-  ['priceFromIntradayHighMin', 'price_from_intraday_high_min', pf],
-  ['priceFromIntradayHighMax', 'price_from_intraday_high_max', pf],
-  ['priceFromIntradayLowMin', 'price_from_intraday_low_min', pf],
-  ['priceFromIntradayLowMax', 'price_from_intraday_low_max', pf],
-  ['volumeYesterdayPctMin', 'volume_yesterday_pct_min', pf],
-  ['volumeYesterdayPctMax', 'volume_yesterday_pct_max', pf],
-  ['changeFromOpenDollarsMin', 'change_from_open_dollars_min', pf],
-  ['changeFromOpenDollarsMax', 'change_from_open_dollars_max', pf],
-  ['distanceFromNbboMin', 'distance_from_nbbo_min', pf],
-  ['distanceFromNbboMax', 'distance_from_nbbo_max', pf],
-  ['premarketChangePctMin', 'premarket_change_percent_min', pf],
-  ['premarketChangePctMax', 'premarket_change_percent_max', pf],
-  ['postmarketChangePctMin', 'postmarket_change_percent_min', pf],
-  ['postmarketChangePctMax', 'postmarket_change_percent_max', pf],
-  ['postmarketVolumeMin', 'postmarket_volume_min', pi],
-  ['postmarketVolumeMax', 'postmarket_volume_max', pi],
-  ['avgVolume3mMin', 'avg_volume_3m_min', pi],
-  ['avgVolume3mMax', 'avg_volume_3m_max', pi],
-  ['atrMin', 'atr_min', pf],
-  ['atrMax', 'atr_max', pf],
-  ['distPivotMin', 'dist_pivot_min', pf],
-  ['distPivotMax', 'dist_pivot_max', pf],
-  ['distPivotR1Min', 'dist_pivot_r1_min', pf],
-  ['distPivotR1Max', 'dist_pivot_r1_max', pf],
-  ['distPivotS1Min', 'dist_pivot_s1_min', pf],
-  ['distPivotS1Max', 'dist_pivot_s1_max', pf],
-  ['distPivotR2Min', 'dist_pivot_r2_min', pf],
-  ['distPivotR2Max', 'dist_pivot_r2_max', pf],
-  ['distPivotS2Min', 'dist_pivot_s2_min', pf],
-  ['distPivotS2Max', 'dist_pivot_s2_max', pf],
-  ['consecutiveCandlesMin', 'consecutive_candles_min', pi],
-  ['consecutiveCandlesMax', 'consecutive_candles_max', pi],
-  ['consecutiveCandles2mMin', 'consecutive_candles_2m_min', pi],
-  ['consecutiveCandles2mMax', 'consecutive_candles_2m_max', pi],
-  ['consecutiveCandles5mMin', 'consecutive_candles_5m_min', pi],
-  ['consecutiveCandles5mMax', 'consecutive_candles_5m_max', pi],
-  ['consecutiveCandles10mMin', 'consecutive_candles_10m_min', pi],
-  ['consecutiveCandles10mMax', 'consecutive_candles_10m_max', pi],
-  ['consecutiveCandles15mMin', 'consecutive_candles_15m_min', pi],
-  ['consecutiveCandles15mMax', 'consecutive_candles_15m_max', pi],
-  ['consecutiveCandles30mMin', 'consecutive_candles_30m_min', pi],
-  ['consecutiveCandles30mMax', 'consecutive_candles_30m_max', pi],
-  ['consecutiveCandles60mMin', 'consecutive_candles_60m_min', pi],
-  ['consecutiveCandles60mMax', 'consecutive_candles_60m_max', pi],
-  ['posInRange5mMin', 'pos_in_range_5m_min', pf],
-  ['posInRange5mMax', 'pos_in_range_5m_max', pf],
-  ['posInRange15mMin', 'pos_in_range_15m_min', pf],
-  ['posInRange15mMax', 'pos_in_range_15m_max', pf],
-  ['posInRange30mMin', 'pos_in_range_30m_min', pf],
-  ['posInRange30mMax', 'pos_in_range_30m_max', pf],
-  ['posInRange60mMin', 'pos_in_range_60m_min', pf],
-  ['posInRange60mMax', 'pos_in_range_60m_max', pf],
-  ['rsi2mMin', 'rsi_2m_min', pf],
-  ['rsi2mMax', 'rsi_2m_max', pf],
-  ['rsi5mMin', 'rsi_5m_min', pf],
-  ['rsi5mMax', 'rsi_5m_max', pf],
-  ['rsi15mMin', 'rsi_15m_min', pf],
-  ['rsi15mMax', 'rsi_15m_max', pf],
-  ['rsi60mMin', 'rsi_60m_min', pf],
-  ['rsi60mMax', 'rsi_60m_max', pf],
-  ['bbPosition1mMin', 'bb_position_1m_min', pf],
-  ['bbPosition1mMax', 'bb_position_1m_max', pf],
-  ['bbPosition5mMin', 'bb_position_5m_min', pf],
-  ['bbPosition5mMax', 'bb_position_5m_max', pf],
-  ['bbPosition15mMin', 'bb_position_15m_min', pf],
-  ['bbPosition15mMax', 'bb_position_15m_max', pf],
-  ['bbPosition60mMin', 'bb_position_60m_min', pf],
-  ['bbPosition60mMax', 'bb_position_60m_max', pf],
-  ['chg2minMin', 'chg_2min_min', pf],
-  ['chg2minMax', 'chg_2min_max', pf],
-  ['chg120minMin', 'chg_120min_min', pf],
-  ['chg120minMax', 'chg_120min_max', pf],
-  ['chg2minDollarsMin', 'chg_2min_dollars_min', pf],
-  ['chg2minDollarsMax', 'chg_2min_dollars_max', pf],
-  ['chg120minDollarsMin', 'chg_120min_dollars_min', pf],
-  ['chg120minDollarsMax', 'chg_120min_dollars_max', pf],
-  // === Extended Tradeul parity filters ===
-  // Gap $ [GUD]
-  ['gapDollarsMin', 'gap_dollars_min', pf],
-  ['gapDollarsMax', 'gap_dollars_max', pf],
-  // Gap Ratio [GUR]
-  ['gapRatioMin', 'gap_ratio_min', pf],
-  ['gapRatioMax', 'gap_ratio_max', pf],
-  // Change from Close $ [FCD]
-  ['changeFromCloseDollarsMin', 'change_from_close_dollars_min', pf],
-  ['changeFromCloseDollarsMax', 'change_from_close_dollars_max', pf],
-  // Change from Close Ratio [FCR]
-  ['changeFromCloseRatioMin', 'change_from_close_ratio_min', pf],
-  ['changeFromCloseRatioMax', 'change_from_close_ratio_max', pf],
-  // Change from Open Ratio [FOR]
-  ['changeFromOpenRatioMin', 'change_from_open_ratio_min', pf],
-  ['changeFromOpenRatioMax', 'change_from_open_ratio_max', pf],
-  // Post-Market Change $ [PostD]
-  ['postmarketChangeDollarsMin', 'postmarket_change_dollars_min', pf],
-  ['postmarketChangeDollarsMax', 'postmarket_change_dollars_max', pf],
-  // Decimal [Dec]
-  ['decimalMin', 'decimal_min', pf],
-  ['decimalMax', 'decimal_max', pf],
-  // Position in Previous Day Range [RPD]
-  ['posInPrevDayRangeMin', 'pos_in_prev_day_range_min', pf],
-  ['posInPrevDayRangeMax', 'pos_in_prev_day_range_max', pf],
-  // Directional Indicator [PDIMDI] = +DI - -DI
-  ['plusDiMinusDiMin', 'plus_di_minus_di_min', pf],
-  ['plusDiMinusDiMax', 'plus_di_minus_di_max', pf],
-  // Standard Deviation [BB] from Bollinger width
-  ['bbStdDevMin', 'bb_std_dev_min', pf],
-  ['bbStdDevMax', 'bb_std_dev_max', pf],
-  // Multi-TF SMA distances (%)
-  ['distSma5_2mMin', 'dist_sma_5_2m_min', pf],
-  ['distSma5_2mMax', 'dist_sma_5_2m_max', pf],
-  ['distSma5_5mMin', 'dist_sma_5_5m_min', pf],
-  ['distSma5_5mMax', 'dist_sma_5_5m_max', pf],
-  ['distSma5_15mMin', 'dist_sma_5_15m_min', pf],
-  ['distSma5_15mMax', 'dist_sma_5_15m_max', pf],
-  ['distSma8_2mMin', 'dist_sma_8_2m_min', pf],
-  ['distSma8_2mMax', 'dist_sma_8_2m_max', pf],
-  ['distSma8_5mMin', 'dist_sma_8_5m_min', pf],
-  ['distSma8_5mMax', 'dist_sma_8_5m_max', pf],
-  ['distSma8_15mMin', 'dist_sma_8_15m_min', pf],
-  ['distSma8_15mMax', 'dist_sma_8_15m_max', pf],
-  ['distSma8_60mMin', 'dist_sma_8_60m_min', pf],
-  ['distSma8_60mMax', 'dist_sma_8_60m_max', pf],
-  ['distSma20_2mMin', 'dist_sma_20_2m_min', pf],
-  ['distSma20_2mMax', 'dist_sma_20_2m_max', pf],
-  ['distSma20_5mMin', 'dist_sma_20_5m_min', pf],
-  ['distSma20_5mMax', 'dist_sma_20_5m_max', pf],
-  ['distSma20_15mMin', 'dist_sma_20_15m_min', pf],
-  ['distSma20_15mMax', 'dist_sma_20_15m_max', pf],
-  ['distSma20_60mMin', 'dist_sma_20_60m_min', pf],
-  ['distSma20_60mMax', 'dist_sma_20_60m_max', pf],
-  // SMA cross: 8 vs 20 per TF
-  ['sma8vs20_2mMin', 'sma_8_vs_20_2m_min', pf],
-  ['sma8vs20_2mMax', 'sma_8_vs_20_2m_max', pf],
-  ['sma8vs20_5mMin', 'sma_8_vs_20_5m_min', pf],
-  ['sma8vs20_5mMax', 'sma_8_vs_20_5m_max', pf],
-  ['sma8vs20_15mMin', 'sma_8_vs_20_15m_min', pf],
-  ['sma8vs20_15mMax', 'sma_8_vs_20_15m_max', pf],
-  ['sma8vs20_60mMin', 'sma_8_vs_20_60m_min', pf],
-  ['sma8vs20_60mMax', 'sma_8_vs_20_60m_max', pf],
-  // Distance from Daily SMA 200 (%)
-  ['distDailySma200Min', 'dist_daily_sma_200_min', pf],
-  ['distDailySma200Max', 'dist_daily_sma_200_max', pf],
-  // Multi-day ranges ($) [Range5D, Range10D, Range20D]
-  ['range5dMin', 'range_5d_min', pf],
-  ['range5dMax', 'range_5d_max', pf],
-  ['range10dMin', 'range_10d_min', pf],
-  ['range10dMax', 'range_10d_max', pf],
-  ['range20dMin', 'range_20d_min', pf],
-  ['range20dMax', 'range_20d_max', pf],
-  // Position in multi-day ranges (%) [R5D, R10D, R20D, R52W]
-  ['posIn5dRangeMin', 'pos_in_5d_range_min', pf],
-  ['posIn5dRangeMax', 'pos_in_5d_range_max', pf],
-  ['posIn10dRangeMin', 'pos_in_10d_range_min', pf],
-  ['posIn10dRangeMax', 'pos_in_10d_range_max', pf],
-  ['posIn20dRangeMin', 'pos_in_20d_range_min', pf],
-  ['posIn20dRangeMax', 'pos_in_20d_range_max', pf],
-  ['posIn52wRangeMin', 'pos_in_52w_range_min', pf],
-  ['posIn52wRangeMax', 'pos_in_52w_range_max', pf],
-  // Multi-day ranges (%) [Range5DP, Range10DP, Range20DP] — ATR-normalized
-  ['range5dPctMin', 'range_5d_pct_min', pf],
-  ['range5dPctMax', 'range_5d_pct_max', pf],
-  ['range10dPctMin', 'range_10d_pct_min', pf],
-  ['range10dPctMax', 'range_10d_pct_max', pf],
-  ['range20dPctMin', 'range_20d_pct_min', pf],
-  ['range20dPctMax', 'range_20d_pct_max', pf],
-  // Change 5/10/20 Days in $ [U5DD, U10DD, U20DD]
-  ['change5dDollarsMin', 'change_5d_dollars_min', pf],
-  ['change5dDollarsMax', 'change_5d_dollars_max', pf],
-  ['change10dDollarsMin', 'change_10d_dollars_min', pf],
-  ['change10dDollarsMax', 'change_10d_dollars_max', pf],
-  ['change20dDollarsMin', 'change_20d_dollars_min', pf],
-  ['change20dDollarsMax', 'change_20d_dollars_max', pf],
-  // Change from Open Weighted [FOW] = change_from_open_dollars / ATR
-  ['changeFromOpenWeightedMin', 'change_from_open_weighted_min', pf],
-  ['changeFromOpenWeightedMax', 'change_from_open_weighted_max', pf],
-  // Distance from Daily SMA 5/8/10 ($) [MA5P, MA8P, MA10P]
-  ['distDailySma5DollarsMin', 'dist_daily_sma_5_dollars_min', pf],
-  ['distDailySma5DollarsMax', 'dist_daily_sma_5_dollars_max', pf],
-  ['distDailySma8DollarsMin', 'dist_daily_sma_8_dollars_min', pf],
-  ['distDailySma8DollarsMax', 'dist_daily_sma_8_dollars_max', pf],
-  ['distDailySma10DollarsMin', 'dist_daily_sma_10_dollars_min', pf],
-  ['distDailySma10DollarsMax', 'dist_daily_sma_10_dollars_max', pf],
-  // Distance from Daily SMA 20/50/200 ($) [MA20P, MA50P, MA200P]
-  ['distDailySma20DollarsMin', 'dist_daily_sma_20_dollars_min', pf],
-  ['distDailySma20DollarsMax', 'dist_daily_sma_20_dollars_max', pf],
-  ['distDailySma50DollarsMin', 'dist_daily_sma_50_dollars_min', pf],
-  ['distDailySma50DollarsMax', 'dist_daily_sma_50_dollars_max', pf],
-  ['distDailySma200DollarsMin', 'dist_daily_sma_200_dollars_min', pf],
-  ['distDailySma200DollarsMax', 'dist_daily_sma_200_dollars_max', pf],
-  // Distance from Daily SMA 5/8/10 (%) [MA5R, MA8R, MA10R]
-  ['distDailySma5Min', 'dist_daily_sma_5_min', pf],
-  ['distDailySma5Max', 'dist_daily_sma_5_max', pf],
-  ['distDailySma8Min', 'dist_daily_sma_8_min', pf],
-  ['distDailySma8Max', 'dist_daily_sma_8_max', pf],
-  ['distDailySma10Min', 'dist_daily_sma_10_min', pf],
-  ['distDailySma10Max', 'dist_daily_sma_10_max', pf],
-  // 20 vs 200 SMA cross per TF [2Sma20a200, 5Sma20a200, 15Sma20a200, 60Sma20a200]
-  ['sma20vs200_2mMin', 'sma_20_vs_200_2m_min', pf],
-  ['sma20vs200_2mMax', 'sma_20_vs_200_2m_max', pf],
-  ['sma20vs200_5mMin', 'sma_20_vs_200_5m_min', pf],
-  ['sma20vs200_5mMax', 'sma_20_vs_200_5m_max', pf],
-  ['sma20vs200_15mMin', 'sma_20_vs_200_15m_min', pf],
-  ['sma20vs200_15mMax', 'sma_20_vs_200_15m_max', pf],
-  ['sma20vs200_60mMin', 'sma_20_vs_200_60m_min', pf],
-  ['sma20vs200_60mMax', 'sma_20_vs_200_60m_max', pf],
-  // Change in 1 Year [UYP/UYD]
-  ['change1yMin', 'change_1y_min', pf],
-  ['change1yMax', 'change_1y_max', pf],
-  ['change1yDollarsMin', 'change_1y_dollars_min', pf],
-  ['change1yDollarsMax', 'change_1y_dollars_max', pf],
-  // Change Since Jan 1 [UpJan1P/UpJan1D]
-  ['changeYtdMin', 'change_ytd_min', pf],
-  ['changeYtdMax', 'change_ytd_max', pf],
-  ['changeYtdDollarsMin', 'change_ytd_dollars_min', pf],
-  ['changeYtdDollarsMax', 'change_ytd_dollars_max', pf],
-  // Yearly Standard Deviation [YSD]
-  ['yearlyStdDevMin', 'yearly_std_dev_min', pf],
-  ['yearlyStdDevMax', 'yearly_std_dev_max', pf],
-  // Consecutive Days Up [Up]
-  ['consecutiveDaysUpMin', 'consecutive_days_up_min', pi],
-  ['consecutiveDaysUpMax', 'consecutive_days_up_max', pi],
-  // Change from 10 Period SMA (multi-TF) [2SmaLa10, 5SmaLa10, 15SmaLa10, 60SmaLa10]
-  ['distSma10_2mMin', 'dist_sma_10_2m_min', pf],
-  ['distSma10_2mMax', 'dist_sma_10_2m_max', pf],
-  ['distSma10_5mMin', 'dist_sma_10_5m_min', pf],
-  ['distSma10_5mMax', 'dist_sma_10_5m_max', pf],
-  ['distSma10_15mMin', 'dist_sma_10_15m_min', pf],
-  ['distSma10_15mMax', 'dist_sma_10_15m_max', pf],
-  ['distSma10_60mMin', 'dist_sma_10_60m_min', pf],
-  ['distSma10_60mMax', 'dist_sma_10_60m_max', pf],
-  // Change from 130 Period SMA (15m) [15SmaLa130]
-  ['distSma130_15mMin', 'dist_sma_130_15m_min', pf],
-  ['distSma130_15mMax', 'dist_sma_130_15m_max', pf],
-  // Change from 200 Period SMA (multi-TF) [2SmaLa200, 5SmaLa200, 15SmaLa200, 60SmaLa200]
-  ['distSma200_2mMin', 'dist_sma_200_2m_min', pf],
-  ['distSma200_2mMax', 'dist_sma_200_2m_max', pf],
-  ['distSma200_5mMin', 'dist_sma_200_5m_min', pf],
-  ['distSma200_5mMax', 'dist_sma_200_5m_max', pf],
-  ['distSma200_15mMin', 'dist_sma_200_15m_min', pf],
-  ['distSma200_15mMax', 'dist_sma_200_15m_max', pf],
-  ['distSma200_60mMin', 'dist_sma_200_60m_min', pf],
-  ['distSma200_60mMax', 'dist_sma_200_60m_max', pf],
-  // Change from 5 Period SMA (60m) [60SmaLa5]
-  ['distSma5_60mMin', 'dist_sma_5_60m_min', pf],
-  ['distSma5_60mMax', 'dist_sma_5_60m_max', pf],
-  // Position in 3 Month Range [R3MO]
-  ['posIn3mRangeMin', 'pos_in_3m_range_min', pf],
-  ['posIn3mRangeMax', 'pos_in_3m_range_max', pf],
-  // Position in 6 Month Range [R6MO]
-  ['posIn6mRangeMin', 'pos_in_6m_range_min', pf],
-  ['posIn6mRangeMax', 'pos_in_6m_range_max', pf],
-  // Position in 9 Month Range [R9MO]
-  ['posIn9mRangeMin', 'pos_in_9m_range_min', pf],
-  ['posIn9mRangeMax', 'pos_in_9m_range_max', pf],
-  // Position in 2 Year Range [R2Y]
-  ['posIn2yRangeMin', 'pos_in_2y_range_min', pf],
-  ['posIn2yRangeMax', 'pos_in_2y_range_max', pf],
-  // Position in Lifetime Range [RL]
-  ['posInLifetimeRangeMin', 'pos_in_lifetime_range_min', pf],
-  ['posInLifetimeRangeMax', 'pos_in_lifetime_range_max', pf],
-  // Below Pre-Market High [BelowHighPre]
-  ['belowPremarketHighMin', 'below_premarket_high_min', pf],
-  ['belowPremarketHighMax', 'below_premarket_high_max', pf],
-  // Above Pre-Market Low [AboveLowPre]
-  ['abovePremarketLowMin', 'above_premarket_low_min', pf],
-  ['abovePremarketLowMax', 'above_premarket_low_max', pf],
-  // Position in Pre-Market Range [RPM]
-  ['posInPremarketRangeMin', 'pos_in_premarket_range_min', pf],
-  ['posInPremarketRangeMax', 'pos_in_premarket_range_max', pf],
-  // Consolidation [ConDays]
-  ['consolidationDaysMin', 'consolidation_days_min', pi],
-  ['consolidationDaysMax', 'consolidation_days_max', pi],
-  // Position in Consolidation [RCon]
-  ['posInConsolidationMin', 'pos_in_consolidation_min', pf],
-  ['posInConsolidationMax', 'pos_in_consolidation_max', pf],
-  // Range Contraction [RC]
-  ['rangeContractionMin', 'range_contraction_min', pf],
-  ['rangeContractionMax', 'range_contraction_max', pf],
-  // Linear Regression Divergence [LR130]
-  ['lrDivergence130Min', 'lr_divergence_130_min', pf],
-  ['lrDivergence130Max', 'lr_divergence_130_max', pf],
-  // Change Previous Day [FCDP]
-  ['changePrevDayPctMin', 'change_prev_day_pct_min', pf],
-  ['changePrevDayPctMax', 'change_prev_day_pct_max', pf],
-  // Time of Day — minutes since market open 9:30 ET [TOD]
-  ['minutesSinceOpenMin', 'minutes_since_open_min', pf],
-  ['minutesSinceOpenMax', 'minutes_since_open_max', pf],
-];
-
-// String filter definitions: [subKey, dataKey]
-const STRING_FILTER_DEFS = [
-  ['securityType', 'security_type'],
-  ['sector', 'sector'],
-  ['industry', 'industry'],
-];
+const _filterCatalogCandidates = [
+  process.env.FILTER_CATALOG_PATH,
+  path.join(__dirname, "../shared/config/event_filter_catalog.json"),      // Docker: /app/shared/config
+  path.join(__dirname, "../../../shared/config/event_filter_catalog.json"), // Repo checkout
+].filter(Boolean);
+const _filterCatalogPath = _filterCatalogCandidates.find((p) => fs.existsSync(p));
+if (!_filterCatalogPath) {
+  throw new Error(`Filter catalog not found. Tried: ${_filterCatalogCandidates.join(", ")}`);
+}
+const _filterCatalog = JSON.parse(fs.readFileSync(_filterCatalogPath, "utf8"));
+const _FILTER_PARSERS = { pf, pi };
+const NUMERIC_FILTER_DEFS = _filterCatalog.numeric.map((r) => [r.subKey, r.dataKey, _FILTER_PARSERS[r.parser]]);
+const STRING_FILTER_DEFS = _filterCatalog.string.map((r) => [r.subKey, r.dataKey]);
+logger.info(
+  { numeric: NUMERIC_FILTER_DEFS.length, string: STRING_FILTER_DEFS.length, path: _filterCatalogPath },
+  "filter_catalog_loaded"
+);
 
 function pickWireKey(data, dataKey, subKey) {
   if (Object.prototype.hasOwnProperty.call(data, dataKey)) return dataKey;
@@ -1719,264 +1182,6 @@ function pickWireKey(data, dataKey, subKey) {
   }
   return null;
 }
-
-// Mapping: enriched field name for each filter subKey (for enriched cache lookup)
-// Only filters that should be checked against enriched data (not event payload).
-const ENRICHED_FIELD_MAP = {
-  // Fundamentals
-  marketCapMin: 'market_cap', marketCapMax: 'market_cap',
-  floatSharesMin: 'float_shares', floatSharesMax: 'float_shares',
-  sharesOutstandingMin: 'shares_outstanding', sharesOutstandingMax: 'shares_outstanding',
-  // Volume windows
-  vol10minMin: 'vol_10min', vol10minMax: 'vol_10min',
-  vol15minMin: 'vol_15min', vol15minMax: 'vol_15min',
-  vol30minMin: 'vol_30min', vol30minMax: 'vol_30min',
-  // Range windows
-  range2minMin: 'range_2min', range2minMax: 'range_2min',
-  range5minMin: 'range_5min', range5minMax: 'range_5min',
-  range15minMin: 'range_15min', range15minMax: 'range_15min',
-  range30minMin: 'range_30min', range30minMax: 'range_30min',
-  range60minMin: 'range_60min', range60minMax: 'range_60min',
-  range120minMin: 'range_120min', range120minMax: 'range_120min',
-  range2minPctMin: 'range_2min_pct', range2minPctMax: 'range_2min_pct',
-  range5minPctMin: 'range_5min_pct', range5minPctMax: 'range_5min_pct',
-  range15minPctMin: 'range_15min_pct', range15minPctMax: 'range_15min_pct',
-  range30minPctMin: 'range_30min_pct', range30minPctMax: 'range_30min_pct',
-  range60minPctMin: 'range_60min_pct', range60minPctMax: 'range_60min_pct',
-  range120minPctMin: 'range_120min_pct', range120minPctMax: 'range_120min_pct',
-  // Change 60 min
-  chg60minMin: 'chg_60min', chg60minMax: 'chg_60min',
-  chg1minDollarsMin: 'chg_1min_dollars', chg1minDollarsMax: 'chg_1min_dollars',
-  chg5minDollarsMin: 'chg_5min_dollars', chg5minDollarsMax: 'chg_5min_dollars',
-  chg10minDollarsMin: 'chg_10min_dollars', chg10minDollarsMax: 'chg_10min_dollars',
-  chg15minDollarsMin: 'chg_15min_dollars', chg15minDollarsMax: 'chg_15min_dollars',
-  chg30minDollarsMin: 'chg_30min_dollars', chg30minDollarsMax: 'chg_30min_dollars',
-  chg60minDollarsMin: 'chg_60min_dollars', chg60minDollarsMax: 'chg_60min_dollars',
-  // Quote
-  bidMin: 'bid', bidMax: 'bid',
-  askMin: 'ask', askMax: 'ask',
-  bidSizeMin: 'bid_size', bidSizeMax: 'bid_size',
-  askSizeMin: 'ask_size', askSizeMax: 'ask_size',
-  // Intraday SMA
-  sma5Min: 'sma_5', sma5Max: 'sma_5',
-  sma8Min: 'sma_8', sma8Max: 'sma_8',
-  sma20Min: 'sma_20', sma20Max: 'sma_20',
-  sma50Min: 'sma_50', sma50Max: 'sma_50',
-  sma200Min: 'sma_200', sma200Max: 'sma_200',
-  // EMA
-  ema20Min: 'ema_20', ema20Max: 'ema_20',
-  ema50Min: 'ema_50', ema50Max: 'ema_50',
-  // MACD / Stochastic / ADX / Bollinger
-  macdLineMin: 'macd_line', macdLineMax: 'macd_line',
-  macdHistMin: 'macd_hist', macdHistMax: 'macd_hist',
-  stochKMin: 'stoch_k', stochKMax: 'stoch_k',
-  stochDMin: 'stoch_d', stochDMax: 'stoch_d',
-  adx14Min: 'adx_14', adx14Max: 'adx_14',
-  bbUpperMin: 'bb_upper', bbUpperMax: 'bb_upper',
-  bbLowerMin: 'bb_lower', bbLowerMax: 'bb_lower',
-  // Daily indicators
-  dailySma5Min: 'daily_sma_5', dailySma5Max: 'daily_sma_5',
-  dailySma8Min: 'daily_sma_8', dailySma8Max: 'daily_sma_8',
-  dailySma10Min: 'daily_sma_10', dailySma10Max: 'daily_sma_10',
-  dailySma20Min: 'daily_sma_20', dailySma20Max: 'daily_sma_20',
-  dailySma50Min: 'daily_sma_50', dailySma50Max: 'daily_sma_50',
-  dailySma200Min: 'daily_sma_200', dailySma200Max: 'daily_sma_200',
-  dailyRsiMin: 'daily_rsi', dailyRsiMax: 'daily_rsi',
-  high52wMin: 'high_52w', high52wMax: 'high_52w',
-  low52wMin: 'low_52w', low52wMax: 'low_52w',
-  // Trades
-  tradesTodayMin: 'trades_today', tradesTodayMax: 'trades_today',
-  tradesZScoreMin: 'trades_z_score', tradesZScoreMax: 'trades_z_score',
-  // VWAP
-  vwapMin: 'vwap', vwapMax: 'vwap',
-  // === NEW: Computed derived fields ===
-  dollarVolumeMin: 'dollar_volume', dollarVolumeMax: 'dollar_volume',
-  todaysRangeMin: 'todays_range', todaysRangeMax: 'todays_range',
-  todaysRangePctMin: 'todays_range_pct', todaysRangePctMax: 'todays_range_pct',
-  bidAskRatioMin: 'bid_ask_ratio', bidAskRatioMax: 'bid_ask_ratio',
-  floatTurnoverMin: 'float_turnover', floatTurnoverMax: 'float_turnover',
-  distFromVwapMin: 'dist_from_vwap', distFromVwapMax: 'dist_from_vwap',
-  distSma5Min: 'dist_sma_5', distSma5Max: 'dist_sma_5',
-  distSma8Min: 'dist_sma_8', distSma8Max: 'dist_sma_8',
-  distSma20Min: 'dist_sma_20', distSma20Max: 'dist_sma_20',
-  distSma50Min: 'dist_sma_50', distSma50Max: 'dist_sma_50',
-  distSma200Min: 'dist_sma_200', distSma200Max: 'dist_sma_200',
-  posInRangeMin: 'pos_in_range', posInRangeMax: 'pos_in_range',
-  belowHighMin: 'below_high', belowHighMax: 'below_high',
-  aboveLowMin: 'above_low', aboveLowMax: 'above_low',
-  posOfOpenMin: 'pos_of_open', posOfOpenMax: 'pos_of_open',
-  prevDayVolumeMin: 'prev_day_volume', prevDayVolumeMax: 'prev_day_volume',
-  // Multi-day changes
-  change1dMin: 'change_1d', change1dMax: 'change_1d',
-  change3dMin: 'change_3d', change3dMax: 'change_3d',
-  change5dMin: 'change_5d', change5dMax: 'change_5d',
-  change10dMin: 'change_10d', change10dMax: 'change_10d',
-  change20dMin: 'change_20d', change20dMax: 'change_20d',
-  // Average volumes
-  avgVolume5dMin: 'avg_volume_5d', avgVolume5dMax: 'avg_volume_5d',
-  avgVolume10dMin: 'avg_volume_10d', avgVolume10dMax: 'avg_volume_10d',
-  avgVolume20dMin: 'avg_volume_20d', avgVolume20dMax: 'avg_volume_20d',
-  // Distance from daily SMAs
-  distDailySma20Min: 'dist_daily_sma_20', distDailySma20Max: 'dist_daily_sma_20',
-  distDailySma50Min: 'dist_daily_sma_50', distDailySma50Max: 'dist_daily_sma_50',
-  // 52w distances
-  from52wHighMin: 'from_52w_high', from52wHighMax: 'from_52w_high',
-  from52wLowMin: 'from_52w_low', from52wLowMax: 'from_52w_low',
-  // Daily ADX / ATR / BB position
-  dailyAdx14Min: 'daily_adx_14', dailyAdx14Max: 'daily_adx_14',
-  dailyAtrPercentMin: 'daily_atr_percent', dailyAtrPercentMax: 'daily_atr_percent',
-  dailyBbPositionMin: 'daily_bb_position', dailyBbPositionMax: 'daily_bb_position',
-  // Scanner-aligned filters (from enriched cache)
-  volumeTodayPctMin: 'volume_today_pct', volumeTodayPctMax: 'volume_today_pct',
-  minuteVolumeMin: 'minute_volume', minuteVolumeMax: 'minute_volume',
-  priceFromHighMin: 'price_from_high', priceFromHighMax: 'price_from_high',
-  priceFromLowMin: 'price_from_low', priceFromLowMax: 'price_from_low',
-  priceFromIntradayHighMin: 'price_from_intraday_high', priceFromIntradayHighMax: 'price_from_intraday_high',
-  priceFromIntradayLowMin: 'price_from_intraday_low', priceFromIntradayLowMax: 'price_from_intraday_low',
-  volumeYesterdayPctMin: 'volume_yesterday_pct', volumeYesterdayPctMax: 'volume_yesterday_pct',
-  changeFromOpenDollarsMin: 'change_from_open_dollars', changeFromOpenDollarsMax: 'change_from_open_dollars',
-  distanceFromNbboMin: 'distance_from_nbbo', distanceFromNbboMax: 'distance_from_nbbo',
-  premarketChangePctMin: 'premarket_change_percent', premarketChangePctMax: 'premarket_change_percent',
-  postmarketChangePctMin: 'postmarket_change_percent', postmarketChangePctMax: 'postmarket_change_percent',
-  postmarketVolumeMin: 'postmarket_volume', postmarketVolumeMax: 'postmarket_volume',
-  avgVolume3mMin: 'avg_volume_3m', avgVolume3mMax: 'avg_volume_3m',
-  atrMin: 'atr', atrMax: 'atr',
-  distPivotMin: 'dist_pivot', distPivotMax: 'dist_pivot',
-  distPivotR1Min: 'dist_pivot_r1', distPivotR1Max: 'dist_pivot_r1',
-  distPivotS1Min: 'dist_pivot_s1', distPivotS1Max: 'dist_pivot_s1',
-  distPivotR2Min: 'dist_pivot_r2', distPivotR2Max: 'dist_pivot_r2',
-  distPivotS2Min: 'dist_pivot_s2', distPivotS2Max: 'dist_pivot_s2',
-  consecutiveCandlesMin: 'consecutive_candles', consecutiveCandlesMax: 'consecutive_candles',
-  consecutiveCandles2mMin: 'consecutive_candles_2m', consecutiveCandles2mMax: 'consecutive_candles_2m',
-  consecutiveCandles5mMin: 'consecutive_candles_5m', consecutiveCandles5mMax: 'consecutive_candles_5m',
-  consecutiveCandles10mMin: 'consecutive_candles_10m', consecutiveCandles10mMax: 'consecutive_candles_10m',
-  consecutiveCandles15mMin: 'consecutive_candles_15m', consecutiveCandles15mMax: 'consecutive_candles_15m',
-  consecutiveCandles30mMin: 'consecutive_candles_30m', consecutiveCandles30mMax: 'consecutive_candles_30m',
-  consecutiveCandles60mMin: 'consecutive_candles_60m', consecutiveCandles60mMax: 'consecutive_candles_60m',
-  posInRange5mMin: 'pos_in_range_5m', posInRange5mMax: 'pos_in_range_5m',
-  posInRange15mMin: 'pos_in_range_15m', posInRange15mMax: 'pos_in_range_15m',
-  posInRange30mMin: 'pos_in_range_30m', posInRange30mMax: 'pos_in_range_30m',
-  posInRange60mMin: 'pos_in_range_60m', posInRange60mMax: 'pos_in_range_60m',
-  rsi2mMin: 'rsi_14_2m', rsi2mMax: 'rsi_14_2m',
-  rsi5mMin: 'rsi_14_5m', rsi5mMax: 'rsi_14_5m',
-  rsi15mMin: 'rsi_14_15m', rsi15mMax: 'rsi_14_15m',
-  rsi60mMin: 'rsi_14_60m', rsi60mMax: 'rsi_14_60m',
-  bbPosition1mMin: 'bb_position_1m', bbPosition1mMax: 'bb_position_1m',
-  bbPosition5mMin: 'bb_position_5m', bbPosition5mMax: 'bb_position_5m',
-  bbPosition15mMin: 'bb_position_15m', bbPosition15mMax: 'bb_position_15m',
-  bbPosition60mMin: 'bb_position_60m', bbPosition60mMax: 'bb_position_60m',
-  chg2minMin: 'chg_2min', chg2minMax: 'chg_2min',
-  chg120minMin: 'chg_120min', chg120minMax: 'chg_120min',
-  chg2minDollarsMin: 'chg_2min_dollars', chg2minDollarsMax: 'chg_2min_dollars',
-  chg120minDollarsMin: 'chg_120min_dollars', chg120minDollarsMax: 'chg_120min_dollars',
-  // Extended Tradeul parity filters
-  gapDollarsMin: 'gap_dollars', gapDollarsMax: 'gap_dollars',
-  gapRatioMin: 'gap_ratio', gapRatioMax: 'gap_ratio',
-  changeFromCloseDollarsMin: 'change_from_close', changeFromCloseDollarsMax: 'change_from_close',
-  changeFromCloseRatioMin: 'change_from_close_ratio', changeFromCloseRatioMax: 'change_from_close_ratio',
-  changeFromOpenRatioMin: 'change_from_open_ratio', changeFromOpenRatioMax: 'change_from_open_ratio',
-  postmarketChangeDollarsMin: 'postmarket_change_dollars', postmarketChangeDollarsMax: 'postmarket_change_dollars',
-  decimalMin: 'decimal', decimalMax: 'decimal',
-  posInPrevDayRangeMin: 'pos_in_prev_day_range', posInPrevDayRangeMax: 'pos_in_prev_day_range',
-  plusDiMinusDiMin: 'plus_di_minus_di', plusDiMinusDiMax: 'plus_di_minus_di',
-  bbStdDevMin: 'bb_std_dev', bbStdDevMax: 'bb_std_dev',
-  // Multi-TF SMA distances
-  distSma5_2mMin: 'dist_sma_5_2m', distSma5_2mMax: 'dist_sma_5_2m',
-  distSma5_5mMin: 'dist_sma_5_5m', distSma5_5mMax: 'dist_sma_5_5m',
-  distSma5_15mMin: 'dist_sma_5_15m', distSma5_15mMax: 'dist_sma_5_15m',
-  distSma8_2mMin: 'dist_sma_8_2m', distSma8_2mMax: 'dist_sma_8_2m',
-  distSma8_5mMin: 'dist_sma_8_5m', distSma8_5mMax: 'dist_sma_8_5m',
-  distSma8_15mMin: 'dist_sma_8_15m', distSma8_15mMax: 'dist_sma_8_15m',
-  distSma8_60mMin: 'dist_sma_8_60m', distSma8_60mMax: 'dist_sma_8_60m',
-  distSma20_2mMin: 'dist_sma_20_2m', distSma20_2mMax: 'dist_sma_20_2m',
-  distSma20_5mMin: 'dist_sma_20_5m', distSma20_5mMax: 'dist_sma_20_5m',
-  distSma20_15mMin: 'dist_sma_20_15m', distSma20_15mMax: 'dist_sma_20_15m',
-  distSma20_60mMin: 'dist_sma_20_60m', distSma20_60mMax: 'dist_sma_20_60m',
-  // SMA cross: 8 vs 20
-  sma8vs20_2mMin: 'sma_8_vs_20_2m', sma8vs20_2mMax: 'sma_8_vs_20_2m',
-  sma8vs20_5mMin: 'sma_8_vs_20_5m', sma8vs20_5mMax: 'sma_8_vs_20_5m',
-  sma8vs20_15mMin: 'sma_8_vs_20_15m', sma8vs20_15mMax: 'sma_8_vs_20_15m',
-  sma8vs20_60mMin: 'sma_8_vs_20_60m', sma8vs20_60mMax: 'sma_8_vs_20_60m',
-  // Distance from Daily SMA 200
-  distDailySma200Min: 'dist_daily_sma_200', distDailySma200Max: 'dist_daily_sma_200',
-  // Multi-day ranges ($)
-  range5dMin: 'range_5d', range5dMax: 'range_5d',
-  range10dMin: 'range_10d', range10dMax: 'range_10d',
-  range20dMin: 'range_20d', range20dMax: 'range_20d',
-  // Position in multi-day ranges (%)
-  posIn5dRangeMin: 'pos_in_5d_range', posIn5dRangeMax: 'pos_in_5d_range',
-  posIn10dRangeMin: 'pos_in_10d_range', posIn10dRangeMax: 'pos_in_10d_range',
-  posIn20dRangeMin: 'pos_in_20d_range', posIn20dRangeMax: 'pos_in_20d_range',
-  posIn52wRangeMin: 'pos_in_52w_range', posIn52wRangeMax: 'pos_in_52w_range',
-  // Multi-day ranges (%) — ATR-normalized
-  range5dPctMin: 'range_5d_pct', range5dPctMax: 'range_5d_pct',
-  range10dPctMin: 'range_10d_pct', range10dPctMax: 'range_10d_pct',
-  range20dPctMin: 'range_20d_pct', range20dPctMax: 'range_20d_pct',
-  // Change 5/10/20 Days ($)
-  change5dDollarsMin: 'change_5d_dollars', change5dDollarsMax: 'change_5d_dollars',
-  change10dDollarsMin: 'change_10d_dollars', change10dDollarsMax: 'change_10d_dollars',
-  change20dDollarsMin: 'change_20d_dollars', change20dDollarsMax: 'change_20d_dollars',
-  // Change from Open Weighted
-  changeFromOpenWeightedMin: 'change_from_open_weighted', changeFromOpenWeightedMax: 'change_from_open_weighted',
-  // Distance from Daily SMA 5/8/10 ($)
-  distDailySma5DollarsMin: 'dist_daily_sma_5_dollars', distDailySma5DollarsMax: 'dist_daily_sma_5_dollars',
-  distDailySma8DollarsMin: 'dist_daily_sma_8_dollars', distDailySma8DollarsMax: 'dist_daily_sma_8_dollars',
-  distDailySma10DollarsMin: 'dist_daily_sma_10_dollars', distDailySma10DollarsMax: 'dist_daily_sma_10_dollars',
-  // Distance from Daily SMA 20/50/200 ($)
-  distDailySma20DollarsMin: 'dist_daily_sma_20_dollars', distDailySma20DollarsMax: 'dist_daily_sma_20_dollars',
-  distDailySma50DollarsMin: 'dist_daily_sma_50_dollars', distDailySma50DollarsMax: 'dist_daily_sma_50_dollars',
-  distDailySma200DollarsMin: 'dist_daily_sma_200_dollars', distDailySma200DollarsMax: 'dist_daily_sma_200_dollars',
-  // Distance from Daily SMA 5/8/10 (%)
-  distDailySma5Min: 'dist_daily_sma_5', distDailySma5Max: 'dist_daily_sma_5',
-  distDailySma8Min: 'dist_daily_sma_8', distDailySma8Max: 'dist_daily_sma_8',
-  distDailySma10Min: 'dist_daily_sma_10', distDailySma10Max: 'dist_daily_sma_10',
-  // 20 vs 200 SMA cross per TF
-  sma20vs200_2mMin: 'sma_20_vs_200_2m', sma20vs200_2mMax: 'sma_20_vs_200_2m',
-  sma20vs200_5mMin: 'sma_20_vs_200_5m', sma20vs200_5mMax: 'sma_20_vs_200_5m',
-  sma20vs200_15mMin: 'sma_20_vs_200_15m', sma20vs200_15mMax: 'sma_20_vs_200_15m',
-  sma20vs200_60mMin: 'sma_20_vs_200_60m', sma20vs200_60mMax: 'sma_20_vs_200_60m',
-  // Change in 1 Year
-  change1yMin: 'change_1y', change1yMax: 'change_1y',
-  change1yDollarsMin: 'change_1y_dollars', change1yDollarsMax: 'change_1y_dollars',
-  // Change Since Jan 1
-  changeYtdMin: 'change_ytd', changeYtdMax: 'change_ytd',
-  changeYtdDollarsMin: 'change_ytd_dollars', changeYtdDollarsMax: 'change_ytd_dollars',
-  // Yearly Standard Deviation
-  yearlyStdDevMin: 'yearly_std_dev', yearlyStdDevMax: 'yearly_std_dev',
-  // Consecutive Days Up
-  consecutiveDaysUpMin: 'consecutive_days_up', consecutiveDaysUpMax: 'consecutive_days_up',
-  // Change from 10/130/200 Period SMA (multi-TF)
-  distSma10_2mMin: 'dist_sma_10_2m', distSma10_2mMax: 'dist_sma_10_2m',
-  distSma10_5mMin: 'dist_sma_10_5m', distSma10_5mMax: 'dist_sma_10_5m',
-  distSma10_15mMin: 'dist_sma_10_15m', distSma10_15mMax: 'dist_sma_10_15m',
-  distSma10_60mMin: 'dist_sma_10_60m', distSma10_60mMax: 'dist_sma_10_60m',
-  distSma130_15mMin: 'dist_sma_130_15m', distSma130_15mMax: 'dist_sma_130_15m',
-  distSma200_2mMin: 'dist_sma_200_2m', distSma200_2mMax: 'dist_sma_200_2m',
-  distSma200_5mMin: 'dist_sma_200_5m', distSma200_5mMax: 'dist_sma_200_5m',
-  distSma200_15mMin: 'dist_sma_200_15m', distSma200_15mMax: 'dist_sma_200_15m',
-  distSma200_60mMin: 'dist_sma_200_60m', distSma200_60mMax: 'dist_sma_200_60m',
-  distSma5_60mMin: 'dist_sma_5_60m', distSma5_60mMax: 'dist_sma_5_60m',
-  // Position in Range (3M/6M/9M/2Y/Lifetime)
-  posIn3mRangeMin: 'pos_in_3m_range', posIn3mRangeMax: 'pos_in_3m_range',
-  posIn6mRangeMin: 'pos_in_6m_range', posIn6mRangeMax: 'pos_in_6m_range',
-  posIn9mRangeMin: 'pos_in_9m_range', posIn9mRangeMax: 'pos_in_9m_range',
-  posIn2yRangeMin: 'pos_in_2y_range', posIn2yRangeMax: 'pos_in_2y_range',
-  posInLifetimeRangeMin: 'pos_in_lifetime_range', posInLifetimeRangeMax: 'pos_in_lifetime_range',
-  // Pre-Market
-  belowPremarketHighMin: 'below_premarket_high', belowPremarketHighMax: 'below_premarket_high',
-  abovePremarketLowMin: 'above_premarket_low', abovePremarketLowMax: 'above_premarket_low',
-  posInPremarketRangeMin: 'pos_in_premarket_range', posInPremarketRangeMax: 'pos_in_premarket_range',
-  // Consolidation / RC / LR
-  consolidationDaysMin: 'consolidation_days', consolidationDaysMax: 'consolidation_days',
-  posInConsolidationMin: 'pos_in_consolidation', posInConsolidationMax: 'pos_in_consolidation',
-  rangeContractionMin: 'range_contraction', rangeContractionMax: 'range_contraction',
-  lrDivergence130Min: 'lr_divergence_130', lrDivergence130Max: 'lr_divergence_130',
-  changePrevDayPctMin: 'change_prev_day_pct', changePrevDayPctMax: 'change_prev_day_pct',
-  // String filters
-  securityType: 'security_type',
-  sector: 'sector',
-  industry: 'industry',
-};
 
 // ── Helper: Build a subscription object from client data ──
 function buildEventSubscription(data) {
@@ -2041,6 +1246,21 @@ function minutesSinceMarketOpen(ts) {
   const m = +parts.find(p => p.type === 'minute').value;
   return (h * 60 + m) - (9 * 60 + 30);
 }
+
+// Filtros de índice (contexto global de mercado): prefijo subKey → ETF.
+// Ventanas: [sufijo camelCase del subKey, campo enriched] (null = Change Today)
+const INDEX_FILTER_DEFS = [
+  ['spyChg', 'SPY'],
+  ['qqqChg', 'QQQ'],
+  ['diaChg', 'DIA'],
+];
+const INDEX_FILTER_WINDOWS = [
+  ['5min', 'chg_5min'],
+  ['10min', 'chg_10min'],
+  ['15min', 'chg_15min'],
+  ['30min', 'chg_30min'],
+  ['Today', null],
+];
 
 function eventPassesSubscription(evt, sub) {
   // Type + symbol filters (from event)
@@ -2379,6 +1599,34 @@ function eventPassesSubscription(evt, sub) {
   // Time of Day — computed from event timestamp (not from enriched cache)
   if (sub.minutesSinceOpenMin !== null || sub.minutesSinceOpenMax !== null) {
     if (!chkEvt(minutesSinceMarketOpen(evt.timestamp), 'minutesSinceOpenMin', 'minutesSinceOpenMax')) return false;
+  }
+
+  // Dilution Risk scores (enriched, 1-3)
+  if (!chkEvt(enriched.dilution_overall_risk_score, 'dilutionOverallRiskScoreMin', 'dilutionOverallRiskScoreMax')) return false;
+  if (!chkEvt(enriched.dilution_offering_ability_score, 'dilutionOfferingAbilityScoreMin', 'dilutionOfferingAbilityScoreMax')) return false;
+  if (!chkEvt(enriched.dilution_overhead_supply_score, 'dilutionOverheadSupplyScoreMin', 'dilutionOverheadSupplyScoreMax')) return false;
+  if (!chkEvt(enriched.dilution_historical_score, 'dilutionHistoricalScoreMin', 'dilutionHistoricalScoreMax')) return false;
+  if (!chkEvt(enriched.dilution_cash_need_score, 'dilutionCashNeedScoreMin', 'dilutionCashNeedScoreMax')) return false;
+
+  // Index Change filters [Spy5..DiaD] — global market context: the value
+  // comes from the index ETF's enriched row (SPY/QQQ/DIA), not from the
+  // event's own symbol. "Today" usa change_percent con fallback a
+  // premarket_change_percent fuera de RTH.
+  for (const [camelPrefix, indexSym] of INDEX_FILTER_DEFS) {
+    let idxRow = null;
+    for (const [wCamel, wField] of INDEX_FILTER_WINDOWS) {
+      const minKey = `${camelPrefix}${wCamel}Min`;
+      const maxKey = `${camelPrefix}${wCamel}Max`;
+      if (sub[minKey] === null && sub[maxKey] === null) continue;
+      if (idxRow === null) idxRow = enrichedCache.get(indexSym) || {};
+      let v;
+      if (wField) {
+        v = idxRow[wField];
+      } else {
+        v = idxRow.change_percent != null ? idxRow.change_percent : idxRow.premarket_change_percent;
+      }
+      if (!chkEvt(v, minKey, maxKey)) return false;
+    }
   }
 
   // ── String filters ──

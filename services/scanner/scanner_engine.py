@@ -53,9 +53,14 @@ from subscriptions import SubscriptionManager
 from ranking import calculate_ranking_deltas, ticker_data_changed
 
 # Motor RETE para reglas de usuario
-from rete import ReteManager, RuleOwnerType
+from rete import ReteManager, RuleOwnerType, set_market_context
 
 logger = get_logger(__name__)
+
+# ETFs de índices usados como contexto global de mercado para filtros tipo
+# "S&P Change 5 Minute" [Spy5..DiaD]. El prefijo es el namespace de los
+# campos en el catálogo de filtros (spy_chg_5min, qqq_chg_today, ...).
+INDEX_CONTEXT_SYMBOLS = {"SPY": "spy", "QQQ": "qqq", "DIA": "dia"}
 
 
 class ScannerEngine:
@@ -518,6 +523,7 @@ class ScannerEngine:
         # - change_percent (usa prev_close del snapshot, no metadata)
         
         filtered_and_scored = []
+        market_ctx: Dict[str, Optional[float]] = {}
         
         for snapshot, rvol, atr_data in valid_snapshots:
             try:
@@ -540,6 +546,12 @@ class ScannerEngine:
                 # Enriquecer con gaps (usa prev_close y open del snapshot)
                 ticker = self.enhance_ticker_with_gaps(ticker, snapshot)
                 
+                # Capturar contexto de mercado (índices) ANTES de filtrar,
+                # para que los filtros tipo "S&P Change 5 Minute" funcionen
+                # aunque los ETFs queden fuera del universo filtrado
+                if symbol in INDEX_CONTEXT_SYMBOLS:
+                    self._capture_index_context(market_ctx, symbol, ticker)
+                
                 # Aplicar filtros configurables
                 # Filtros que requieren metadata: market_cap, sector, industry, exchange
                 # Filtros que NO requieren metadata: RVOL (ya calculado), price, volume, change_percent
@@ -556,6 +568,10 @@ class ScannerEngine:
             
             except Exception as e:
                 logger.error("Error processing ticker", ticker=snapshot.ticker, error=str(e))
+        
+        # Publicar contexto de mercado para filtros de índices (RETE)
+        if market_ctx:
+            set_market_context(market_ctx)
         
         # Sort por score (necesario como operación separada)
         filtered_and_scored.sort(key=lambda t: t.score, reverse=True)
@@ -1031,6 +1047,25 @@ class ScannerEngine:
             logger.error("Error building ticker inline", error=str(e))
             return None
     
+    @staticmethod
+    def _capture_index_context(
+        market_ctx: Dict[str, Optional[float]],
+        symbol: str,
+        ticker: ScannerTicker,
+    ) -> None:
+        """Copia los cambios del ETF de índice al contexto global de mercado."""
+        prefix = INDEX_CONTEXT_SYMBOLS[symbol]
+        market_ctx[f"{prefix}_chg_5min"] = ticker.chg_5min
+        market_ctx[f"{prefix}_chg_10min"] = ticker.chg_10min
+        market_ctx[f"{prefix}_chg_15min"] = ticker.chg_15min
+        market_ctx[f"{prefix}_chg_30min"] = ticker.chg_30min
+        # "Change Today": en RTH/post usa change_percent; en premarket aún no
+        # existe, así que cae a premarket_change_percent (paridad Trade Ideas)
+        chg_today = ticker.change_percent
+        if chg_today is None:
+            chg_today = ticker.premarket_change_percent
+        market_ctx[f"{prefix}_chg_today"] = chg_today
+
     def _passes_all_filters(self, ticker: ScannerTicker) -> bool:
         """Verifica si ticker pasa TODOS los filtros (sin await)"""
         for filter_config in self.filters:

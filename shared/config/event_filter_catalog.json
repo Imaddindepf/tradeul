@@ -2320,6 +2320,206 @@
       "subKey": "minutesSinceOpenMax",
       "dataKey": "minutes_since_open_max",
       "parser": "pf"
+    },
+    {
+      "subKey": "dilutionOverallRiskScoreMin",
+      "dataKey": "dilution_overall_risk_score_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "dilutionOverallRiskScoreMax",
+      "dataKey": "dilution_overall_risk_score_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "dilutionOfferingAbilityScoreMin",
+      "dataKey": "dilution_offering_ability_score_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "dilutionOfferingAbilityScoreMax",
+      "dataKey": "dilution_offering_ability_score_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "dilutionOverheadSupplyScoreMin",
+      "dataKey": "dilution_overhead_supply_score_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "dilutionOverheadSupplyScoreMax",
+      "dataKey": "dilution_overhead_supply_score_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "dilutionHistoricalScoreMin",
+      "dataKey": "dilution_historical_score_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "dilutionHistoricalScoreMax",
+      "dataKey": "dilution_historical_score_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "dilutionCashNeedScoreMin",
+      "dataKey": "dilution_cash_need_score_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "dilutionCashNeedScoreMax",
+      "dataKey": "dilution_cash_need_score_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "spyChg5minMin",
+      "dataKey": "spy_chg_5min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spyChg5minMax",
+      "dataKey": "spy_chg_5min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spyChg10minMin",
+      "dataKey": "spy_chg_10min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spyChg10minMax",
+      "dataKey": "spy_chg_10min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spyChg15minMin",
+      "dataKey": "spy_chg_15min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spyChg15minMax",
+      "dataKey": "spy_chg_15min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spyChg30minMin",
+      "dataKey": "spy_chg_30min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spyChg30minMax",
+      "dataKey": "spy_chg_30min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spyChgTodayMin",
+      "dataKey": "spy_chg_today_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "spyChgTodayMax",
+      "dataKey": "spy_chg_today_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChg5minMin",
+      "dataKey": "qqq_chg_5min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChg5minMax",
+      "dataKey": "qqq_chg_5min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChg10minMin",
+      "dataKey": "qqq_chg_10min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChg10minMax",
+      "dataKey": "qqq_chg_10min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChg15minMin",
+      "dataKey": "qqq_chg_15min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChg15minMax",
+      "dataKey": "qqq_chg_15min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChg30minMin",
+      "dataKey": "qqq_chg_30min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChg30minMax",
+      "dataKey": "qqq_chg_30min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChgTodayMin",
+      "dataKey": "qqq_chg_today_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "qqqChgTodayMax",
+      "dataKey": "qqq_chg_today_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChg5minMin",
+      "dataKey": "dia_chg_5min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChg5minMax",
+      "dataKey": "dia_chg_5min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChg10minMin",
+      "dataKey": "dia_chg_10min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChg10minMax",
+      "dataKey": "dia_chg_10min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChg15minMin",
+      "dataKey": "dia_chg_15min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChg15minMax",
+      "dataKey": "dia_chg_15min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChg30minMin",
+      "dataKey": "dia_chg_30min_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChg30minMax",
+      "dataKey": "dia_chg_30min_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChgTodayMin",
+      "dataKey": "dia_chg_today_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "diaChgTodayMax",
+      "dataKey": "dia_chg_today_max",
+      "parser": "pf"
     }
   ],
   "string": [
