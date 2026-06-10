@@ -12,6 +12,7 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { ClientThemeProvider } from '@/components/settings/ClientThemeProvider';
 import { I18nProvider } from '@/components/providers/I18nProvider';
 import { ChunkLoadErrorHandler } from '@/components/ChunkLoadErrorHandler';
+import { UpdateNotifier } from '@/components/UpdateNotifier';
 import { BacktestFloatingProvider } from '@/contexts/BacktestFloatingContext';
 
 // UI Font - Using Inter for better stability
@@ -106,6 +107,7 @@ export default function RootLayout({
           signUpFallbackRedirectUrl="/workspace"
         >
           <ChunkLoadErrorHandler />
+          <UpdateNotifier />
           <I18nProvider>
             <ClientThemeProvider>
               <BacktestFloatingProvider>

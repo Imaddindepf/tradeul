@@ -15,6 +15,7 @@ const isPublicRoute = createRouteMatcher([
     '/sign-up(.*)',      // Clerk sign-up pages
     '/invite(.*)',       // Group invitation pages — auto-join after auth
     '/api/public(.*)',   // Public API endpoints
+    '/api/version',      // Build id para UpdateNotifier (aviso de nueva versión)
     '/api/mockup',       // Design mockup (temporary)
     '/icon',             // Dynamic favicon
     '/apple-icon',       // Apple touch icon
