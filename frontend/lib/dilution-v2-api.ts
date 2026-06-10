@@ -2,6 +2,7 @@ const DILUTION_SERVICE_URL = process.env.NEXT_PUBLIC_DILUTION_API_URL || "http:/
 const DILUTION_REVIEW_SERVICE_URL =
   process.env.NEXT_PUBLIC_DILUTION_REVIEW_API_URL ||
   process.env.NEXT_PUBLIC_API_GATEWAY_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:8000";
 
 export interface InstrumentContextDetail {

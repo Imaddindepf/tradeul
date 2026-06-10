@@ -483,6 +483,9 @@ services:
       # Polygon S3 flat files (required by FlatFilesWatcher / sync_flat_files)
       - POLYGON_S3_ACCESS_KEY=${POLYGON_S3_ACCESS_KEY:-}
       - POLYGON_S3_SECRET_KEY=${POLYGON_S3_SECRET_KEY:-}
+      # Gemini: el código lee GOOGL_API_KEY; en .env la clave vive como
+      # GEMINI_TRADEUL_AGENT (sin este mapeo, morning news/earnings fallan)
+      - GOOGL_API_KEY=${GEMINI_TRADEUL_AGENT}
     deploy:
       resources:
         limits:
