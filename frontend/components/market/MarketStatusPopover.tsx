@@ -99,7 +99,9 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
 
   const popoverContent = showPopover && status && mounted && (
     <div
-      className="fixed w-64 bg-surface/95 backdrop-blur-sm rounded-md shadow-lg border border-border-subtle p-2.5"
+      // bg-surface sólido: los colores del tema son var() sin <alpha-value>,
+      // así que Tailwind no puede generar bg-surface/95 (quedaba transparente)
+      className="fixed w-64 bg-surface rounded-md shadow-lg border border-border-subtle p-2.5"
       style={{
         top: `${popoverPosition.top}px`,
         right: `${popoverPosition.right}px`,
