@@ -283,6 +283,7 @@ FILTER_FIELD_MAPPING = [
     ("min_dia_chg_15min", "max_dia_chg_15min", "dia_chg_15min"),
     ("min_dia_chg_30min", "max_dia_chg_30min", "dia_chg_30min"),
     ("min_dia_chg_today", "max_dia_chg_today", "dia_chg_today"),
+    ("min_chg_vs_spy", "max_chg_vs_spy", "chg_vs_spy"),
 ]
 
 MARKET_CONTEXT_FIELDS = {

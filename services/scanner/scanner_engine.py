@@ -572,6 +572,16 @@ class ScannerEngine:
         # Publicar contexto de mercado para filtros de índices (RETE)
         if market_ctx:
             set_market_context(market_ctx)
+            # Post-pass: spread relativo vs SPY (la posición de SPY en el bucle
+            # no está garantizada, por eso se calcula al final del ciclo)
+            spy_today = market_ctx.get("spy_chg_today")
+            if spy_today is not None:
+                for t in filtered_and_scored:
+                    # Mismo fallback que _capture_index_context: en premarket
+                    # change_percent aún es None
+                    chg = t.change_percent if t.change_percent is not None else t.premarket_change_percent
+                    if chg is not None:
+                        t.chg_vs_spy = round(chg - spy_today, 4)
         
         # Sort por score (necesario como operación separada)
         filtered_and_scored.sort(key=lambda t: t.score, reverse=True)

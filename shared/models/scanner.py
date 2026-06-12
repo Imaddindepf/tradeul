@@ -111,6 +111,7 @@ class ScannerTicker(BaseModel):
     chg_15min_dollars: Optional[float] = Field(None, description="Price change $ in last 15 minutes")
     chg_30min: Optional[float] = Field(None, description="Price change % in last 30 minutes")
     chg_30min_dollars: Optional[float] = Field(None, description="Price change $ in last 30 minutes")
+    chg_vs_spy: Optional[float] = Field(None, description="Change % today minus SPY change % today (RS spread)")
     
     free_float: Optional[int] = Field(None, description="Free float (shares available for public trading)")
     free_float_percent: Optional[float] = Field(None, description="Free float percentage from Polygon")
@@ -1134,6 +1135,10 @@ class FilterParameters(BaseModel):
     max_dia_chg_30min: Optional[float] = Field(None, description="Max Dow (DIA) change % last 30 min")
     min_dia_chg_today: Optional[float] = Field(None, description="Min Dow (DIA) change % today")
     max_dia_chg_today: Optional[float] = Field(None, description="Max Dow (DIA) change % today")
+
+    # Spread relativo: cambio % del ticker hoy menos cambio % del SPY hoy
+    min_chg_vs_spy: Optional[float] = Field(None, description="Min change % vs SPY today (relative strength spread)")
+    max_chg_vs_spy: Optional[float] = Field(None, description="Max change % vs SPY today (relative strength spread)")
 
     class Config:
         extra = "allow"

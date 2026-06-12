@@ -2333,6 +2333,14 @@ export const FILTER_GROUPS: readonly FilterGroup[] = [
         "suf": "%",
         "phMin": "-1",
         "phMax": "1"
+      },
+      {
+        "label": "Change vs S&P 500 (SPY) Today",
+        "minK": "min_chg_vs_spy",
+        "maxK": "max_chg_vs_spy",
+        "suf": "%",
+        "phMin": "1",
+        "phMax": "5"
       }
     ]
   }
@@ -4337,6 +4345,14 @@ export const FILTER_LABELS: Record<string, { label: string; suf: string }> = {
   },
   "max_dia_chg_today": {
     "label": "Dow (DIA) Change Today <",
+    "suf": "%"
+  },
+  "min_chg_vs_spy": {
+    "label": "Change vs S&P 500 (SPY) Today >",
+    "suf": "%"
+  },
+  "max_chg_vs_spy": {
+    "label": "Change vs S&P 500 (SPY) Today <",
     "suf": "%"
   }
 };
