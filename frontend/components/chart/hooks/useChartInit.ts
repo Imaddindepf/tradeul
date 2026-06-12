@@ -22,6 +22,7 @@ import {
 import { getUserTimezone, getTimezoneAbbrev } from '@/lib/date-utils';
 import { getChartColors, INTERVAL_SECONDS, RIGHT_OFFSET_BARS, type ChartBar, type Interval } from '../constants';
 import type { ChartCandleStyle } from '@/stores/useUserPreferencesStore';
+import { createHoveredBarStore, findBarIndexByTime, type HoveredBarStore } from '../hoveredBarStore';
 
 interface UseChartInitOptions {
     candleStyle?: ChartCandleStyle;
@@ -34,6 +35,60 @@ interface UseChartInitOptions {
     dataRef?: MutableRefObject<ChartBar[]>;
 }
 
+/** Visual series kind for a given candle style ('heikin-ashi' reuses candlestick). */
+function seriesKindForStyle(style: ChartCandleStyle): 'bars' | 'line' | 'area' | 'candlestick' {
+    if (style === 'bars' || style === 'line' || style === 'area') return style;
+    return 'candlestick';
+}
+
+/** Create the main price series for the given style. */
+function createMainSeries(
+    chart: IChartApi,
+    style: ChartCandleStyle,
+    colors: ReturnType<typeof getChartColors>,
+): ISeriesApi<any> {
+    const priceLineOpts = {
+        priceLineVisible: true,
+        priceLineWidth: 1 as const,
+        priceLineColor: colors.crosshair,
+        priceLineStyle: LineStyle.Dotted,
+        lastValueVisible: false,
+    };
+    const kind = seriesKindForStyle(style);
+    if (kind === 'bars') {
+        return chart.addSeries(BarSeries, {
+            upColor: colors.upColor,
+            downColor: colors.downColor,
+            ...priceLineOpts,
+        });
+    }
+    if (kind === 'line') {
+        return chart.addSeries(LineSeries, {
+            color: colors.crosshair,
+            lineWidth: 2,
+            ...priceLineOpts,
+        });
+    }
+    if (kind === 'area') {
+        return chart.addSeries(AreaSeries, {
+            lineColor: colors.crosshair,
+            topColor: colors.volumeUp,
+            bottomColor: 'rgba(37, 99, 235, 0.04)',
+            lineWidth: 2,
+            ...priceLineOpts,
+        });
+    }
+    // 'candles' and 'heikin-ashi' both use Candlestick; HA transforms data upstream.
+    return chart.addSeries(CandlestickSeries, {
+        upColor: colors.upColor,
+        downColor: colors.downColor,
+        wickUpColor: colors.upColor,
+        wickDownColor: colors.downColor,
+        borderVisible: false,
+        ...priceLineOpts,
+    });
+}
+
 export function useChartInit(
     containerRef: MutableRefObject<HTMLDivElement | null>,
     currentTicker: string,
@@ -44,6 +99,10 @@ export function useChartInit(
 ) {
     const candleStyle: ChartCandleStyle = options.candleStyle ?? 'candles';
     const dataRef = options.dataRef;
+    // The main effect reads the style via ref so style changes do NOT recreate
+    // the chart — a dedicated effect below hot-swaps just the price series.
+    const candleStyleRef = useRef(candleStyle);
+    candleStyleRef.current = candleStyle;
     const chartRef = useRef<IChartApi | null>(null);
     const candleSeriesRef = useRef<ISeriesApi<any> | null>(null);
     const volumeSeriesRef = useRef<ISeriesApi<any> | null>(null);
@@ -53,8 +112,23 @@ export function useChartInit(
     const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastPriceInfoRef = useRef<{ close: number; open: number }>({ close: 0, open: 0 });
     const beforeDestroyCallbackRef = useRef<(() => void) | null>(null);
+    /**
+     * Called right before the main price series is hot-swapped (candle style
+     * change). The owner must detach any primitives attached to the old series
+     * (drawings, tentative) WITHOUT clearing indicator series refs — those
+     * live on the chart, which survives the swap.
+     */
+    const beforeSeriesSwapCallbackRef = useRef<(() => void) | null>(null);
     const [chartVersion, setChartVersion] = useState(0);
-    const [hoveredBar, setHoveredBar] = useState<ChartBar | null>(null);
+    // Hovered bar lives in an external store (NOT React state): the crosshair
+    // fires per pixel and routing it through state re-rendered the whole chart
+    // tree. Display components subscribe via useDisplayBar().
+    const hoveredBarStoreRef = useRef<HoveredBarStore | null>(null);
+    if (!hoveredBarStoreRef.current) hoveredBarStoreRef.current = createHoveredBarStore();
+    const hoveredBarStore = hoveredBarStoreRef.current;
+    // Tracks which series kind is currently mounted, so the style-swap effect
+    // only acts on real kind changes (candles ↔ heikin-ashi share a kind).
+    const renderedSeriesKindRef = useRef<ReturnType<typeof seriesKindForStyle> | null>(null);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -162,55 +236,9 @@ export function useChartInit(
             sessionBgSeriesRef.current = null;
         }
 
-        let candleSeries: ISeriesApi<any>;
-        if (candleStyle === 'bars') {
-            candleSeries = chart.addSeries(BarSeries, {
-                upColor: CHART_COLORS.upColor,
-                downColor: CHART_COLORS.downColor,
-                priceLineVisible: true,
-                priceLineWidth: 1,
-                priceLineColor: CHART_COLORS.crosshair,
-                priceLineStyle: LineStyle.Dotted,
-                lastValueVisible: false,
-            });
-        } else if (candleStyle === 'line') {
-            candleSeries = chart.addSeries(LineSeries, {
-                color: CHART_COLORS.crosshair,
-                lineWidth: 2,
-                priceLineVisible: true,
-                priceLineWidth: 1,
-                priceLineColor: CHART_COLORS.crosshair,
-                priceLineStyle: LineStyle.Dotted,
-                lastValueVisible: false,
-            });
-        } else if (candleStyle === 'area') {
-            candleSeries = chart.addSeries(AreaSeries, {
-                lineColor: CHART_COLORS.crosshair,
-                topColor: CHART_COLORS.volumeUp,
-                bottomColor: 'rgba(37, 99, 235, 0.04)',
-                lineWidth: 2,
-                priceLineVisible: true,
-                priceLineWidth: 1,
-                priceLineColor: CHART_COLORS.crosshair,
-                priceLineStyle: LineStyle.Dotted,
-                lastValueVisible: false,
-            });
-        } else {
-            // 'candles' and 'heikin-ashi' both use Candlestick; HA transforms data upstream.
-            candleSeries = chart.addSeries(CandlestickSeries, {
-                upColor: CHART_COLORS.upColor,
-                downColor: CHART_COLORS.downColor,
-                wickUpColor: CHART_COLORS.upColor,
-                wickDownColor: CHART_COLORS.downColor,
-                borderVisible: false,
-                priceLineVisible: true,
-                priceLineWidth: 1,
-                priceLineColor: CHART_COLORS.crosshair,
-                priceLineStyle: LineStyle.Dotted,
-                lastValueVisible: false,
-            });
-        }
+        const candleSeries = createMainSeries(chart, candleStyleRef.current, CHART_COLORS);
         candleSeriesRef.current = candleSeries;
+        renderedSeriesKindRef.current = seriesKindForStyle(candleStyleRef.current);
 
         // Price overlay timer (countdown for intraday, price-only for daily+)
         if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
@@ -288,23 +316,27 @@ export function useChartInit(
 
         chart.subscribeCrosshairMove((param) => {
             if (!param.point) return;
-            if (!param.time || !param.seriesData) { setHoveredBar(null); return; }
+            if (!param.time || !param.seriesData) { hoveredBarStore.set(null); return; }
             const time = param.time as number;
             // Always resolve OHLC from the source data array so we work regardless
             // of which candleStyle is active (line/area series only carry `value`).
             const source = dataRef?.current;
             if (source && source.length > 0) {
-                const bar = source.find(b => b.time === time);
-                if (bar) {
-                    setHoveredBar(bar);
+                const idx = findBarIndexByTime(source, time);
+                if (idx !== -1) {
+                    hoveredBarStore.set(source[idx]);
                     return;
                 }
             }
             // Fallback for candles/bars/heikin-ashi when no dataRef is wired.
-            const candleData = param.seriesData.get(candleSeries) as CandlestickData | undefined;
+            // Resolved via refs so the handler keeps working after a series hot-swap.
+            if (hoveredBarStore.get()?.time === time) return;
+            const activeCandleSeries = candleSeriesRef.current;
+            if (!activeCandleSeries) return;
+            const candleData = param.seriesData.get(activeCandleSeries) as CandlestickData | undefined;
             const volumeData = param.seriesData.get(volumeSeries) as HistogramData | undefined;
             if (candleData && typeof candleData.open === 'number' && volumeData) {
-                setHoveredBar({
+                hoveredBarStore.set({
                     time, open: candleData.open as number,
                     high: candleData.high as number, low: candleData.low as number,
                     close: candleData.close as number, volume: volumeData.value as number,
@@ -352,8 +384,43 @@ export function useChartInit(
             chartRef.current = null;
             candleSeriesRef.current = null;
             volumeSeriesRef.current = null;
+            hoveredBarStore.set(null);
         };
-    }, [currentTicker, fontFamily, selectedInterval, candleStyle]);
+    }, [currentTicker, fontFamily, selectedInterval]);
+
+    // ── Hot-swap the price series when the candle style changes ─────────
+    // Recreating the whole chart for a style change (the old behaviour) tears
+    // down primitives, indicator panes and listeners. Instead we replace just
+    // the main series and bump chartVersion so dependents re-bind. Note:
+    // candles ↔ heikin-ashi share the Candlestick series, so only the data
+    // transform changes (handled by useChartData via its candleStyle dep).
+    useEffect(() => {
+        const chart = chartRef.current;
+        const oldSeries = candleSeriesRef.current;
+        if (!chart || !oldSeries) return;
+
+        const nextKind = seriesKindForStyle(candleStyle);
+        if (renderedSeriesKindRef.current === nextKind) return;
+
+        // Let the owner detach series-bound primitives (drawings/tentative).
+        try { beforeSeriesSwapCallbackRef.current?.(); } catch { /* */ }
+
+        let savedOrder: number | null = null;
+        try { savedOrder = oldSeries.seriesOrder(); } catch { /* */ }
+        try { chart.removeSeries(oldSeries); } catch { /* */ }
+
+        const newSeries = createMainSeries(chart, candleStyle, getChartColors());
+        if (savedOrder !== null) {
+            try { newSeries.setSeriesOrder(savedOrder); } catch { /* */ }
+        }
+        candleSeriesRef.current = newSeries;
+        renderedSeriesKindRef.current = nextKind;
+
+        // Re-bind everything that holds the old series (primitives, handlers,
+        // multichart bridge). useChartData re-sets the data in this same commit
+        // via its own candleStyle dependency.
+        setChartVersion(v => v + 1);
+    }, [candleStyle]);
 
     // Update watermark when ticker changes
     useEffect(() => {
@@ -391,6 +458,7 @@ export function useChartInit(
     return {
         chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef,
         whitespaceSeriesRef, watermarkRef, lastPriceInfoRef, beforeDestroyCallbackRef,
-        chartVersion, setChartVersion, hoveredBar, setHoveredBar,
+        beforeSeriesSwapCallbackRef,
+        chartVersion, setChartVersion, hoveredBarStore,
     };
 }

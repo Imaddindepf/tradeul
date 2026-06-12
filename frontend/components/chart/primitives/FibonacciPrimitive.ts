@@ -1,15 +1,10 @@
 import type {
-  ISeriesPrimitive,
-  SeriesAttachedParameter,
   IPrimitivePaneView,
   IPrimitivePaneRenderer,
   PrimitiveHoveredItem,
-  Time,
-  IChartApiBase,
-  ISeriesApi,
-  SeriesType,
 } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
+import { BaseDrawingPrimitive, type DrawingPaneView } from './BaseDrawingPrimitive';
 import type { FibonacciDrawing } from './types';
 import { FIB_LEVELS } from './types';
 import { timeToPixelX } from './coordinateUtils';
@@ -160,45 +155,12 @@ class FibPaneView implements IPrimitivePaneView {
   }
 }
 
-export class FibonacciPrimitive implements ISeriesPrimitive<Time> {
-  private _chart: IChartApiBase<Time> | null = null;
-  private _series: ISeriesApi<SeriesType, Time> | null = null;
-  private _requestUpdate: (() => void) | null = null;
+export class FibonacciPrimitive extends BaseDrawingPrimitive<FibonacciDrawing> {
   private _paneView = new FibPaneView();
+  protected paneView(): DrawingPaneView { return this._paneView; }
 
-  private _drawing: FibonacciDrawing;
-  private _isSelected = false;
-  private _dataTimes: number[] = [];
-
-  constructor(drawing: FibonacciDrawing) {
-    this._drawing = drawing;
-  }
-
-  attached(param: SeriesAttachedParameter<Time>): void {
-    this._chart = param.chart;
-    this._series = param.series;
-    this._requestUpdate = param.requestUpdate;
-    this.updateAllViews();
-  }
-
-  detached(): void {
-    this._chart = null;
-    this._series = null;
-    this._requestUpdate = null;
-  }
-
-  updateDrawing(drawing: FibonacciDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
-    this._drawing = drawing;
-    this._isSelected = isSelected || !!isHovered;
-    if (dataTimes) this._dataTimes = dataTimes;
-    this.updateAllViews();
-    this._requestUpdate?.();
-  }
-
-  updateAllViews(): void {
-    if (!this._chart || !this._series) return;
-
-    const ts = this._chart.timeScale();
+  protected syncViews(): void {
+    const ts = this._chart!.timeScale();
     const x1 = timeToPixelX(this._drawing.point1.time, this._dataTimes, ts);
     const x2 = timeToPixelX(this._drawing.point2.time, this._dataTimes, ts);
 
@@ -221,16 +183,7 @@ export class FibonacciPrimitive implements ISeriesPrimitive<Time> {
     this._paneView.update(
       x1, x2, computedLevels,
       this._drawing.color, this._drawing.lineWidth, this._drawing.lineStyle,
-      this._isSelected, this._drawing.id,
+      this.isActive, this._drawing.id,
     );
-  }
-
-  paneViews(): readonly IPrimitivePaneView[] {
-    this.updateAllViews();
-    return [this._paneView];
-  }
-
-  hitTest(x: number, y: number): PrimitiveHoveredItem | null {
-    return this._paneView.hitTest(x, y);
   }
 }

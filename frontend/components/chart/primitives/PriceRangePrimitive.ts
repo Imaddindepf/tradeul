@@ -1,15 +1,10 @@
 import type {
-  ISeriesPrimitive,
-  SeriesAttachedParameter,
   IPrimitivePaneView,
   IPrimitivePaneRenderer,
   PrimitiveHoveredItem,
-  Time,
-  IChartApiBase,
-  ISeriesApi,
-  SeriesType,
 } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
+import { BaseDrawingPrimitive, type DrawingPaneView } from './BaseDrawingPrimitive';
 import type { PriceRangeDrawing } from './types';
 import {
   HANDLE_RENDER_RADIUS,
@@ -140,32 +135,13 @@ class PriceRangePaneView implements IPrimitivePaneView {
   }
 }
 
-export class PriceRangePrimitive implements ISeriesPrimitive<Time> {
-  private _chart: IChartApiBase<Time> | null = null;
-  private _series: ISeriesApi<SeriesType, Time> | null = null;
-  private _requestUpdate: (() => void) | null = null;
+export class PriceRangePrimitive extends BaseDrawingPrimitive<PriceRangeDrawing> {
   private _paneView = new PriceRangePaneView();
-  private _drawing: PriceRangeDrawing;
-  private _isSelected = false;
+  protected paneView(): DrawingPaneView { return this._paneView; }
 
-  constructor(drawing: PriceRangeDrawing) { this._drawing = drawing; }
-
-  attached(param: SeriesAttachedParameter<Time>): void {
-    this._chart = param.chart; this._series = param.series;
-    this._requestUpdate = param.requestUpdate; this.updateAllViews();
-  }
-
-  detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
-
-  updateDrawing(drawing: PriceRangeDrawing, isSelected: boolean, isHovered?: boolean): void {
-    this._drawing = drawing; this._isSelected = isSelected || !!isHovered;
-    this.updateAllViews(); this._requestUpdate?.();
-  }
-
-  updateAllViews(): void {
-    if (!this._chart || !this._series) return;
-    const y1 = this._series.priceToCoordinate(this._drawing.point1.price);
-    const y2 = this._series.priceToCoordinate(this._drawing.point2.price);
+  protected syncViews(): void {
+    const y1 = this._series!.priceToCoordinate(this._drawing.point1.price);
+    const y2 = this._series!.priceToCoordinate(this._drawing.point2.price);
     if (y1 === null || y2 === null) {
       this._paneView.update(0, 0, 0, 0, false, '', 0); return;
     }
@@ -173,11 +149,8 @@ export class PriceRangePrimitive implements ISeriesPrimitive<Time> {
     const p2 = this._drawing.point2.price;
     const priceDiff = p2 - p1;
     const pctChange = p1 !== 0 ? (priceDiff / p1) * 100 : 0;
-    const mid = this._chart ? (this._chart.timeScale().width() / 2) : 0;
+    const mid = this._chart!.timeScale().width() / 2;
     this._paneView.update(y1 as number, y2 as number, priceDiff, pctChange,
-      this._isSelected, this._drawing.id, mid);
+      this.isActive, this._drawing.id, mid);
   }
-
-  paneViews(): readonly IPrimitivePaneView[] { this.updateAllViews(); return [this._paneView]; }
-  hitTest(x: number, y: number): PrimitiveHoveredItem | null { return this._paneView.hitTest(x, y); }
 }

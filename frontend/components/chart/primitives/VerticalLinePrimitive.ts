@@ -1,16 +1,11 @@
 import type {
-  ISeriesPrimitive,
-  SeriesAttachedParameter,
   IPrimitivePaneView,
   IPrimitivePaneRenderer,
   ISeriesPrimitiveAxisView,
   PrimitiveHoveredItem,
-  Time,
-  IChartApiBase,
-  ISeriesApi,
-  SeriesType,
 } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
+import { BaseDrawingPrimitive, type DrawingPaneView } from './BaseDrawingPrimitive';
 import type { VerticalLineDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
@@ -103,40 +98,13 @@ class VLineTimeAxisView implements ISeriesPrimitiveAxisView {
   visible(): boolean { return this._visible; }
 }
 
-export class VerticalLinePrimitive implements ISeriesPrimitive<Time> {
-  private _chart: IChartApiBase<Time> | null = null;
-  private _series: ISeriesApi<SeriesType, Time> | null = null;
-  private _requestUpdate: (() => void) | null = null;
+export class VerticalLinePrimitive extends BaseDrawingPrimitive<VerticalLineDrawing> {
   private _paneView = new VLinePaneView();
   private _timeAxisView = new VLineTimeAxisView();
-  private _drawing: VerticalLineDrawing;
-  private _isSelected = false;
-  private _dataTimes: number[] = [];
+  protected paneView(): DrawingPaneView { return this._paneView; }
 
-  constructor(drawing: VerticalLineDrawing) {
-    this._drawing = drawing;
-  }
-
-  attached(param: SeriesAttachedParameter<Time>): void {
-    this._chart = param.chart;
-    this._series = param.series;
-    this._requestUpdate = param.requestUpdate;
-    this.updateAllViews();
-  }
-
-  detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
-
-  updateDrawing(drawing: VerticalLineDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
-    this._drawing = drawing;
-    this._isSelected = isSelected || !!isHovered;
-    if (dataTimes) this._dataTimes = dataTimes;
-    this.updateAllViews();
-    this._requestUpdate?.();
-  }
-
-  updateAllViews(): void {
-    if (!this._chart) { this._paneView.clear(); return; }
-    const ts = this._chart.timeScale();
+  protected syncViews(): void {
+    const ts = this._chart!.timeScale();
     const x = timeToPixelX(this._drawing.time, this._dataTimes, ts);
     if (x === null) { this._paneView.clear(); return; }
 
@@ -144,11 +112,9 @@ export class VerticalLinePrimitive implements ISeriesPrimitive<Time> {
     const timeText = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
     this._paneView.update(x, this._drawing.color, this._drawing.lineWidth,
-      this._drawing.lineStyle, this._isSelected, this._drawing.id);
+      this._drawing.lineStyle, this.isActive, this._drawing.id);
     this._timeAxisView.update(x, timeText, this._drawing.color, true);
   }
 
-  paneViews(): readonly IPrimitivePaneView[] { this.updateAllViews(); return [this._paneView]; }
   timeAxisViews(): readonly ISeriesPrimitiveAxisView[] { return [this._timeAxisView]; }
-  hitTest(x: number, y: number): PrimitiveHoveredItem | null { return this._paneView.hitTest(x, y); }
 }

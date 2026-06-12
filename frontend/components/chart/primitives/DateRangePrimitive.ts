@@ -1,15 +1,10 @@
 import type {
-  ISeriesPrimitive,
-  SeriesAttachedParameter,
   IPrimitivePaneView,
   IPrimitivePaneRenderer,
   PrimitiveHoveredItem,
-  Time,
-  IChartApiBase,
-  ISeriesApi,
-  SeriesType,
 } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
+import { BaseDrawingPrimitive, type DrawingPaneView } from './BaseDrawingPrimitive';
 import type { DateRangeDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import {
@@ -130,33 +125,12 @@ class DateRangePaneView implements IPrimitivePaneView {
   }
 }
 
-export class DateRangePrimitive implements ISeriesPrimitive<Time> {
-  private _chart: IChartApiBase<Time> | null = null;
-  private _series: ISeriesApi<SeriesType, Time> | null = null;
-  private _requestUpdate: (() => void) | null = null;
+export class DateRangePrimitive extends BaseDrawingPrimitive<DateRangeDrawing> {
   private _paneView = new DateRangePaneView();
-  private _drawing: DateRangeDrawing;
-  private _isSelected = false;
-  private _dataTimes: number[] = [];
+  protected paneView(): DrawingPaneView { return this._paneView; }
 
-  constructor(drawing: DateRangeDrawing) { this._drawing = drawing; }
-
-  attached(param: SeriesAttachedParameter<Time>): void {
-    this._chart = param.chart; this._series = param.series;
-    this._requestUpdate = param.requestUpdate; this.updateAllViews();
-  }
-
-  detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
-
-  updateDrawing(drawing: DateRangeDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
-    this._drawing = drawing; this._isSelected = isSelected || !!isHovered;
-    if (dataTimes) this._dataTimes = dataTimes;
-    this.updateAllViews(); this._requestUpdate?.();
-  }
-
-  updateAllViews(): void {
-    if (!this._chart) return;
-    const ts = this._chart.timeScale();
+  protected syncViews(): void {
+    const ts = this._chart!.timeScale();
     const x1 = timeToPixelX(this._drawing.point1.time, this._dataTimes, ts);
     const x2 = timeToPixelX(this._drawing.point2.time, this._dataTimes, ts);
     if (x1 === null || x2 === null) {
@@ -175,12 +149,8 @@ export class DateRangePrimitive implements ISeriesPrimitive<Time> {
     // The chart height is needed for the mid-Y handle position; lightweight-
     // charts doesn't expose a stable getter so we recompute from the price
     // scale's coordinate range using a known price (drawing's point1).
-    const series = this._series;
-    const yMid = series ? (series.priceToCoordinate(this._drawing.point1.price) as number | null) : null;
+    const yMid = this._series!.priceToCoordinate(this._drawing.point1.price) as number | null;
     this._paneView.update(x1, x2, barCount, timeDiff,
-      this._isSelected, this._drawing.id, yMid ?? 0);
+      this.isActive, this._drawing.id, yMid ?? 0);
   }
-
-  paneViews(): readonly IPrimitivePaneView[] { this.updateAllViews(); return [this._paneView]; }
-  hitTest(x: number, y: number): PrimitiveHoveredItem | null { return this._paneView.hitTest(x, y); }
 }

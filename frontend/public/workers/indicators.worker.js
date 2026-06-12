@@ -5,6 +5,11 @@
  * - Accepts { id, type, params } configs instead of fixed indicator names
  * - Returns results keyed by instance ID
  * - Each instance can have custom periods/parameters
+ *
+ * ⚠ CONTRACT with components/chart/IncrementalIndicatorEngine.ts: this worker
+ * seeds the historical series and the engine continues it tick by tick. If a
+ * formula changes here, mirror it there (and vice versa) or the last bar will
+ * jump when a live tick arrives.
  */
 
 /* global self, importScripts */

@@ -44,6 +44,8 @@ export function useExtendedHoursPrice({
     registerExtendedHoursHandler,
 }: ExtendedHoursPriceOptions) {
     const priceLineRef = useRef<IPriceLine | null>(null);
+    /** Series the current price line was created on — recreate after a series hot-swap. */
+    const priceLineSeriesRef = useRef<ISeriesApi<any> | null>(null);
     const ehOverlayRef = useRef<HTMLDivElement | null>(null);
     const lastPriceRef = useRef<number>(0);
     const overlayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -58,8 +60,18 @@ export function useExtendedHoursPrice({
 
         lastPriceRef.current = price;
 
-        if (priceLineRef.current) {
-            try { series.removePriceLine(priceLineRef.current); } catch {}
+        // Update in place when possible; recreating the line per tick forces a
+        // full price-axis relayout every second. Recreate only when the line
+        // doesn't exist yet or the underlying series changed (style hot-swap).
+        if (priceLineRef.current && priceLineSeriesRef.current === series) {
+            try {
+                priceLineRef.current.applyOptions({ price, color: colorRef.current });
+                return;
+            } catch { /* fall through to recreate */ }
+        }
+
+        if (priceLineRef.current && priceLineSeriesRef.current) {
+            try { priceLineSeriesRef.current.removePriceLine(priceLineRef.current); } catch {}
         }
 
         priceLineRef.current = series.createPriceLine({
@@ -70,6 +82,7 @@ export function useExtendedHoursPrice({
             axisLabelVisible: true,
             title: '',
         });
+        priceLineSeriesRef.current = series;
     }, [candleSeriesRef]);
 
     const updateOverlayPosition = useCallback(() => {
@@ -117,10 +130,11 @@ export function useExtendedHoursPrice({
                 clearInterval(overlayTimerRef.current);
                 overlayTimerRef.current = null;
             }
-            if (priceLineRef.current && candleSeriesRef.current) {
-                try { candleSeriesRef.current.removePriceLine(priceLineRef.current); } catch {}
-                priceLineRef.current = null;
+            if (priceLineRef.current && priceLineSeriesRef.current) {
+                try { priceLineSeriesRef.current.removePriceLine(priceLineRef.current); } catch {}
             }
+            priceLineRef.current = null;
+            priceLineSeriesRef.current = null;
             if (ehOverlayRef.current) {
                 try { ehOverlayRef.current.remove(); } catch {}
                 ehOverlayRef.current = null;

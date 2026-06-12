@@ -1,15 +1,10 @@
 import type {
-  ISeriesPrimitive,
-  SeriesAttachedParameter,
   IPrimitivePaneView,
   IPrimitivePaneRenderer,
   PrimitiveHoveredItem,
-  Time,
-  IChartApiBase,
-  ISeriesApi,
-  SeriesType,
 } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
+import { BaseDrawingPrimitive, type DrawingPaneView } from './BaseDrawingPrimitive';
 import type { CircleDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
@@ -114,45 +109,21 @@ class CirclePaneView implements IPrimitivePaneView {
   }
 }
 
-export class CirclePrimitive implements ISeriesPrimitive<Time> {
-  private _chart: IChartApiBase<Time> | null = null;
-  private _series: ISeriesApi<SeriesType, Time> | null = null;
-  private _requestUpdate: (() => void) | null = null;
+export class CirclePrimitive extends BaseDrawingPrimitive<CircleDrawing> {
   private _paneView = new CirclePaneView();
-  private _drawing: CircleDrawing;
-  private _isSelected = false;
-  private _dataTimes: number[] = [];
+  protected paneView(): DrawingPaneView { return this._paneView; }
 
-  constructor(drawing: CircleDrawing) { this._drawing = drawing; }
-
-  attached(param: SeriesAttachedParameter<Time>): void {
-    this._chart = param.chart; this._series = param.series;
-    this._requestUpdate = param.requestUpdate; this.updateAllViews();
-  }
-
-  detached(): void { this._chart = null; this._series = null; this._requestUpdate = null; }
-
-  updateDrawing(drawing: CircleDrawing, isSelected: boolean, isHovered?: boolean, dataTimes?: number[]): void {
-    this._drawing = drawing; this._isSelected = isSelected || !!isHovered;
-    if (dataTimes) this._dataTimes = dataTimes;
-    this.updateAllViews(); this._requestUpdate?.();
-  }
-
-  updateAllViews(): void {
-    if (!this._chart || !this._series) return;
-    const ts = this._chart.timeScale();
+  protected syncViews(): void {
+    const ts = this._chart!.timeScale();
     const x1 = timeToPixelX(this._drawing.point1.time, this._dataTimes, ts);
-    const y1 = this._series.priceToCoordinate(this._drawing.point1.price);
+    const y1 = this._series!.priceToCoordinate(this._drawing.point1.price);
     const x2 = timeToPixelX(this._drawing.point2.time, this._dataTimes, ts);
-    const y2 = this._series.priceToCoordinate(this._drawing.point2.price);
+    const y2 = this._series!.priceToCoordinate(this._drawing.point2.price);
     if (x1 === null || y1 === null || x2 === null || y2 === null) {
       this._paneView.update(0, 0, 0, 0, '', '', 0, 'solid', false, ''); return;
     }
     this._paneView.update(x1, y1 as number, x2, y2 as number,
       this._drawing.color, this._drawing.fillColor, this._drawing.lineWidth,
-      this._drawing.lineStyle, this._isSelected, this._drawing.id);
+      this._drawing.lineStyle, this.isActive, this._drawing.id);
   }
-
-  paneViews(): readonly IPrimitivePaneView[] { this.updateAllViews(); return [this._paneView]; }
-  hitTest(x: number, y: number): PrimitiveHoveredItem | null { return this._paneView.hitTest(x, y); }
 }

@@ -150,6 +150,14 @@ export function useLiveChartData(
   // Refs para acceso rápido sin re-renders
   const cachedBars = cached?.bars || [];
   const lastBarRef = useRef<ChartBar | null>(cachedBars.length > 0 ? cachedBars[cachedBars.length - 1] : null);
+
+  // Espejo "vivo" de `data`: misma serie histórica + los ticks WS aplicados
+  // en sitio (mutación, sin setState). Los consumidores imperativos
+  // (crosshair, magnet, OHLC del hover) leen este ref para no quedarse con
+  // la última vela congelada en el estado de React.
+  const liveBarsRef = useRef<ChartBar[]>(cachedBars.slice());
+  const liveSourceRef = useRef<ChartBar[] | null>(cached?.bars ?? null);
+
   const tickerRef = useRef(ticker);
   const intervalRef = useRef(interval);
   const dataRef = useRef<ChartBar[]>(cachedBars);
@@ -171,6 +179,33 @@ export function useLiveChartData(
   // Page Lifecycle: track when the tab went hidden
   const hiddenAtRef = useRef<number | null>(null);
   const isFrozenRef = useRef(false);
+
+  // Dedup de feeds WS: el servidor envía `chart_aggregate` por DOS rutas que
+  // representan los mismos trades — micro-velas de chart_aggregator cada
+  // ~150ms (source: "trades") y aggregates A.* de Polygon cada 1s (sin
+  // source). Procesar ambas duplica el volumen de la vela en curso. Mientras
+  // el feed de trades esté vivo, ignoramos A.*; si deja de emitir (p.ej.
+  // chart_aggregator caído), A.* actúa de fallback.
+  const lastTradesFeedMsgAtRef = useRef(0);
+
+  // Render-phase sync: cuando el estado `data` cambia (load/loadMore/refetch)
+  // el espejo vivo se reconstruye desde él, descartando las velas WS
+  // provisionales (el fetch ya las trae consolidadas).
+  if (liveSourceRef.current !== data) {
+    liveSourceRef.current = data;
+    liveBarsRef.current = data.slice();
+  }
+
+  /** Aplica una vela en vivo al espejo (merge sobre la última o push). */
+  const applyLiveBar = useCallback((bar: ChartBar) => {
+    const arr = liveBarsRef.current;
+    const last = arr.length > 0 ? arr[arr.length - 1] : null;
+    if (last && last.time === bar.time) {
+      arr[arr.length - 1] = bar;
+    } else if (!last || bar.time > last.time) {
+      arr.push(bar);
+    }
+  }, []);
 
   useEffect(() => {
     tickerRef.current = ticker;
@@ -336,11 +371,12 @@ export function useLiveChartData(
       for (const bar of bars) {
         const last = lastBarRef.current;
         const isNew = !last || bar.time > last.time;
-        if (updateHandlerRef.current) {
-          updateHandlerRef.current(bar, isNew);
-        }
         if (isNew) {
           lastBarRef.current = bar;
+          applyLiveBar(bar);
+          if (updateHandlerRef.current) {
+            updateHandlerRef.current(bar, true);
+          }
         } else if (last && bar.time === last.time) {
           // Merge into current bar
           const merged: ChartBar = {
@@ -352,6 +388,7 @@ export function useLiveChartData(
             volume: bar.volume, // API returns final volume for bar
           };
           lastBarRef.current = merged;
+          applyLiveBar(merged);
           if (updateHandlerRef.current) {
             updateHandlerRef.current(merged, false);
           }
@@ -360,7 +397,7 @@ export function useLiveChartData(
     } catch {
       // Silent — will recover on next aggregate
     }
-  }, []);
+  }, [applyLiveBar]);
 
   // Cargar al montar o cambiar ticker/interval.
   // If cache hit, skip the blocking fetch — WebSocket will bring fresh data.
@@ -400,6 +437,14 @@ export function useLiveChartData(
       next: (message: any) => {
         if (message?.type !== 'chart_aggregate') return;
         if (message.symbol !== tickerRef.current) return;
+
+        // Dedup feed doble (ver comentario en lastTradesFeedMsgAtRef)
+        const TRADES_FEED_ALIVE_MS = 10_000;
+        if (message.source === 'trades') {
+          lastTradesFeedMsgAtRef.current = Date.now();
+        } else if (Date.now() - lastTradesFeedMsgAtRef.current < TRADES_FEED_ALIVE_MS) {
+          return; // A.* descartado: el feed de trades ya cubre este flujo
+        }
 
         const aggData = message.data;
         const timeSecs = Math.floor(aggData.t / 1000);
@@ -442,8 +487,9 @@ export function useLiveChartData(
             volume: lastBar.volume + aggData.v,  // SUMAR volumen del nuevo aggregate
           };
 
-          // Actualizar ref (sin re-render)
+          // Actualizar refs (sin re-render)
           lastBarRef.current = updatedBar;
+          applyLiveBar(updatedBar);
 
           // Notificar al chart via callback imperativo
           if (updateHandlerRef.current) {
@@ -474,6 +520,7 @@ export function useLiveChartData(
           // Marcamos la vela como provisional — el siguiente fetchHistorical
           // o loadForward la sobrescribirá con datos reales del backend.
           lastBarRef.current = newBar;
+          applyLiveBar(newBar);
 
           if (updateHandlerRef.current) {
             updateHandlerRef.current(newBar, true);
@@ -499,7 +546,7 @@ export function useLiveChartData(
       subscription.unsubscribe();
       setIsLive(false);
     };
-  }, [loading, data.length, ticker, isConnected, messages$, send, replayTo, loadForward]);
+  }, [loading, data.length, ticker, isConnected, messages$, send, replayTo, loadForward, applyLiveBar]);
 
   // ============================================================================
   // Page Lifecycle: visibility + freeze/resume recovery
@@ -568,6 +615,8 @@ export function useLiveChartData(
 
   return {
     data,
+    /** Espejo de `data` con los ticks WS aplicados — solo lectura imperativa. */
+    liveBarsRef,
     loading,
     loadingMore,
     error,

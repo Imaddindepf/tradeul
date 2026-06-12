@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { useChartContext } from './ChartContext';
+import { useDisplayBar } from './hoveredBarStore';
 import { ChevronDownIcon, ChevronRightIcon, SettingsIcon, TrashIcon } from './icons';
 import { Tooltip } from './Tooltip';
 import { computeIndicatorLiveLines } from './utils/indicatorValueAt';
@@ -23,12 +24,12 @@ export function ChartIndicatorLegend() {
         indicatorResults,
         legendExpanded,
         setLegendExpanded,
-        displayBar,
         selectedIndicator,
         setSelectedIndicator,
         openIndicatorSettings,
         removeIndicator,
     } = ctx;
+    const { displayBar } = useDisplayBar();
 
     const visible = useMemo(() => indicators.filter(i => i.visible), [indicators]);
     const referenceTime = displayBar ? displayBar.time : null;

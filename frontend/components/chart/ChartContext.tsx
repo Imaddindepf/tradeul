@@ -5,6 +5,7 @@ import type { IChartApi, ISeriesApi } from 'lightweight-charts';
 import type { ChartBar, IndicatorInstance, Interval, TimeRange } from './constants';
 import type { ReplayState, TickerMeta } from './hooks';
 import type { IndicatorResults } from '@/hooks/useIndicatorWorker';
+import type { HoveredBarStore } from './hoveredBarStore';
 
 /** Magnet snap mode (single source of truth). */
 export type MagnetMode = 'off' | 'weak' | 'strong';
@@ -35,11 +36,12 @@ export interface ChartContextValue {
 
     // ── Data ───────────────────────────────────────────────────────────
     data: ChartBar[];
-    hoveredBar: ChartBar | null;
-    /** displayBar = hoveredBar (when hovering) or last bar (otherwise). */
-    displayBar: ChartBar | null;
-    /** Previous bar (relative to displayBar) for change calculation. */
-    prevBar: ChartBar | null;
+    /**
+     * External store for the crosshair-hovered bar. Components that display
+     * it should use `useDisplayBar()` (from `hoveredBarStore.ts`) so only
+     * they re-render on hover — never the whole chart tree.
+     */
+    hoveredBarStore: HoveredBarStore;
     loading: boolean;
     loadingMore: boolean;
     hasMore: boolean;

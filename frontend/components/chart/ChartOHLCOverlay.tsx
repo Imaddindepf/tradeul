@@ -1,6 +1,7 @@
 'use client';
 
 import { useChartContext } from './ChartContext';
+import { useDisplayBar } from './hoveredBarStore';
 import { formatPrice } from './formatters';
 import { ChartLiveBadge } from './ChartLiveBadge';
 
@@ -11,7 +12,8 @@ import { ChartLiveBadge } from './ChartLiveBadge';
  */
 export function ChartOHLCOverlay() {
     const ctx = useChartContext();
-    const { tickerMeta, currentTicker, displayBar, prevBar } = ctx;
+    const { tickerMeta, currentTicker } = ctx;
+    const { displayBar, prevBar } = useDisplayBar();
 
     const hasClose = displayBar?.close != null && prevBar?.close != null && Number.isFinite(displayBar.close) && Number.isFinite(prevBar.close);
     const priceChange = hasClose ? displayBar!.close - prevBar!.close : 0;

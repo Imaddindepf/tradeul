@@ -1,16 +1,11 @@
 import type {
-  ISeriesPrimitive,
-  SeriesAttachedParameter,
   IPrimitivePaneView,
   IPrimitivePaneRenderer,
   ISeriesPrimitiveAxisView,
   PrimitiveHoveredItem,
-  Time,
-  IChartApiBase,
-  ISeriesApi,
-  SeriesType,
 } from 'lightweight-charts';
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
+import { BaseDrawingPrimitive, type DrawingPaneView } from './BaseDrawingPrimitive';
 import type { HorizontalLineDrawing } from './types';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 import { BODY_HIT_TOLERANCE, bodyHit } from './hitTesting';
@@ -164,46 +159,13 @@ class HLinePaneView implements IPrimitivePaneView {
 
 // ─── Primitive ───────────────────────────────────────────────────────────────
 
-export class HorizontalLinePrimitive implements ISeriesPrimitive<Time> {
-  private _chart: IChartApiBase<Time> | null = null;
-  private _series: ISeriesApi<SeriesType, Time> | null = null;
-  private _requestUpdate: (() => void) | null = null;
+export class HorizontalLinePrimitive extends BaseDrawingPrimitive<HorizontalLineDrawing> {
   private _paneView = new HLinePaneView();
   private _priceAxisView = new HLinePriceAxisView();
+  protected paneView(): DrawingPaneView { return this._paneView; }
 
-  private _drawing: HorizontalLineDrawing;
-  private _isSelected = false;
-  private _isHovered = false;
-
-  constructor(drawing: HorizontalLineDrawing) {
-    this._drawing = drawing;
-  }
-
-  attached(param: SeriesAttachedParameter<Time>): void {
-    this._chart = param.chart;
-    this._series = param.series;
-    this._requestUpdate = param.requestUpdate;
-    this.updateAllViews();
-  }
-
-  detached(): void {
-    this._chart = null;
-    this._series = null;
-    this._requestUpdate = null;
-  }
-
-  updateDrawing(drawing: HorizontalLineDrawing, isSelected: boolean, isHovered?: boolean): void {
-    this._drawing = drawing;
-    this._isSelected = isSelected;
-    this._isHovered = isHovered ?? false;
-    this.updateAllViews();
-    this._requestUpdate?.();
-  }
-
-  updateAllViews(): void {
-    if (!this._series) return;
-
-    const y = this._series.priceToCoordinate(this._drawing.price);
+  protected syncViews(): void {
+    const y = this._series!.priceToCoordinate(this._drawing.price);
     if (y === null) {
       this._paneView.clear();
       this._priceAxisView.update(0, '', '', false);
@@ -228,16 +190,7 @@ export class HorizontalLinePrimitive implements ISeriesPrimitive<Time> {
     this._priceAxisView.update(y as number, priceText, this._drawing.color, true);
   }
 
-  paneViews(): readonly IPrimitivePaneView[] {
-    this.updateAllViews();
-    return [this._paneView];
-  }
-
   priceAxisViews(): readonly ISeriesPrimitiveAxisView[] {
     return [this._priceAxisView];
-  }
-
-  hitTest(x: number, y: number): PrimitiveHoveredItem | null {
-    return this._paneView.hitTest(x, y);
   }
 }

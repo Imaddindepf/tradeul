@@ -178,6 +178,14 @@ export function useChartDrawings(ticker: string, options?: UseChartDrawingsOptio
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  // ── History transactions (drag batching) ──────────────────────────────
+  // A drag emits one mutation per mousemove. Without batching that means one
+  // undo entry + one localStorage write + one bus emit per pixel. Inside a
+  // transaction we defer all three: a single undo entry (the pre-drag state)
+  // and a single persist+emit happen on endHistoryTransaction().
+  const txBaseRef = useRef<Drawing[] | null>(null);
+  const txDirtyRef = useRef(false);
+
   const recomputeAvailability = useCallback(() => {
     setCanUndo(undoStackRef.current.length > 0);
     setCanRedo(redoStackRef.current.length > 0);
@@ -185,19 +193,25 @@ export function useChartDrawings(ticker: string, options?: UseChartDrawingsOptio
 
   /**
    * Single mutator used by ALL drawing mutations. Pushes the current state to
-   * the undo stack (unless suppressed by undo/redo themselves) and clears the
-   * redo stack since a new branch was created. Caps stack size at MAX_HISTORY.
+   * the undo stack (unless suppressed by undo/redo themselves, or batched by
+   * an active transaction) and clears the redo stack since a new branch was
+   * created. Caps stack size at MAX_HISTORY.
    */
   const commitDrawings = useCallback((producer: (prev: Drawing[]) => Drawing[]) => {
     setDrawingsState(prev => {
       const next = producer(prev);
       if (next === prev) return prev;
       if (!suppressHistoryRef.current) {
-        undoStackRef.current.push(prev);
-        if (undoStackRef.current.length > MAX_HISTORY) {
-          undoStackRef.current.shift();
+        if (txBaseRef.current !== null) {
+          // Mid-transaction: history handled once at endHistoryTransaction.
+          txDirtyRef.current = true;
+        } else {
+          undoStackRef.current.push(prev);
+          if (undoStackRef.current.length > MAX_HISTORY) {
+            undoStackRef.current.shift();
+          }
+          redoStackRef.current = [];
         }
-        redoStackRef.current = [];
       }
       drawingsRef.current = next;
       // recomputeAvailability scheduled after state commit
@@ -234,19 +248,11 @@ export function useChartDrawings(ticker: string, options?: UseChartDrawingsOptio
   // immediate save+emit echo that would otherwise re-broadcast the same state.
   const lastAppliedFromBusRef = useRef<Drawing[] | null>(null);
 
-  useEffect(() => {
+  /** Persist current drawings to localStorage and notify sibling charts. */
+  const persistAndEmit = useCallback(() => {
     const allDrawings = loadFromStorage();
-    allDrawings[tickerRef.current] = drawings;
+    allDrawings[tickerRef.current] = drawingsRef.current;
     saveToStorage(allDrawings);
-    drawingsRef.current = drawings;
-
-    // Suppress the echo when this state was just applied from a bus event:
-    // the storage write is still desired (idempotent), but we don't want to
-    // re-broadcast back to peers and risk a feedback loop.
-    if (lastAppliedFromBusRef.current === drawings) {
-      lastAppliedFromBusRef.current = null;
-      return;
-    }
 
     if (syncModeRef.current === 'off') return;
     drawingsBus.emit({
@@ -255,7 +261,52 @@ export function useChartDrawings(ticker: string, options?: UseChartDrawingsOptio
       windowId,
       mode: syncModeRef.current,
     });
-  }, [drawings, instanceId, windowId]);
+  }, [instanceId, windowId]);
+
+  useEffect(() => {
+    drawingsRef.current = drawings;
+
+    // Mid-transaction (drag): defer the write + emit to endHistoryTransaction.
+    if (txBaseRef.current !== null) return;
+
+    // Suppress the echo when this state was just applied from a bus event:
+    // the storage write is still desired (idempotent), but we don't want to
+    // re-broadcast back to peers and risk a feedback loop.
+    if (lastAppliedFromBusRef.current === drawings) {
+      lastAppliedFromBusRef.current = null;
+      const allDrawings = loadFromStorage();
+      allDrawings[tickerRef.current] = drawings;
+      saveToStorage(allDrawings);
+      return;
+    }
+
+    persistAndEmit();
+  }, [drawings, persistAndEmit]);
+
+  /**
+   * Begin a history transaction (e.g. drag). All mutations until
+   * endHistoryTransaction() collapse into a single undo entry and a single
+   * localStorage write + bus emit.
+   */
+  const beginHistoryTransaction = useCallback(() => {
+    if (txBaseRef.current !== null) return;
+    txBaseRef.current = drawingsRef.current;
+    txDirtyRef.current = false;
+  }, []);
+
+  const endHistoryTransaction = useCallback(() => {
+    const base = txBaseRef.current;
+    if (base === null) return;
+    txBaseRef.current = null;
+    if (!txDirtyRef.current) return;
+    txDirtyRef.current = false;
+
+    undoStackRef.current.push(base);
+    if (undoStackRef.current.length > MAX_HISTORY) undoStackRef.current.shift();
+    redoStackRef.current = [];
+    recomputeAvailability();
+    persistAndEmit();
+  }, [recomputeAvailability, persistAndEmit]);
 
   /**
    * Subscribe to cross-instance drawings updates. When a sibling chart for
@@ -745,6 +796,8 @@ export function useChartDrawings(ticker: string, options?: UseChartDrawingsOptio
     toggleLocked,
     undo,
     redo,
+    beginHistoryTransaction,
+    endHistoryTransaction,
 
     addHorizontalLine,
     addVerticalLine,

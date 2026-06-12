@@ -10,6 +10,13 @@
  *
  * All math runs on the main thread — no Worker round-trip needed
  * for single-bar updates (~0.01ms per update for all indicators).
+ *
+ * ⚠ CONTRACT with public/workers/indicators.worker.js: the worker seeds the
+ * historical series and this engine continues it tick by tick. Every formula
+ * here MUST produce the same steady-state values as the worker's, or the last
+ * bar visibly jumps when a live tick lands. If you change a formula in one
+ * file, change it in the other (notably: squeeze momentum = close − keltner
+ * EMA; VWAP resets on LOCAL date boundary; MACD/squeeze histogram colors).
  */
 
 import type { ChartBar } from './constants';
@@ -325,11 +332,13 @@ function createVWAP(): VWAPState {
 }
 
 function isDifferentDay(t1: number, t2: number): boolean {
+  // LOCAL date boundary — must match the worker's `toDateString()` day reset
+  // so live VWAP continues the historical series without a jump.
   const d1 = new Date(t1 * 1000);
   const d2 = new Date(t2 * 1000);
-  return d1.getUTCDate() !== d2.getUTCDate() ||
-         d1.getUTCMonth() !== d2.getUTCMonth() ||
-         d1.getUTCFullYear() !== d2.getUTCFullYear();
+  return d1.getDate() !== d2.getDate() ||
+         d1.getMonth() !== d2.getMonth() ||
+         d1.getFullYear() !== d2.getFullYear();
 }
 
 function updateVWAP(s: VWAPState, bar: { time: number; high: number; low: number; close: number; volume: number }, isNewBar: boolean): number | undefined {
@@ -638,18 +647,12 @@ function updateKeltner(s: KeltnerState, bar: { high: number; low: number; close:
 interface SqueezeState {
   bb: BBState;
   keltner: KeltnerState;
-  highBuf: CircularBuffer;
-  lowBuf: CircularBuffer;
-  momSMA: SMAState;
 }
 
 function createSqueeze(bbPeriod = 20, bbMult = 2, kcPeriod = 20, kcMult = 1.5): SqueezeState {
   return {
     bb: createBB(bbPeriod, bbMult),
     keltner: createKeltner(kcPeriod, kcPeriod, kcMult),
-    highBuf: new CircularBuffer(bbPeriod),
-    lowBuf: new CircularBuffer(bbPeriod),
-    momSMA: createSMA(bbPeriod),
   };
 }
 
@@ -657,23 +660,14 @@ function updateSqueeze(s: SqueezeState, bar: { high: number; low: number; close:
   const bb = updateBB(s.bb, bar.close, isNewBar);
   const kc = updateKeltner(s.keltner, bar, isNewBar);
 
-  if (isNewBar) {
-    s.highBuf.push(bar.high);
-    s.lowBuf.push(bar.low);
-  } else {
-    s.highBuf.replaceLast(bar.high);
-    s.lowBuf.replaceLast(bar.low);
-  }
-
-  if (!bb || !kc || !s.highBuf.full) return undefined;
+  if (!bb || !kc) return undefined;
 
   const isOn = bb.lower > kc.lower && bb.upper < kc.upper;
 
-  const highestHigh = s.highBuf.max();
-  const lowestLow = s.lowBuf.min();
-  const midDonchian = (highestHigh + lowestLow) / 2;
-  const midComposite = (midDonchian + bb.middle) / 2;
-  const momentum = bar.close - midComposite;
+  // Momentum = close − Keltner EMA. Must match the worker's formula
+  // (`closes[i] − ema[i]`) — the historical series is worker-seeded and live
+  // ticks continue it, so the two must agree or the last bar jumps.
+  const momentum = bar.close - kc.middle;
 
   return { value: momentum, isOn };
 }

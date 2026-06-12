@@ -5,6 +5,7 @@ import type { ChartBar as HookChartBar } from '@/hooks/useLiveChartData';
 import { CHART_COLORS, INTERVAL_SECONDS, WHITESPACE_BAR_COUNT, type ChartBar, type Interval } from '../constants';
 import { getSessionColor } from './useSessionBackground';
 import { buildWhitespace } from './useChartData';
+import { computeHeikinAshi } from '../utils/heikinAshi';
 import { IncrementalIndicatorEngine } from '../IncrementalIndicatorEngine';
 import type { IndicatorInstance } from '../constants';
 import type { ChartCandleStyle } from '@/stores/useUserPreferencesStore';
@@ -29,6 +30,20 @@ export function useChartRealtime(
     const engineRef = useRef<IncrementalIndicatorEngine | null>(null);
     const isReplayActiveRef = useRef(isReplayActive);
     isReplayActiveRef.current = isReplayActive;
+
+    // Heikin-Ashi live state: HA open chains from the previous bar's HA
+    // values, so we track the HA of the most recent bar. Re-seeded from the
+    // full dataset whenever `data` changes (loads overwrite live estimates).
+    const haCurRef = useRef<{ time: number; haOpen: number; haClose: number } | null>(null);
+    useEffect(() => {
+        if (candleStyle !== 'heikin-ashi' || data.length === 0) {
+            haCurRef.current = null;
+            return;
+        }
+        const ha = computeHeikinAshi(data);
+        const last = ha[ha.length - 1];
+        haCurRef.current = { time: last.time, haOpen: last.open, haClose: last.close };
+    }, [data, candleStyle]);
 
     // Initialize incremental indicator engine
     useEffect(() => {
@@ -66,10 +81,21 @@ export function useChartRealtime(
                         value: bar.close,
                     } as any);
                 } else if (style === 'heikin-ashi') {
-                    // HA realtime would require tracking previous HA values per series. The
-                    // candle visual updates on the next full data sync (typically <1s) so we
-                    // intentionally skip the OHLC update here to avoid showing incorrect HA
-                    // values mid-bar. Volume + indicators still update normally below.
+                    const cur = haCurRef.current;
+                    // Same bar → its HA open is already fixed; new bar → chain
+                    // from the previous bar's HA open/close.
+                    const haOpen = cur
+                        ? (bar.time === cur.time ? cur.haOpen : (cur.haOpen + cur.haClose) / 2)
+                        : (bar.open + bar.close) / 2;
+                    const haClose = (bar.open + bar.high + bar.low + bar.close) / 4;
+                    haCurRef.current = { time: bar.time, haOpen, haClose };
+                    candleSeries.update({
+                        time: bar.time as UTCTimestamp,
+                        open: haOpen,
+                        high: Math.max(bar.high, haOpen, haClose),
+                        low: Math.min(bar.low, haOpen, haClose),
+                        close: haClose,
+                    });
                 } else {
                     candleSeries.update({
                         time: bar.time as UTCTimestamp,
@@ -121,6 +147,17 @@ export function useChartRealtime(
 
             // Real-time indicator updates
             if (engineRef.current) {
+                try {
+                    updateIndicators(bar, isNewBar);
+                } catch {
+                    // Serie de indicador con vela más nueva (carrera tras
+                    // recarga): ignorar el tick; el siguiente lo corrige.
+                }
+            }
+        };
+
+        const updateIndicators = (bar: HookChartBar, isNewBar: boolean) => {
+            if (engineRef.current) {
                 const resultsMap = engineRef.current.update(
                     { time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume },
                     isNewBar,
@@ -154,7 +191,8 @@ export function useChartRealtime(
                         seriesMap.get('mdi')?.update({ time, value: a.mdi });
                     } else if (val && 'isOn' in val) {
                         const sq = val as { value: number; isOn: boolean };
-                        const sqc = sq.isOn ? '#ef4444' : '#10b981';
+                        // Same palette as the worker's squeeze colors.
+                        const sqc = sq.isOn ? 'rgba(239, 68, 68, 0.8)' : 'rgba(16, 185, 129, 0.8)';
                         seriesMap.get('main')?.update({ time, value: sq.value, color: sqc });
                     }
                 }
