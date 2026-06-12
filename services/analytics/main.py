@@ -61,6 +61,7 @@ from trades_count_tracker import TradesCountTracker
 
 # New modular components
 from enrichment.pipeline import EnrichmentPipeline
+from internals.market_internals import MarketInternalsCalculator
 from consumers.vwap_consumer import VwapConsumer
 from consumers.volume_window_consumer import VolumeWindowConsumer
 from consumers.price_window_consumer import PriceWindowConsumer
@@ -317,6 +318,12 @@ async def lifespan(app: FastAPI):
             logger.warning("bar_engine_warmup_failed", error=str(e))
     
     # --- Create enrichment pipeline (with BarEngine reference) ---
+    # Market internals sintéticos (TRDL:TICK / TRDL:TICKC / TRDL:ADD)
+    internals_calculator = MarketInternalsCalculator(
+        redis_client=redis_client,
+        timescale_client=timescale_client,
+    )
+    
     enrichment_pipeline = EnrichmentPipeline(
         redis_client=redis_client,
         rvol_calculator=rvol_calculator,
@@ -328,6 +335,7 @@ async def lifespan(app: FastAPI):
         trades_count_tracker=trades_count_tracker,
         vwap_cache=vwap_cache,
         bar_engine=bar_engine,
+        internals_calculator=internals_calculator,
     )
     enrichment_pipeline.is_holiday_mode = is_holiday_mode
     

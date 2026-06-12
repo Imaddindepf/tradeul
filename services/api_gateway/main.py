@@ -3762,6 +3762,95 @@ async def _stitch_live_bar(
     return chart_data
 
 
+# Resolución de intervalos para índices sintéticos TRDL (minutos por vela)
+_INTERNAL_INTERVAL_MINUTES = {
+    "1min": 1, "2min": 2, "5min": 5, "15min": 15, "30min": 30,
+    "1hour": 60, "4hour": 240, "12hour": 720, "1day": 1440,
+}
+
+
+async def _get_internal_index_chart(
+    symbol: str,
+    interval: str,
+    before: Optional[int],
+    after: Optional[int],
+    to: Optional[int],
+    bars_limit: int,
+):
+    """
+    Histórico de los índices sintéticos TRDL INDEX desde minute_bars
+    (TimescaleDB, escrita por analytics/MarketInternalsCalculator).
+    Reagrega las barras de 1 min al intervalo pedido en SQL.
+    """
+    minutes = _INTERNAL_INTERVAL_MINUTES.get(interval)
+    if minutes is None:
+        raise HTTPException(status_code=400, detail=f"Interval {interval} not supported for {symbol}")
+    if timescale_client is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    bucket_ms = minutes * 60 * 1000
+    conditions = ["symbol = $1"]
+    params: list = [symbol]
+    if before:
+        params.append(before * 1000)
+        conditions.append(f"ts < ${len(params)}")
+    if after:
+        params.append(after * 1000)
+        conditions.append(f"ts > ${len(params)}")
+    if to:
+        params.append(to * 1000)
+        conditions.append(f"ts <= ${len(params)}")
+    params.append(bars_limit)
+    
+    query = f"""
+        SELECT bucket, o, h, l, c, v FROM (
+            SELECT
+                (ts / {bucket_ms})::bigint * {bucket_ms} AS bucket,
+                (array_agg(open ORDER BY ts ASC))[1]   AS o,
+                max(high)                              AS h,
+                min(low)                               AS l,
+                (array_agg(close ORDER BY ts DESC))[1] AS c,
+                sum(volume)                            AS v
+            FROM minute_bars
+            WHERE {' AND '.join(conditions)}
+            GROUP BY bucket
+        ) agg
+        ORDER BY bucket DESC
+        LIMIT ${len(params)}
+    """
+    
+    try:
+        rows = await timescale_client.fetch(query, *params)
+    except Exception as e:
+        logger.error("internal_chart_query_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail="Internal index data unavailable")
+    
+    rows.reverse()  # asc para el chart
+    data = [
+        {
+            "time": int(r["bucket"] // 1000),
+            "open": float(r["o"]),
+            "high": float(r["h"]),
+            "low": float(r["l"]),
+            "close": float(r["c"]),
+            "volume": int(r["v"] or 0),
+        }
+        for r in rows
+    ]
+    
+    return {
+        "symbol": symbol,
+        "interval": interval,
+        "source": "trdl_index",
+        "data": data,
+        "count": len(data),
+        "oldest_time": data[0]["time"] if data and len(data) >= bars_limit else None,
+        "has_more": len(data) >= bars_limit,
+        "cached": False,
+        "fetched_at": datetime.now().isoformat(),
+    }
+
+
 @app.get("/api/v1/chart/{symbol}")
 async def get_chart_data(
     symbol: str,
@@ -3805,6 +3894,11 @@ async def get_chart_data(
     
     config = CHART_INTERVALS[interval]
     bars_limit = limit or config["bars_per_page"]
+    
+    # Índices sintéticos TRDL INDEX (TRDL:TICK, TRDL:TICKC, TRDL:ADD):
+    # no existen en Polygon — histórico desde nuestra tabla minute_bars
+    if symbol.startswith("TRDL:"):
+        return await _get_internal_index_chart(symbol, interval, before, after, to, bars_limit)
     
     from datetime import datetime as dt
     if before:

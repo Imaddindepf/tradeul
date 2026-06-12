@@ -12,7 +12,8 @@
  */
 
 // US-style symbols: 1–5 letters, optional class suffix (.B / -A) for names like BRK.B
-const TICKER_REGEX = /^[A-Z]{1,5}([.-][A-Z]{1,2})?$/;
+// + índices sintéticos propios (TRDL:TICK, TRDL:TICKC, TRDL:ADD)
+const TICKER_REGEX = /^([A-Z]{1,5}([.-][A-Z]{1,2})?|TRDL:[A-Z]{1,6})$/;
 export const TICKER_LIKE_REGEX = TICKER_REGEX;
 
 // Comandos disponibles que pueden aplicarse a un ticker

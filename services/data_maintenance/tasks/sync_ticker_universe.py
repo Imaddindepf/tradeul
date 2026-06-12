@@ -276,7 +276,13 @@ class SyncTickerUniverseTask:
         """Símbolos con is_active=true (existen en algún mercado según la BD)"""
         try:
             rows = await self.db.fetch(
-                "SELECT symbol FROM tickers_unified WHERE is_active = true"
+                """
+                SELECT symbol FROM tickers_unified
+                WHERE is_active = true
+                  -- Índices sintéticos propios (TRDL:TICK...) no existen en
+                  -- Polygon: excluirlos para que no se marquen como delistados
+                  AND COALESCE(exchange, '') != 'TRDL INDEX'
+                """
             )
             return {row['symbol'] for row in rows}
         except Exception as e:

@@ -73,7 +73,8 @@ async def search_tickers(
             is_actively_trading
         FROM tickers_unified
         WHERE 
-            is_actively_trading = true
+            -- Operables + índices sintéticos propios (TRDL:TICK, TRDL:ADD...)
+            (is_actively_trading = true OR exchange = 'TRDL INDEX')
             AND (
                 -- Búsqueda por símbolo (más común, más rápida)
                 symbol ILIKE $1 || '%'

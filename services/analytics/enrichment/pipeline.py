@@ -79,6 +79,7 @@ class EnrichmentPipeline:
         trades_count_tracker,
         vwap_cache: Dict[str, float],
         bar_engine: Optional[BarEngine] = None,
+        internals_calculator=None,
     ):
         self.redis = redis_client
         self.rvol_calculator = rvol_calculator
@@ -90,6 +91,7 @@ class EnrichmentPipeline:
         self.trades_count_tracker = trades_count_tracker
         self.vwap_cache = vwap_cache  # Shared reference with vwap consumer
         self.bar_engine = bar_engine  # BarEngine for AM.* indicators (shared reference)
+        self.internals_calculator = internals_calculator  # TRDL INDEX (TICK/ADD)
         
         # Change detection
         self._change_detector = ChangeDetector()
@@ -300,6 +302,13 @@ class EnrichmentPipeline:
         if rvol_mapping:
             await self.redis.client.hset("rvol:current_slot", mapping=rvol_mapping)
             await self.redis.client.expire("rvol:current_slot", 300)
+        
+        # Market internals (TRDL:TICK / TRDL:TICKC / TRDL:ADD) — usa el universo
+        # completo del ciclo, no solo los cambiados
+        if self.internals_calculator:
+            await self.internals_calculator.on_cycle(
+                enriched_tickers, self._metadata_cache, now
+            )
         
         self._last_processed_timestamp = snapshot_timestamp
         self._cycle_count += 1
@@ -1527,6 +1536,8 @@ class EnrichmentPipeline:
                                 "sector": data.get("sector"),
                                 "industry": data.get("industry"),
                                 "is_etf": data.get("is_etf", False),
+                                # XNYS/XNAS/... — usado por MarketInternalsCalculator
+                                "exchange": data.get("exchange"),
                             }
                         except Exception:
                             continue
