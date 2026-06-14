@@ -59,6 +59,7 @@ export interface ChartContextValue {
     setShowEarningsMarkers: (visible: boolean) => void;
     addIndicator: (type: string) => void;
     removeIndicator: (id: string) => void;
+    toggleIndicatorVisible: (id: string) => void;
     openIndicatorSettings: (id: string, event?: React.MouseEvent) => void;
     setSelectedIndicator: (id: string | null) => void;
     selectedIndicator: string | null;

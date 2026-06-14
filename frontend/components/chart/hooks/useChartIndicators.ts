@@ -93,6 +93,13 @@ export function useChartIndicators(
         setSelectedIndicator(null);
     }, []);
 
+    const toggleIndicatorVisible = useCallback((instanceId: string) => {
+        if (instanceId === 'volume') { setShowVolume(prev => !prev); return; }
+        setIndicators(prev => prev.map(i => (
+            i.id === instanceId ? { ...i, visible: !i.visible } : i
+        )));
+    }, []);
+
     const onApplyIndicatorSettings = useCallback((id: string, settings: { inputs: Record<string, number | string>; styles: Record<string, string | number>; visibility: string[] }) => {
         const { styles, inputs } = settings;
         setIndicators(prev => prev.map(inst => {
@@ -143,7 +150,7 @@ export function useChartIndicators(
         indicatorResults, indicatorsLoading, workerReady,
         overlayInstances, panelInstances,
         indicatorSeriesRef, panelPaneIndexRef,
-        addIndicator, openIndicatorSettings, removeIndicator, onApplyIndicatorSettings,
+        addIndicator, openIndicatorSettings, removeIndicator, toggleIndicatorVisible, onApplyIndicatorSettings,
         calculate, clearCache,
     };
 }

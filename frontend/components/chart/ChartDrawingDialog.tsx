@@ -24,6 +24,7 @@ import type {
 import { FIB_LEVELS } from './primitives/types';
 import { colorWithAlpha, alphaFromColor, type LineStyle } from './primitives/canvasStyles';
 import { CloseIcon, TrashIcon, PencilIcon } from './icons';
+import { useClickOutside } from './hooks/useClickOutside';
 
 // ─── Public API ────────────────────────────────────────────────────────────
 
@@ -145,15 +146,14 @@ export function ChartDrawingDialog({
     // ── Tabs ───────────────────────────────────────────────────────────
     const [tab, setTab] = useState<TabId>('style');
 
-    // ── Esc to cancel ──────────────────────────────────────────────────
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') handleCancel();
-        };
-        document.addEventListener('keydown', onKey);
-        return () => document.removeEventListener('keydown', onKey);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    // ── Dismissal ──────────────────────────────────────────────────────
+    // Edits apply live, so every "just close" path (click-outside, Escape, the
+    // X button, "Aceptar") keeps the changes — only the explicit "Cancelar"
+    // button reverts to the pre-open snapshot. This makes the close behaviour
+    // consistent and matches TradingView (clicking the chart closes the panel
+    // without losing your edits).
+    const dialogRef = useRef<HTMLDivElement>(null);
+    useClickOutside(dialogRef, onClose);
 
     const handleCancel = useCallback(() => {
         onReplace(initialSnapshot);
@@ -167,6 +167,7 @@ export function ChartDrawingDialog({
 
     return (
         <div
+            ref={dialogRef}
             className="absolute z-50 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)] shadow-2xl flex flex-col"
             style={{
                 left: pos.x, top: pos.y,

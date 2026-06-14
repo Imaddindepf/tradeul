@@ -54,19 +54,18 @@ export function computeIndicatorLiveLines(
 ): IndicatorLiveLine[] {
     if (!indicatorResults || referenceTime == null) {
         // No data yet — still emit headers so the legend isn't empty mid-load.
-        return indicators
-            .filter(i => i.visible)
-            .map(inst => ({
-                id: inst.id,
-                label: getInstanceLabel(inst),
-                mainColor: mainColorOf(inst),
-                values: [],
-            }));
+        // Hidden instances are included too: the legend keeps listing them with
+        // a dimmed row + "eye-off" toggle (TradingView-style).
+        return indicators.map(inst => ({
+            id: inst.id,
+            label: getInstanceLabel(inst),
+            mainColor: mainColorOf(inst),
+            values: [],
+        }));
     }
 
     const out: IndicatorLiveLine[] = [];
     for (const inst of indicators) {
-        if (!inst.visible) continue;
         const r: any = (indicatorResults as any)[inst.id];
         const mainColor = mainColorOf(inst);
         const label = getInstanceLabel(inst);

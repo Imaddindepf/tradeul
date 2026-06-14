@@ -315,7 +315,9 @@ export function useChartInit(
         whitespaceSeriesRef.current = whitespaceSeries;
 
         chart.subscribeCrosshairMove((param) => {
-            if (!param.point) return;
+            // No point → pointer left the pane. Clear the hover so the overlay
+            // falls back to the last bar instead of freezing on the last value.
+            if (!param.point) { hoveredBarStore.set(null); return; }
             if (!param.time || !param.seriesData) { hoveredBarStore.set(null); return; }
             const time = param.time as number;
             // Always resolve OHLC from the source data array so we work regardless

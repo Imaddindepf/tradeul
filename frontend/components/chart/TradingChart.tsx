@@ -194,7 +194,7 @@ function TradingChartComponent({
         indicatorSettingsOpen, setIndicatorSettingsOpen, indicatorSettingsPos,
         indicatorResults,
         indicatorSeriesRef, panelPaneIndexRef,
-        addIndicator, openIndicatorSettings, removeIndicator, onApplyIndicatorSettings,
+        addIndicator, openIndicatorSettings, removeIndicator, toggleIndicatorVisible, onApplyIndicatorSettings,
         workerReady, calculate, clearCache,
     } = ind;
 
@@ -502,7 +502,7 @@ function TradingChartComponent({
         showVolume, setShowVolume,
         showNewsMarkers, setShowNewsMarkers,
         showEarningsMarkers, setShowEarningsMarkers,
-        addIndicator, removeIndicator, openIndicatorSettings,
+        addIndicator, removeIndicator, toggleIndicatorVisible, openIndicatorSettings,
         setSelectedIndicator, selectedIndicator,
         legendExpanded, setLegendExpanded,
         activeIndicatorCount,
@@ -602,7 +602,7 @@ function TradingChartComponent({
                         {!minimal && <ChartOHLCOverlay />}
                         {!minimal && <ChartIndicatorLegend />}
                         {cellOverlay && (
-                            <div className="absolute top-1 left-1 z-30 pointer-events-auto">
+                            <div className="absolute top-1 right-1 z-30 pointer-events-auto">
                                 {cellOverlay}
                             </div>
                         )}
