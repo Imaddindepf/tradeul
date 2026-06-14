@@ -46,8 +46,8 @@ interface SymbioticFinancialData {
     cache_age_seconds?: number;
 }
 
-type TabType = 'income' | 'balance' | 'cashflow' | 'segments';
-type PeriodFilter = 'annual' | 'quarterly';
+type TabType = 'income' | 'balance' | 'cashflow' | 'segments' | 'ratios' | 'adjusted' | 'keystats';
+type PeriodFilter = 'annual' | 'quarterly' | 'ttm';
 
 // ============================================================================
 // Period Range Slider
@@ -169,6 +169,104 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
 // ============================================================================
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhost:8000';
+
+// ============================================================================
+// Metrics Block Tab (Ratios / Adjusted Metrics / Key Statistics)
+// Self-contained: fetches its own block from the gateway (same Perplexity v3
+// payload, cached) and renders it with its own period range slider.
+// ============================================================================
+
+interface MetricsBlockData {
+    symbol: string;
+    currency: string;
+    periods: string[];
+    estimate_periods?: string[];
+    fields: {
+        key: string;
+        label: string;
+        values: (number | null)[];
+        importance: number;
+        data_type?: string;
+        balance?: 'debit' | 'credit' | null;
+        section?: string;
+        display_order?: number;
+        indent_level?: number;
+        is_subtotal?: boolean;
+    }[];
+}
+
+const BLOCK_ENDPOINT: Record<'ratios' | 'adjusted' | 'keystats', string> = {
+    ratios: 'ratios',
+    adjusted: 'adjusted',
+    keystats: 'key-stats',
+};
+
+function MetricsBlockTab({ symbol, block, period, currency }: {
+    symbol: string;
+    block: 'ratios' | 'adjusted' | 'keystats';
+    period: PeriodFilter;
+    currency: string;
+}) {
+    const [data, setData] = useState<MetricsBlockData | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [rangeStart, setRangeStart] = useState(0);
+    const [rangeEnd, setRangeEnd] = useState(0);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setError(null);
+        const url = `${API_URL}/api/v1/financials/${symbol}/${BLOCK_ENDPOINT[block]}?period=${period}&limit=12`;
+        fetch(url)
+            .then((res) => { if (!res.ok) throw new Error(res.statusText); return res.json(); })
+            .then((json: MetricsBlockData) => {
+                if (cancelled) return;
+                setData(json);
+                if (json.periods?.length) {
+                    setRangeStart(0);
+                    setRangeEnd(json.periods.length - 1);
+                }
+            })
+            .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Error'); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [symbol, block, period]);
+
+    if (loading && !data) {
+        return <div className="flex items-center justify-center h-48"><RefreshCw className="h-5 w-5 animate-spin text-muted-fg" /></div>;
+    }
+    if (error) {
+        return <div className="flex items-center justify-center h-48 text-red-500 text-xs"><AlertTriangle className="h-4 w-4 mr-2" />{error}</div>;
+    }
+    if (!data || !data.fields?.length) {
+        return <div className="p-4 text-center text-muted-fg text-xs">No data available for this period</div>;
+    }
+
+    const periods = data.periods || [];
+    const slicedPeriods = periods.slice(rangeStart, rangeEnd + 1);
+    const slicedFields = data.fields.map((f) => ({ ...f, values: (f.values || []).slice(rangeStart, rangeEnd + 1) }));
+
+    return (
+        <div>
+            {periods.length > 2 && (
+                <PeriodRangeSlider
+                    periods={periods}
+                    startIndex={rangeStart}
+                    endIndex={rangeEnd}
+                    onChange={(start, end) => { setRangeStart(start); setRangeEnd(end); }}
+                />
+            )}
+            <SymbioticTable
+                fields={slicedFields}
+                periods={slicedPeriods}
+                category={block}
+                currency={currency}
+                estimatePeriods={data.estimate_periods}
+            />
+        </div>
+    );
+}
 
 // ============================================================================
 // MAIN COMPONENT
@@ -420,14 +518,14 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                             )}
                         </div>
                         <div className="flex items-center gap-1">
-                            {(['annual', 'quarterly'] as const).map((p) => (
+                            {(['annual', 'quarterly', 'ttm'] as const).map((p) => (
                                 <button
                                     key={p}
                                     onClick={() => handlePeriodChange(p)}
                                     className={`px-1.5 py-0.5 text-[9px] font-medium rounded
                                         ${periodFilter === p ? 'bg-slate-700 text-white' : 'text-muted-fg hover:bg-surface-hover'}`}
                                 >
-                                    {p === 'annual' ? 'Annual' : 'Quarterly'}
+                                    {p === 'annual' ? 'Annual' : p === 'quarterly' ? 'Quarterly' : 'TTM'}
                                 </button>
                             ))}
                             <button
@@ -446,6 +544,9 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                             { id: 'income' as const, label: 'Income Statement' },
                             { id: 'balance' as const, label: 'Balance Sheet' },
                             { id: 'cashflow' as const, label: 'Cash Flow' },
+                            { id: 'ratios' as const, label: 'Ratios' },
+                            { id: 'adjusted' as const, label: 'Adjusted' },
+                            { id: 'keystats' as const, label: 'Key Stats' },
                             { id: 'segments' as const, label: 'Segments' },
                         ].map((tab) => (
                             <button
@@ -459,8 +560,8 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                         ))}
                     </div>
 
-                    {/* Period Slider */}
-                    {data.periods && data.periods.length > 2 && (
+                    {/* Period Slider — only for statement tabs (block tabs manage their own) */}
+                    {['income', 'balance', 'cashflow'].includes(activeTab) && data.periods && data.periods.length > 2 && (
                         <PeriodRangeSlider
                             periods={data.periods}
                             startIndex={rangeStart}
@@ -501,6 +602,14 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                                 category="cashflow"
                                 currency={data.currency}
                                 onMetricClick={handleMetricClick}
+                            />
+                        )}
+                        {(activeTab === 'ratios' || activeTab === 'adjusted' || activeTab === 'keystats') && data?.symbol && (
+                            <MetricsBlockTab
+                                symbol={data.symbol}
+                                block={activeTab}
+                                period={periodFilter}
+                                currency={data.currency}
                             />
                         )}
                         {activeTab === 'segments' && data?.symbol && (

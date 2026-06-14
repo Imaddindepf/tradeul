@@ -28,9 +28,11 @@ interface ConsolidatedField {
 interface SymbioticTableProps {
     fields: ConsolidatedField[];
     periods: string[];
-    category: 'income' | 'balance' | 'cashflow';
+    category: 'income' | 'balance' | 'cashflow' | 'ratios' | 'adjusted' | 'keystats';
     currency: string;
     onMetricClick?: (metricKey: string, values: (number | null)[], periods: string[]) => void;
+    /** Period labels that are forward analyst estimates (rendered with an "E" suffix). */
+    estimatePeriods?: string[];
 }
 
 // ============================================================================
@@ -66,6 +68,20 @@ const formatValue = (
             return `($${Math.abs(value).toFixed(2)})`;
         }
         return `$${value.toFixed(2)}`;
+    }
+
+    // Multiples (P/E, EV/EBITDA, turnover ratios…) → "30.08x"
+    if (dataType === 'multiple') {
+        if (value < 0) {
+            return `(${Math.abs(value).toFixed(2)}x)`;
+        }
+        return `${value.toFixed(2)}x`;
+    }
+
+    // Plain numbers (days, counts that are neither currency nor multiple)
+    if (dataType === 'number') {
+        const formatted = Math.abs(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
+        return value < 0 ? `(${formatted})` : formatted;
     }
     
     // Shares (en billones/millones)
@@ -176,7 +192,36 @@ const SECTION_ORDER: Record<string, number> = {
     'Investing Activities': 2,
     'Financing Activities': 3,
     'Free Cash Flow': 4,
-    
+
+    // ============================================
+    // RATIOS tab (Perplexity categories)
+    // ============================================
+    'Valuation': 10,
+    'Trailing Valuation': 11,
+    'Margins': 12,
+    'Capital Efficiency': 13,
+    'Financial Health': 14,
+    'Per-Share Ratios': 15,
+    'Dividends': 16,
+    'Growth': 17,
+    'Common Size': 18,
+    'Key Figures': 19,
+
+    // ============================================
+    // ADJUSTED METRICS tab
+    // ============================================
+    'Adjusted Metrics': 20,
+    'Adjusted Margins': 21,
+    'Adjusted Per Share': 22,
+
+    // ============================================
+    // KEY STATISTICS tab
+    // ============================================
+    'Size & Valuation': 30,
+    'Profitability': 31,
+    'Cash Flow & Liquidity': 32,
+    'Per Share & Growth': 33,
+
     // Hidden
     'Other': 999,
 };
@@ -196,7 +241,8 @@ const INDUSTRY_SECTIONS = new Set([
 // COMPONENT - Diseño institucional profesional (estilo TIKR)
 // ============================================================================
 
-export function SymbioticTable({ fields, periods, category, currency, onMetricClick }: SymbioticTableProps) {
+export function SymbioticTable({ fields, periods, category, currency, onMetricClick, estimatePeriods }: SymbioticTableProps) {
+    const estimateSet = useMemo(() => new Set(estimatePeriods || []), [estimatePeriods]);
     // Estado para controlar la unidad de visualización (K/MM/B)
     const [displayUnit, setDisplayUnit] = useState<DisplayUnit>('millions');
 
@@ -240,7 +286,7 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
             <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-hover">
                 {/* Texto informativo */}
                 <span className="text-[10px] text-muted-fg">
-                    * Annual Financials in {unitText} of {currency} from {dateRange.from} to {dateRange.to}
+                    * Monetary values in {unitText} of {currency} · {dateRange.from}–{dateRange.to}
                 </span>
                 
                 {/* Toggle K | MM | B */}
@@ -287,14 +333,19 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                         <th className="text-left py-2.5 px-3 font-semibold text-foreground min-w-[200px] bg-surface-inset">
                             Metric
                         </th>
-                        {periods.map((period, idx) => (
-                            <th 
-                                key={idx} 
-                                className="text-right py-2.5 px-3 font-semibold text-foreground min-w-[90px] bg-surface-inset"
-                            >
-                                {period.startsWith('Q') ? period : `FY${period}`}
-                            </th>
-                        ))}
+                        {periods.map((period, idx) => {
+                            const isEstimate = estimateSet.has(period);
+                            const baseLabel = period.startsWith('Q') ? period : `FY${period}`;
+                            return (
+                                <th
+                                    key={idx}
+                                    className={`text-right py-2.5 px-3 font-semibold min-w-[90px] bg-surface-inset ${isEstimate ? 'text-primary' : 'text-foreground'}`}
+                                    title={isEstimate ? 'Forward analyst estimate' : undefined}
+                                >
+                                    {baseLabel}{isEstimate ? 'E' : ''}
+                                </th>
+                            );
+                        })}
                     </tr>
                 </thead>
                 

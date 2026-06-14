@@ -59,8 +59,15 @@ def _get_session(target: str = "chrome"):
     return _cffi_session
 
 
-def _fetch_v3_sync(ticker: str, period: str) -> Optional[Dict[str, Any]]:
-    """Blocking fetch with Cloudflare-resilient retries. Returns parsed JSON or None."""
+def _fetch_v3_sync(ticker: str, period: str, wide: bool = True) -> Optional[Dict[str, Any]]:
+    """Blocking fetch with Cloudflare-resilient retries. Returns parsed JSON or None.
+
+    `wide=True` requests an explicit fiscal-year window to pull long history
+    (actuals only — Perplexity drops forward estimate rows when a window is
+    supplied). `wide=False` omits the window, which returns only the ~4 most
+    recent periods *plus* the forward analyst-estimate rows (isEstimate=true).
+    The two are merged by `fetch_v3_with_estimates` for the key_stats block.
+    """
     from curl_cffi import requests as cffi_requests
 
     global _cffi_session
@@ -77,13 +84,13 @@ def _fetch_v3_sync(ticker: str, period: str) -> Optional[Dict[str, Any]]:
     current_year = time.gmtime().tm_year
     p = (period or "").lower()
     params = [f"period={period}"]
-    if p.startswith("annual"):
+    if wide and p.startswith("annual"):
         params.append(f"start_fiscal_year={current_year - 30}")
         params.append(f"end_fiscal_year={current_year + 1}")
-    elif p.startswith("quarter"):
+    elif wide and p.startswith("quarter"):
         params.append(f"start_fiscal_year={current_year - 10}")
         params.append(f"end_fiscal_year={current_year + 1}")
-    # ttm: single period, no range needed
+    # ttm (and wide=False): single/no range — estimates included when wide=False
     url = f"{_BASE_URL}/{ticker}?{'&'.join(params)}"
 
     # First try the persistent session
@@ -121,19 +128,56 @@ CACHE_TTL_SECONDS = 60 * 60 * 4  # 4 hours
 _cache = BoundedTTLCache(maxsize=256, ttl_seconds=CACHE_TTL_SECONDS)
 
 
-async def fetch_v3(ticker: str, period: str = "quarter") -> Optional[Dict[str, Any]]:
+async def fetch_v3(ticker: str, period: str = "quarter", wide: bool = True) -> Optional[Dict[str, Any]]:
     """Async wrapper around the blocking fetch, with cache."""
     ticker = ticker.upper().strip()
     period = (period or "quarter").lower()
-    key = f"{ticker}:{period}"
+    key = f"{ticker}:{period}" if wide else f"{ticker}:{period}:est"
     cached = _cache.get(key)
     if cached is not None:
         return cached
 
-    data = await asyncio.to_thread(_fetch_v3_sync, ticker, period)
+    data = await asyncio.to_thread(_fetch_v3_sync, ticker, period, wide)
     if data is not None:
         _cache.set(key, data)
     return data
+
+
+async def fetch_v3_with_estimates(ticker: str, period: str = "quarter") -> Optional[Dict[str, Any]]:
+    """Fetch the wide (long-history) payload and merge forward analyst-estimate
+    rows into its `key_stats` block.
+
+    Perplexity returns either long history (with a fiscal-year window, actuals
+    only) or forward estimates (without a window, short history). We fetch both
+    and splice the estimate rows — which only exist on `key_stats` — onto the
+    historical payload so the key-stats table can show actuals *and* forward
+    consensus (FY/quarter estimates) at once.
+    """
+    period = (period or "quarter").lower()
+    wide = await fetch_v3(ticker, period, wide=True)
+    if not wide:
+        return wide
+    # ttm is a single trailing period — no forward estimates to merge.
+    if period.startswith("ttm"):
+        return wide
+
+    narrow = await fetch_v3(ticker, period, wide=False)
+    if not narrow:
+        return wide
+
+    is_annual = period.startswith("annual")
+    hist_rows = list(wide.get("key_stats") or [])
+    seen = {_period_label(r, is_annual) for r in hist_rows}
+    estimate_rows = [
+        r for r in (narrow.get("key_stats") or [])
+        if r.get("isEstimate") and _period_label(r, is_annual) not in seen
+    ]
+    if estimate_rows:
+        # Shallow-copy so the cached wide payload is not mutated in place.
+        merged = dict(wide)
+        merged["key_stats"] = hist_rows + estimate_rows
+        return merged
+    return wide
 
 
 def clear_cache(ticker: Optional[str] = None) -> int:
@@ -520,6 +564,234 @@ def transform_to_symbiotic(
         "cash_flow": cashflow,
         "last_updated": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Ratios / Adjusted Metrics / Key Statistics transforms
+#
+# These three blocks come from the SAME v3 payload we already fetch for the
+# statements, so they add zero extra network cost. Unlike income/balance/cash
+# (which need hand-maintained field maps), ratios and adjusted_metrics ship with
+# their own metadata (metricName, metricFormat, category) so we render them
+# dynamically. Key stats has no metadata block, so we curate a small list.
+#
+# All three return the same envelope shape the frontend's SymbioticTable
+# consumes: {symbol, currency, period, periods, estimate_periods, fields[]}.
+# ---------------------------------------------------------------------------
+
+# Day-count ratios that must render as plain numbers, not "x" multiples.
+_DAYS_RATIOS = {
+    "ratio_dso", "ratio_dpo", "ratio_dio",
+    "ratio_cash_conversion_cycle", "ratio_operating_cycle",
+}
+
+# Perplexity's ratio categories → table section names. We rename a couple to
+# avoid clashing with the income/balance/cashflow section ordering and the
+# frontend's hidden "Other" section.
+_RATIO_SECTION_REMAP = {
+    "Other": "Key Figures",
+    "Per Share": "Per-Share Ratios",
+}
+
+
+def _currency_from_payload(payload: Dict[str, Any], fallback: str = "USD") -> str:
+    for block in ("key_stats", "adjusted_metrics", "income_statement",
+                  "balance_sheet", "cash_flow"):
+        for row in payload.get(block) or []:
+            cur = row.get("reportedCurrency")
+            if cur:
+                return cur
+    return fallback
+
+
+def _ratio_data_type(ratio_id: str, metric_format: Optional[str], is_currency: bool) -> str:
+    fmt = (metric_format or "").strip().lower()
+    if fmt == "%":
+        return "percent"
+    if ratio_id in _DAYS_RATIOS:
+        return "number"
+    if fmt == "ratio":
+        return "perShare" if is_currency else "multiple"
+    if fmt == "number":
+        return "monetary" if is_currency else "shares"
+    # Unknown / null format
+    return "monetary" if is_currency else "number"
+
+
+def _build_block(
+    ticker: str,
+    period: str,
+    rows: List[Dict[str, Any]],
+    specs: List[Dict[str, Any]],
+    currency: str,
+) -> Optional[Dict[str, Any]]:
+    """Generic transform: build SymbioticTable fields from period rows + specs.
+
+    `specs` is a list of {key, label, data_type, section, display_order}.
+    """
+    is_annual = (period or "").lower().startswith("annual")
+    periods, period_index = _build_period_index(rows, is_annual)
+    if not periods:
+        return None
+
+    row_by_period: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        label = _period_label(row, is_annual)
+        if label in period_index and label not in row_by_period:
+            row_by_period[label] = row
+
+    estimate_periods = [
+        label for label in periods
+        if (row_by_period.get(label) or {}).get("isEstimate")
+    ]
+
+    fields: List[Dict[str, Any]] = []
+    for spec in specs:
+        key = spec["key"]
+        values: List[Optional[float]] = [None] * len(periods)
+        has_value = False
+        for label, col in period_index.items():
+            row = row_by_period.get(label)
+            if row is not None:
+                value = row.get(key)
+                if isinstance(value, (int, float)):
+                    values[col] = float(value)
+                    has_value = True
+        if not has_value:
+            continue
+        fields.append({
+            "key": key,
+            "label": spec["label"],
+            "values": values,
+            "importance": spec.get("importance", 50),
+            "data_type": spec["data_type"],
+            "balance": None,
+            "section": spec.get("section", "Metrics"),
+            "display_order": spec.get("display_order", 0),
+            "indent_level": 0,
+            "is_subtotal": False,
+        })
+
+    fields.sort(key=lambda f: (f.get("section", ""), f.get("display_order", 0)))
+
+    return {
+        "symbol": ticker.upper(),
+        "currency": currency,
+        "source": "perplexity_v3",
+        "period": period,
+        "periods": periods,
+        "estimate_periods": estimate_periods,
+        "fields": fields,
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def transform_ratios(ticker: str, period: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Transform the `ratios` block (146 metrics) using its own metadata."""
+    if not payload:
+        return None
+    rows = payload.get("ratios") or []
+    meta = (payload.get("ratios_metadata") or {}).get("metrics") or []
+    if not rows or not meta:
+        return None
+
+    specs: List[Dict[str, Any]] = []
+    for order, m in enumerate(meta):
+        ratio_id = m.get("ratioId")
+        if not ratio_id:
+            continue
+        category = m.get("category") or "Other"
+        specs.append({
+            "key": ratio_id,
+            "label": m.get("metricName") or ratio_id,
+            "data_type": _ratio_data_type(ratio_id, m.get("metricFormat"), bool(m.get("isCurrency"))),
+            "section": _RATIO_SECTION_REMAP.get(category, category),
+            "display_order": order,
+        })
+
+    return _build_block(ticker, period, rows, specs, _currency_from_payload(payload))
+
+
+def _adjusted_data_type(m: Dict[str, Any]) -> str:
+    fmt = (m.get("metricFormat") or "").strip().lower()
+    if fmt == "%":
+        return "percent"
+    if m.get("isPerShare"):
+        return "perShare"
+    if fmt == "number":
+        return "monetary" if m.get("isCurrency") else "number"
+    return "monetary" if m.get("isCurrency") else "number"
+
+
+def _adjusted_section(m: Dict[str, Any]) -> str:
+    if (m.get("metricFormat") or "").strip() == "%":
+        return "Adjusted Margins"
+    if m.get("isPerShare"):
+        return "Adjusted Per Share"
+    return "Adjusted Metrics"
+
+
+def transform_adjusted(ticker: str, period: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Transform the `adjusted_metrics` (non-GAAP) block using its metadata."""
+    if not payload:
+        return None
+    rows = payload.get("adjusted_metrics") or []
+    meta = (payload.get("adjusted_metrics_metadata") or {}).get("metrics") or []
+    if not rows or not meta:
+        return None
+
+    specs: List[Dict[str, Any]] = []
+    for order, m in enumerate(meta):
+        metric_id = m.get("metricId")
+        if not metric_id:
+            continue
+        specs.append({
+            "key": metric_id,
+            "label": m.get("metricName") or metric_id,
+            "data_type": _adjusted_data_type(m),
+            "section": _adjusted_section(m),
+            "display_order": order,
+        })
+
+    return _build_block(ticker, period, rows, specs, _currency_from_payload(payload))
+
+
+# Curated layout for the key_stats block (no metadata block is provided by v3).
+# (key, label, data_type, section)
+_KEY_STATS_SPECS: List[Tuple[str, str, str, str]] = [
+    ("key_stats_market_cap",         "Market Cap",          "monetary", "Size & Valuation"),
+    ("key_stats_enterprise_value",   "Enterprise Value",    "monetary", "Size & Valuation"),
+    ("key_stats_total_revenues",     "Total Revenue",       "monetary", "Profitability"),
+    ("key_stats_revenue_growth",     "Revenue Growth",      "percent",  "Profitability"),
+    ("key_stats_gross_profit",       "Gross Profit",        "monetary", "Profitability"),
+    ("key_stats_gross_margin",       "Gross Margin",        "percent",  "Profitability"),
+    ("key_stats_ebitda",             "EBITDA",              "monetary", "Profitability"),
+    ("key_stats_ebitda_margin",      "EBITDA Margin",       "percent",  "Profitability"),
+    ("key_stats_net_income",         "Net Income",          "monetary", "Profitability"),
+    ("key_stats_net_margin",         "Net Margin",          "percent",  "Profitability"),
+    ("key_stats_operating_cash_flow","Operating Cash Flow", "monetary", "Cash Flow & Liquidity"),
+    ("key_stats_free_cash_flow",     "Free Cash Flow",      "monetary", "Cash Flow & Liquidity"),
+    ("key_stats_capex",              "Capital Expenditures","monetary", "Cash Flow & Liquidity"),
+    ("key_stats_cash",               "Cash & Equivalents",  "monetary", "Cash Flow & Liquidity"),
+    ("key_stats_total_debt",         "Total Debt",          "monetary", "Cash Flow & Liquidity"),
+    ("key_stats_diluted_eps",        "Diluted EPS",         "perShare", "Per Share & Growth"),
+    ("key_stats_eps_growth",         "EPS Growth",          "percent",  "Per Share & Growth"),
+]
+
+
+def transform_key_stats(ticker: str, period: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Transform the `key_stats` block (incl. forward estimate periods)."""
+    if not payload:
+        return None
+    rows = payload.get("key_stats") or []
+    if not rows:
+        return None
+
+    specs = [
+        {"key": key, "label": label, "data_type": dtype, "section": section, "display_order": order}
+        for order, (key, label, dtype, section) in enumerate(_KEY_STATS_SPECS)
+    ]
+    return _build_block(ticker, period, rows, specs, _currency_from_payload(payload))
 
 
 # ---------------------------------------------------------------------------

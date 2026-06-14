@@ -29,6 +29,10 @@ from http_clients import FinancialsClient, http_clients
 from perplexity_v3 import (
     clear_cache as clear_perplexity_cache,
     fetch_v3,
+    fetch_v3_with_estimates,
+    transform_adjusted,
+    transform_key_stats,
+    transform_ratios,
     transform_segments,
     transform_to_symbiotic,
 )
@@ -69,6 +73,63 @@ def _apply_limit(symbiotic: Dict[str, Any], limit: int) -> Dict[str, Any]:
             values = field.get("values") or []
             field["values"] = values[:limit]
     return symbiotic
+
+
+def _apply_block_limit(block: Optional[Dict[str, Any]], limit: int) -> Optional[Dict[str, Any]]:
+    """Trim a metrics block ({periods, estimate_periods, fields[]}) to `limit` periods.
+
+    Periods are newest-first, so keeping the head preserves recent + forward
+    estimate columns.
+    """
+    if not block or limit <= 0:
+        return block
+    periods = block.get("periods") or []
+    if len(periods) <= limit:
+        return block
+
+    kept = periods[:limit]
+    kept_set = set(kept)
+    block["periods"] = kept
+    block["estimate_periods"] = [
+        p for p in block.get("estimate_periods", []) if p in kept_set
+    ]
+    for field in block.get("fields", []):
+        values = field.get("values") or []
+        field["values"] = values[:limit]
+    return block
+
+
+async def _metrics_block(symbol: str, period: str, transform, fetch_fn=fetch_v3) -> Dict[str, Any]:
+    """Shared helper for the ratios / adjusted / key-stats endpoints."""
+    symbol = symbol.upper().strip()
+    if not symbol or not symbol.isalpha() or len(symbol) > 6:
+        raise HTTPException(status_code=400, detail="Invalid ticker symbol")
+
+    v3_period = _v3_period(period)
+    try:
+        payload = await fetch_fn(symbol, v3_period)
+    except Exception as exc:
+        logger.warning("perplexity_v3_metrics_fetch_exception", symbol=symbol, error=str(exc))
+        payload = None
+
+    empty = {
+        "symbol": symbol,
+        "currency": "USD",
+        "period": v3_period,
+        "periods": [],
+        "estimate_periods": [],
+        "fields": [],
+    }
+    if not payload:
+        return empty
+
+    try:
+        block = transform(symbol, v3_period, payload)
+    except Exception as exc:
+        logger.error("perplexity_v3_metrics_transform_failed", symbol=symbol, error=str(exc))
+        block = None
+
+    return block or empty
 
 
 # ============================================================================
@@ -184,6 +245,44 @@ async def get_cash_flows(
         "periods": data.get("periods"),
         "cash_flow": data.get("cash_flow", []),
     }
+
+
+# ============================================================================
+# RATIOS / ADJUSTED METRICS / KEY STATISTICS — Perplexity v3 (same payload)
+# ============================================================================
+
+@router.get("/{symbol}/ratios")
+async def get_ratios(
+    symbol: str,
+    period: str = Query("annual", description="annual | quarter | ttm"),
+    limit: int = Query(12, ge=1, le=30),
+):
+    """Financial ratios (valuation, margins, efficiency, health, growth) from
+    Perplexity Finance v3."""
+    block = await _metrics_block(symbol, period, transform_ratios)
+    return _apply_block_limit(block, limit)
+
+
+@router.get("/{symbol}/adjusted")
+async def get_adjusted_metrics(
+    symbol: str,
+    period: str = Query("annual", description="annual | quarter | ttm"),
+    limit: int = Query(12, ge=1, le=30),
+):
+    """Adjusted (non-GAAP) metrics from Perplexity Finance v3."""
+    block = await _metrics_block(symbol, period, transform_adjusted)
+    return _apply_block_limit(block, limit)
+
+
+@router.get("/{symbol}/key-stats")
+async def get_key_stats(
+    symbol: str,
+    period: str = Query("annual", description="annual | quarter | ttm"),
+    limit: int = Query(12, ge=1, le=30),
+):
+    """Key statistics incl. forward analyst estimates from Perplexity Finance v3."""
+    block = await _metrics_block(symbol, period, transform_key_stats, fetch_v3_with_estimates)
+    return _apply_block_limit(block, limit)
 
 
 # ============================================================================
