@@ -59,7 +59,7 @@ from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
-from ticker_chain import get_ticker_chain, fetch_chained_polygon_data
+from ticker_chain import get_ticker_chain, fetch_chained_polygon_data, MANUAL_CHAIN_OVERRIDES
 
 # Configurar logger
 configure_logging(service_name="api_gateway")
@@ -3851,6 +3851,165 @@ async def _get_internal_index_chart(
     }
 
 
+async def _recycled_symbol_floor(symbol: str, head: str) -> Optional[int]:
+    """
+    Detect a recycled ticker and return the Unix timestamp floor below which its
+    Polygon history belongs to a PREVIOUS, unrelated issuer.
+
+    `symbol` is a predecessor in a ticker chain whose head is `head`, but the
+    symbol has since been reassigned to a DIFFERENT, currently-trading security
+    (different composite_figi).
+
+    Example: the chain ["SPCX","SPCK"] is valid for the SPAC ETF (SPCX→SPCK
+    rename). But SPCX was later relisted as Space Exploration Technologies — a
+    different FIGI, list_date 2026-06-12. Polygon still serves the ETF's
+    2020-2026 aggregates under the SPCX symbol, so even fetching SPCX directly
+    mixes both issuers. We return the new entity's list_date as a floor so the
+    caller can drop the prior issuer's bars.
+
+    Returns:
+        * Unix timestamp (int) of the current entity's list_date when the symbol
+          is a recycled security (clip everything older).
+        * None when the symbol is NOT recycled (e.g. FB→META keeps FIGI
+          continuity) — the chain and full history must be preserved untouched.
+
+    Conservative: only treats the symbol as recycled when both composite_figi
+    values are known, they differ, and `symbol` is actively trading right now.
+    """
+    if not timescale_client:
+        return None
+    try:
+        rows = await timescale_client.fetch(
+            """
+            SELECT symbol, composite_figi, is_actively_trading, list_date
+            FROM tickers_unified
+            WHERE symbol = ANY($1::text[])
+            """,
+            [symbol.upper(), head.upper()],
+        )
+    except Exception as e:
+        logger.warning("recycled_check_failed", symbol=symbol, head=head, error=str(e))
+        return None
+
+    by_sym = {str(r["symbol"]).upper(): r for r in rows}
+    sym_row = by_sym.get(symbol.upper())
+    head_row = by_sym.get(head.upper())
+    if not sym_row or not head_row:
+        return None
+
+    sym_figi = sym_row["composite_figi"]
+    head_figi = head_row["composite_figi"]
+    if not sym_figi or not head_figi or sym_figi == head_figi:
+        return None
+    if not sym_row["is_actively_trading"]:
+        return None
+
+    list_date = sym_row["list_date"]
+    if not list_date:
+        # Recycled but no list_date to clip on — signal recycling with a 0 floor
+        # so the chain is still dropped (no redirect), even if we can't trim.
+        return 0
+    return _list_date_to_ts(list_date) or 0
+
+
+def _list_date_to_ts(list_date) -> Optional[int]:
+    """Convert a DATE/'YYYY-MM-DD' value into a UTC midnight Unix timestamp."""
+    if not list_date:
+        return None
+    try:
+        from datetime import datetime as _dt, date as _date, time as _time, timezone as _tz
+        if isinstance(list_date, str):
+            list_date = _dt.strptime(list_date[:10], "%Y-%m-%d").date()
+        if isinstance(list_date, _dt):
+            list_date = list_date.date()
+        if not isinstance(list_date, _date):
+            return None
+        return int(_dt.combine(list_date, _time.min, tzinfo=_tz.utc).timestamp())
+    except Exception:
+        return None
+
+
+async def _current_listing_start_ts(symbol: str) -> Optional[int]:
+    """
+    Unix timestamp of when the CURRENT entity began trading under `symbol`.
+
+    This is the most recent `ticker_change` event date from Polygon — the point
+    from which the symbol's aggregates belong to today's issuer. Bars before it
+    belong to a PRIOR issuer that used the same symbol and must be trimmed.
+
+    Why not list_date? list_date tracks the ENTITY's first listing under ANY
+    symbol (META = 2012-05-18, Facebook's IPO), so it does NOT mark when the
+    symbol changed hands. The Roundhill Metaverse ETF traded as META from
+    2021-06 to 2022-06; only the 2022-06-09 ticker_change date correctly
+    separates it from Meta Platforms.
+
+    Resolution order: Redis cache → Polygon events → list_date fallback.
+    Cached 7 days. Returns None when nothing is resolvable (no trim).
+    """
+    symbol = symbol.upper()
+    cache_key = "ticker:listing_start"
+    if redis_client:
+        try:
+            cached = await redis_client.hget(cache_key, symbol)
+            if cached is not None:
+                val = int(cached)
+                return None if val < 0 else val
+        except Exception:
+            pass
+
+    resolved: Optional[int] = None
+    try:
+        data = await http_clients.polygon.get_ticker_events(symbol)
+        events = (data.get("results", {}) or {}).get("events", []) or []
+        dates = [
+            e.get("date")
+            for e in events
+            if (e.get("ticker_change", {}) or {}).get("ticker", "").upper() == symbol
+            and e.get("date")
+        ]
+        if dates:
+            resolved = _list_date_to_ts(max(dates))
+    except Exception as e:
+        logger.warning("listing_start_events_failed", symbol=symbol, error=str(e))
+
+    if resolved is None:
+        resolved = await _list_date_floor(symbol)
+
+    if redis_client:
+        try:
+            await redis_client.hset(cache_key, symbol, resolved if resolved is not None else -1)
+            await redis_client.client.expire(cache_key, 7 * 86400)
+        except Exception:
+            pass
+    return resolved
+
+
+async def _list_date_floor(symbol: str) -> Optional[int]:
+    """
+    Return the Unix timestamp of `symbol`'s list_date, used to trim bars that
+    predate the current security's listing.
+
+    Polygon assigns list_date per ENTITY (e.g. META = 2012-05-18, the original
+    Facebook IPO), so for a normal or renamed ticker this is older than any bar
+    it has and the trim is a no-op. It only removes data when Polygon serves
+    aggregates from BEFORE the listing under the same symbol — the signature of
+    a recycled ticker (e.g. SPCX: SPAC ETF era under SpaceX's symbol).
+    """
+    if not timescale_client:
+        return None
+    try:
+        row = await timescale_client.fetchrow(
+            "SELECT list_date FROM tickers_unified WHERE symbol = $1",
+            symbol.upper(),
+        )
+    except Exception as e:
+        logger.warning("list_date_lookup_failed", symbol=symbol, error=str(e))
+        return None
+    if not row:
+        return None
+    return _list_date_to_ts(row["list_date"])
+
+
 @app.get("/api/v1/chart/{symbol}")
 async def get_chart_data(
     symbol: str,
@@ -3945,6 +4104,31 @@ async def get_chart_data(
         # Unified Polygon path for all intervals (with ticker chaining)
         requested_symbol = symbol
         chain = await get_ticker_chain(symbol, redis_client)
+
+        # Recycled-symbol guard: when the user requests a chain PREDECESSOR
+        # (not the head) and that symbol has been reassigned to a different
+        # live security, two things are wrong: (1) the chain would redirect to
+        # the old issuer's data, and (2) Polygon serves the prior issuer's
+        # aggregates under the SAME symbol. So we drop the chain AND record a
+        # `recycled_floor` (the new entity's list_date) to trim older bars that
+        # belong to the previous issuer. Symbols pinned in MANUAL_CHAIN_OVERRIDES
+        # are left untouched (human decisions win, e.g. FB→META).
+        recycled_floor: Optional[int] = None
+        if (
+            chain
+            and requested_symbol.upper() != chain[-1].upper()
+            and requested_symbol.upper() not in MANUAL_CHAIN_OVERRIDES
+        ):
+            recycled_floor = await _recycled_symbol_floor(requested_symbol, chain[-1])
+            if recycled_floor is not None:
+                logger.info(
+                    "chart_chain_skipped_recycled_symbol",
+                    requested=requested_symbol,
+                    chain=chain,
+                    floor=recycled_floor,
+                )
+                chain = None
+
         if chain:
             # If user requested an old/legacy symbol (e.g. XXII), anchor fetch on
             # the latest symbol in chain (e.g. CEP) so chart includes recent bars.
@@ -3956,9 +4140,15 @@ async def get_chart_data(
                     effective=effective_symbol,
                     chain=chain
                 )
+            # Trim the chain head to the date its current issuer took the
+            # symbol, so a prior issuer's bars under the same symbol (e.g. the
+            # Metaverse ETF that traded as META before Meta Platforms) are
+            # dropped while the predecessors still supply older history.
+            head_floor = await _current_listing_start_ts(effective_symbol)
             chart_data, oldest_time = await fetch_chained_polygon_data(
                 effective_symbol, config["polygon_multiplier"], config["polygon_timespan"],
-                to_date, bars_limit, before, chain, fetch_polygon_chunk, fetch_fmp_chunk
+                to_date, bars_limit, before, chain, fetch_polygon_chunk, fetch_fmp_chunk,
+                head_floor=head_floor,
             )
         else:
             chart_data, oldest_time = await fetch_polygon_chunk(
@@ -3969,8 +4159,27 @@ async def get_chart_data(
                 bars_limit,
                 before_timestamp=before
             )
+            # No chain in play: trim any bars predating the date this symbol's
+            # current issuer took it. Harmless for normal tickers; removes a
+            # prior issuer's history under a recycled symbol (e.g. SPCX).
+            if recycled_floor is None:
+                recycled_floor = await _current_listing_start_ts(symbol)
         source = "polygon"
-        
+
+        # Trim bars that predate a recycled symbol's current listing — those
+        # belong to a prior, unrelated issuer that used the same ticker.
+        if recycled_floor and chart_data:
+            before_trim = len(chart_data)
+            chart_data = [b for b in chart_data if b["time"] >= recycled_floor]
+            if len(chart_data) < before_trim:
+                # Reached the start of the current entity: nothing older to load.
+                oldest_time = chart_data[0]["time"] if chart_data else None
+                has_more_override = False
+            else:
+                has_more_override = None
+        else:
+            has_more_override = None
+
         if after and chart_data:
             chart_data = [b for b in chart_data if b["time"] > after]
         # Note: we intentionally do NOT filter chart_data by `to` here.
@@ -3979,6 +4188,8 @@ async def get_chart_data(
         # the replay can advance.  Positioning is handled client-side.
         
         has_more = oldest_time is not None
+        if has_more_override is not None:
+            has_more = has_more_override
         
         # Short TTL for gap recovery (fresh data), longer for historical chunks
         if after:

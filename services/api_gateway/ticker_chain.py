@@ -197,6 +197,7 @@ async def fetch_chained_polygon_data(
     chain: List[str],
     fetch_fn,
     fetch_legacy_daily_fn=None,
+    head_floor: Optional[int] = None,
 ) -> Tuple[List[dict], Optional[int]]:
     """
     Fetch chart data across a ticker chain.
@@ -236,6 +237,14 @@ async def fetch_chained_polygon_data(
             ticker, multiplier, timespan, current_to_date, remaining,
             before_timestamp=current_before
         )
+
+        # Trim the head segment to the date the current entity took this symbol.
+        # Polygon serves a prior issuer's aggregates under the same symbol (e.g.
+        # the Roundhill Metaverse ETF traded as META 2021-2022 before Meta
+        # Platforms). Those pre-handoff bars must be dropped; older history comes
+        # from the chain predecessors instead.
+        if head_floor and ticker == symbol and bars:
+            bars = [b for b in bars if b["time"] >= head_floor]
 
         # Fallback for legacy aliases missing in Polygon (daily chains only).
         if (

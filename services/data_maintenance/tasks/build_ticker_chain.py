@@ -81,7 +81,7 @@ class BuildTickerChainTask:
                 logger.info("tickers_fetched", count=len(tickers))
                 
                 # 2. Scan events for all tickers (concurrent)
-                chains = await self._scan_all_events(client, tickers)
+                chains, chain_figis = await self._scan_all_events(client, tickers)
                 stats["chains_built"] = len(chains)
                 
                 # 3. Build the new hash mapping with CURRENT-ticker priority.
@@ -97,16 +97,46 @@ class BuildTickerChainTask:
                 for symbol, chain in chains.items():
                     if chain and chain[-1].upper() == str(symbol).upper():
                         new_hash[str(symbol).upper()] = orjson.dumps(chain).decode()
+
+                # Load current FIGIs of all predecessors to detect recycled
+                # tickers (predecessor reassigned to a different live security).
+                predecessor_symbols = {
+                    str(old).upper()
+                    for chain in chains.values() if chain
+                    for old in chain[:-1]
+                }
+                current_figis = await self._load_current_figis(list(predecessor_symbols))
+                recycled_skipped = 0
+
                 # Pass 2: predecessors only if not already claimed as a current.
                 for symbol, chain in chains.items():
                     if not chain:
                         continue
                     encoded_chain = orjson.dumps(chain).decode()
+                    head_figi = chain_figis.get(str(symbol).upper())
                     for old in chain[:-1]:
                         key = str(old).upper()
-                        if key not in new_hash:
-                            new_hash[key] = encoded_chain
+                        if key in new_hash:
+                            continue
+                        # Skip recycled predecessors: now an actively-trading
+                        # security with a different FIGI than this chain's head.
+                        cur = current_figis.get(key)
+                        if cur and head_figi:
+                            cur_figi, cur_active = cur
+                            if cur_active and cur_figi and cur_figi != head_figi:
+                                recycled_skipped += 1
+                                logger.info(
+                                    "ticker_chain_predecessor_recycled_skipped",
+                                    predecessor=key,
+                                    chain=chain,
+                                    predecessor_figi=cur_figi,
+                                    chain_head_figi=head_figi,
+                                )
+                                continue
+                        new_hash[key] = encoded_chain
                 expanded_entries = len(new_hash)
+                if recycled_skipped:
+                    logger.info("ticker_chain_recycled_predecessors", count=recycled_skipped)
 
                 await self.redis.client.delete(TICKER_CHAIN_HASH)
                 if new_hash:
@@ -242,9 +272,40 @@ class BuildTickerChainTask:
         except Exception:
             return None
 
+    async def _load_current_figis(
+        self, symbols: List[str]
+    ) -> Dict[str, tuple]:
+        """
+        Load CURRENT composite_figi + is_actively_trading for `symbols` from
+        tickers_unified. Returns {SYMBOL: (composite_figi, is_actively_trading)}.
+
+        Used to detect recycled tickers: a chain predecessor whose symbol now
+        belongs to a different, actively-trading security (different FIGI) must
+        not be registered as a redirect key — otherwise the new issuer's chart
+        gets redirected to the old issuer's data (e.g. SPCX: ETF→SpaceX).
+        """
+        if not self.db or not symbols:
+            return {}
+        try:
+            rows = await self.db.fetch(
+                """
+                SELECT symbol, composite_figi, is_actively_trading
+                FROM tickers_unified
+                WHERE symbol = ANY($1::text[])
+                """,
+                [s.upper() for s in symbols],
+            )
+            return {
+                str(r["symbol"]).upper(): (r["composite_figi"], r["is_actively_trading"])
+                for r in rows
+            }
+        except Exception as e:
+            logger.warning("load_current_figis_failed", error=str(e))
+            return {}
+
     async def _scan_all_events(
         self, client: httpx.AsyncClient, tickers: List[str]
-    ) -> Dict[str, List[str]]:
+    ) -> tuple:
         """Scan ticker_change events for all tickers concurrently.
 
         Polygon's `/vX/reference/tickers/{T}/events?types=ticker_change` returns
@@ -265,6 +326,7 @@ class BuildTickerChainTask:
         2022-01-30 returns NOT_FOUND, so the link is dropped.
         """
         chains: Dict[str, List[str]] = {}
+        chain_figis: Dict[str, str] = {}
         semaphore = asyncio.Semaphore(CONCURRENCY)
         errors = 0
         figi_rejections = 0
@@ -367,6 +429,7 @@ class BuildTickerChainTask:
 
                     if len(ordered) > 1:
                         chains[ticker] = ordered
+                        chain_figis[ticker.upper()] = current_figi
 
                 except Exception as e:
                     errors += 1
@@ -383,4 +446,4 @@ class BuildTickerChainTask:
         if inconsistent_events > 0:
             logger.info("ticker_change_inconsistent_timelines", count=inconsistent_events)
 
-        return chains
+        return chains, chain_figis

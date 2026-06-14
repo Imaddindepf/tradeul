@@ -198,6 +198,19 @@ class PolygonClient:
         response.raise_for_status()
         return response.json()
 
+    async def get_ticker_events(self, symbol: str, types: str = "ticker_change") -> Dict[str, Any]:
+        """Obtiene el historial de eventos de un ticker (cambios de símbolo).
+
+        Endpoint: GET /vX/reference/tickers/{symbol}/events
+        Devuelve los ticker_change con su fecha, usado para saber cuándo la
+        entidad actual empezó a usar este símbolo.
+        """
+        url = f"/vX/reference/tickers/{symbol.upper()}/events"
+        params = {"types": types, "apiKey": self.api_key}
+        response = await self._client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
     async def get_news(self, symbol: str, limit: int = 5) -> Dict[str, Any]:
         """Obtiene noticias recientes de un ticker desde Polygon.
         
