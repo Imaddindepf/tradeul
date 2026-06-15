@@ -68,11 +68,11 @@ export const TICKER_COMMANDS = {
         descriptionKey: 'terminalCommands.tickerCommands.PM.description',
         shortcut: 'Ctrl+P'
     },
-    FAN: {
-        id: 'fan',
-        label: 'FAN',
-        name: 'Financial Analyst',
-        descriptionKey: 'terminalCommands.tickerCommands.FAN.description',
+    DESC: {
+        id: 'desc',
+        label: 'DESC',
+        name: 'Description',
+        descriptionKey: 'terminalCommands.tickerCommands.DESC.description',
         shortcut: 'Ctrl+Shift+F'
     },
     HDS: {
@@ -236,11 +236,11 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.INSIDER.description',
         shortcut: 'Ctrl+I'
     },
-    FAN: {
-        id: 'fan',
-        label: 'FAN',
-        name: 'Financial Analyst',
-        descriptionKey: 'terminalCommands.globalCommands.FAN.description',
+    DESC: {
+        id: 'desc',
+        label: 'DESC',
+        name: 'Description',
+        descriptionKey: 'terminalCommands.globalCommands.DESC.description',
         shortcut: 'Ctrl+Shift+F'
     },
     AI: {

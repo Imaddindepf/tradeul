@@ -10,10 +10,13 @@ interface FinancialsWindowState {
     ticker?: string;
     tab?: TabType;
     periodFilter?: PeriodFilter;
+    lockOverlay?: boolean;
     [key: string]: unknown;
 }
 import { SegmentsTable } from './tables/SegmentsTable';
-import { FinancialMetricChart, type MetricDataPoint } from './FinancialMetricChart';
+import { FinancialChartPro, type ChartSeriesField } from './FinancialChartPro';
+import { WaterfallChart } from './WaterfallChart';
+import { pushOverlaySeries } from './chartOverlayBus';
 import { type FinancialChartData } from '@/lib/window-injector';
 
 // ============================================================================
@@ -201,17 +204,64 @@ const BLOCK_ENDPOINT: Record<'ratios' | 'adjusted' | 'keystats', string> = {
     keystats: 'key-stats',
 };
 
-function MetricsBlockTab({ symbol, block, period, currency }: {
+function MetricsBlockTab({ symbol, block, period, currency, lockOverlay, dashboardId }: {
     symbol: string;
     block: 'ratios' | 'adjusted' | 'keystats';
     period: PeriodFilter;
     currency: string;
+    lockOverlay: boolean;
+    dashboardId: string;
 }) {
+    const { openWindow } = useFloatingWindowActions();
     const [data, setData] = useState<MetricsBlockData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [rangeStart, setRangeStart] = useState(0);
     const [rangeEnd, setRangeEnd] = useState(0);
+
+    const openChart = useCallback((metricKey: string) => {
+        if (!data?.fields?.length) return;
+        const field = data.fields.find((f) => f.key === metricKey);
+
+        // Lock overlay: stack onto this dashboard's active chart if any.
+        if (lockOverlay && field) {
+            const delivered = pushOverlaySeries(dashboardId, {
+                key: field.key,
+                label: field.label,
+                dataType: field.data_type,
+                balance: field.balance,
+                periods: data.periods || [],
+                values: field.values,
+            });
+            if (delivered) return;
+        }
+
+        const chartFields: ChartSeriesField[] = data.fields.map((f) => ({
+            key: f.key,
+            label: f.label,
+            values: f.values,
+            dataType: f.data_type,
+            balance: f.balance,
+        }));
+        openWindow({
+            title: `${symbol} — ${field?.label || metricKey}`,
+            content: (
+                <FinancialChartPro
+                    ticker={symbol}
+                    currency={data.currency || currency}
+                    periods={data.periods || []}
+                    fields={chartFields}
+                    initialMetricKey={metricKey}
+                    estimatePeriods={data.estimate_periods}
+                    dashboardId={dashboardId}
+                />
+            ),
+            width: 1000,
+            height: 600,
+            x: Math.max(80, (window.innerWidth - 1000) / 2),
+            y: Math.max(50, (window.innerHeight - 600) / 2),
+        });
+    }, [data, openWindow, symbol, currency, lockOverlay, dashboardId]);
 
     useEffect(() => {
         let cancelled = false;
@@ -263,6 +313,7 @@ function MetricsBlockTab({ symbol, block, period, currency }: {
                 category={block}
                 currency={currency}
                 estimatePeriods={data.estimate_periods}
+                onMetricClick={openChart}
             />
         </div>
     );
@@ -290,6 +341,13 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
     const [copied, setCopied] = useState(false);
     const [rangeStart, setRangeStart] = useState(0);
     const [rangeEnd, setRangeEnd] = useState(0);
+    // "Lock overlay": when on, clicking a row stacks the metric onto this
+    // dashboard's active chart instead of opening a new chart window.
+    const [lockOverlay, setLockOverlay] = useState<boolean>(Boolean(windowState.lockOverlay));
+
+    // Unique id for this FA window so overlay pushes never reach another window.
+    const dashboardIdRef = useRef<string>(`fa-${Math.random().toString(36).slice(2)}`);
+    const dashboardId = dashboardIdRef.current;
 
     // Track if auto-load has been done
     const autoLoadedRef = useRef(false);
@@ -297,8 +355,8 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
     // Persist state changes (including when ticker is cleared)
     useEffect(() => {
         // Always persist to ensure clearing ticker also clears persisted state
-        updateWindowState({ ticker: selectedTicker || '', tab: activeTab, periodFilter });
-    }, [selectedTicker, activeTab, periodFilter, updateWindowState]);
+        updateWindowState({ ticker: selectedTicker || '', tab: activeTab, periodFilter, lockOverlay });
+    }, [selectedTicker, activeTab, periodFilter, lockOverlay, updateWindowState]);
 
     // Fetch data
     const fetchData = useCallback(async (ticker: string, period?: PeriodFilter) => {
@@ -388,37 +446,86 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
         };
     }, [data, rangeStart, rangeEnd]);
 
-    // Handle metric click - open chart
-    const handleMetricClick = useCallback((metricKey: string, values: (number | null)[], periods: string[]) => {
+    // Handle metric click - open the pro chart with the full statement context,
+    // or (when "lock overlay" is on) stack onto this dashboard's active chart.
+    const handleMetricClick = useCallback((metricKey: string) => {
         if (!data) return;
 
-        const chartDataPoints: MetricDataPoint[] = periods.map((period, idx) => ({
-            period: period.startsWith('Q') ? period : `FY${period}`,
-            fiscalYear: period,
-            value: values[idx],
-            isAnnual: !period.startsWith('Q'),
-        })).reverse();
+        const statements: ConsolidatedField[][] = [
+            data.income_statement, data.balance_sheet, data.cash_flow,
+        ].filter(Boolean) as ConsolidatedField[][];
 
-        const metricLabel = metricKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        const windowTitle = `${data.symbol} — ${metricLabel}`;
+        const source = statements.find(st => st.some(f => f.key === metricKey)) || data.income_statement;
+        const field = source.find(f => f.key === metricKey);
+        const metricLabel = field?.label
+            || metricKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+        // Lock overlay: try to push onto an existing chart of this dashboard.
+        if (lockOverlay && field) {
+            const delivered = pushOverlaySeries(dashboardId, {
+                key: field.key,
+                label: field.label,
+                dataType: field.data_type,
+                balance: field.balance,
+                periods: data.periods,
+                values: field.values,
+            });
+            if (delivered) return;
+            // No open chart (or it was full) -> fall through and open a new one,
+            // which then becomes the target for subsequent locked clicks.
+        }
+
+        const chartFields: ChartSeriesField[] = source.map(f => ({
+            key: f.key,
+            label: f.label,
+            values: f.values,
+            dataType: f.data_type,
+            balance: f.balance,
+        }));
 
         openWindow({
-            title: windowTitle,
+            title: `${data.symbol} — ${metricLabel}`,
             content: (
-                <div className="h-full flex flex-col">
-                    <FinancialMetricChart
-                        data={chartDataPoints}
-                        metricKey={metricKey}
-                        metricLabel={metricLabel}
-                        ticker={data.symbol}
-                        currency={data.currency}
-                    />
-                </div>
+                <FinancialChartPro
+                    ticker={data.symbol}
+                    currency={data.currency}
+                    periods={data.periods}
+                    fields={chartFields}
+                    initialMetricKey={metricKey}
+                    dashboardId={dashboardId}
+                />
             ),
-            width: 900,
-            height: 550,
-            x: Math.max(100, (window.innerWidth - 900) / 2),
-            y: Math.max(50, (window.innerHeight - 550) / 2),
+            width: 1000,
+            height: 600,
+            x: Math.max(80, (window.innerWidth - 1000) / 2),
+            y: Math.max(50, (window.innerHeight - 600) / 2),
+        });
+    }, [data, openWindow, lockOverlay, dashboardId]);
+
+    // Open the income-statement waterfall (P&L bridge) for the latest period.
+    const openWaterfall = useCallback(() => {
+        if (!data?.income_statement) return;
+        const wfFields = data.income_statement.map(f => ({
+            key: f.key,
+            label: f.label,
+            values: f.values,
+            dataType: f.data_type,
+            balance: f.balance,
+        }));
+        openWindow({
+            title: `${data.symbol} — Income Bridge`,
+            content: (
+                <WaterfallChart
+                    ticker={data.symbol}
+                    currency={data.currency}
+                    periods={data.periods}
+                    fields={wfFields}
+                />
+            ),
+            width: 1000,
+            height: 600,
+            x: Math.max(80, (window.innerWidth - 1000) / 2),
+            y: Math.max(50, (window.innerHeight - 600) / 2),
         });
     }, [data, openWindow]);
 
@@ -518,6 +625,15 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                             )}
                         </div>
                         <div className="flex items-center gap-1">
+                            <button
+                                onClick={() => setLockOverlay(v => !v)}
+                                title="When on, clicking a row adds the metric onto the active chart of this window instead of opening a new chart"
+                                className={`px-1.5 py-0.5 text-[9px] font-medium rounded
+                                    ${lockOverlay ? 'bg-amber-500 text-black' : 'text-muted-fg hover:bg-surface-hover'}`}
+                            >
+                                {lockOverlay ? 'Overlay Locked' : 'Overlay'}
+                            </button>
+                            <div className="mx-0.5 h-3 w-px bg-border" />
                             {(['annual', 'quarterly', 'ttm'] as const).map((p) => (
                                 <button
                                     key={p}
@@ -570,6 +686,18 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                         />
                     )}
 
+                    {/* Income-statement extra view: P&L bridge */}
+                    {activeTab === 'income' && (
+                        <div className="flex items-center justify-end gap-1 px-3 py-1.5 border-b border-border-subtle">
+                            <button
+                                onClick={openWaterfall}
+                                className="text-[10px] px-2 py-1 rounded font-medium bg-surface-inset text-foreground hover:bg-surface-hover"
+                            >
+                                Income Bridge
+                            </button>
+                        </div>
+                    )}
+
                     {/* Tables */}
                     <div className="overflow-x-auto relative">
                         {loading && (
@@ -610,10 +738,17 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                                 block={activeTab}
                                 period={periodFilter}
                                 currency={data.currency}
+                                lockOverlay={lockOverlay}
+                                dashboardId={dashboardId}
                             />
                         )}
                         {activeTab === 'segments' && data?.symbol && (
-                            <SegmentsTable symbol={data.symbol} />
+                            <SegmentsTable
+                                symbol={data.symbol}
+                                currency={data.currency}
+                                lockOverlay={lockOverlay}
+                                dashboardId={dashboardId}
+                            />
                         )}
                     </div>
                 </div>

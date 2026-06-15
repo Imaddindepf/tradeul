@@ -436,14 +436,11 @@ export default function ScannerPage() {
     setMounted(true);
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+K: Abrir terminal
+      // Ctrl/Cmd+K: Abrir terminal y enfocar el prompt (ref directo, robusto)
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        const input = document.querySelector('input[type="text"]') as HTMLInputElement;
-        if (input) {
-          input.focus();
-          setCommandPaletteOpen(true);
-        }
+        inputRef.current?.focus();
+        setCommandPaletteOpen(true);
       }
 
       // ?: Abrir ayuda (solo si no estamos escribiendo en un input)

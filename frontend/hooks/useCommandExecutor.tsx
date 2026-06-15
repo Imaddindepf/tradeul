@@ -660,16 +660,17 @@ export function useCommandExecutor() {
                 });
                 return null;
 
+            case 'desc':
             case 'fan':
                 openWindow({
                     title: 'Financial Analyst',
                     content: <FinancialAnalystCanvas />,
-                    width: 700,
-                    height: 650,
-                    x: Math.max(50, screenWidth / 2 - 350),
-                    y: Math.max(70, screenHeight / 2 - 325),
-                    minWidth: 400,
-                    minHeight: 500,
+                    width: 1180,
+                    height: 780,
+                    x: Math.max(40, screenWidth / 2 - 590),
+                    y: Math.max(60, screenHeight / 2 - 390),
+                    minWidth: 720,
+                    minHeight: 560,
                 });
                 return null;
 
@@ -827,17 +828,18 @@ export function useCommandExecutor() {
                 });
                 break;
 
+            case 'desc': // DESC command
             case 'description': // Legacy: redirect to FAN
             case 'des': // Alias
                 openWindow({
                     title: 'Financial Analyst',
                     content: <FinancialAnalystCanvas initialTicker={normalizedTicker} />,
-                    width: 700,
-                    height: 650,
-                    x: Math.max(50, screenWidth / 2 - 350),
-                    y: Math.max(70, screenHeight / 2 - 325),
-                    minWidth: 400,
-                    minHeight: 500,
+                    width: 1180,
+                    height: 780,
+                    x: Math.max(40, screenWidth / 2 - 590),
+                    y: Math.max(60, screenHeight / 2 - 390),
+                    minWidth: 720,
+                    minHeight: 560,
                 });
                 break;
 
@@ -935,12 +937,12 @@ export function useCommandExecutor() {
                 openWindow({
                     title: 'Financial Analyst',
                     content: <FinancialAnalystCanvas initialTicker={normalizedTicker} />,
-                    width: 700,
-                    height: 650,
-                    x: Math.max(50, screenWidth / 2 - 350),
-                    y: Math.max(70, screenHeight / 2 - 325),
-                    minWidth: 400,
-                    minHeight: 500,
+                    width: 1180,
+                    height: 780,
+                    x: Math.max(40, screenWidth / 2 - 590),
+                    y: Math.max(60, screenHeight / 2 - 390),
+                    minWidth: 720,
+                    minHeight: 560,
                 });
                 break;
 

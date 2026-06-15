@@ -213,8 +213,8 @@
       "name": "Insider Trading",
       "description": "Transacciones de insiders"
     },
-    "fan": {
-      "name": "Financial Analyst",
+    "desc": {
+      "name": "Description",
       "description": "Perfil completo de la accion"
     },
     "ai": {
@@ -570,7 +570,7 @@
       "PM": {
         "description": "Gráficos similares"
       },
-      "FAN": {
+      "DESC": {
         "description": "Perfil de la accion"
       },
       "HDS": {
@@ -647,7 +647,7 @@
       "INSIDER": {
         "description": "Transacciones de insiders"
       },
-      "FAN": {
+      "DESC": {
         "description": "Perfil de la accion"
       },
       "AI": {

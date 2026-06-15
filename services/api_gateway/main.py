@@ -555,6 +555,236 @@ async def _get_polygon_ratios_for_fan(symbol: str) -> dict:
     return {}
 
 
+# ============================================================================
+# Perplexity v3 deterministic "Key Metrics" snapshot (TIKR-style)
+# ----------------------------------------------------------------------------
+# Single authoritative source for every NUMBER shown in the DESC window, reusing
+# the same v3 layer that powers the FA window. Gemini never produces numbers.
+# ============================================================================
+
+# LTM ratio map: snapshot_field -> (Perplexity ratioId, is_percent_fraction)
+# Percent fields come back as fractions (0.27) and are scaled ×100 → 27.0.
+_V3_LTM_MAP = {
+    # Capital structure
+    "market_cap":          ("calculated_market_cap", False),
+    "enterprise_value":    ("calculated_tev", False),
+    "net_debt":            ("calculated_net_debt", False),
+    "total_debt":          ("calculated_total_debt", False),
+    "net_debt_to_ebitda":  ("ratio_net_debt_to_ebitda", False),
+    "shares_outstanding":  ("market_data_total_shares_outstanding", False),
+    "share_price":         ("market_data_share_price", False),
+    # Efficiency
+    "gross_margin":        ("ratio_gross_profit_margin", True),
+    "ebit_margin":         ("ratio_operating_margin", True),
+    "ebitda_margin":       ("ratio_ebitda_margin", True),
+    "net_margin":          ("ratio_net_profit_margin", True),
+    "fcf_margin":          ("ratio_fcf_margin", True),
+    "roa":                 ("ratio_return_on_assets", True),
+    "roe":                 ("ratio_return_on_equity", True),
+    "roic":                ("ratio_return_on_invested_capital", True),
+    "roce":                ("ratio_return_on_capital_employed", True),
+    # Valuation (LTM)
+    "ev_to_revenue":       ("ratio_ev_to_sales", False),
+    "ev_to_gross_profit":  ("ratio_ev_to_gross_profit", False),
+    "ev_to_ebitda":        ("ratio_ev_to_ebitda", False),
+    "pe":                  ("ratio_price_to_earnings", False),
+    "ps":                  ("ratio_price_to_sales", False),
+    "pb":                  ("ratio_price_to_book", False),
+    "p_fcf":               ("ratio_price_to_fcf", False),
+    "ncav":                ("calculated_net_current_asset_value", False),
+    "dividend_yield":      ("calculated_dividend_yield", True),
+    "payout_ratio":        ("ratio_payout_ratio", True),
+    "current_ratio":       ("ratio_current_ratio", False),
+    "debt_to_equity":      ("ratio_debt_to_equity", False),
+    "diluted_eps":         ("ratio_diluted_eps", False),
+    # Growth (trailing CAGR)
+    "rev_cagr_3y":         ("growth_revenue_3y_cagr", True),
+    "ebitda_cagr_3y":      ("growth_ebitda_3y_cagr", True),
+    "eps_cagr_3y":         ("growth_diluted_eps_3y_cagr", True),
+    "rev_growth_1y":       ("growth_revenue_1y", True),
+    "eps_growth_1y":       ("growth_diluted_eps_1y", True),
+}
+
+
+def _grade_from_keymetrics(m: dict) -> Optional[str]:
+    """Deterministic financial-health letter grade from quality signals."""
+    def band(v, a, b, c):
+        # returns 1 / 0.7 / 0.4 / 0.1 for >=a / >=b / >=c / else
+        if v is None:
+            return None
+        return 1.0 if v >= a else 0.7 if v >= b else 0.4 if v >= c else 0.1
+
+    def band_inv(v, a, b, c):
+        # lower is better (e.g. debt/equity)
+        if v is None:
+            return None
+        return 1.0 if v <= a else 0.7 if v <= b else 0.4 if v <= c else 0.1
+
+    signals = [
+        band(m.get("net_margin"), 20, 10, 0),
+        band(m.get("rev_growth_1y"), 20, 8, 0),
+        band(m.get("roe"), 20, 10, 0),
+        band(m.get("fcf_margin"), 15, 5, 0),
+        band_inv(m.get("debt_to_equity"), 0.5, 1.0, 2.0),
+    ]
+    scored = [s for s in signals if s is not None]
+    if not scored:
+        return None
+    avg = sum(scored) / len(scored)
+    if avg >= 0.9:
+        return "A+"
+    if avg >= 0.8:
+        return "A"
+    if avg >= 0.7:
+        return "B+"
+    if avg >= 0.6:
+        return "B"
+    if avg >= 0.5:
+        return "C+"
+    if avg >= 0.4:
+        return "C"
+    return "D"
+
+
+async def _get_v3_keymetrics_for_fan(symbol: str, current_price: float = 0.0) -> dict:
+    """
+    Build the deterministic TIKR-style key-metrics snapshot from Perplexity v3.
+
+    Returns a flat dict with LTM ratios/margins/efficiency, trailing CAGRs, and
+    forward (NTM / FY+2) multiples & CAGRs computed from analyst estimates.
+    Percent fields are stored as percent numbers (e.g. 27.1 → 27.1%).
+    """
+    cache_key = f"fan:v3_keymetrics:{symbol.upper()}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached and isinstance(cached, dict):
+            return cached
+    except Exception:
+        pass
+
+    try:
+        from perplexity_v3 import (
+            fetch_v3,
+            fetch_v3_with_estimates,
+            transform_ratios,
+            transform_key_stats,
+        )
+
+        ttm_payload = await fetch_v3(symbol, "ttm")
+        ratios = transform_ratios(symbol, "ttm", ttm_payload) if ttm_payload else None
+        if not ratios:
+            return {}
+
+        rmap = {f["key"]: f for f in (ratios.get("fields") or [])}
+
+        # v3 periods are ordered most-recent-first, so the latest value is the
+        # first non-null entry in the values array.
+        def _recent(key):
+            f = rmap.get(key)
+            if not f:
+                return None
+            for v in (f.get("values") or []):
+                if v is not None:
+                    return v
+            return None
+
+        m: dict = {"currency": ratios.get("currency")}
+        for field, (rid, is_pct) in _V3_LTM_MAP.items():
+            v = _recent(rid)
+            if v is None:
+                continue
+            m[field] = round(v * 100, 4) if is_pct else v
+
+        # --- Forward estimates (NTM / FY+2) from annual key_stats -------------
+        try:
+            ks_payload = await fetch_v3_with_estimates(symbol, "annual")
+            ks = transform_key_stats(symbol, "annual", ks_payload) if ks_payload else None
+            if ks:
+                periods = ks.get("periods") or []
+                est = set(ks.get("estimate_periods") or [])
+                kmap = {f["key"]: f for f in (ks.get("fields") or [])}
+
+                def _at(key, period):
+                    f = kmap.get(key)
+                    if not f or period not in periods:
+                        return None
+                    vals = f.get("values") or []
+                    idx = periods.index(period)
+                    return vals[idx] if idx < len(vals) else None
+
+                actual_years = sorted((p for p in periods if p not in est and p.isdigit()), key=int)
+                est_years = sorted((p for p in est if p.isdigit()), key=int)
+                last_actual = actual_years[-1] if actual_years else None
+                ntm = est_years[0] if est_years else None
+                fy2 = est_years[1] if len(est_years) > 1 else None
+
+                ev = m.get("enterprise_value")
+                mc = m.get("market_cap")
+
+                rev_ntm = _at("key_stats_total_revenues", ntm) if ntm else None
+                ebitda_ntm = _at("key_stats_ebitda", ntm) if ntm else None
+                ni_ntm = _at("key_stats_net_income", ntm) if ntm else None
+                fcf_ntm = _at("key_stats_free_cash_flow", ntm) if ntm else None
+                eps_ntm = _at("key_stats_diluted_eps", ntm) if ntm else None
+
+                if ev and rev_ntm:
+                    m["ntm_ev_to_revenue"] = round(ev / rev_ntm, 2)
+                if ev and ebitda_ntm and ebitda_ntm > 0:
+                    m["ntm_ev_to_ebitda"] = round(ev / ebitda_ntm, 2)
+                if mc and ni_ntm and ni_ntm > 0:
+                    m["ntm_pe"] = round(mc / ni_ntm, 2)
+                elif current_price and eps_ntm and eps_ntm > 0:
+                    m["ntm_pe"] = round(current_price / eps_ntm, 2)
+                if mc and fcf_ntm and fcf_ntm > 0:
+                    m["ntm_mc_to_fcf"] = round(mc / fcf_ntm, 2)
+                if eps_ntm is not None:
+                    m["ntm_eps"] = eps_ntm
+
+                def _cagr(base, end, yrs):
+                    if base and end and base > 0 and end > 0 and yrs > 0:
+                        return round(((end / base) ** (1 / yrs) - 1) * 100, 2)
+                    return None
+
+                if last_actual and fy2:
+                    yrs = int(fy2) - int(last_actual)
+                    m["fwd_rev_cagr_2y"] = _cagr(
+                        _at("key_stats_total_revenues", last_actual),
+                        _at("key_stats_total_revenues", fy2), yrs)
+                    m["fwd_ebitda_cagr_2y"] = _cagr(
+                        _at("key_stats_ebitda", last_actual),
+                        _at("key_stats_ebitda", fy2), yrs)
+                    m["fwd_eps_cagr_2y"] = _cagr(
+                        _at("key_stats_diluted_eps", last_actual),
+                        _at("key_stats_diluted_eps", fy2), yrs)
+        except Exception as e:
+            logger.warning("fan_v3_keymetrics_fwd_error", symbol=symbol, error=str(e))
+
+        # --- Derived LTM ------------------------------------------------------
+        mc = m.get("market_cap")
+        ncav = m.get("ncav")
+        if mc and ncav and ncav != 0:
+            m["p_ncav"] = round(mc / ncav, 2)
+
+        pe = m.get("pe")
+        eg = m.get("eps_growth_1y")
+        if pe and eg and eg > 0:
+            m["peg"] = round(pe / eg, 2)
+
+        # Forward P/E for the existing Valuation widget = NTM P/E.
+        m["forward_pe"] = m.get("ntm_pe")
+        m["financial_grade"] = _grade_from_keymetrics(m)
+        m["_source"] = "perplexity_v3"
+
+        try:
+            await redis_client.set(cache_key, m, ttl=86400)
+        except Exception:
+            pass
+        return m
+    except Exception as e:
+        logger.warning("fan_v3_keymetrics_error", symbol=symbol, error=str(e))
+    return {}
+
+
 async def _get_short_interest_for_fan(symbol: str) -> dict:
     """
     Obtener short interest bi-mensual desde Polygon (fuente: FINRA).
@@ -785,6 +1015,101 @@ def _interpret_rsi(rsi: float | None) -> str | None:
         return "Overbought"
     else:
         return "Neutral"
+
+
+@app.get("/api/report/{ticker}/key-metrics")
+async def get_key_metrics(ticker: str):
+    """Deterministic TIKR-style key metrics for the DESC window.
+
+    100% structured data (Perplexity v3 + internal sources). No LLM, no
+    hallucinated numbers — consistent with the FA window for the same ticker.
+    """
+    symbol = ticker.upper()
+
+    # Price + metadata first (needed for current price / market data).
+    price, meta = await asyncio.gather(
+        _get_price_snapshot_for_fan(symbol),
+        _get_ticker_metadata_for_fan(symbol),
+        return_exceptions=True,
+    )
+    price = {} if isinstance(price, Exception) else (price or {})
+    meta = {} if isinstance(meta, Exception) else (meta or {})
+    current_price = price.get("current_price") or 0.0
+
+    km, tech, si, ratings = await asyncio.gather(
+        _get_v3_keymetrics_for_fan(symbol, current_price),
+        _get_technical_indicators_for_fan(symbol),
+        _get_short_interest_for_fan(symbol),
+        _get_analyst_ratings_for_fan(symbol),
+        return_exceptions=True,
+    )
+    km = {} if isinstance(km, Exception) else (km or {})
+    tech = {} if isinstance(tech, Exception) else (tech or {})
+    si = {} if isinstance(si, Exception) else (si or {})
+    ratings = {} if isinstance(ratings, Exception) else (ratings or {})
+
+    consensus = ratings.get("consensus") if isinstance(ratings.get("consensus"), dict) else {}
+    street_target = consensus.get("averagePriceTarget") or ratings.get("priceTarget")
+
+    def r(label, value, fmt):
+        return {"label": label, "value": value, "format": fmt}
+
+    groups = [
+        {"title": "Market Data", "rows": [
+            r("52 Week High", tech.get("high_52w"), "price"),
+            r("52 Week Low", tech.get("low_52w"), "price"),
+            r("Avg Daily Volume", si.get("avg_daily_volume"), "int"),
+            r("Float %", meta.get("free_float_percent"), "percent"),
+        ]},
+        {"title": "Capital Structure", "rows": [
+            r("Market Cap", km.get("market_cap"), "money_mm"),
+            r("Enterprise Value", km.get("enterprise_value"), "money_mm"),
+            r("Shares Outstanding", km.get("shares_outstanding"), "shares_mm"),
+            r("Net Debt", km.get("net_debt"), "money_mm"),
+            r("Net Debt / EBITDA", km.get("net_debt_to_ebitda"), "multiple"),
+            r("Debt / Equity", km.get("debt_to_equity"), "multiple"),
+            r("Current Ratio", km.get("current_ratio"), "multiple"),
+        ]},
+        {"title": "Efficiency", "rows": [
+            r("Gross Margin", km.get("gross_margin"), "percent"),
+            r("EBIT Margin", km.get("ebit_margin"), "percent"),
+            r("Net Margin", km.get("net_margin"), "percent"),
+            r("FCF Margin", km.get("fcf_margin"), "percent"),
+            r("ROA", km.get("roa"), "percent"),
+            r("ROE", km.get("roe"), "percent"),
+            r("ROIC", km.get("roic"), "percent"),
+            r("ROCE", km.get("roce"), "percent"),
+        ]},
+        {"title": "Growth", "rows": [
+            r("Fwd 2-Yr Rev. CAGR", km.get("fwd_rev_cagr_2y"), "percent"),
+            r("Fwd 2-Yr EBITDA CAGR", km.get("fwd_ebitda_cagr_2y"), "percent"),
+            r("Fwd 2-Yr EPS CAGR", km.get("fwd_eps_cagr_2y"), "percent"),
+            r("Last 3-Yr Rev. CAGR", km.get("rev_cagr_3y"), "percent"),
+            r("Last 3-Yr EBITDA CAGR", km.get("ebitda_cagr_3y"), "percent"),
+            r("Last 3-Yr EPS CAGR", km.get("eps_cagr_3y"), "percent"),
+        ]},
+        {"title": "Valuation", "rows": [
+            r("Street Target Price", street_target, "price"),
+            r("NTM EV/Revenues", km.get("ntm_ev_to_revenue"), "multiple"),
+            r("NTM EV/EBITDA", km.get("ntm_ev_to_ebitda"), "multiple"),
+            r("NTM P/E", km.get("ntm_pe"), "multiple"),
+            r("NTM MC/FCF", km.get("ntm_mc_to_fcf"), "multiple"),
+            r("LTM EV/Revenues", km.get("ev_to_revenue"), "multiple"),
+            r("LTM EV/Gross Profit", km.get("ev_to_gross_profit"), "multiple"),
+            r("LTM P/E", km.get("pe"), "multiple"),
+            r("LTM P/BV", km.get("pb"), "multiple"),
+            r("LTM P/NCAV", km.get("p_ncav"), "multiple"),
+            r("Dividend Yield", km.get("dividend_yield"), "percent"),
+            r("Payout Ratio", km.get("payout_ratio"), "percent"),
+        ]},
+    ]
+
+    return {
+        "symbol": symbol,
+        "currency": km.get("currency") or "USD",
+        "source": km.get("_source") or "perplexity_v3",
+        "groups": groups,
+    }
 
 
 @app.get("/api/report/{ticker}")

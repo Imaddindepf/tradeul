@@ -29,6 +29,13 @@ type TickerResult = {
     displayName: string;
 };
 
+// Conjunto de todos los códigos de comando (global + ticker). Se usa para
+// distinguir "¿esto es un ticker o un comando?" sin listas hardcodeadas.
+const COMMAND_KEYS = new Set<string>([
+    ...Object.keys(GLOBAL_COMMANDS),
+    ...Object.keys(TICKER_COMMANDS),
+]);
+
 // Scanner commands - descripciones genéricas sin revelar lógica de negocio
 const SCANNER_COMMANDS = [
     { id: 'gappers_up', label: 'Gap Up', description: 'Stocks gapping up at open' },
@@ -78,30 +85,23 @@ export function TerminalPalette({
     }, [open, refreshFilters, refreshStrategies]);
 
     const search = searchValue.trim();
+    const searchUpper = search.toUpperCase();
     const setSearch = onSearchChange || (() => { });
 
-    // Parsear el comando con traducción
-    const parsed = parseTerminalCommand(search, t);
-
     // Detectar prefijo SC para scanner
-    const hasScPrefix = search.toUpperCase().startsWith('SC');
+    const hasScPrefix = searchUpper.startsWith('SC');
 
     // Detectar prefijo EVN para eventos
-    const hasEvnPrefix = search.toUpperCase().startsWith('EVN');
+    const hasEvnPrefix = searchUpper.startsWith('EVN');
 
-    // Verificar si hay comandos globales que empiecen con la búsqueda
-    const searchUpper = search.toUpperCase();
-    const hasMatchingCommands = Object.keys(GLOBAL_COMMANDS).some(
-        key => key.startsWith(searchUpper)
-    );
     const isExactCommand = searchUpper in GLOBAL_COMMANDS;
 
-    // Detectar si parece un ticker (letras mayúsculas sin espacios)
-    // No tratar como ticker si es un comando exacto
+    // Detectar si parece un ticker (letras mayúsculas sin espacios). No se trata
+    // como ticker si coincide exactamente con un código de comando conocido.
     const looksLikeTicker = TICKER_LIKE_REGEX.test(searchUpper)
         && !hasScPrefix
         && !hasEvnPrefix
-        && !['SC', 'EVN', 'IPO', 'SET', 'HELP', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER', 'ERN', 'PREDICT', 'HM', 'HDS', 'SB', 'AI', 'INS', 'FAN', 'WL', 'DT', 'FA', 'SEC', 'PULSE', 'RTN'].includes(searchUpper)
+        && !COMMAND_KEYS.has(searchUpper)
         && !isExactCommand;
 
     // Buscar tickers cuando parece un ticker
@@ -159,13 +159,29 @@ export function TerminalPalette({
         }
     }, [search, looksLikeTicker, open]);
 
-    // Reset selectedIndex cuando cambia la búsqueda
-    useEffect(() => {
-        setSelectedIndex(0);
-    }, [search]);
+    // Generar items a mostrar (memoizado para estabilidad de referencia)
+    const items = useMemo(
+        () => getDisplayItems(
+            parseTerminalCommand(search, t),
+            hasScPrefix, hasEvnPrefix, search, tickerResults, selectedTicker, t, userScans, userStrategies,
+        ),
+        [search, hasScPrefix, hasEvnPrefix, tickerResults, selectedTicker, t, userScans, userStrategies],
+    );
 
-    // Generar items a mostrar
-    const items = getDisplayItems(parsed, hasScPrefix, hasEvnPrefix, search, tickerResults, selectedTicker, t, userScans, userStrategies);
+    // Autoseleccionar: si lo último que se teclea coincide exactamente con el
+    // código de un comando (p.ej. "AAPL FA" -> "FA", o "DESC"), resaltar ese
+    // comando para que Enter lo ejecute. Si no, resaltar el primero.
+    useEffect(() => {
+        if (items.length === 0) { setSelectedIndex(0); return; }
+        const tokens = searchUpper.split(/\s+/).filter(Boolean);
+        const last = tokens[tokens.length - 1] || '';
+        let idx = -1;
+        if (last) {
+            idx = items.findIndex(it =>
+                (it.type === 'ticker-command' || it.type === 'global-command') && it.label === last);
+        }
+        setSelectedIndex(idx >= 0 ? idx : 0);
+    }, [searchUpper, items]);
 
     // Scroll to selected
     useEffect(() => {
@@ -475,17 +491,27 @@ function getDisplayItems(
     userScans: UserFilter[] = [],
     userStrategies: AlertStrategy[] = []
 ): DisplayItem[] {
-    // Si hay un ticker seleccionado, mostrar comandos para ese ticker
-    if (selectedTicker) {
-        return Object.entries(TICKER_COMMANDS).map(([key, cmd]) => ({
+    // Contexto de ticker: bien un instrumento ya seleccionado, bien un ticker
+    // tecleado en una sola línea ("AAPL FA"). En ambos casos mostramos los
+    // comandos de ticker, filtrados por lo que se haya escrito tras el símbolo.
+    const contextTicker = selectedTicker?.symbol
+        || (parsed.ticker && search.includes(' ') ? parsed.ticker : null);
+    if (contextTicker) {
+        const rest = search.toUpperCase().slice(contextTicker.length).trim();
+        const all = Object.entries(TICKER_COMMANDS);
+        const filtered = rest
+            ? all.filter(([key, cmd]) => key.startsWith(rest) || cmd.name.toUpperCase().includes(rest))
+            : all;
+        const list = filtered.length ? filtered : all;
+        return list.map(([key, cmd]) => ({
             id: `cmd-${cmd.id}`,
             type: 'ticker-command' as const,
             label: key,
             description: t(cmd.descriptionKey),
             shortcut: cmd.shortcut,
-            ticker: selectedTicker.symbol,
+            ticker: contextTicker,
             commandId: cmd.id,
-            autocomplete: `${selectedTicker.symbol} ${key}`,
+            autocomplete: `${contextTicker} ${key}`,
         }));
     }
 

@@ -376,6 +376,11 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                                                           field.key.includes('_yoy') || 
                                                           field.key.includes('_margin');
                                     const isDebit = field.balance === 'debit';
+                                    // In the statement tabs the inline %/margin sub-rows are not
+                                    // chartable, but in the metrics blocks (Ratios/Adjusted/Key
+                                    // Stats) every metric — including %/x — must be chartable.
+                                    const isMetricsBlock = category === 'ratios' || category === 'adjusted' || category === 'keystats';
+                                    const rowClickable = !!onMetricClick && (isMetricsBlock || !isPercentOrYoy);
                                     
                                     return (
                                         <tr
@@ -383,10 +388,10 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                                             className={`
                                                 border-b border-border-subtle 
                                                 ${isSubtotal ? 'bg-surface-hover/70' : 'bg-surface'} 
-                                                ${!isPercentOrYoy ? 'hover:bg-surface-hover cursor-pointer' : ''}
+                                                ${rowClickable ? 'hover:bg-surface-hover cursor-pointer' : ''}
                                                 transition-colors
                                             `}
-                                            onClick={() => !isPercentOrYoy && handleRowClick(field)}
+                                            onClick={() => rowClickable && handleRowClick(field)}
                                         >
                                             {/* Label */}
                                             <td 

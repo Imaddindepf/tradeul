@@ -1,60 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TrendingUp, TrendingDown, ChevronUp, ChevronDown, Loader2 } from 'lucide-react';
 import type { WidgetContext } from '../types';
 import { useFanData } from './FanDataContext';
-import { Row, GeminiLoading, fmt, pct, money, ratingColor, gradeColor } from './helpers';
-
-// ============================================================================
-// VALUATION
-// ============================================================================
-export function ValuationWidget(_: WidgetContext) {
-    const { report: r, loadingGemini } = useFanData();
-    if (!r) return null;
-    const isInstant = r._instant;
-    return (
-        <div>
-            <Row label="P/E" value={fmt(r.pe_ratio)} />
-            <Row label="Fwd P/E" value={fmt(r.forward_pe)} loading={isInstant && loadingGemini} />
-            <Row label="EV/EBITDA" value={fmt(r.ev_ebitda)} />
-            <Row label="P/S" value={fmt(r.ps_ratio)} />
-            <Row label="P/B" value={fmt(r.pb_ratio)} />
-            <Row label="PEG" value={fmt(r.peg_ratio)} loading={isInstant && loadingGemini} />
-            <Row label="Div Yield" value={r.dividend_yield ? `${fmt(r.dividend_yield)}%` : '—'}
-                valueClass={r.dividend_yield ? 'text-green-500' : 'text-muted-fg'}
-                loading={isInstant && loadingGemini} />
-            {r.ex_dividend_date && (
-                <Row label="Ex-Div" value={r.ex_dividend_date} valueClass="text-muted-fg" />
-            )}
-        </div>
-    );
-}
-
-// ============================================================================
-// FINANCIAL HEALTH
-// ============================================================================
-export function HealthWidget(_: WidgetContext) {
-    const { report: r, loadingGemini } = useFanData();
-    if (!r) return null;
-    const fh = r.financial_health;
-    const isInstant = r._instant;
-    return (
-        <div>
-            <Row label="Grade" value={r.financial_grade || '—'} valueClass={gradeColor(r.financial_grade)} loading={isInstant && loadingGemini} />
-            <Row label="Rev Growth" value={pct(fh?.revenue_growth_yoy)}
-                valueClass={fh?.revenue_growth_yoy && fh.revenue_growth_yoy > 0 ? 'text-green-500' : 'text-red-500'}
-                loading={isInstant && loadingGemini} />
-            <Row label="EPS Growth" value={pct(fh?.earnings_growth_yoy)}
-                valueClass={fh?.earnings_growth_yoy && fh.earnings_growth_yoy > 0 ? 'text-green-500' : 'text-red-500'}
-                loading={isInstant && loadingGemini} />
-            <Row label="Margin" value={fh?.profit_margin ? `${fmt(fh.profit_margin)}%` : '—'} />
-            <Row label="D/E" value={fmt(fh?.debt_to_equity)} />
-            <Row label="ROE" value={fh?.roe ? `${fmt(fh.roe)}%` : '—'} />
-            <Row label="Current Ratio" value={fmt(fh?.current_ratio)} />
-        </div>
-    );
-}
+import { Row, GeminiLoading, fmt, money, ratingColor } from './helpers';
 
 // ============================================================================
 // CONSENSUS
@@ -510,6 +460,117 @@ export function DilutionRiskWidget(_: WidgetContext) {
                     {data.details.offering_ability?.has_active_shelf && (
                         <Row label="Active Shelf" value="Yes" valueClass="text-amber-500" />
                     )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ============================================================================
+// KEY METRICS (TIKR-style, 100% deterministic — Perplexity v3 + internal data)
+// ============================================================================
+const KM_API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.tradeul.com';
+
+interface KeyMetricRow { label: string; value: number | null; format: string; }
+interface KeyMetricGroup { title: string; rows: KeyMetricRow[]; }
+interface KeyMetricsResponse { symbol: string; currency: string; source: string; groups: KeyMetricGroup[]; }
+
+function formatKeyMetric(value: number | null | undefined, format: string, currency: string): { text: string; negative: boolean } {
+    if (value == null || Number.isNaN(value)) return { text: '—', negative: false };
+    const negative = value < 0;
+    const cur = currency === 'USD' ? 'US$' : currency;
+    const n2 = (x: number) => x.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    switch (format) {
+        case 'money_mm':
+            return { text: `${n2(value / 1e6)} ${cur}`, negative };
+        case 'shares_mm':
+            return { text: `${n2(value / 1e6)} MM`, negative };
+        case 'multiple':
+            return { text: `${n2(value)}x`, negative };
+        case 'percent':
+            return { text: `${n2(value)} %`, negative };
+        case 'price':
+            return { text: `${n2(value)} ${cur}`, negative };
+        case 'int':
+            return { text: value.toLocaleString('en-US', { maximumFractionDigits: 0 }), negative };
+        default:
+            return { text: n2(value), negative };
+    }
+}
+
+export function KeyMetricsWidget(_: WidgetContext) {
+    const { ticker, isSpanish } = useFanData();
+    const [data, setData] = useState<KeyMetricsResponse | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [cols, setCols] = useState(2);
+
+    useEffect(() => {
+        if (!ticker) return;
+        let cancelled = false;
+        setLoading(true);
+        setError(false);
+        setData(null);
+        fetch(`${KM_API_URL}/api/report/${ticker}/key-metrics`)
+            .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+            .then((d: KeyMetricsResponse) => { if (!cancelled) { setData(d); setLoading(false); } })
+            .catch(() => { if (!cancelled) { setError(true); setLoading(false); } });
+        return () => { cancelled = true; };
+    }, [ticker]);
+
+    // Columnas adaptativas según el ancho real del widget: cuantas más columnas,
+    // menos alto ocupa el panel (clave para que no sea "extenso").
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const measure = () => {
+            const w = el.clientWidth;
+            setCols(w >= 600 ? 3 : w >= 340 ? 2 : 1);
+        };
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+
+    const currency = data?.currency || 'USD';
+
+    return (
+        <div ref={containerRef} className="h-full">
+            {loading ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-fg">
+                    <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                    <span>{isSpanish ? 'Cargando métricas...' : 'Loading metrics...'}</span>
+                </div>
+            ) : error || !data || !data.groups?.length ? (
+                <div className="text-[10px] text-muted-fg">{isSpanish ? 'Sin métricas' : 'No metrics available'}</div>
+            ) : (
+                <div
+                    className="grid gap-x-6 gap-y-3"
+                    style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+                >
+                    {data.groups.map(group => (
+                        <div key={group.title} className="min-w-0">
+                            <div className="text-[10px] font-semibold text-primary uppercase tracking-wide border-b border-border pb-0.5 mb-1">
+                                {group.title}
+                            </div>
+                            <div className="flex flex-col">
+                                {group.rows.map(row => {
+                                    const { text, negative } = formatKeyMetric(row.value, row.format, currency);
+                                    const isEmpty = text === '—';
+                                    return (
+                                        <div key={row.label} className="flex items-center justify-between leading-[18px] gap-2">
+                                            <span className="text-[10px] text-foreground/70 truncate">{row.label}</span>
+                                            <span className={`text-[10px] font-semibold tabular-nums shrink-0 ${isEmpty ? 'text-muted-fg' : negative ? 'text-red-500' : 'text-foreground'}`}>
+                                                {negative && !isEmpty ? `(${text.replace('-', '')})` : text}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
         </div>

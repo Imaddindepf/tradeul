@@ -1,6 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
+import { FinancialChartPro, type ChartSeriesField } from '../FinancialChartPro';
+import { pushOverlaySeries } from '../chartOverlayBus';
 
 // API URL from environment
 const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhost:8000';
@@ -34,6 +37,9 @@ interface SegmentsResponse {
 
 interface SegmentsTableProps {
   symbol: string;
+  currency?: string;
+  lockOverlay?: boolean;
+  dashboardId?: string;
 }
 
 // ============================================================================
@@ -82,7 +88,8 @@ const formatPercent = (value: number | null): string => {
 // COMPONENT
 // ============================================================================
 
-export function SegmentsTable({ symbol }: SegmentsTableProps) {
+export function SegmentsTable({ symbol, currency = 'USD', lockOverlay = false, dashboardId }: SegmentsTableProps) {
+  const { openWindow } = useFloatingWindowActions();
   const [data, setData] = useState<SegmentsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,17 +130,17 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
     if (!data) return [];
 
     const allYears = new Set<string>();
-    
+
     // Segments
     Object.values(data.segments?.revenue || {}).forEach(segment => {
       Object.keys(segment).forEach(year => allYears.add(year));
     });
-    
+
     // Geography
     Object.values(data.geography?.revenue || {}).forEach(segment => {
       Object.keys(segment).forEach(year => allYears.add(year));
     });
-    
+
     // Products (fix: también incluir products para empresas que solo tienen esto)
     if (data.products?.revenue) {
       Object.values(data.products.revenue).forEach(product => {
@@ -143,6 +150,61 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
 
     return Array.from(allYears).sort((a, b) => parseInt(b) - parseInt(a));
   }, [data]);
+
+  // Click en una fila de segmento -> abrir gráfico (o apilar si el candado
+  // está activo). Las series del gráfico son los segmentos de esa sección.
+  const openChart = useCallback((revenueData: SegmentData, segmentName: string, useOpIncome?: SegmentData) => {
+    const buildValues = (sd: SegmentData, name: string) =>
+      years.map(y => {
+        const v = sd[name]?.[y];
+        return v === undefined || v === null || Number.isNaN(v) ? null : v;
+      });
+
+    // Lock overlay: try to stack onto the dashboard's active chart.
+    if (lockOverlay && dashboardId) {
+      const delivered = pushOverlaySeries(dashboardId, {
+        key: segmentName,
+        label: segmentName,
+        dataType: 'monetary',
+        balance: null,
+        periods: years,
+        values: buildValues(revenueData, segmentName),
+      });
+      if (delivered) return;
+    }
+
+    const fields: ChartSeriesField[] = Object.keys(revenueData).map(name => ({
+      key: name,
+      label: name,
+      values: buildValues(revenueData, name),
+      dataType: 'monetary',
+    }));
+    // Optionally also expose operating income series for comparison.
+    if (useOpIncome) {
+      for (const name of Object.keys(useOpIncome)) {
+        const key = `${name} — Operating Income`;
+        fields.push({ key, label: key, values: buildValues(useOpIncome, name), dataType: 'monetary' });
+      }
+    }
+
+    openWindow({
+      title: `${symbol} — ${segmentName}`,
+      content: (
+        <FinancialChartPro
+          ticker={symbol}
+          currency={currency}
+          periods={years}
+          fields={fields}
+          initialMetricKey={segmentName}
+          dashboardId={dashboardId}
+        />
+      ),
+      width: 1000,
+      height: 600,
+      x: Math.max(80, (window.innerWidth - 1000) / 2),
+      y: Math.max(50, (window.innerHeight - 600) / 2),
+    });
+  }, [years, symbol, currency, lockOverlay, dashboardId, openWindow]);
 
   if (loading) {
     return <div className="p-4 text-center text-muted-fg text-xs">Loading segment data...</div>;
@@ -200,8 +262,11 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
 
           return (
             <React.Fragment key={segmentName}>
-              {/* Revenue row */}
-              <tr className="border-b border-border-subtle bg-surface hover:bg-primary/10 transition-colors">
+              {/* Revenue row (clickable -> chart) */}
+              <tr
+                className="border-b border-border-subtle bg-surface hover:bg-primary/10 transition-colors cursor-pointer"
+                onClick={() => openChart(revenueData, segmentName, operatingIncomeData)}
+              >
                 <td className="py-1.5 px-3 text-foreground/80">
                   {segmentName}
                 </td>

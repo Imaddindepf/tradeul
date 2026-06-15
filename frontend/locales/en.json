@@ -213,8 +213,8 @@
       "name": "Insider Trading",
       "description": "Insider transactions"
     },
-    "fan": {
-      "name": "Financial Analyst",
+    "desc": {
+      "name": "Description",
       "description": "Complete stock profile"
     },
     "ai": {
@@ -570,7 +570,7 @@
       "PM": {
         "description": "Similar charts"
       },
-      "FAN": {
+      "DESC": {
         "description": "Stock profile"
       },
       "HDS": {
@@ -647,7 +647,7 @@
       "INSIDER": {
         "description": "Insider transactions"
       },
-      "FAN": {
+      "DESC": {
         "description": "Stock profile"
       },
       "AI": {

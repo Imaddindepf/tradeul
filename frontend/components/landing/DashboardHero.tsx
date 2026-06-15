@@ -727,7 +727,7 @@ const HERO_MAIN_COMMANDS: HeroCommand[] = [
   { id: 'SCREEN',  label: 'SCREEN',  description: 'Custom screener' },
   { id: 'MP',      label: 'MP',      description: 'Multi-period comparison' },
   { id: 'INSIDER', label: 'INSIDER', description: 'Insider feed' },
-  { id: 'FAN',     label: 'FAN',     description: 'Fundamental analysis — AI', isNew: true },
+  { id: 'DESC',    label: 'DESC',    description: 'Fundamental analysis — AI', isNew: true },
   { id: 'AI',      label: 'AI',      description: 'AI Agent — multi-agent pipeline', isNew: true },
   { id: 'ERN',     label: 'ERN',     description: 'Earnings calendar', isNew: true },
   { id: 'PREDICT', label: 'PREDICT', description: 'Forecast models', isNew: true },
