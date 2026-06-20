@@ -246,6 +246,19 @@ async def fetch_chained_polygon_data(
         if head_floor and ticker == symbol and bars:
             bars = [b for b in bars if b["time"] >= head_floor]
 
+        # Trim predecessor segments to BEFORE the head's handover date.
+        # A predecessor symbol can be RECYCLED by an unrelated entity after the
+        # rename: e.g. "FB" became the ProShares S&P 500 Dynamic Buffer ETF in
+        # 2025, three years after Facebook -> Meta (2022-06-09). Polygon serves
+        # that recycled issuer's recent aggregates under the old symbol, and the
+        # backward walk requests the predecessor "before <oldest head bar>", so
+        # those post-rename bars (e.g. ~$42 in 2026) leak in as bogus old META
+        # history. Capping predecessors at head_floor cleanly splits the chain
+        # at the handover date: head contributes bars >= floor, predecessors
+        # only bars < floor.
+        if head_floor and ticker != symbol and bars:
+            bars = [b for b in bars if b["time"] < head_floor]
+
         # Fallback for legacy aliases missing in Polygon (daily chains only).
         if (
             not bars

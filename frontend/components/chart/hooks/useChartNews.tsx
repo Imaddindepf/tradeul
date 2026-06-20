@@ -14,7 +14,7 @@
  * keeps both kinds of markers in the same primitive while preserving the
  * existing click → open-popup behavior.
  */
-import { useEffect, useMemo, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { ISeriesApi } from 'lightweight-charts';
 import { useArticlesByTicker } from '@/stores/useNewsStore';
@@ -25,13 +25,29 @@ import type { ChartEvent } from '../primitives/EventMarkerPrimitive';
 import type { ChartBar, Interval } from '../constants';
 
 interface NewsArticle {
+    id?: string;
+    benzinga_id?: number;
     published?: string;
     tickerPrices?: Record<string, number>;
     [key: string]: unknown;
 }
 
+/** Stable dedup key for a news article. */
+function newsKey(a: NewsArticle): string {
+    const raw = a.benzinga_id ?? a.id;
+    if (raw != null) return String(raw);
+    return `${a.published ?? ''}|${(a.title as string) ?? ''}`;
+}
+
 interface OpenWindowFn {
     (opts: any): void;
+}
+
+/** Resolve a CSS custom property to a concrete color string (canvas-safe). */
+function resolveCssColor(varName: string, fallback: string): string {
+    if (typeof document === 'undefined') return fallback;
+    const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    return v || fallback;
 }
 
 export function useChartNews(
@@ -42,9 +58,48 @@ export function useChartNews(
     showNewsMarkers: boolean,
     openWindow: OpenWindowFn,
 ) {
-    const tickerNews = useArticlesByTicker(currentTicker);
+    // Live articles already in the global store (real-time WS updates).
+    const storeNews = useArticlesByTicker(currentTicker);
+    // Ticker-scoped history fetched on demand. The global store only holds the
+    // ~200 most recent *global* articles, so a ticker with no very recent news
+    // (e.g. CDT) would otherwise show nothing on the chart. We fetch the
+    // ticker's own news directly, mirroring how earnings markers self-fetch.
+    const [fetchedNews, setFetchedNews] = useState<NewsArticle[]>([]);
     const newsPriceLinesRef = useRef<any[]>([]);
     const newsTimeMapRef = useRef<Map<number, NewsArticle[]>>(new Map());
+
+    useEffect(() => {
+        if (!showNewsMarkers || !currentTicker) {
+            setFetchedNews([]);
+            return;
+        }
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const controller = new AbortController();
+        fetch(
+            `${apiUrl}/news/api/v1/news?ticker=${encodeURIComponent(currentTicker.toUpperCase())}&limit=200`,
+            { signal: controller.signal },
+        )
+            .then(res => (res.ok ? res.json() : null))
+            .then(d => {
+                if (d?.results && Array.isArray(d.results)) setFetchedNews(d.results);
+                else setFetchedNews([]);
+            })
+            .catch(err => {
+                if (err.name !== 'AbortError') setFetchedNews([]);
+            });
+        return () => controller.abort();
+    }, [currentTicker, showNewsMarkers]);
+
+    // Merge store (live) + fetched (history), de-duplicated by stable key.
+    const tickerNews = useMemo<NewsArticle[]>(() => {
+        const byKey = new Map<string, NewsArticle>();
+        for (const a of storeNews as unknown as NewsArticle[]) byKey.set(newsKey(a), a);
+        for (const a of fetchedNews) {
+            const k = newsKey(a);
+            if (!byKey.has(k)) byKey.set(k, a);
+        }
+        return Array.from(byKey.values());
+    }, [storeNews, fetchedNews]);
 
     /**
      * Build the time map (timestamp → list of articles) for click-to-open.
@@ -55,7 +110,6 @@ export function useChartNews(
         newsTimeMapRef.current = new Map();
         if (!showNewsMarkers || tickerNews.length === 0 || data.length === 0) return [];
 
-        const tz = getUserTimezone();
         const candleDataMap = new Map<number, ChartBar>();
         for (const bar of data) {
             const roundedTime = roundToInterval(bar.time, selectedInterval);
@@ -77,7 +131,10 @@ export function useChartNews(
             newsTimeMapRef.current.set(candleMatch.time, bucket);
 
             // One marker per calendar date (no clustering of dozens of N's).
-            const dateStr = new Date(candleMatch.time * 1000).toLocaleDateString('en-CA', { timeZone: tz });
+            // IMPORTANT: must use market timezone (America/New_York) to match
+            // EventMarkerPrimitive's _dateIndex keys, otherwise non-ET users
+            // never get a candle match and the "N" badge silently disappears.
+            const dateStr = new Date(candleMatch.time * 1000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
             if (!eventsByDate.has(dateStr)) {
                 eventsByDate.set(dateStr, {
                     date: dateStr,
@@ -108,6 +165,10 @@ export function useChartNews(
         if (!showNewsMarkers || tickerNews.length === 0 || data.length === 0) return;
 
         const tz = getUserTimezone();
+        // lightweight-charts draws price lines on a canvas and does NOT resolve
+        // CSS variables, so we must resolve the news marker color to a concrete
+        // value here (falling back to the amber default) or the lines render invalid.
+        const newsLineColor = resolveCssColor('--color-chart-marker-news', '#f59e0b');
         const candleDataMap = new Map<number, ChartBar>();
         for (const bar of data) {
             const roundedTime = roundToInterval(bar.time, selectedInterval);
@@ -143,7 +204,7 @@ export function useChartNews(
             });
             const priceLine = series.createPriceLine({
                 price: newsPrice,
-                color: 'var(--color-chart-marker-news, #f59e0b)',
+                color: newsLineColor,
                 lineWidth: 2,
                 lineStyle: 2,
                 axisLabelVisible: true,

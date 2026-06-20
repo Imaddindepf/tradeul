@@ -2520,6 +2520,46 @@
       "subKey": "diaChgTodayMax",
       "dataKey": "dia_chg_today_max",
       "parser": "pf"
+    },
+    {
+      "subKey": "distFromEma21Min",
+      "dataKey": "dist_from_ema21_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distFromEma21Max",
+      "dataKey": "dist_from_ema21_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distFromEma212mMin",
+      "dataKey": "dist_from_ema21_2m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distFromEma212mMax",
+      "dataKey": "dist_from_ema21_2m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distFromEma215mMin",
+      "dataKey": "dist_from_ema21_5m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distFromEma215mMax",
+      "dataKey": "dist_from_ema21_5m_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distFromEma2115mMin",
+      "dataKey": "dist_from_ema21_15m_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "distFromEma2115mMax",
+      "dataKey": "dist_from_ema21_15m_max",
+      "parser": "pf"
     }
   ],
   "string": [

@@ -520,7 +520,7 @@ class EnrichmentPipeline:
         # Streaming indicators from BarEngine (AM.* - covers 100% of market)
         # Always set keys for consistent JSON schema (frontend expects them).
         # ================================================================
-        _indicator_keys = ('rsi_14', 'ema_9', 'ema_20', 'ema_50',
+        _indicator_keys = ('rsi_14', 'ema_9', 'ema_20', 'ema_21', 'ema_50',
                            'sma_5', 'sma_8', 'sma_20', 'sma_50', 'sma_200',
                            'macd_line', 'macd_signal', 'macd_hist',
                            'bb_upper', 'bb_mid', 'bb_lower',
@@ -533,6 +533,7 @@ class EnrichmentPipeline:
                 ticker_data['rsi_14'] = indicators.rsi_14
                 ticker_data['ema_9'] = indicators.ema_9
                 ticker_data['ema_20'] = indicators.ema_20
+                ticker_data['ema_21'] = indicators.ema_21
                 ticker_data['ema_50'] = indicators.ema_50
                 # SMA — Tradeul alignment (intraday from 1-min bars)
                 ticker_data['sma_5'] = indicators.sma_5
@@ -1224,6 +1225,22 @@ class EnrichmentPipeline:
                 ticker_data[cross_key] = round((sma8 - sma20) / sma20 * 100, 2)
             else:
                 ticker_data[cross_key] = None
+
+        # EMA21 distance (% from price to EMA21). Positive = price above EMA21.
+        # Base 1m + multi-TF (2/5/15/30/60m). Used for "price > EMA21" filters.
+        ema21_base = ticker_data.get('ema_21')
+        if price and ema21_base and ema21_base > 0:
+            ticker_data['dist_from_ema21'] = round((price - ema21_base) / ema21_base * 100, 2)
+        else:
+            ticker_data['dist_from_ema21'] = None
+        for tf in (2, 5, 15):
+            suffix = f'_{tf}m'
+            ema21_tf = ticker_data.get(f'ema_21{suffix}')
+            dist_key = f'dist_from_ema21{suffix}'
+            if price and ema21_tf and ema21_tf > 0:
+                ticker_data[dist_key] = round((price - ema21_tf) / ema21_tf * 100, 2)
+            else:
+                ticker_data[dist_key] = None
 
         # Bollinger position per multi-TF (5m, 15m, 60m already from bar_engine)
         for tf_suffix in ('_5m', '_15m', '_60m'):

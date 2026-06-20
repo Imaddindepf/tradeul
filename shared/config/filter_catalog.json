@@ -6044,6 +6044,94 @@
    "phMin": "1",
    "phMax": "5",
    "uiOrder": 246
+  },
+  {
+   "base": "dist_from_ema21",
+   "field": "dist_from_ema21",
+   "source": "row",
+   "parser": "pf",
+   "label": "Distance from EMA21 (1m)",
+   "group": "Moving Averages",
+   "suf": "%",
+   "scopes": [
+    "events",
+    "scanner"
+   ],
+   "paramMin": "min_dist_from_ema21",
+   "paramMax": "max_dist_from_ema21",
+   "dataKeyMin": "dist_from_ema21_min",
+   "dataKeyMax": "dist_from_ema21_max",
+   "subKeyMin": "distFromEma21Min",
+   "subKeyMax": "distFromEma21Max",
+   "phMin": "-5",
+   "phMax": "5",
+   "uiOrder": 301
+  },
+  {
+   "base": "dist_from_ema21_2m",
+   "field": "dist_from_ema21_2m",
+   "source": "row",
+   "parser": "pf",
+   "label": "Distance from EMA21 (2m)",
+   "group": "Moving Averages",
+   "suf": "%",
+   "scopes": [
+    "events",
+    "scanner"
+   ],
+   "paramMin": "min_dist_from_ema21_2m",
+   "paramMax": "max_dist_from_ema21_2m",
+   "dataKeyMin": "dist_from_ema21_2m_min",
+   "dataKeyMax": "dist_from_ema21_2m_max",
+   "subKeyMin": "distFromEma212mMin",
+   "subKeyMax": "distFromEma212mMax",
+   "phMin": "-5",
+   "phMax": "5",
+   "uiOrder": 302
+  },
+  {
+   "base": "dist_from_ema21_5m",
+   "field": "dist_from_ema21_5m",
+   "source": "row",
+   "parser": "pf",
+   "label": "Distance from EMA21 (5m)",
+   "group": "Moving Averages",
+   "suf": "%",
+   "scopes": [
+    "events",
+    "scanner"
+   ],
+   "paramMin": "min_dist_from_ema21_5m",
+   "paramMax": "max_dist_from_ema21_5m",
+   "dataKeyMin": "dist_from_ema21_5m_min",
+   "dataKeyMax": "dist_from_ema21_5m_max",
+   "subKeyMin": "distFromEma215mMin",
+   "subKeyMax": "distFromEma215mMax",
+   "phMin": "-5",
+   "phMax": "5",
+   "uiOrder": 303
+  },
+  {
+   "base": "dist_from_ema21_15m",
+   "field": "dist_from_ema21_15m",
+   "source": "row",
+   "parser": "pf",
+   "label": "Distance from EMA21 (15m)",
+   "group": "Moving Averages",
+   "suf": "%",
+   "scopes": [
+    "events",
+    "scanner"
+   ],
+   "paramMin": "min_dist_from_ema21_15m",
+   "paramMax": "max_dist_from_ema21_15m",
+   "dataKeyMin": "dist_from_ema21_15m_min",
+   "dataKeyMax": "dist_from_ema21_15m_max",
+   "subKeyMin": "distFromEma2115mMin",
+   "subKeyMax": "distFromEma2115mMax",
+   "phMin": "-5",
+   "phMax": "5",
+   "uiOrder": 304
   }
  ],
  "string": [

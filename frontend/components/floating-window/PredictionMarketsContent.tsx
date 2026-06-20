@@ -82,19 +82,20 @@ const FONT_CLASS_MAP: Record<string, string> = {
   'fira-code': 'font-fira-code',
 };
 
-const SORT_OPTIONS = [
-  { value: 'relevance', label: 'Rel' },
-  { value: 'volume', label: 'Vol' },
-  { value: 'change', label: '1D' },
-  { value: 'prob', label: 'Prob' },
-] as const;
-
 const FONT = {
   header: 'text-[11px]',
   label: 'text-[10px]',
   body: 'text-[11px]',
   small: 'text-[10px]',
   tiny: 'text-[9px]',
+};
+
+// Shared column widths so the sticky header and every data row line up exactly.
+const COL = {
+  chevron: 'w-4',
+  prob: 'w-[58px]',
+  change: 'w-[56px]',
+  vol: 'w-[70px]',
 };
 
 // ============================================================================
@@ -284,30 +285,32 @@ export function PredictionMarketsContent() {
     const mainMarket = event.markets?.[0];
     const prob = mainMarket?.probability_pct ?? 0;
     const change = mainMarket?.change_1d;
-    const isOdd = idx % 2 === 1;
+    const hasChildren = (event.markets?.length ?? 0) > 1;
     const polymarketUrl = event.slug ? `https://polymarket.com/event/${event.slug}` : null;
 
     return (
       <div key={event.id}>
         <div
-          onClick={() => event.markets?.length > 1 && toggleEvent(event.id)}
+          onClick={() => hasChildren && toggleEvent(event.id)}
           className={cn(
-            'flex items-center px-2 py-0.5 relative',
-            isOdd ? 'bg-muted/10' : 'bg-transparent',
-            event.markets?.length > 1 && 'cursor-pointer hover:bg-muted/20'
+            'group flex items-center px-2 py-1 relative transition-colors',
+            idx % 2 === 1 ? 'bg-muted/40' : 'bg-transparent',
+            'hover:bg-primary/10',
+            hasChildren && 'cursor-pointer'
           )}
         >
+          {/* Probability fill — visual gauge behind the row */}
           <div
-            className="absolute left-0 top-0 bottom-0 opacity-10"
+            className="absolute left-0 top-0 bottom-0 opacity-[0.07] group-hover:opacity-[0.12] transition-opacity pointer-events-none"
             style={{
               width: `${Math.min(prob, 100)}%`,
-              background: 'linear-gradient(90deg, rgb(168, 85, 247) 0%, rgb(139, 92, 246) 100%)',
+              background: 'linear-gradient(90deg, rgb(168, 85, 247) 0%, rgb(99, 102, 241) 100%)',
             }}
           />
-          <div className={cn('w-4 relative z-10 text-muted-foreground', FONT.small)}>
-            {event.markets?.length > 1 && (isExpanded ? '-' : '+')}
+          <div className={cn(COL.chevron, 'relative z-10 text-muted-fg/70 shrink-0', FONT.small)}>
+            {hasChildren && (isExpanded ? '−' : '+')}
           </div>
-          <div className="flex-1 min-w-0 mr-1 relative z-10 flex items-center gap-1">
+          <div className="flex-1 min-w-0 mr-2 relative z-10 flex items-center gap-1.5">
             <span className={cn(FONT.body, 'truncate block leading-tight')}>{event.title}</span>
             {polymarketUrl && (
               <a
@@ -315,68 +318,64 @@ export function PredictionMarketsContent() {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="shrink-0 text-muted-foreground/40 hover:text-purple-400 transition-colors"
+                className="shrink-0 text-muted-fg/30 hover:text-purple-400 transition-colors opacity-0 group-hover:opacity-100"
                 title="Polymarket"
               >
                 <ExternalLink className="w-2.5 h-2.5" />
               </a>
             )}
           </div>
-          <div className="w-12 text-right relative z-10">
-            <span className={cn(FONT.body, 'font-medium text-amber-500')}>
+          <div className={cn(COL.prob, 'text-right relative z-10 tabular-nums shrink-0')}>
+            <span className={cn(FONT.body, 'font-semibold text-amber-500')}>
               {formatProbability(mainMarket?.probability_pct)}
             </span>
           </div>
-          <div className="w-12 text-right relative z-10">
+          <div className={cn(COL.change, 'text-right relative z-10 tabular-nums shrink-0')}>
             <span
-              className={FONT.small}
+              className={cn(FONT.small, 'font-medium')}
               style={{ color: change && change > 0 ? up : change && change < 0 ? down : undefined }}
             >
               {formatChange(change)}
             </span>
           </div>
-          <div className="w-14 text-right relative z-10">
-            <span className={cn(FONT.small, 'text-muted-foreground')}>
+          <div className={cn(COL.vol, 'text-right relative z-10 tabular-nums shrink-0')}>
+            <span className={cn(FONT.small, 'text-muted-fg')}>
               {formatVolume(event.total_volume)}
             </span>
           </div>
         </div>
 
-        {isExpanded && event.markets?.length > 1 && (
-          <div className="border-l-2 border-purple-500/30 ml-3">
-            {event.markets.map((market, mIdx) => {
-              const marketProb = market.probability_pct ?? 0;
+        {isExpanded && hasChildren && (
+          <div className="bg-muted/10">
+            {event.markets.map((market) => {
               const marketChange = market.change_1d;
               return (
                 <div
                   key={market.id}
-                  className={cn(
-                    'flex items-center px-2 py-0.5 pl-3 relative',
-                    mIdx % 2 === 1 ? 'bg-muted/5' : 'bg-transparent'
-                  )}
+                  className="flex items-center px-2 py-0.5 relative transition-colors hover:bg-primary/10"
                 >
-                  <div
-                    className="absolute left-0 top-0 bottom-0 opacity-8"
-                    style={{
-                      width: `${Math.min(marketProb, 100)}%`,
-                      background: 'linear-gradient(90deg, rgb(236, 72, 153) 0%, rgb(168, 85, 247) 100%)',
-                    }}
-                  />
-                  <span className={cn('flex-1 truncate text-muted-foreground relative z-10', FONT.small)}>
-                    {market.question}
-                  </span>
-                  <span className={cn('w-12 text-right text-amber-500/80 relative z-10', FONT.small)}>
-                    {formatProbability(market.probability_pct)}
-                  </span>
-                  <span
-                    className={cn('w-12 text-right relative z-10', FONT.tiny)}
-                    style={{ color: marketChange && marketChange > 0 ? up : marketChange && marketChange < 0 ? down : undefined }}
-                  >
-                    {formatChange(marketChange)}
-                  </span>
-                  <span className={cn('w-14 text-right text-muted-foreground relative z-10', FONT.tiny)}>
+                  <div className={cn(COL.chevron, 'shrink-0')} />
+                  <div className="flex-1 min-w-0 mr-2 relative z-10 flex items-center gap-1.5 pl-2 border-l-2 border-purple-500/40">
+                    <span className={cn('truncate text-muted-fg', FONT.small)}>
+                      {market.question}
+                    </span>
+                  </div>
+                  <div className={cn(COL.prob, 'text-right relative z-10 tabular-nums shrink-0')}>
+                    <span className={cn('text-amber-500/85', FONT.small)}>
+                      {formatProbability(market.probability_pct)}
+                    </span>
+                  </div>
+                  <div className={cn(COL.change, 'text-right relative z-10 tabular-nums shrink-0')}>
+                    <span
+                      className={FONT.small}
+                      style={{ color: marketChange && marketChange > 0 ? up : marketChange && marketChange < 0 ? down : undefined }}
+                    >
+                      {formatChange(marketChange)}
+                    </span>
+                  </div>
+                  <div className={cn(COL.vol, 'text-right relative z-10 tabular-nums shrink-0 text-muted-fg/70', FONT.tiny)}>
                     {formatRange(market.change_30d_low, market.change_30d_high)}
-                  </span>
+                  </div>
                 </div>
               );
             })}
@@ -386,25 +385,47 @@ export function PredictionMarketsContent() {
     );
   };
 
-  // Sort controls (shared between modes)
-  const renderSortControls = () => (
-    <div className="flex items-center gap-1 shrink-0">
-      {SORT_OPTIONS.map(opt => (
-        <button
-          key={opt.value}
-          onClick={() => handleSort(opt.value as typeof sortBy)}
+  // Single sortable column header cell. Aligns with the data columns and
+  // doubles as the sort control, so every number has a clear label.
+  const renderSortCell = (
+    field: typeof sortBy,
+    label: string,
+    widthClass: string,
+    align: 'left' | 'right' = 'right'
+  ) => {
+    const active = sortBy === field;
+    return (
+      <button
+        onClick={() => handleSort(field)}
+        className={cn(
+          'group/h flex items-center gap-0.5 transition-colors',
+          align === 'right' ? cn('justify-end shrink-0', widthClass) : 'justify-start flex-1 min-w-0 mr-2',
+          FONT.tiny,
+          'uppercase tracking-wider font-semibold',
+          active ? 'text-foreground' : 'text-muted-fg hover:text-foreground/80'
+        )}
+        title={`${label}`}
+      >
+        <span className="truncate">{label}</span>
+        <ArrowUpDown
           className={cn(
-            'px-1.5 py-0.5 rounded flex items-center gap-0.5',
-            FONT.tiny,
-            sortBy === opt.value ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50'
+            'w-2.5 h-2.5 shrink-0 transition-all',
+            active ? 'opacity-100 text-primary' : 'opacity-0 group-hover/h:opacity-40'
           )}
-        >
-          {opt.label}
-          {sortBy === opt.value && (
-            <ArrowUpDown className="w-2.5 h-2.5" style={{ transform: sortAsc ? 'rotate(180deg)' : undefined }} />
-          )}
-        </button>
-      ))}
+          style={{ transform: active && sortAsc ? 'rotate(180deg)' : undefined }}
+        />
+      </button>
+    );
+  };
+
+  // Sticky column header row — shared between browse and ticker modes.
+  const renderColumnHeader = () => (
+    <div className="flex items-center px-2 py-1 bg-surface-hover select-none">
+      <div className={cn(COL.chevron, 'shrink-0')} />
+      {renderSortCell('relevance', isSpanish ? 'Mercado' : 'Market', '', 'left')}
+      {renderSortCell('prob', 'Prob', COL.prob)}
+      {renderSortCell('change', '1D', COL.change)}
+      {renderSortCell('volume', 'Vol', COL.vol)}
     </div>
   );
 
@@ -414,17 +435,19 @@ export function PredictionMarketsContent() {
 
   if (loading && !data) {
     return (
-      <div className={cn('flex items-center justify-center h-full bg-background text-foreground', fontClass)}>
+      <div className={cn('flex items-center justify-center h-full bg-background text-muted-fg', fontClass)}>
         <RefreshCw className="w-4 h-4 animate-spin mr-2" />
         <span className={FONT.body}>{t('common.loading')}</span>
       </div>
     );
   }
 
+  const isTickerMode = !!(searchTicker && tickerData);
+
   return (
     <div className={cn('flex flex-col h-full select-none bg-background text-foreground', fontClass)}>
-      {/* Ticker Search Bar */}
-      <div className="flex items-center gap-2 px-2 py-1 border-b border-border/40">
+      {/* Search Bar */}
+      <div className="flex items-center gap-2 px-2 py-1.5 bg-surface-hover shrink-0">
         <form onSubmit={handleTickerSubmit} className="flex items-center gap-1">
           <TickerSearch
             ref={tickerSearchRef}
@@ -440,117 +463,120 @@ export function PredictionMarketsContent() {
             disabled={tickerLoading || !inputValue.trim()}
             className={cn(
               FONT.small,
-              'px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-colors shrink-0'
+              'px-2 py-1 rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors shrink-0'
             )}
+            title={isSpanish ? 'Buscar' : 'Search'}
           >
             {tickerLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
           </button>
         </form>
+        {isTickerMode && (
+          <div className="flex items-center gap-1.5 ml-auto min-w-0">
+            <span className={cn(FONT.small, 'font-semibold text-purple-400 shrink-0')}>{tickerData!.ticker}</span>
+            <span className={cn(FONT.tiny, 'text-muted-fg shrink-0')}>
+              {tickerData!.total} {isSpanish ? 'mercados' : 'markets'}
+            </span>
+            <button
+              onClick={clearTickerSearch}
+              className="p-0.5 rounded hover:bg-muted text-muted-fg hover:text-foreground transition-colors shrink-0"
+              title={isSpanish ? 'Ver todos' : 'Show all'}
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* === Ticker Search Results Mode === */}
-      {searchTicker && tickerData ? (
-        <>
-          <div className="flex items-center justify-between px-2 py-1 border-b border-border/40">
-            <div className="flex items-center gap-2">
-              <span className={cn(FONT.body, 'font-semibold text-purple-400')}>{tickerData.ticker}</span>
-              <span className={cn(FONT.small, 'text-muted-foreground')}>
-                {tickerData.total} {isSpanish ? 'mercados' : 'markets'}
-              </span>
-            </div>
-            {renderSortControls()}
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {tickerLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <RefreshCw className="w-4 h-4 animate-spin mr-2 text-purple-400" />
-                <span className={cn(FONT.body, 'text-muted-foreground')}>
-                  {isSpanish ? 'Buscando en Polymarket...' : 'Searching Polymarket...'}
-                </span>
-              </div>
-            ) : sortedTickerEvents.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-2">
-                <span className={cn(FONT.body, 'text-muted-foreground')}>
-                  {isSpanish ? 'Sin predicciones para' : 'No predictions for'} {tickerData.ticker}
-                </span>
-                <button
-                  onClick={clearTickerSearch}
-                  className={cn(FONT.small, 'px-2 py-1 rounded border border-border hover:bg-muted')}
-                >
-                  {isSpanish ? 'Ver todos los mercados' : 'Show all markets'}
-                </button>
-              </div>
-            ) : (
-              sortedTickerEvents.map((event, idx) => renderEventRow(event, idx))
+      {/* Category tabs — own scrollable row (browse mode only) */}
+      {!isTickerMode && (
+        <div className="flex items-center gap-1 px-2 py-1 bg-surface-hover overflow-x-auto pulse-scroll shrink-0">
+          <button
+            onClick={() => setSelectedTag(null)}
+            className={cn(
+              'px-2 py-0.5 rounded whitespace-nowrap transition-colors', FONT.small,
+              !selectedTag ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-muted text-muted-fg'
             )}
-          </div>
-        </>
-      ) : (
-        /* === Tag Browse Mode === */
-        <>
-          <div className="flex items-center justify-between px-2 py-1 border-b border-border/40">
-            <div className="flex items-center gap-1 overflow-x-auto">
-              <button
-                onClick={() => setSelectedTag(null)}
-                className={cn(
-                  'px-2 py-0.5 rounded whitespace-nowrap', FONT.small,
-                  !selectedTag ? 'bg-primary/20 text-primary' : 'hover:bg-muted text-muted-foreground'
-                )}
-              >
-                ALL
-              </button>
-              {availableTags.map(tag => (
-                <button
-                  key={tag.slug}
-                  onClick={() => setSelectedTag(tag.slug)}
-                  className={cn(
-                    'px-2 py-0.5 rounded whitespace-nowrap flex items-center gap-1', FONT.small,
-                    selectedTag === tag.slug ? 'bg-muted text-foreground' : 'hover:bg-muted/50 text-muted-foreground'
-                  )}
-                >
-                  {tag.label}
-                  <span className={cn(FONT.tiny, 'opacity-50')}>{tag.count}</span>
-                </button>
-              ))}
-            </div>
-            {renderSortControls()}
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {error ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2">
-                <span className={cn(FONT.body, 'text-destructive')}>{error}</span>
-                <button onClick={() => fetchData()} className={cn(FONT.small, 'px-2 py-1 rounded border border-border hover:bg-muted')}>
-                  {t('common.retry')}
-                </button>
-              </div>
-            ) : (
-              filteredEvents.map((event, idx) => renderEventRow(event, idx))
-            )}
-          </div>
-        </>
+          >
+            {isSpanish ? 'TODOS' : 'ALL'}
+          </button>
+          {availableTags.map(tag => (
+            <button
+              key={tag.slug}
+              onClick={() => setSelectedTag(tag.slug)}
+              className={cn(
+                'px-2 py-0.5 rounded whitespace-nowrap flex items-center gap-1 transition-colors', FONT.small,
+                selectedTag === tag.slug ? 'bg-muted text-foreground font-medium' : 'hover:bg-muted/50 text-muted-fg'
+              )}
+            >
+              {tag.label}
+              <span className={cn(FONT.tiny, 'opacity-50 tabular-nums')}>{tag.count}</span>
+            </button>
+          ))}
+        </div>
       )}
 
+      {/* Column header (shared) */}
+      {renderColumnHeader()}
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto pulse-scroll">
+        {isTickerMode ? (
+          tickerLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <RefreshCw className="w-4 h-4 animate-spin mr-2 text-purple-400" />
+              <span className={cn(FONT.body, 'text-muted-fg')}>
+                {isSpanish ? 'Buscando en Polymarket...' : 'Searching Polymarket...'}
+              </span>
+            </div>
+          ) : sortedTickerEvents.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2">
+              <span className={cn(FONT.body, 'text-muted-fg')}>
+                {isSpanish ? 'Sin predicciones para' : 'No predictions for'} {tickerData!.ticker}
+              </span>
+              <button
+                onClick={clearTickerSearch}
+                className={cn(FONT.small, 'px-2.5 py-1 rounded border border-border hover:bg-muted transition-colors')}
+              >
+                {isSpanish ? 'Ver todos los mercados' : 'Show all markets'}
+              </button>
+            </div>
+          ) : (
+            sortedTickerEvents.map((event, idx) => renderEventRow(event, idx))
+          )
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2">
+            <span className={cn(FONT.body, 'text-danger')}>{error}</span>
+            <button onClick={() => fetchData()} className={cn(FONT.small, 'px-2.5 py-1 rounded border border-border hover:bg-muted transition-colors')}>
+              {t('common.retry')}
+            </button>
+          </div>
+        ) : filteredEvents.length === 0 ? (
+          <div className="flex items-center justify-center py-10">
+            <span className={cn(FONT.body, 'text-muted-fg')}>
+              {isSpanish ? 'Sin mercados en esta categoría' : 'No markets in this category'}
+            </span>
+          </div>
+        ) : (
+          filteredEvents.map((event, idx) => renderEventRow(event, idx))
+        )}
+      </div>
+
       {/* Footer */}
-      <div className={cn('flex items-center justify-between px-2 py-1 border-t border-border/40 text-muted-foreground', FONT.tiny)}>
-        <div className="flex items-center gap-2">
-          <span>Polymarket</span>
+      <div className={cn('flex items-center justify-between px-2 py-1 bg-surface-hover text-muted-fg shrink-0', FONT.tiny)}>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-medium text-foreground/70">Polymarket</span>
           {data && (
-            <span>{data.total_events} events · {data.total_markets} markets</span>
+            <span className="truncate tabular-nums">{data.total_events} {isSpanish ? 'eventos' : 'events'} · {data.total_markets} {isSpanish ? 'mercados' : 'markets'}</span>
           )}
         </div>
-        <div className="flex items-center gap-1.5">
-
-          <button
-            onClick={() => fetchData(true)}
-            className="p-0.5 rounded hover:bg-muted transition-colors"
-            title="Refresh"
-            disabled={loading}
-          >
-            <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
-          </button>
-        </div>
+        <button
+          onClick={() => fetchData(true)}
+          className="p-0.5 rounded hover:bg-muted hover:text-foreground transition-colors shrink-0"
+          title={isSpanish ? 'Actualizar' : 'Refresh'}
+          disabled={loading}
+        >
+          <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
+        </button>
       </div>
     </div>
   );

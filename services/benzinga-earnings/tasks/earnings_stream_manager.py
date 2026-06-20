@@ -22,7 +22,7 @@ from redis.asyncio import Redis
 import asyncpg
 
 from .benzinga_earnings_client import BenzingaEarningsClient
-from models.earnings import BenzingaEarning
+from models.earnings import BenzingaEarning, EarningsFilterParams
 
 logger = structlog.get_logger(__name__)
 
@@ -40,20 +40,29 @@ class EarningsStreamManager:
     """
     
     # Redis keys
+    #
+    # Earnings are indexed by their stable Benzinga identifier (``benzinga_id``)
+    # rather than by ``ticker+date``. Benzinga keeps the same id for an event
+    # while its ``date`` evolves (projected estimate -> confirmed/actual date),
+    # so the date/ticker buckets are Redis HASHES whose field is the
+    # ``benzinga_id``. This guarantees that updates REPLACE the previous version
+    # (no version pile-up) and lets us relocate an event to a new date bucket
+    # while removing the stale copy from the old one.
     STREAM_KEY = "stream:benzinga:earnings"
-    CACHE_TODAY_KEY = "cache:benzinga:earnings:today"
-    CACHE_UPCOMING_KEY = "cache:benzinga:earnings:upcoming"
     CACHE_BY_DATE_PREFIX = "cache:benzinga:earnings:date:"
     CACHE_BY_TICKER_PREFIX = "cache:benzinga:earnings:ticker:"
-    DEDUP_SET_KEY = "dedup:benzinga:earnings"
     LAST_POLL_KEY = "benzinga:earnings:last_poll"
     LAST_UPDATE_KEY = "benzinga:earnings:last_update"
-    
+
+    # Legacy keys (pre benzinga_id refactor) - cleaned up on startup.
+    LEGACY_TODAY_KEY = "cache:benzinga:earnings:today"
+    LEGACY_UPCOMING_KEY = "cache:benzinga:earnings:upcoming"
+    LEGACY_DEDUP_KEY = "dedup:benzinga:earnings"
+
     # Configuration
-    CACHE_SIZE = 500
-    CACHE_BY_DATE_SIZE = 200
-    CACHE_BY_TICKER_SIZE = 50
-    DEDUP_TTL = 86400 * 30  # 30 days
+    CACHE_BY_DATE_TTL = 86400 * 14   # 14 days
+    CACHE_BY_TICKER_TTL = 86400 * 365  # 1 year
+    CACHE_BY_TICKER_SIZE = 50        # keep last N events per ticker
     STREAM_MAXLEN = 1000
     
     def __init__(
@@ -114,6 +123,11 @@ class EarningsStreamManager:
         
         self.stats["started_at"] = datetime.now().isoformat()
         self._running = True
+        
+        # Remove any legacy (pre benzinga_id) cache structures so they cannot
+        # resurface stale "ghost" entries (and to avoid Redis WRONGTYPE errors
+        # when the same keys are now used as hashes).
+        await self._cleanup_legacy_cache()
         
         # Initial full sync
         await self._full_sync()
@@ -231,31 +245,41 @@ class EarningsStreamManager:
         """
         Perform a full sync of earnings data.
         
-        Fetches upcoming and recent earnings to ensure complete data.
+        Fetches the full upcoming and recent windows (with pagination so the
+        per-date buckets are complete even during heavy earnings season) and
+        reconciles them into the cache keyed by ``benzinga_id``.
         """
         logger.info("Starting full sync...")
         
         try:
-            # Fetch upcoming earnings (using config lookahead)
             from config import settings
+            today = datetime.now()
             lookahead = settings.lookahead_days
             lookback = settings.lookback_days
-            upcoming = await self.client.fetch_upcoming_earnings(days=lookahead)
             
-            # Fetch recent earnings (using config lookback)
-            recent = await self.client.fetch_recent_earnings(days=lookback)
+            upcoming_params = EarningsFilterParams(
+                date_gte=today.strftime("%Y-%m-%d"),
+                date_lte=(today + timedelta(days=lookahead)).strftime("%Y-%m-%d"),
+            )
+            recent_params = EarningsFilterParams(
+                date_gte=(today - timedelta(days=lookback)).strftime("%Y-%m-%d"),
+                date_lte=today.strftime("%Y-%m-%d"),
+            )
             
-            # Combine and dedupe
-            all_earnings = {f"{e.ticker}-{e.date}": e for e in upcoming + recent}
+            upcoming = await self.client.fetch_earnings_paginated(
+                params=upcoming_params, max_results=15000
+            )
+            recent = await self.client.fetch_earnings_paginated(
+                params=recent_params, max_results=30000
+            )
             
-            # Process all
+            # Dedupe by stable identifier; the latest fetched version wins.
+            all_earnings = {e.benzinga_id: e for e in upcoming + recent}
+            
             processed = 0
             for earning in all_earnings.values():
                 await self._process_earning(earning, publish_stream=False)
                 processed += 1
-            
-            # Rebuild today's cache
-            await self._rebuild_today_cache()
             
             self.stats["full_syncs_completed"] += 1
             self.stats["last_full_sync_time"] = datetime.now().isoformat()
@@ -277,35 +301,44 @@ class EarningsStreamManager:
         publish_stream: bool = True
     ) -> tuple[bool, bool]:
         """
-        Process a single earnings record.
+        Process a single earnings record, keyed by ``benzinga_id``.
         
-        Args:
-            earning: Earnings record to process
-            publish_stream: Whether to publish to stream
-            
+        Handles the case where Benzinga moves an event to a different ``date``
+        (projected -> confirmed) by removing the stale copy from the previous
+        date bucket so it cannot linger as a phantom earning.
+        
         Returns:
             Tuple of (is_new, was_updated)
         """
         try:
-            key = f"{earning.ticker}-{earning.date}"
+            bid = earning.benzinga_id
+            ticker = earning.ticker
+            ticker_key = f"{self.CACHE_BY_TICKER_PREFIX}{ticker}"
             
-            # Check if exists and get previous version
-            is_new = not await self._exists_in_dedup(key)
+            # Previous version of this exact event (same benzinga_id)
+            prev_json = await self.redis.hget(ticker_key, bid)
+            previous = json.loads(prev_json) if prev_json else None
+            
+            is_new = previous is None
             was_updated = False
             
-            if not is_new:
-                # Check if data changed
-                previous = await self._get_cached_earning(earning.ticker, earning.date)
-                if previous:
-                    was_updated = self._has_changes(previous, earning)
-                    if not was_updated:
-                        self.stats["duplicates_skipped"] += 1
-                        return False, False
+            if previous is not None:
+                was_updated = self._has_changes(previous, earning)
+                prev_date = previous.get("date")
+                
+                # Nothing meaningful changed and the event hasn't moved -> skip.
+                if not was_updated and prev_date == earning.date:
+                    self.stats["duplicates_skipped"] += 1
+                    return False, False
+                
+                # The event was rescheduled to a different calendar date:
+                # purge the stale copy from the old date bucket. The stale DB
+                # row is removed by the self-heal step inside _upsert_to_db.
+                if prev_date and prev_date != earning.date:
+                    old_date_key = f"{self.CACHE_BY_DATE_PREFIX}{prev_date}"
+                    await self.redis.hdel(old_date_key, bid)
             
-            # Mark as processed
-            await self._add_to_dedup(key)
-            
-            # Cache in Redis
+            # Cache in Redis (replaces any prior version of this benzinga_id)
             await self._cache_earning(earning)
             
             # Persist to database
@@ -346,107 +379,88 @@ class EarningsStreamManager:
         
         return False
     
-    async def _exists_in_dedup(self, key: str) -> bool:
-        """Check if key exists in dedup sorted set."""
-        score = await self.redis.zscore(self.DEDUP_SET_KEY, key)
-        return score is not None
-    
-    async def _add_to_dedup(self, key: str):
-        """Add key to dedup sorted set with timestamp for TTL."""
-        import time
-        now = time.time()
-        # Use sorted set with score=timestamp for natural TTL cleanup
-        await self.redis.zadd(self.DEDUP_SET_KEY, {key: now})
-        # Prune entries older than DEDUP_TTL
-        cutoff = now - self.DEDUP_TTL
-        await self.redis.zremrangebyscore(self.DEDUP_SET_KEY, 0, cutoff)
-    
-    async def _get_cached_earning(
-        self, 
-        ticker: str, 
-        date: str
-    ) -> Optional[Dict]:
-        """Get cached earning by ticker and date."""
-        try:
-            key = f"{self.CACHE_BY_DATE_PREFIX}{date}"
-            results = await self.redis.zrange(key, 0, -1)
-            
-            for result in results:
-                data = json.loads(result)
-                if data.get("ticker") == ticker:
-                    return data
-            
-            return None
-        except:
-            return None
-    
     async def _cache_earning(self, earning: BenzingaEarning):
-        """Cache earning in Redis sorted sets."""
+        """
+        Cache earning in Redis hashes keyed by ``benzinga_id``.
+        
+        Using a hash field means a new version of the same event REPLACES the
+        previous one instead of accumulating duplicate snapshots.
+        """
         try:
             data = earning.model_dump_json()
-            score = datetime.now().timestamp()
-            
-            # Parse date for score
-            try:
-                dt = datetime.strptime(earning.date, "%Y-%m-%d")
-                score = dt.timestamp()
-            except:
-                pass
+            bid = earning.benzinga_id
             
             # Cache by date
             date_key = f"{self.CACHE_BY_DATE_PREFIX}{earning.date}"
-            await self.redis.zadd(date_key, {data: score})
-            await self.redis.zremrangebyrank(date_key, 0, -(self.CACHE_BY_DATE_SIZE + 1))
-            await self.redis.expire(date_key, 86400 * 7)  # 7 days
+            await self.redis.hset(date_key, bid, data)
+            await self.redis.expire(date_key, self.CACHE_BY_DATE_TTL)
             
             # Cache by ticker
             ticker_key = f"{self.CACHE_BY_TICKER_PREFIX}{earning.ticker}"
-            await self.redis.zadd(ticker_key, {data: score})
-            await self.redis.zremrangebyrank(ticker_key, 0, -(self.CACHE_BY_TICKER_SIZE + 1))
-            await self.redis.expire(ticker_key, 86400 * 30)  # 30 days
-            
-            # Update today's cache if applicable
-            today = datetime.now().strftime("%Y-%m-%d")
-            if earning.date == today:
-                await self.redis.zadd(self.CACHE_TODAY_KEY, {data: score})
-                await self.redis.zremrangebyrank(
-                    self.CACHE_TODAY_KEY, 0, -(self.CACHE_SIZE + 1)
-                )
-            
-            # Update upcoming cache if future date
-            # Use negative score so nearest dates have lowest rank and are
-            # preserved when we trim the highest-rank (most distant) entries.
-            if earning.date >= today:
-                await self.redis.zadd(
-                    self.CACHE_UPCOMING_KEY, {data: -score}
-                )
-                await self.redis.zremrangebyrank(
-                    self.CACHE_UPCOMING_KEY, self.CACHE_SIZE, -1
-                )
+            await self.redis.hset(ticker_key, bid, data)
+            await self.redis.expire(ticker_key, self.CACHE_BY_TICKER_TTL)
+            await self._trim_ticker_history(ticker_key)
             
         except Exception as e:
             logger.error("cache_earning_error", error=str(e))
     
-    async def _rebuild_today_cache(self):
-        """Rebuild today's cache from by-date cache."""
+    async def _trim_ticker_history(self, ticker_key: str):
+        """Keep only the most recent CACHE_BY_TICKER_SIZE events for a ticker."""
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            date_key = f"{self.CACHE_BY_DATE_PREFIX}{today}"
+            items = await self.redis.hgetall(ticker_key)
+            if len(items) <= self.CACHE_BY_TICKER_SIZE:
+                return
             
-            # Get all from today's date cache
-            results = await self.redis.zrange(date_key, 0, -1, withscores=True)
+            dated = []
+            for bid, js in items.items():
+                try:
+                    dated.append((bid, json.loads(js).get("date", "")))
+                except Exception:
+                    dated.append((bid, ""))
             
-            # Clear and rebuild today cache
-            await self.redis.delete(self.CACHE_TODAY_KEY)
-            
-            if results:
-                mapping = {data: score for data, score in results}
-                await self.redis.zadd(self.CACHE_TODAY_KEY, mapping)
-            
-            logger.debug("today_cache_rebuilt", count=len(results))
-            
+            # Newest first; drop everything past the cap.
+            dated.sort(key=lambda x: x[1], reverse=True)
+            stale = [bid for bid, _ in dated[self.CACHE_BY_TICKER_SIZE:]]
+            if stale:
+                await self.redis.hdel(ticker_key, *stale)
         except Exception as e:
-            logger.error("rebuild_today_cache_error", error=str(e))
+            logger.error("trim_ticker_history_error", error=str(e))
+    
+    async def _cleanup_legacy_cache(self):
+        """
+        Remove cache structures created before the ``benzinga_id`` refactor.
+        
+        Older versions stored earnings as sorted sets whose members were full
+        JSON snapshots keyed by ``ticker+date``. Those keys (a) clash by type
+        with the new hashes and (b) can keep "ghost" entries alive when an event
+        is rescheduled. We only delete keys that are NOT already hashes, so this
+        is a safe one-time migration that preserves data on later restarts.
+        """
+        deleted = 0
+        try:
+            for prefix in (self.CACHE_BY_DATE_PREFIX, self.CACHE_BY_TICKER_PREFIX):
+                cursor = 0
+                while True:
+                    cursor, keys = await self.redis.scan(
+                        cursor=cursor, match=f"{prefix}*", count=300
+                    )
+                    for key in keys:
+                        if await self.redis.type(key) != "hash":
+                            await self.redis.delete(key)
+                            deleted += 1
+                    if cursor == 0:
+                        break
+            
+            # Legacy aggregate keys are no longer used at all.
+            for key in (self.LEGACY_TODAY_KEY, self.LEGACY_UPCOMING_KEY,
+                        self.LEGACY_DEDUP_KEY):
+                if await self.redis.exists(key):
+                    await self.redis.delete(key)
+                    deleted += 1
+            
+            logger.info("legacy_cache_cleaned", keys_deleted=deleted)
+        except Exception as e:
+            logger.error("cleanup_legacy_cache_error", error=str(e))
     
     async def _upsert_to_db(self, earning: BenzingaEarning):
         """Upsert earning to TimescaleDB."""
@@ -532,6 +546,21 @@ class EarningsStreamManager:
                     db_data["notes"],
                     db_data["source"]
                 )
+                
+                # Self-heal: the table is keyed by (symbol, report_date) but a
+                # Benzinga event keeps a stable benzinga_id while its date moves
+                # (projected -> confirmed). Remove any stale rows left behind on
+                # a different report_date for this same event so the calendar
+                # never shows a phantom earning.
+                if db_data["benzinga_id"] and db_data["report_date"]:
+                    await conn.execute(
+                        """
+                        DELETE FROM earnings_calendar
+                        WHERE benzinga_id = $1 AND report_date <> $2
+                        """,
+                        db_data["benzinga_id"],
+                        db_data["report_date"],
+                    )
             
             self.stats["db_upserts"] += 1
             
@@ -580,22 +609,32 @@ class EarningsStreamManager:
     # Public API methods for HTTP endpoints
     # =========================================================================
     
+    @staticmethod
+    def _load_hash_values(items: List[str]) -> List[Dict[str, Any]]:
+        """Parse JSON hash values, skipping anything malformed."""
+        parsed = []
+        for js in items:
+            try:
+                parsed.append(json.loads(js))
+            except Exception:
+                continue
+        return parsed
+    
     async def get_today_earnings(self) -> List[Dict[str, Any]]:
-        """Get today's earnings from cache."""
-        try:
-            results = await self.redis.zrevrange(self.CACHE_TODAY_KEY, 0, -1)
-            return [json.loads(r) for r in results]
-        except Exception as e:
-            logger.error("get_today_earnings_error", error=str(e))
-            return []
+        """Get today's earnings straight from today's date bucket."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        return await self.get_earnings_by_date(today, limit=1000)
     
     async def get_upcoming_earnings(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get upcoming earnings from cache."""
+        """Get upcoming earnings aggregated from per-date buckets."""
         try:
-            results = await self.redis.zrange(
-                self.CACHE_UPCOMING_KEY, 0, limit - 1
-            )
-            return [json.loads(r) for r in results]
+            today = datetime.now()
+            results: List[Dict[str, Any]] = []
+            for offset in range(31):
+                date_str = (today + timedelta(days=offset)).strftime("%Y-%m-%d")
+                results.extend(await self.get_earnings_by_date(date_str, limit=500))
+            results.sort(key=lambda e: (e.get("date", ""), e.get("time", "")))
+            return results[:limit]
         except Exception as e:
             logger.error("get_upcoming_earnings_error", error=str(e))
             return []
@@ -605,11 +644,12 @@ class EarningsStreamManager:
         date: str, 
         limit: int = 200
     ) -> List[Dict[str, Any]]:
-        """Get earnings for a specific date."""
+        """Get earnings for a specific date (one entry per benzinga_id)."""
         try:
             key = f"{self.CACHE_BY_DATE_PREFIX}{date}"
-            results = await self.redis.zrevrange(key, 0, limit - 1)
-            return [json.loads(r) for r in results]
+            earnings = self._load_hash_values(await self.redis.hvals(key))
+            earnings.sort(key=lambda e: e.get("time") or "")
+            return earnings[:limit]
         except Exception as e:
             logger.error("get_earnings_by_date_error", error=str(e), date=date)
             return []
@@ -619,11 +659,12 @@ class EarningsStreamManager:
         ticker: str, 
         limit: int = 50
     ) -> List[Dict[str, Any]]:
-        """Get earnings history for a ticker."""
+        """Get earnings history for a ticker (most recent first)."""
         try:
             key = f"{self.CACHE_BY_TICKER_PREFIX}{ticker.upper()}"
-            results = await self.redis.zrevrange(key, 0, limit - 1)
-            return [json.loads(r) for r in results]
+            earnings = self._load_hash_values(await self.redis.hvals(key))
+            earnings.sort(key=lambda e: e.get("date") or "", reverse=True)
+            return earnings[:limit]
         except Exception as e:
             logger.error("get_earnings_by_ticker_error", error=str(e), ticker=ticker)
             return []

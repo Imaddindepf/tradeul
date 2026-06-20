@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { useMarketPulse, useDrilldown, useTickerContext, type PulseTab, type PerformanceEntry, type DrilldownTicker } from '@/hooks/useMarketPulse';
 import { useCloseCurrentWindow } from '@/contexts/FloatingWindowContext';
-import { ArrowLeft, RefreshCw, ChevronRight, ChevronDown, ArrowDown, ArrowUp, Plus, X, GripHorizontal, ExternalLink, Search } from 'lucide-react';
+import { ArrowLeft, RefreshCw, ChevronRight, ChevronDown, ArrowDown, ArrowUp, Plus, X, GripHorizontal, ExternalLink, Search, Columns3 } from 'lucide-react';
 import { ALL_COLUMNS, DEFAULT_COLUMNS, DD_COLUMNS, DEFAULT_DD_COLUMNS, type ColumnDef, type RenderMode } from './columns';
 import type { PulseViewType } from './types';
 import { VIEW_DEFINITIONS } from './viewRegistry';
@@ -18,6 +19,12 @@ import TickerContextView from './views/TickerContextView';
 
 function clamp(v: number, min: number, max: number) { return Math.max(min, Math.min(max, v)); }
 function fmtTheme(n: string) { return n.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); }
+
+// ── Grid layout constants (px) ──
+const NAME_W = 196;   // frozen first column
+const COL_W = 116;    // each data column
+const HEADER_H = 30;
+const ROW_H = 28;
 
 // ── LocalStorage persistence for user preferences ──
 const LS_KEY = 'market-pulse-prefs';
@@ -63,12 +70,12 @@ function DivBar({ value, domain, label, changed }: { value: number; domain: [num
   useEffect(() => { if (changed) { setFlash(true); const t = setTimeout(() => setFlash(false), 600); return () => clearTimeout(t); } }, [changed, value]);
   return (
     <div className="flex items-center gap-1.5 flex-1 min-w-0 h-full">
-      <div className="relative flex-1 h-[14px] rounded-[3px] overflow-hidden bg-surface-inset">
+      <div className="relative flex-1 h-[13px] rounded-[3px] overflow-hidden bg-surface-inset">
         <div className="absolute top-0 left-1/2 h-full w-px bg-muted" />
         <div className={`absolute top-0 bottom-0 rounded-[3px] transition-all duration-500 ease-out ${pos ? 'left-1/2' : 'right-1/2'}`}
           style={{ width: `${pct}%`, backgroundColor: pos ? BAR_BLUE : BAR_PINK }} />
       </div>
-      <span className={`text-[11px] font-semibold font-mono tabular-nums w-[50px] text-right shrink-0 transition-colors duration-400 ${flash ? (pos ? 'text-primary' : 'text-pink-800') : (pos ? 'text-primary' : 'text-pink-600')
+      <span className={`text-[11px] font-semibold font-mono tabular-nums w-[46px] text-right shrink-0 transition-colors duration-400 ${flash ? (pos ? 'text-primary' : 'text-pink-800') : (pos ? 'text-primary' : 'text-pink-600')
         }`}>{label}</span>
     </div>
   );
@@ -78,10 +85,10 @@ function PosBar({ value, domain, label }: { value: number; domain: [number, numb
   const norm = clamp((value - domain[0]) / ((domain[1] - domain[0]) || 1), 0, 1);
   return (
     <div className="flex items-center gap-1.5 flex-1 min-w-0 h-full">
-      <div className="relative flex-1 h-[14px] rounded-[3px] overflow-hidden bg-surface-inset">
+      <div className="relative flex-1 h-[13px] rounded-[3px] overflow-hidden bg-surface-inset">
         <div className="absolute top-0 bottom-0 left-0 rounded-[3px] transition-all duration-500 ease-out" style={{ width: `${norm * 100}%`, backgroundColor: BAR_BLUE }} />
       </div>
-      <span className="text-[12px] font-semibold font-mono tabular-nums w-[56px] text-right shrink-0 text-foreground">{label}</span>
+      <span className="text-[11px] font-semibold font-mono tabular-nums w-[48px] text-right shrink-0 text-foreground">{label}</span>
     </div>
   );
 }
@@ -92,7 +99,7 @@ function NumCell({ value, col, changed }: { value: number; col: ColumnDef; chang
   const pos = value >= 0;
   const div = col.colorScale === 'diverging';
   return (
-    <span className={`text-[12px] font-semibold font-mono tabular-nums text-right block px-1 transition-colors duration-400 ${flash ? (pos ? 'text-primary' : 'text-pink-800') : (div ? (pos ? 'text-primary' : 'text-red-500') : 'text-foreground')
+    <span className={`text-[12px] font-semibold font-mono tabular-nums text-right block transition-colors duration-400 ${flash ? (pos ? 'text-primary' : 'text-pink-800') : (div ? (pos ? 'text-primary' : 'text-red-500') : 'text-foreground')
       }`}>{col.format(value)}</span>
   );
 }
@@ -112,7 +119,7 @@ function HeatCell({ value, col }: { value: number; col: ColumnDef }) {
 }
 
 function ColCell({ value, col, mode, changed }: { value: number; col: ColumnDef; mode: RenderMode; changed: boolean }) {
-  if (value == null || isNaN(value)) return <span className="text-[11px] text-muted-fg text-right block">-</span>;
+  if (value == null || isNaN(value)) return <span className="text-[11px] text-muted-fg/60 text-right block w-full">·</span>;
   if (mode === 'bar') return col.colorScale === 'diverging'
     ? <DivBar value={value} domain={col.domain || [-1, 1]} label={col.format(value)} changed={changed} />
     : <PosBar value={value} domain={col.domain || [0, 1]} label={col.format(value)} />;
@@ -120,57 +127,183 @@ function ColCell({ value, col, mode, changed }: { value: number; col: ColumnDef;
   return <NumCell value={value} col={col} changed={changed} />;
 }
 
-// ── Column Picker (shared between main & drilldown) ──
+// ── Column Menu (portal — never clipped by the scroll container) ──
 
-function ColPicker({ visible, allCols, onAdd, onClose }: { visible: string[]; allCols: ColumnDef[]; onAdd: (k: string) => void; onClose: () => void }) {
+function ColumnMenu({ visible, allCols, onAdd }: { visible: string[]; allCols: ColumnDef[]; onAdd: (k: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
   const avail = allCols.filter(c => !visible.includes(c.key));
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const r = btnRef.current?.getBoundingClientRect();
+      if (r) setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+    };
+    update();
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    window.addEventListener('resize', update);
+    return () => { document.removeEventListener('mousedown', onDoc); window.removeEventListener('resize', update); };
+  }, [open]);
+
   return (
-    <div className="absolute right-0 top-full mt-1 z-50 bg-surface border border-border rounded-lg shadow-xl py-1 w-[190px] max-h-[280px] overflow-auto">
-      {avail.map(c => (
-        <button key={c.key} onClick={() => onAdd(c.key)} className="w-full text-left px-3 py-1.5 text-[12px] text-foreground hover:bg-primary/10 hover:text-primary transition-colors font-medium">{c.label}</button>
-      ))}
-      <div className="border-t border-border mt-0.5 pt-0.5">
-        <button onClick={onClose} className="w-full py-1 text-[11px] text-muted-fg hover:text-foreground text-center font-medium">Close</button>
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen(o => !o)}
+        onMouseDown={e => e.stopPropagation()}
+        className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${open ? 'bg-primary/10 text-primary' : 'text-muted-fg hover:text-foreground hover:bg-surface-inset'}`}
+        title="Add / manage columns"
+      >
+        <Columns3 className="w-3.5 h-3.5" />
+      </button>
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 1000 }}
+          className="bg-surface border border-border rounded-lg shadow-2xl py-1 w-[230px] max-h-[340px] overflow-auto pulse-scroll"
+        >
+          <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-fg">Add column</div>
+          {avail.length === 0 && <div className="px-3 py-2 text-[11px] text-muted-fg">All columns are visible</div>}
+          {avail.map(c => (
+            <button
+              key={c.key}
+              onClick={() => { onAdd(c.key); setOpen(false); }}
+              className="w-full text-left px-3 py-1.5 hover:bg-primary/10 transition-colors group/mi"
+            >
+              <span className="block text-[12px] font-medium text-foreground group-hover/mi:text-primary">{c.label}</span>
+              <span className="block text-[10px] text-muted-fg leading-tight truncate">{c.description}</span>
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+// ── Grid Header (sticky vertically, frozen first cell horizontally) ──
+
+function GridHeader({ columns, sortKey, sortDir, modes, onSort, onCycleMode, onRemove, firstColLabel, totalWidth }: {
+  columns: ColumnDef[]; sortKey: string; sortDir: 'asc' | 'desc'; modes: Record<string, RenderMode>;
+  onSort: (k: string) => void; onCycleMode: (k: string) => void; onRemove: (k: string) => void;
+  firstColLabel: string; totalWidth: number;
+}) {
+  return (
+    <div className="sticky top-0 z-20 flex bg-surface-inset border-b border-border" style={{ height: HEADER_H, minWidth: totalWidth }}>
+      <div className="sticky left-0 z-30 flex items-center bg-surface-inset border-r border-border px-3 shrink-0 shadow-[3px_0_6px_-3px_rgba(0,0,0,0.45)]" style={{ width: NAME_W }}>
+        <span className="text-[10px] font-bold text-muted-fg uppercase tracking-[0.14em]">{firstColLabel}</span>
       </div>
+      {columns.map(col => {
+        const active = sortKey === col.key;
+        return (
+          <div key={col.key} className="group/hd relative flex items-center justify-end border-r border-border-subtle/70 px-2 shrink-0" style={{ width: COL_W }}>
+            <button onClick={() => onSort(col.key)} className="flex items-center gap-0.5 min-w-0" title={col.description}>
+              {active && (sortDir === 'desc' ? <ArrowDown className="w-3 h-3 text-primary shrink-0" /> : <ArrowUp className="w-3 h-3 text-primary shrink-0" />)}
+              <span className={`text-[10px] font-bold uppercase tracking-wider truncate transition-colors ${active ? 'text-primary' : 'text-foreground hover:text-primary'}`}>{col.shortLabel}</span>
+            </button>
+            <div className="absolute right-1 top-0 bottom-0 hidden group-hover/hd:flex items-center gap-px bg-surface-inset pl-2">
+              <button onClick={() => onCycleMode(col.key)} className="w-4 h-4 rounded text-[8px] font-bold text-muted-fg hover:text-primary hover:bg-primary/10 transition-colors flex items-center justify-center" title="Cycle: bar / numeric / heatmap">
+                {(modes[col.key] || col.defaultMode)[0].toUpperCase()}
+              </button>
+              <button onClick={() => onRemove(col.key)} className="w-4 h-4 rounded text-muted-fg hover:text-red-500 hover:bg-red-500/10 transition-colors flex items-center justify-center" title="Remove column">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      <div className="flex-1" />
     </div>
   );
 }
 
-// ── Column Header Row (shared) ──
+// ── Grid Row (frozen first cell horizontally) ──
 
-function ColumnHeaders({ columns, sortKey, sortDir, modes, onSort, onCycleMode, onRemove, onPickerToggle, pickerOpen, pickerRef, visibleKeys, allCols, onAdd, onPickerClose, firstColLabel }: {
-  columns: ColumnDef[]; sortKey: string; sortDir: 'asc' | 'desc'; modes: Record<string, RenderMode>;
-  onSort: (k: string) => void; onCycleMode: (k: string) => void; onRemove: (k: string) => void;
-  onPickerToggle: () => void; pickerOpen: boolean; pickerRef: React.RefObject<HTMLDivElement>;
-  visibleKeys: string[]; allCols: ColumnDef[]; onAdd: (k: string) => void; onPickerClose: () => void;
-  firstColLabel: string;
+function GridRow({ columns, modes, firstCell, cells, onClick, totalWidth }: {
+  columns: ColumnDef[]; modes: Record<string, RenderMode>;
+  firstCell: ReactNode; cells: { value: number; col: ColumnDef; changed: boolean }[];
+  onClick?: () => void; totalWidth: number;
 }) {
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div className="flex items-center gap-2.5 pl-4 pr-2 py-1 border-b border-border bg-surface-hover shrink-0">
-      <div className="w-[150px] min-w-[150px] shrink-0">
-        <span className="text-[10px] font-bold text-foreground uppercase tracking-wider">{firstColLabel}</span>
+    <Tag
+      onClick={onClick}
+      className="group/row flex items-stretch h-full text-left border-b border-border-subtle hover:bg-surface-hover transition-colors"
+      style={{ minWidth: totalWidth, width: '100%' }}
+    >
+      <div className="sticky left-0 z-10 flex items-center bg-surface group-hover/row:bg-surface-hover border-r border-border px-3 shrink-0 transition-colors shadow-[3px_0_6px_-3px_rgba(0,0,0,0.35)]" style={{ width: NAME_W }}>
+        {firstCell}
       </div>
-      {columns.map(col => (
-        <div key={col.key} className="group/hd flex-1 min-w-[70px] flex items-center gap-0.5">
-          <button onClick={() => onSort(col.key)} className="flex items-center gap-0.5" title={col.description}>
-            <span className="text-[10px] font-bold text-foreground uppercase tracking-wider hover:text-primary transition-colors">{col.shortLabel}</span>
-            {sortKey === col.key && (sortDir === 'desc' ? <ArrowDown className="w-3 h-3 text-primary" /> : <ArrowUp className="w-3 h-3 text-primary" />)}
-          </button>
-          <button onClick={() => onCycleMode(col.key)} className="ml-0.5 w-4 h-4 rounded text-[8px] font-bold text-muted-fg hover:text-primary hover:bg-primary/10 transition-colors flex items-center justify-center" title="bar / numeric / heatmap">
-            {(modes[col.key] || col.defaultMode)[0].toUpperCase()}
-          </button>
-          <button onClick={() => onRemove(col.key)} className="w-4 h-4 rounded text-muted-fg hover:text-red-600 hover:bg-red-500/10 transition-all flex items-center justify-center opacity-0 group-hover/hd:opacity-100">
-            <X className="w-3 h-3" />
-          </button>
+      {cells.map((c, i) => (
+        <div key={columns[i].key} className="flex items-center justify-end border-r border-border-subtle/40 px-2 shrink-0" style={{ width: COL_W }}>
+          <ColCell value={c.value} col={c.col} mode={modes[c.col.key] || c.col.defaultMode} changed={c.changed} />
         </div>
       ))}
-      <div ref={pickerRef} className="relative shrink-0" onMouseDown={e => e.stopPropagation()}>
-        <button onClick={onPickerToggle} className="w-5 h-5 rounded border border-dashed border-border hover:border-primary hover:bg-primary/10 transition-colors flex items-center justify-center" title="Add column">
-          <Plus className="w-3 h-3 text-muted-fg" />
-        </button>
-        {pickerOpen && <ColPicker visible={visibleKeys} allCols={allCols} onAdd={onAdd} onClose={onPickerClose} />}
+      <div className="flex-1" />
+    </Tag>
+  );
+}
+
+// ── Generic virtualized grid (header + frozen column + sticky header) ──
+
+function PulseGrid({
+  scrollRef, virtualizer, columns, modes, firstColLabel,
+  sortKey, sortDir, onSort, onCycleMode, onRemove,
+  renderRow, rowKey, state, emptyTitle, emptySubtitle,
+}: {
+  scrollRef: React.RefObject<HTMLDivElement>;
+  virtualizer: Virtualizer<HTMLDivElement, Element>;
+  columns: ColumnDef[];
+  modes: Record<string, RenderMode>;
+  firstColLabel: string;
+  sortKey: string; sortDir: 'asc' | 'desc';
+  onSort: (k: string) => void; onCycleMode: (k: string) => void; onRemove: (k: string) => void;
+  renderRow: (index: number) => ReactNode;
+  rowKey: (index: number) => string;
+  state: 'loading' | 'empty' | 'ready';
+  emptyTitle: string; emptySubtitle: string;
+}) {
+  const totalWidth = NAME_W + columns.length * COL_W;
+  const items = virtualizer.getVirtualItems();
+  return (
+    <div ref={scrollRef} className="flex-1 overflow-auto pulse-scroll">
+      <div style={{ minWidth: totalWidth, position: 'relative' }}>
+        <GridHeader
+          columns={columns} sortKey={sortKey} sortDir={sortDir} modes={modes}
+          onSort={onSort} onCycleMode={onCycleMode} onRemove={onRemove}
+          firstColLabel={firstColLabel} totalWidth={totalWidth}
+        />
+        {state === 'loading' ? (
+          <div className="flex items-center justify-center py-20"><RefreshCw className="w-4 h-4 text-muted-fg animate-spin" /></div>
+        ) : state === 'empty' ? (
+          <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+            <div className="w-10 h-10 rounded-full bg-surface-inset flex items-center justify-center mb-3">
+              <span className="w-2.5 h-2.5 rounded-full bg-muted-fg/40" />
+            </div>
+            <p className="text-[13px] font-medium text-foreground mb-1">{emptyTitle}</p>
+            <p className="text-[11px] text-muted-fg">{emptySubtitle}</p>
+          </div>
+        ) : (
+          <div style={{ height: virtualizer.getTotalSize(), position: 'relative', minWidth: totalWidth }}>
+            {items.map(vi => (
+              <div
+                key={rowKey(vi.index)}
+                className="absolute left-0"
+                style={{ top: 0, transform: `translateY(${vi.start}px)`, height: vi.size, minWidth: totalWidth, width: '100%' }}
+              >
+                {renderRow(vi.index)}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-      <div className="w-3.5 shrink-0" />
     </div>
   );
 }
@@ -180,56 +313,6 @@ const TABS: { key: PulseTab; label: string }[] = [
   { key: 'industries', label: 'Industries' },
   { key: 'themes', label: 'Themes' },
 ];
-
-// ── Group Row ──
-
-function GroupRow({ entry, columns, modes, onClick, isTheme }: {
-  entry: PerformanceEntry; columns: ColumnDef[]; modes: Record<string, RenderMode>; onClick: () => void; isTheme?: boolean;
-}) {
-  const name = isTheme ? fmtTheme(entry.name) : entry.name;
-  return (
-    <button onClick={onClick} className="w-full flex items-center gap-2.5 pl-4 pr-2 h-full hover:bg-surface-hover transition-colors text-left group/row border-b border-border-subtle">
-      <div className="w-[150px] min-w-[150px] shrink-0 flex items-center gap-1">
-        <span className="text-[11px] font-semibold text-foreground whitespace-nowrap truncate">{name}</span>
-        {entry._rankShift !== undefined && entry._rankShift !== 0 && (
-          <span className={`text-[8px] font-mono font-bold shrink-0 ${entry._rankShift > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-            {entry._rankShift > 0 ? `\u25B2${entry._rankShift}` : `\u25BC${Math.abs(entry._rankShift)}`}
-          </span>
-        )}
-        {entry._divergence && (
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" title="Breadth divergence" />
-        )}
-        <span className="text-[9px] text-muted-fg font-mono tabular-nums shrink-0">{entry.count}</span>
-      </div>
-      {columns.map(col => (
-        <div key={col.key} className="flex-1 min-w-[70px] flex items-center">
-          <ColCell value={(entry as any)[col.key]} col={col} mode={modes[col.key] || col.defaultMode} changed={entry._changedKeys?.has(col.key) || false} />
-        </div>
-      ))}
-      <ChevronRight className="w-3.5 h-3.5 text-muted-fg/50 group-hover/row:text-muted-fg transition-colors shrink-0" />
-    </button>
-  );
-}
-
-// ── Drilldown Row ──
-
-function DDRow({ t, columns, modes, onOpenTicker }: {
-  t: DrilldownTicker; columns: ColumnDef[]; modes: Record<string, RenderMode>; onOpenTicker?: (sym: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2.5 pl-4 pr-2 h-full hover:bg-surface-hover transition-colors border-b border-border-subtle group/row">
-      <button onClick={() => onOpenTicker?.(t.symbol)} className="w-[150px] min-w-[150px] shrink-0 text-left flex items-center gap-1" title={`Open ${t.symbol}`}>
-        <span className="text-[11px] font-bold text-primary hover:text-primary transition-colors">{t.symbol}</span>
-        <ExternalLink className="w-2.5 h-2.5 text-muted-fg/50 group-hover/row:text-primary transition-colors shrink-0" />
-      </button>
-      {columns.map(col => (
-        <div key={col.key} className="flex-1 min-w-[70px] flex items-center">
-          <ColCell value={(t as any)[col.key]} col={col} mode={modes[col.key] || col.defaultMode} changed={t._changedKeys?.has(col.key) || false} />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ── Main ──
 
@@ -295,19 +378,15 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [visCols, setVisCols] = useState<string[]>(() => loadPrefs().visCols || DEFAULT_COLUMNS);
   const [modes, setModes] = useState<Record<string, RenderMode>>(() => (loadPrefs().modes || {}) as Record<string, RenderMode>);
-  const [picker, setPicker] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
 
   // Drilldown state
   const [ddSortKey, setDdSortKey] = useState('change_percent');
   const [ddSortDir, setDdSortDir] = useState<'asc' | 'desc'>('desc');
   const [ddVisCols, setDdVisCols] = useState<string[]>(() => loadPrefs().ddVisCols || DEFAULT_DD_COLUMNS);
   const [ddModes, setDdModes] = useState<Record<string, RenderMode>>(() => (loadPrefs().ddModes || {}) as Record<string, RenderMode>);
-  const [ddPicker, setDdPicker] = useState(false);
-  const ddPickerRef = useRef<HTMLDivElement>(null);
 
   const { data, loading, error, lastUpdate, totalTickers, tickCount, refetch } = useMarketPulse({ tab, refreshInterval: 3000, sectorFilter, minMarketCap: minCap || undefined });
-  const { data: ddData, loading: ddLoad, total: ddTotal, ddTickCount, fetchDrilldown, resetPrevMap } = useDrilldown();
+  const { data: ddData, loading: ddLoad, total: ddTotal, ddTickCount, fetchDrilldown, reset: resetDrilldown } = useDrilldown();
 
   // Drilldown polling
   const ddRef = useRef(dd); ddRef.current = dd;
@@ -354,68 +433,91 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
   // Main view handlers
   const doSort = useCallback((k: string) => { setSortKey(p => { if (p === k) { setSortDir(d => d === 'desc' ? 'asc' : 'desc'); return p; } setSortDir('desc'); return k; }); }, []);
   const cycleMode = useCallback((k: string) => { setModes(p => { const c = ALL_COLUMNS.find(x => x.key === k); const cur = p[k] || c?.defaultMode || 'numeric'; const o: RenderMode[] = ['bar', 'numeric', 'heatmap']; return { ...p, [k]: o[(o.indexOf(cur) + 1) % o.length] }; }); }, []);
-  const addCol = useCallback((k: string) => { setVisCols(p => [...p, k]); setPicker(false); }, []);
+  const addCol = useCallback((k: string) => { setVisCols(p => [...p, k]); }, []);
   const rmCol = useCallback((k: string) => { setVisCols(p => p.filter(x => x !== k)); }, []);
 
   // Drilldown handlers
   const doDdSort = useCallback((k: string) => { setDdSortKey(p => { if (p === k) { setDdSortDir(d => d === 'desc' ? 'asc' : 'desc'); return p; } setDdSortDir('desc'); return k; }); }, []);
   const ddCycleMode = useCallback((k: string) => { setDdModes(p => { const c = DD_COLUMNS.find(x => x.key === k); const cur = p[k] || c?.defaultMode || 'numeric'; const o: RenderMode[] = ['bar', 'numeric', 'heatmap']; return { ...p, [k]: o[(o.indexOf(cur) + 1) % o.length] }; }); }, []);
-  const ddAddCol = useCallback((k: string) => { setDdVisCols(p => [...p, k]); setDdPicker(false); }, []);
+  const ddAddCol = useCallback((k: string) => { setDdVisCols(p => [...p, k]); }, []);
   const ddRmCol = useCallback((k: string) => { setDdVisCols(p => p.filter(x => x !== k)); }, []);
 
   const doSelect = useCallback((e: PerformanceEntry) => {
     const gt = tab === 'themes' ? 'theme' : tab === 'industries' ? 'industry' : 'sector';
     const avgChg = e.weighted_change || e.avg_change || 0;
     setDd({ type: gt, name: e.name, label: tab === 'themes' ? fmtTheme(e.name) : e.name, avgChange: avgChg });
-    resetPrevMap();
+    resetDrilldown();
     fetchDrilldown(gt, e.name, avgChg, minCap || undefined);
-  }, [tab, fetchDrilldown, resetPrevMap, minCap]);
+  }, [tab, fetchDrilldown, resetDrilldown, minCap]);
 
   const doBack = useCallback(() => { setDd(null); setDdSortKey('change_percent'); setDdSortDir('desc'); }, []);
   const doTab = useCallback((t: PulseTab) => { setTab(t); setDd(null); setSF(undefined); }, []);
 
-  // Close pickers on outside click
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPicker(false);
-      if (ddPickerRef.current && !ddPickerRef.current.contains(e.target as Node)) setDdPicker(false);
-    };
-    if (picker || ddPicker) document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [picker, ddPicker]);
-
   const ts = lastUpdate ? new Date(lastUpdate * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
 
-  // Virtualizers
+  // Virtualizers — the sticky opaque header overlaps the top band, so no scrollMargin is needed
   const pRef = useRef<HTMLDivElement>(null);
-  const virt = useVirtualizer({ count: sorted.length, getScrollElement: () => pRef.current, estimateSize: () => 26, overscan: 8 });
+  const virt = useVirtualizer({ count: sorted.length, getScrollElement: () => pRef.current, estimateSize: () => ROW_H, overscan: 12 });
   const ddPRef = useRef<HTMLDivElement>(null);
-  const ddVirt = useVirtualizer({ count: ddSorted.length, getScrollElement: () => ddPRef.current, estimateSize: () => 26, overscan: 12 });
+  const ddVirt = useVirtualizer({ count: ddSorted.length, getScrollElement: () => ddPRef.current, estimateSize: () => ROW_H, overscan: 14 });
 
   const avgChgLabel = dd ? `avg ${dd.avgChange >= 0 ? '+' : ''}${dd.avgChange.toFixed(2)}%` : '';
+  const showColumnMenu = !tickerCtx && !error && ((activeView === 'table' && !dd) || !!dd);
+
+  // First-cell renderers (frozen column content)
+  const renderGroupFirst = useCallback((entry: PerformanceEntry, isTheme: boolean): ReactNode => {
+    const name = isTheme ? fmtTheme(entry.name) : entry.name;
+    return (
+      <div className="flex items-center gap-1.5 w-full min-w-0">
+        <span className="text-[11px] font-semibold text-foreground truncate">{name}</span>
+        {entry._rankShift !== undefined && entry._rankShift !== 0 && (
+          <span className={`text-[8px] font-mono font-bold shrink-0 ${entry._rankShift > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+            {entry._rankShift > 0 ? `\u25B2${entry._rankShift}` : `\u25BC${Math.abs(entry._rankShift)}`}
+          </span>
+        )}
+        {entry._divergence && (
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" title="Breadth divergence" />
+        )}
+        <span className="ml-auto text-[9px] text-muted-fg font-mono tabular-nums shrink-0">{entry.count}</span>
+        <ChevronRight className="w-3.5 h-3.5 text-muted-fg/40 group-hover/row:text-muted-fg transition-colors shrink-0" />
+      </div>
+    );
+  }, []);
+
+  const renderDdFirst = useCallback((t: DrilldownTicker): ReactNode => (
+    <button
+      onClick={() => onOpenTicker?.(t.symbol)}
+      onMouseDown={e => e.stopPropagation()}
+      className="flex items-center gap-1 w-full min-w-0 text-left"
+      title={`Open ${t.symbol}`}
+    >
+      <span className="text-[11px] font-bold text-primary truncate">{t.symbol}</span>
+      <ExternalLink className="w-2.5 h-2.5 text-muted-fg/50 group-hover/row:text-primary transition-colors shrink-0" />
+    </button>
+  ), [onOpenTicker]);
 
   return (
     <div className="flex flex-col h-full bg-surface rounded-lg overflow-hidden">
-      {/* Header */}
-      <div className="table-drag-handle flex items-center justify-between px-4 py-1.5 border-b border-border bg-surface-hover shrink-0 cursor-move select-none">
-        <div className="flex items-center gap-2">
-          <GripHorizontal className="w-4 h-4 text-muted-fg" />
+      {/* Header / toolbar */}
+      <div className="table-drag-handle flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface-hover shrink-0 cursor-move select-none">
+        <div className="flex items-center gap-2 min-w-0">
+          <GripHorizontal className="w-4 h-4 text-muted-fg shrink-0" />
           {tickerCtx ? (
             <>
               <button onClick={handleSearchClear} onMouseDown={e => e.stopPropagation()} className="flex items-center gap-1 text-[12px] text-foreground/80 hover:text-foreground font-medium">
                 <ArrowLeft className="w-3.5 h-3.5" /> Back
               </button>
               <span className="text-[13px] font-black text-primary ml-1">{tickerCtx.symbol}</span>
-              <span className="text-[10px] text-muted-fg font-medium">{tickerCtx.sector} · {tickerCtx.industry}</span>
+              <span className="text-[10px] text-muted-fg font-medium truncate">{tickerCtx.sector} · {tickerCtx.industry}</span>
             </>
           ) : dd ? (
             <>
               <button onClick={doBack} onMouseDown={e => e.stopPropagation()} className="flex items-center gap-1 text-[12px] text-foreground/80 hover:text-foreground font-medium">
                 <ArrowLeft className="w-3.5 h-3.5" /> Back
               </button>
-              <span className="text-[13px] font-semibold text-foreground ml-1">{dd.label}</span>
-              <span className="text-[10px] text-muted-fg font-medium">{ddTotal}</span>
-              <span className={`text-[10px] font-mono font-semibold ml-1 ${dd.avgChange >= 0 ? 'text-primary' : 'text-pink-600'}`}>{avgChgLabel}</span>
+              <span className="text-[13px] font-semibold text-foreground ml-1 truncate">{dd.label}</span>
+              <span className="text-[10px] text-muted-fg font-medium shrink-0">{ddTotal}</span>
+              <span className={`text-[10px] font-mono font-semibold ml-1 shrink-0 ${dd.avgChange >= 0 ? 'text-primary' : 'text-pink-600'}`}>{avgChgLabel}</span>
             </>
           ) : (
             <>
@@ -452,7 +554,7 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
             </>
           )}
         </div>
-        <div className="flex items-center gap-2.5" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2.5 shrink-0" onMouseDown={e => e.stopPropagation()}>
           {/* Search */}
           {!tickerCtx && (
             searchOpen ? (
@@ -490,6 +592,11 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
               ))}
             </div>
           )}
+          {showColumnMenu && (
+            dd
+              ? <ColumnMenu visible={ddVisCols} allCols={DD_COLUMNS} onAdd={ddAddCol} />
+              : <ColumnMenu visible={visCols} allCols={ALL_COLUMNS} onAdd={addCol} />
+          )}
           {!dd && !tickerCtx && totalTickers > 0 && <span className="text-[10px] text-muted-fg font-medium tabular-nums">{totalTickers.toLocaleString()}</span>}
           <LiveDot tick={dd ? ddTickCount : tickCount} />
           <span className="text-[10px] text-muted-fg font-mono tabular-nums">{ts}</span>
@@ -506,28 +613,6 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
               }`}>{t.label}</button>
           ))}
         </div>
-      )}
-
-      {/* Column headers — MAIN (table view only) */}
-      {!dd && !tickerCtx && !error && activeView === 'table' && (
-        <ColumnHeaders
-          columns={cols} sortKey={sortKey} sortDir={sortDir} modes={modes}
-          onSort={doSort} onCycleMode={cycleMode} onRemove={rmCol}
-          onPickerToggle={() => setPicker(v => !v)} pickerOpen={picker} pickerRef={pickerRef}
-          visibleKeys={visCols} allCols={ALL_COLUMNS} onAdd={addCol} onPickerClose={() => setPicker(false)}
-          firstColLabel={tab === 'themes' ? 'Theme' : tab === 'industries' ? 'Industry' : 'Sector'}
-        />
-      )}
-
-      {/* Column headers — DRILLDOWN */}
-      {dd && !error && (
-        <ColumnHeaders
-          columns={ddCols} sortKey={ddSortKey} sortDir={ddSortDir} modes={ddModes}
-          onSort={doDdSort} onCycleMode={ddCycleMode} onRemove={ddRmCol}
-          onPickerToggle={() => setDdPicker(v => !v)} pickerOpen={ddPicker} pickerRef={ddPickerRef}
-          visibleKeys={ddVisCols} allCols={DD_COLUMNS} onAdd={ddAddCol} onPickerClose={() => setDdPicker(false)}
-          firstColLabel="Symbol"
-        />
       )}
 
       {/* ── Ticker Context View (search result) ── */}
@@ -550,27 +635,27 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
 
       {/* ── TABLE VIEW ── */}
       {!error && !dd && !tickerCtx && activeView === 'table' && (
-        loading && !sorted.length ? (
-          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-muted-fg animate-spin" /></div>
-        ) : !sorted.length ? (
-          <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
-            <div className="w-10 h-10 rounded-full bg-surface-inset flex items-center justify-center mb-3">
-              <span className="text-lg"></span>
-            </div>
-            <p className="text-[13px] font-medium text-foreground mb-1">Market closed</p>
-            <p className="text-[11px] text-muted-fg">Data will refresh when the market opens</p>
-          </div>
-        ) : (
-          <div ref={pRef} className="flex-1 overflow-auto">
-            <div style={{ height: virt.getTotalSize(), position: 'relative' }}>
-              {virt.getVirtualItems().map(vi => (
-                <div key={sorted[vi.index].name} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: vi.size, transform: `translateY(${vi.start}px)` }}>
-                  <GroupRow entry={sorted[vi.index]} columns={cols} modes={modes} onClick={() => doSelect(sorted[vi.index])} isTheme={tab === 'themes'} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )
+        <PulseGrid
+          scrollRef={pRef}
+          virtualizer={virt}
+          columns={cols}
+          modes={modes}
+          firstColLabel={tab === 'themes' ? 'Theme' : tab === 'industries' ? 'Industry' : 'Sector'}
+          sortKey={sortKey} sortDir={sortDir}
+          onSort={doSort} onCycleMode={cycleMode} onRemove={rmCol}
+          rowKey={(i) => sorted[i].name}
+          renderRow={(i) => (
+            <GridRow
+              columns={cols} modes={modes} totalWidth={NAME_W + cols.length * COL_W}
+              firstCell={renderGroupFirst(sorted[i], tab === 'themes')}
+              cells={cols.map(col => ({ value: (sorted[i] as any)[col.key], col, changed: sorted[i]._changedKeys?.has(col.key) || false }))}
+              onClick={() => doSelect(sorted[i])}
+            />
+          )}
+          state={loading && !sorted.length ? 'loading' : !sorted.length ? 'empty' : 'ready'}
+          emptyTitle="Market closed"
+          emptySubtitle="Data will refresh when the market opens"
+        />
       )}
 
       {/* ── CHART VIEWS (only when no drilldown, no error, data loaded) ── */}
@@ -608,19 +693,26 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
 
       {/* Drilldown list */}
       {!error && !tickerCtx && dd && (
-        ddLoad && !ddSorted.length ? (
-          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-muted-fg animate-spin" /></div>
-        ) : (
-          <div ref={ddPRef} className="flex-1 overflow-auto">
-            <div style={{ height: ddVirt.getTotalSize(), position: 'relative' }}>
-              {ddVirt.getVirtualItems().map(vi => (
-                <div key={ddSorted[vi.index].symbol} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: vi.size, transform: `translateY(${vi.start}px)` }}>
-                  <DDRow t={ddSorted[vi.index]} columns={ddCols} modes={ddModes} onOpenTicker={onOpenTicker} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )
+        <PulseGrid
+          scrollRef={ddPRef}
+          virtualizer={ddVirt}
+          columns={ddCols}
+          modes={ddModes}
+          firstColLabel="Symbol"
+          sortKey={ddSortKey} sortDir={ddSortDir}
+          onSort={doDdSort} onCycleMode={ddCycleMode} onRemove={ddRmCol}
+          rowKey={(i) => ddSorted[i].symbol}
+          renderRow={(i) => (
+            <GridRow
+              columns={ddCols} modes={ddModes} totalWidth={NAME_W + ddCols.length * COL_W}
+              firstCell={renderDdFirst(ddSorted[i])}
+              cells={ddCols.map(col => ({ value: (ddSorted[i] as any)[col.key], col, changed: ddSorted[i]._changedKeys?.has(col.key) || false }))}
+            />
+          )}
+          state={ddLoad && !ddSorted.length ? 'loading' : !ddSorted.length ? 'empty' : 'ready'}
+          emptyTitle="No tickers"
+          emptySubtitle="No matching tickers in this group"
+        />
       )}
     </div>
   );

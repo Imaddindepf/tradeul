@@ -502,6 +502,11 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['bidAskRatioMin',    'bidAskRatioMax',    null, 'bid_ask_ratio'],
     ['floatTurnoverMin',  'floatTurnoverMax',  null, 'float_turnover'],
     ['distFromVwapMin',   'distFromVwapMax',   null, 'dist_from_vwap'],
+    // Distance from EMA21 (1m + multi-timeframe)
+    ['distFromEma21Min',   'distFromEma21Max',   null, 'dist_from_ema21'],
+    ['distFromEma212mMin', 'distFromEma212mMax', null, 'dist_from_ema21_2m'],
+    ['distFromEma215mMin', 'distFromEma215mMax', null, 'dist_from_ema21_5m'],
+    ['distFromEma2115mMin','distFromEma2115mMax',null, 'dist_from_ema21_15m'],
     // Distance from intraday SMAs
     ['distSma5Min',       'distSma5Max',       null, 'dist_sma_5'],
     ['distSma8Min',       'distSma8Max',       null, 'dist_sma_8'],
@@ -1403,6 +1408,12 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.bid_ask_ratio, 'bidAskRatioMin', 'bidAskRatioMax')) return false;
   if (!chkEvt(enriched.float_turnover, 'floatTurnoverMin', 'floatTurnoverMax')) return false;
   if (!chkEvt(enriched.dist_from_vwap, 'distFromVwapMin', 'distFromVwapMax')) return false;
+
+  // Distance from EMA21 (%) — 1m + multi-timeframe
+  if (!chkEvt(enriched.dist_from_ema21, 'distFromEma21Min', 'distFromEma21Max')) return false;
+  if (!chkEvt(enriched.dist_from_ema21_2m, 'distFromEma212mMin', 'distFromEma212mMax')) return false;
+  if (!chkEvt(enriched.dist_from_ema21_5m, 'distFromEma215mMin', 'distFromEma215mMax')) return false;
+  if (!chkEvt(enriched.dist_from_ema21_15m, 'distFromEma2115mMin', 'distFromEma2115mMax')) return false;
 
   // Distance from intraday SMAs (%)
   if (!chkEvt(enriched.dist_sma_5, 'distSma5Min', 'distSma5Max')) return false;

@@ -24,6 +24,7 @@ class BenzingaEarning(BaseModel):
     # Date/Time
     date: str = Field(..., description="Earnings date (YYYY-MM-DD)")
     time: Optional[str] = Field(None, description="Time of announcement (HH:MM:SS UTC)")
+    time_slot: Optional[str] = Field(None, description="Derived slot: BMO, AMC, DURING or TBD")
     date_status: Optional[str] = Field(None, description="confirmed or projected")
     
     # Fiscal period
@@ -65,7 +66,7 @@ class BenzingaEarning(BaseModel):
         Returns:
             BenzingaEarning instance
         """
-        return cls(
+        inst = cls(
             benzinga_id=data.get("benzinga_id", str(hash(f"{data.get('ticker')}-{data.get('date')}"))),
             ticker=data.get("ticker", ""),
             company_name=data.get("company_name"),
@@ -91,6 +92,10 @@ class BenzingaEarning(BaseModel):
             notes=data.get("notes"),
             last_updated=data.get("last_updated")
         )
+        # Always derive the time slot so downstream consumers/stats don't have
+        # to recompute it (and the value is persisted in the Redis cache).
+        inst.time_slot = inst._derive_time_slot()
+        return inst
     
     def to_db_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for database insertion."""

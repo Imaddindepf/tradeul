@@ -2343,6 +2343,44 @@ export const FILTER_GROUPS: readonly FilterGroup[] = [
         "phMax": "5"
       }
     ]
+  },
+  {
+    "id": "moving_averages",
+    "group": "Moving Averages",
+    "filters": [
+      {
+        "label": "Distance from EMA21 (1m)",
+        "minK": "min_dist_from_ema21",
+        "maxK": "max_dist_from_ema21",
+        "suf": "%",
+        "phMin": "-5",
+        "phMax": "5"
+      },
+      {
+        "label": "Distance from EMA21 (2m)",
+        "minK": "min_dist_from_ema21_2m",
+        "maxK": "max_dist_from_ema21_2m",
+        "suf": "%",
+        "phMin": "-5",
+        "phMax": "5"
+      },
+      {
+        "label": "Distance from EMA21 (5m)",
+        "minK": "min_dist_from_ema21_5m",
+        "maxK": "max_dist_from_ema21_5m",
+        "suf": "%",
+        "phMin": "-5",
+        "phMax": "5"
+      },
+      {
+        "label": "Distance from EMA21 (15m)",
+        "minK": "min_dist_from_ema21_15m",
+        "maxK": "max_dist_from_ema21_15m",
+        "suf": "%",
+        "phMin": "-5",
+        "phMax": "5"
+      }
+    ]
   }
 ] as const;
 
@@ -4354,6 +4392,38 @@ export const FILTER_LABELS: Record<string, { label: string; suf: string }> = {
   "max_chg_vs_spy": {
     "label": "Change vs S&P 500 (SPY) Today <",
     "suf": "%"
+  },
+  "min_dist_from_ema21": {
+    "label": "Distance from EMA21 (1m) >",
+    "suf": "%"
+  },
+  "max_dist_from_ema21": {
+    "label": "Distance from EMA21 (1m) <",
+    "suf": "%"
+  },
+  "min_dist_from_ema21_2m": {
+    "label": "Distance from EMA21 (2m) >",
+    "suf": "%"
+  },
+  "max_dist_from_ema21_2m": {
+    "label": "Distance from EMA21 (2m) <",
+    "suf": "%"
+  },
+  "min_dist_from_ema21_5m": {
+    "label": "Distance from EMA21 (5m) >",
+    "suf": "%"
+  },
+  "max_dist_from_ema21_5m": {
+    "label": "Distance from EMA21 (5m) <",
+    "suf": "%"
+  },
+  "min_dist_from_ema21_15m": {
+    "label": "Distance from EMA21 (15m) >",
+    "suf": "%"
+  },
+  "max_dist_from_ema21_15m": {
+    "label": "Distance from EMA21 (15m) <",
+    "suf": "%"
   }
 };
 
@@ -5870,6 +5940,30 @@ export const EVENT_WIRE_PAIRS: readonly (readonly [string, string, string, strin
 "max_dia_chg_today",
 "dia_chg_today_min",
 "dia_chg_today_max"
+],
+[
+"min_dist_from_ema21",
+"max_dist_from_ema21",
+"dist_from_ema21_min",
+"dist_from_ema21_max"
+],
+[
+"min_dist_from_ema21_2m",
+"max_dist_from_ema21_2m",
+"dist_from_ema21_2m_min",
+"dist_from_ema21_2m_max"
+],
+[
+"min_dist_from_ema21_5m",
+"max_dist_from_ema21_5m",
+"dist_from_ema21_5m_min",
+"dist_from_ema21_5m_max"
+],
+[
+"min_dist_from_ema21_15m",
+"max_dist_from_ema21_15m",
+"dist_from_ema21_15m_min",
+"dist_from_ema21_15m_max"
 ]
 ] as const;
 

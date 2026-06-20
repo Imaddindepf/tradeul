@@ -382,9 +382,21 @@ export function useDrilldown() {
 
   const resetPrevMap = useCallback(() => { prevMapRef.current = new Map(); }, []);
 
+  // Hard reset when switching to a different group: abort any in-flight request,
+  // clear stale rows immediately (so the new group never flashes the old tickers),
+  // and enter the loading state until fresh data arrives.
+  const reset = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    prevMapRef.current = new Map();
+    setData([]);
+    setTotal(0);
+    setLoading(true);
+  }, []);
+
   useEffect(() => {
     return () => { abortRef.current?.abort(); };
   }, []);
 
-  return { data, loading, total, ddTickCount, fetchDrilldown, resetPrevMap };
+  return { data, loading, total, ddTickCount, fetchDrilldown, resetPrevMap, reset };
 }

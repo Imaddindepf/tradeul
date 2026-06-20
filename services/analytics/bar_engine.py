@@ -98,6 +98,7 @@ class IndicatorValues(NamedTuple):
     rsi_14: Optional[float]
     ema_9: Optional[float]
     ema_20: Optional[float]
+    ema_21: Optional[float]
     ema_50: Optional[float]
     # SMA — aligned with Tradeul (intraday from 1-min bars)
     sma_5: Optional[float]
@@ -151,7 +152,7 @@ TALIPP_PURGE_INTERVAL = 50
 
 # Attribute names of all talipp indicators on TickerBarState.
 # Used by _purge_indicators() and get_stats() to iterate generically.
-_TALIPP_ATTRS = ('rsi_14', 'ema_9', 'ema_20', 'ema_50',
+_TALIPP_ATTRS = ('rsi_14', 'ema_9', 'ema_20', 'ema_21', 'ema_50',
                  'sma_5', 'sma_8', 'sma_20', 'sma_50', 'sma_200',
                  'macd', 'bb_20', 'atr_14', 'adx_14', 'stoch')
 
@@ -165,16 +166,16 @@ MULTI_TIMEFRAMES = (2, 5, 10, 15, 30, 60)
 # Per-timeframe indicator config — only allocate what the alert catalog needs.
 # This keeps memory bounded: ~1.5 GB for 15K symbols across all 6 timeframes.
 _TF_INDICATOR_CONFIG = {
-    2:  {'sma_periods': (5, 8, 10, 20, 200), 'macd': False, 'stoch': False, 'rsi': True,  'bb': False},
-    5:  {'sma_periods': (5, 8, 10, 20, 200), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
-    10: {'sma_periods': (5, 8, 10, 20),      'macd': True,  'stoch': False, 'rsi': False, 'bb': False},
-    15: {'sma_periods': (5, 8, 10, 20, 130, 200), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
-    30: {'sma_periods': (5, 8, 10, 20),      'macd': True,  'stoch': False, 'rsi': False, 'bb': False},
-    60: {'sma_periods': (5, 8, 10, 20, 200), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True},
+    2:  {'sma_periods': (5, 8, 10, 20, 200), 'macd': False, 'stoch': False, 'rsi': True,  'bb': False, 'ema21': True},
+    5:  {'sma_periods': (5, 8, 10, 20, 200), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True,  'ema21': True},
+    10: {'sma_periods': (5, 8, 10, 20),      'macd': True,  'stoch': False, 'rsi': False, 'bb': False, 'ema21': False},
+    15: {'sma_periods': (5, 8, 10, 20, 130, 200), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True,  'ema21': True},
+    30: {'sma_periods': (5, 8, 10, 20),      'macd': True,  'stoch': False, 'rsi': False, 'bb': False, 'ema21': False},
+    60: {'sma_periods': (5, 8, 10, 20, 200), 'macd': True,  'stoch': True,  'rsi': True,  'bb': True,  'ema21': False},
 }
 
 # talipp attribute names on TimeframeState (for purging)
-_TF_TALIPP_ATTRS = ('sma_5', 'sma_8', 'sma_10', 'sma_20', 'sma_130', 'sma_200', 'macd', 'stoch', 'rsi', 'bb')
+_TF_TALIPP_ATTRS = ('sma_5', 'sma_8', 'sma_10', 'sma_20', 'sma_130', 'sma_200', 'macd', 'stoch', 'rsi', 'bb', 'ema_21')
 
 
 class TimeframeState:
@@ -192,7 +193,7 @@ class TimeframeState:
         'current_group', 'closes',
         'consecutive_candles',
         'sma_5', 'sma_8', 'sma_10', 'sma_20', 'sma_130', 'sma_200',
-        'macd', 'stoch', 'rsi', 'bb',
+        'macd', 'stoch', 'rsi', 'bb', 'ema_21',
         'tf_high', 'tf_low',
         'prev_bar_high', 'prev_bar_low',
     )
@@ -227,6 +228,7 @@ class TimeframeState:
             self.stoch = Stoch(period=14, smoothing_period=3) if cfg.get('stoch') else None
             self.rsi = RSI(period=14) if cfg.get('rsi') else None
             self.bb = BB(period=20, std_dev_mult=2.0) if cfg.get('bb') else None
+            self.ema_21 = EMA(period=21) if cfg.get('ema21') else None
         else:
             self.sma_5 = None
             self.sma_8 = None
@@ -238,6 +240,7 @@ class TimeframeState:
             self.stoch = None
             self.rsi = None
             self.bb = None
+            self.ema_21 = None
 
 
 class TickerBarState:
@@ -260,7 +263,7 @@ class TickerBarState:
         'high_intraday', 'low_intraday',
         'current_s', 'current_bar', 'bar_count',
         'last_close',
-        'rsi_14', 'ema_9', 'ema_20', 'ema_50',
+        'rsi_14', 'ema_9', 'ema_20', 'ema_21', 'ema_50',
         'sma_5', 'sma_8', 'sma_20', 'sma_50', 'sma_200',
         'macd', 'bb_20', 'atr_14', 'adx_14', 'stoch',
         'tf_states',  # Dict[int, TimeframeState] — multi-TF aggregation
@@ -292,6 +295,7 @@ class TickerBarState:
             self.rsi_14 = RSI(period=14)
             self.ema_9 = EMA(period=9)
             self.ema_20 = EMA(period=20)
+            self.ema_21 = EMA(period=21)
             self.ema_50 = EMA(period=50)
             # SMA for intraday (Tradeul alignment)
             self.sma_5 = SMA(period=5)
@@ -308,6 +312,7 @@ class TickerBarState:
             self.rsi_14 = None
             self.ema_9 = None
             self.ema_20 = None
+            self.ema_21 = None
             self.ema_50 = None
             self.sma_5 = None
             self.sma_8 = None
@@ -500,6 +505,7 @@ class BarEngine:
             state.rsi_14.add(bar.c)
             state.ema_9.add(bar.c)
             state.ema_20.add(bar.c)
+            state.ema_21.add(bar.c)
             state.ema_50.add(bar.c)
             state.sma_5.add(bar.c)
             state.sma_8.add(bar.c)
@@ -614,6 +620,10 @@ class BarEngine:
             if tf_state.rsi is not None:
                 tf_state.rsi.add(c)
 
+            # EMA21 (close-based)
+            if tf_state.ema_21 is not None:
+                tf_state.ema_21.add(c)
+
             # Bollinger Bands (close-based)
             if tf_state.bb is not None:
                 tf_state.bb.add(c)
@@ -672,6 +682,7 @@ class BarEngine:
         rsi_14 = self._read_talipp(state.rsi_14)
         ema_9 = self._read_talipp(state.ema_9)
         ema_20 = self._read_talipp(state.ema_20)
+        ema_21 = self._read_talipp(state.ema_21)
         ema_50 = self._read_talipp(state.ema_50)
 
         # SMA (intraday, from 1-min bars — Tradeul alignment)
@@ -749,6 +760,10 @@ class BarEngine:
             if tf_state.rsi is not None:
                 tf_ind['rsi_14'] = self._read_talipp(tf_state.rsi)
 
+            # EMA21
+            if tf_state.ema_21 is not None:
+                tf_ind['ema_21'] = self._read_talipp(tf_state.ema_21)
+
             # Bollinger Bands
             if tf_state.bb is not None and len(tf_state.bb) > 0:
                 last_bb = tf_state.bb[-1]
@@ -790,7 +805,7 @@ class BarEngine:
             chg_60m=chg_60m, chg_120m=chg_120m,
             vol_1m=vol_1m, vol_5m=vol_5m, vol_10m=vol_10m,
             vol_15m=vol_15m, vol_30m=vol_30m, vol_60m=vol_60m,
-            rsi_14=rsi_14, ema_9=ema_9, ema_20=ema_20, ema_50=ema_50,
+            rsi_14=rsi_14, ema_9=ema_9, ema_20=ema_20, ema_21=ema_21, ema_50=ema_50,
             sma_5=sma_5, sma_8=sma_8, sma_20=sma_20, sma_50=sma_50, sma_200=sma_200,
             macd_line=macd_line, macd_signal=macd_signal, macd_hist=macd_hist,
             bb_upper=bb_upper, bb_mid=bb_mid, bb_lower=bb_lower,

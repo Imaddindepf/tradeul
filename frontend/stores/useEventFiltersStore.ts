@@ -243,6 +243,15 @@ interface EventFilterParameters {
   // Distance from VWAP (%)
   min_dist_from_vwap?: number;
   max_dist_from_vwap?: number;
+  // Distance from EMA21 (%) — 1m + multi-timeframe
+  min_dist_from_ema21?: number;
+  max_dist_from_ema21?: number;
+  min_dist_from_ema21_2m?: number;
+  max_dist_from_ema21_2m?: number;
+  min_dist_from_ema21_5m?: number;
+  max_dist_from_ema21_5m?: number;
+  min_dist_from_ema21_15m?: number;
+  max_dist_from_ema21_15m?: number;
   // Distance from intraday SMAs (%)
   min_dist_sma_5?: number;
   max_dist_sma_5?: number;
