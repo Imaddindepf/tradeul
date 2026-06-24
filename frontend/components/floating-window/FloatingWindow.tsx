@@ -375,6 +375,7 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
 
   return (
     <FloatingWindowBase
+      windowId={window.id}
       dragHandleClassName={dragHandleClassName}
       initialSize={{ width: window.width, height: window.height }}
       initialPosition={{ x: window.x, y: window.y }}

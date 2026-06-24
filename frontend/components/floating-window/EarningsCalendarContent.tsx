@@ -22,6 +22,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useUserPreferencesStore, selectFont, selectColors } from '@/stores/useUserPreferencesStore';
 import { cn } from '@/lib/utils';
 import html2canvas from 'html2canvas';
+import { useCurrentWindowId } from '@/contexts/FloatingWindowContext';
+import { registerTickerSearch } from '@/lib/tickerSearchRegistry';
 
 // ============================================================================
 // TYPES
@@ -479,7 +481,21 @@ export function EarningsCalendarContent() {
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [searchTicker, setSearchTicker] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [minImportance, setMinImportance] = useState<number>(0);
+
+  // Type-ahead: enrutar las teclas al buscador cuando esta ventana tiene foco.
+  const ecWindowId = useCurrentWindowId();
+  useEffect(() => {
+    if (!ecWindowId) return;
+    return registerTickerSearch(ecWindowId, {
+      getInput: () => searchInputRef.current,
+      type: (char: string) => {
+        searchInputRef.current?.focus();
+        setSearchInput(char.toUpperCase());
+      },
+    });
+  }, [ecWindowId]);
   const [timeFilter, setTimeFilter] = useState<'all' | 'BMO' | 'AMC'>('all');
   const [sortField, setSortField] = useState<SortField>('importance');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -908,6 +924,7 @@ export function EarningsCalendarContent() {
           <path d="m21 21-4.3-4.3" />
         </svg>
         <input
+          ref={searchInputRef}
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value.toUpperCase())}

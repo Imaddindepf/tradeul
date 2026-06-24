@@ -4,7 +4,8 @@ import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } fro
 import { createPortal } from 'react-dom';
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { useMarketPulse, useDrilldown, useTickerContext, type PulseTab, type PerformanceEntry, type DrilldownTicker } from '@/hooks/useMarketPulse';
-import { useCloseCurrentWindow } from '@/contexts/FloatingWindowContext';
+import { useCloseCurrentWindow, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
+import { registerTickerSearch } from '@/lib/tickerSearchRegistry';
 import { ArrowLeft, RefreshCw, ChevronRight, ChevronDown, ArrowDown, ArrowUp, Plus, X, GripHorizontal, ExternalLink, Search, Columns3 } from 'lucide-react';
 import { ALL_COLUMNS, DEFAULT_COLUMNS, DD_COLUMNS, DEFAULT_DD_COLUMNS, type ColumnDef, type RenderMode } from './columns';
 import type { PulseViewType } from './types';
@@ -347,6 +348,22 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
   useEffect(() => {
     if (searchOpen) searchInputRef.current?.focus();
   }, [searchOpen]);
+
+  // Type-ahead: al teclear con esta ventana enfocada, abrir el buscador y
+  // arrancar con la letra escrita.
+  const mpWindowId = useCurrentWindowId();
+  useEffect(() => {
+    if (!mpWindowId) return;
+    return registerTickerSearch(mpWindowId, {
+      getInput: () => searchInputRef.current,
+      type: (char: string) => {
+        setSearchOpen(true);
+        setSearchInput(char.toUpperCase());
+        // El input se monta/enfoca vía el efecto de searchOpen; reforzamos foco.
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      },
+    });
+  }, [mpWindowId]);
 
   // ── View switching ──
   const [activeView, setActiveView] = useState<PulseViewType>(() => loadPrefs().view || 'table');

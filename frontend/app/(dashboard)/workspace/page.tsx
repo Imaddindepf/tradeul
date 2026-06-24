@@ -10,7 +10,8 @@ import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
 import { TerminalPalette } from '@/components/ui/TerminalPalette';
 import { HelpModal } from '@/components/ui/HelpModal';
 import { Settings2, LayoutGrid } from 'lucide-react';
-import { Z_INDEX } from '@/lib/z-index';
+import { Z_INDEX, floatingFocusManager } from '@/lib/z-index';
+import { hasTickerSearch, typeIntoTickerSearch } from '@/lib/tickerSearchRegistry';
 import { useFloatingWindowActions, useFloatingWindowsList } from '@/contexts/FloatingWindowContext';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
@@ -100,6 +101,13 @@ export default function ScannerPage() {
   // Quote inline: ticker activo y si está mostrando la tira
   const [activeQuoteTicker, setActiveQuoteTicker] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Refs sincronizados para que el listener global de teclado (deps []) lea
+  // siempre el estado actual sin re-suscribirse.
+  const commandPaletteOpenRef = useRef(commandPaletteOpen);
+  commandPaletteOpenRef.current = commandPaletteOpen;
+  const helpOpenRef = useRef(helpOpen);
+  helpOpenRef.current = helpOpen;
 
   const { openWindow, closeWindow } = useFloatingWindowActions();
   const windows = useFloatingWindowsList();
@@ -447,6 +455,33 @@ export default function ScannerPage() {
       if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
         e.preventDefault();
         setHelpOpen(true);
+      }
+
+      // Type-ahead: al teclear una LETRA con una ventana enfocada, enrutamos la
+      // pulsación al buscador de ticker de esa ventana. Excepciones: con la
+      // paleta de comandos (Cmd+K) o la ayuda abiertas, con modificadores, o si
+      // ya estamos escribiendo en un campo.
+      if (
+        /^[a-zA-Z]$/.test(e.key) &&
+        !e.metaKey && !e.ctrlKey && !e.altKey &&
+        !commandPaletteOpenRef.current &&
+        !helpOpenRef.current
+      ) {
+        const target = e.target as HTMLElement | null;
+        const tag = target?.tagName;
+        const isTyping =
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          tag === 'SELECT' ||
+          !!target?.isContentEditable;
+
+        if (!isTyping) {
+          const focusedId = floatingFocusManager.getCurrent();
+          if (focusedId && hasTickerSearch(focusedId)) {
+            e.preventDefault();
+            typeIntoTickerSearch(focusedId, e.key);
+          }
+        }
       }
     };
 

@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useRef, ReactNode, MouseEvent, useCallback, memo, useEffect } from 'react';
-import { floatingZIndexManager, Z_INDEX } from '@/lib/z-index';
+import { floatingZIndexManager, floatingFocusManager, Z_INDEX } from '@/lib/z-index';
 
 export interface FloatingWindowBaseProps {
   children: ReactNode;
+  /** Id de la ventana en el contexto, usado para el foco global */
+  windowId?: string;
   dragHandleClassName?: string;
   initialSize?: { width: number; height: number };
   initialPosition?: { x: number; y: number };
@@ -35,6 +37,7 @@ export interface FloatingWindowBaseProps {
  */
 function FloatingWindowBaseComponent({
   children,
+  windowId,
   dragHandleClassName = 'window-drag-handle',
   initialSize = { width: 800, height: 600 },
   initialPosition,
@@ -75,15 +78,35 @@ function FloatingWindowBaseComponent({
   const [position, setPosition] = useState(getInitialPosition);
   const [size, setSize] = useState(initialSize);
   const [zIndex, setZIndex] = useState(initialZIndex ?? Z_INDEX.FLOATING_TABLES_BASE);
-  const [isFocused, setIsFocused] = useState(false);
+  // El foco inicial lo decide el gestor global: una ventana recién abierta
+  // (p. ej. un chart al pulsar un ticker) ya fue marcada como enfocada por
+  // openWindow antes de montarse, así que nace con el borde de foco activo.
+  const [isFocused, setIsFocused] = useState(
+    () => windowId !== undefined && floatingFocusManager.getCurrent() === windowId,
+  );
 
   // Sincronizar zIndex cuando cambia desde el contexto (ej: al llamar openWindow de nuevo)
   useEffect(() => {
     if (initialZIndex !== undefined && initialZIndex !== zIndex) {
       setZIndex(initialZIndex);
-      setIsFocused(true); // También activar foco visual
+      // Activar foco visual y notificar globalmente para que las demás lo suelten
+      if (windowId !== undefined) {
+        floatingFocusManager.focus(windowId);
+      } else {
+        setIsFocused(true);
+      }
     }
   }, [initialZIndex]);
+
+  // Suscribirse al foco global: solo una ventana puede estar enfocada a la vez
+  useEffect(() => {
+    if (windowId === undefined) return;
+    setIsFocused(floatingFocusManager.getCurrent() === windowId);
+    const unsubscribe = floatingFocusManager.subscribe((focusedId) => {
+      setIsFocused(focusedId === windowId);
+    });
+    return unsubscribe;
+  }, [windowId]);
 
   // Establecer z-index solo en el cliente para evitar mismatch SSR (primera vez)
   useEffect(() => {
@@ -103,21 +126,13 @@ function FloatingWindowBaseComponent({
       const newZ = floatingZIndexManager.getNext();
       setZIndex(newZ);
       onZIndexChange?.(newZ);
-    setIsFocused(true);
-  }, [onZIndexChange]);
-
-  // Detectar clicks fuera para quitar foco (solo si no está dragging/resizing)
-  useEffect(() => {
-    const handleClickOutside = (e: globalThis.MouseEvent) => {
-      if (isDraggingRef.current || isResizingRef.current) return;
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsFocused(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    // Tomar el foco global: las demás ventanas lo soltarán vía la suscripción.
+    if (windowId !== undefined) {
+      floatingFocusManager.focus(windowId);
+    } else {
+      setIsFocused(true);
+    }
+  }, [onZIndexChange, windowId]);
 
   // Drag handler optimizado con bounds checking
   const handleDragStart = useCallback((e: MouseEvent<HTMLDivElement>) => {

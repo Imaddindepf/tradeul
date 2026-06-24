@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, X, Loader2, AlertCircle } from 'lucide-react';
+import { useCurrentWindowId } from '@/contexts/FloatingWindowContext';
+import { registerTickerSearch } from '@/lib/tickerSearchRegistry';
 
 type TickerResult = {
     symbol: string;
@@ -54,6 +56,22 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
         focus: () => inputRef.current?.focus(),
         suppressSearch: () => { skipNextSearchRef.current = true; }
     }));
+
+    // Auto-registro para el "type-ahead": si esta búsqueda vive dentro de una
+    // ventana flotante, al teclear con esa ventana enfocada arrancamos aquí.
+    const windowId = useCurrentWindowId();
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
+    useEffect(() => {
+        if (!windowId) return;
+        return registerTickerSearch(windowId, {
+            getInput: () => inputRef.current,
+            type: (char: string) => {
+                inputRef.current?.focus();
+                onChangeRef.current(char.toUpperCase());
+            },
+        });
+    }, [windowId]);
 
     // Fetch results from API
     const fetchResults = useCallback(async (query: string) => {

@@ -153,3 +153,50 @@ class FloatingContentZIndexManager {
 
 // Instancia global del manager
 export const floatingZIndexManager = new FloatingContentZIndexManager();
+
+/**
+ * Gestor global del FOCO de las ventanas flotantes.
+ * ================================================
+ *
+ * El z-index controla qué ventana se dibuja por encima, pero el "foco"
+ * (borde resaltado + ventana activa) necesita coordinación global para que
+ * SOLO una ventana esté enfocada a la vez. Sin esto, al abrir una ventana
+ * nueva (p. ej. un chart al pulsar un ticker en una tabla) la ventana
+ * anterior seguía mostrando el foco.
+ *
+ * Patrón pub/sub minimalista: cada FloatingWindowBase se suscribe y compara
+ * el id enfocado con el suyo. `focus(id)` se llama al abrir/clicar/arrastrar
+ * una ventana y al traerla al frente desde el contexto.
+ */
+type FloatingFocusListener = (focusedId: string | null) => void;
+
+class FloatingFocusManager {
+  private currentFocusedId: string | null = null;
+  private listeners = new Set<FloatingFocusListener>();
+
+  /** Marca una ventana como la enfocada y notifica a todas las demás */
+  focus(id: string | null): void {
+    if (this.currentFocusedId === id) {
+      // Reemitimos igualmente para asegurar que la ventana destino se marque
+      // como enfocada incluso si otra cambió el estado local.
+      this.listeners.forEach((l) => l(id));
+      return;
+    }
+    this.currentFocusedId = id;
+    this.listeners.forEach((l) => l(id));
+  }
+
+  /** Id de la ventana actualmente enfocada (o null) */
+  getCurrent(): string | null {
+    return this.currentFocusedId;
+  }
+
+  subscribe(listener: FloatingFocusListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+}
+
+export const floatingFocusManager = new FloatingFocusManager();

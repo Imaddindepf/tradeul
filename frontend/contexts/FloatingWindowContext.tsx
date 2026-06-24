@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect, useMemo } from 'react';
-import { floatingZIndexManager } from '@/lib/z-index';
+import { floatingZIndexManager, floatingFocusManager } from '@/lib/z-index';
 import { useUserPreferencesStore, consumePendingComponentStates } from '@/stores/useUserPreferencesStore';
 import { getWindowType } from '@/lib/window-config';
 
@@ -381,6 +381,8 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   const bringToFront = useCallback((id: string) => {
     // Todas las ventanas compiten en la misma jerarquía
     const zIndex = floatingZIndexManager.getNext();
+    // Marcar como ventana enfocada (las demás soltarán el foco)
+    floatingFocusManager.focus(id);
     setWindows((prev) =>
       prev.map((w) => (w.id === id ? { ...w, zIndex, isMinimized: false } : w))
     );
@@ -419,6 +421,15 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
       isMinimized: false,
       isMaximized: false,
     };
+
+    // Dar el foco a la ventana recién abierta SOLO en aperturas iniciadas por el
+    // usuario (sin id explícito). La restauración del workspace pasa un id, así
+    // que no robamos el foco al recargar/cambiar de workspace.
+    // Se marca antes de montar para que las ventanas existentes lo suelten y la
+    // nueva nazca enfocada (lee el gestor en su estado inicial).
+    if (!config.id) {
+      floatingFocusManager.focus(id);
+    }
 
     setWindows((prev) => [...prev, newWindow]);
     return id;
