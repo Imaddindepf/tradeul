@@ -83,6 +83,20 @@
     "auth": {
       "signIn": "Sign in",
       "createAccount": "Create account"
+    },
+    "authPage": {
+      "eyebrowSignIn": "Welcome back",
+      "eyebrowSignUp": "Free to start",
+      "brandHeadline1": "See what",
+      "brandHeadline2": "others miss",
+      "brandSubtitle": "Real-time market intelligence. Scanner, dilution tracking, SEC filings, and news — all in one workspace.",
+      "feature1": "Real-time scanner across 8,000+ tickers",
+      "feature2": "AI-analyzed dilution risk",
+      "feature3": "SEC filings and news, instantly",
+      "trust": "Used by traders who refuse to trade blind.",
+      "backHome": "Back to home",
+      "noAccount": "Don't have an account?",
+      "haveAccount": "Already have an account?"
     }
   },
   "common": {

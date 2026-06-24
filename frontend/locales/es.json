@@ -83,6 +83,20 @@
     "auth": {
       "signIn": "Iniciar sesión",
       "createAccount": "Crear cuenta"
+    },
+    "authPage": {
+      "eyebrowSignIn": "Bienvenido de nuevo",
+      "eyebrowSignUp": "Gratis para empezar",
+      "brandHeadline1": "Ve lo que",
+      "brandHeadline2": "otros no ven",
+      "brandSubtitle": "Inteligencia de mercado en tiempo real. Scanner, seguimiento de dilución, filings SEC y noticias — todo en un workspace.",
+      "feature1": "Scanner de +8,000 tickers en tiempo real",
+      "feature2": "Riesgo de dilución analizado con IA",
+      "feature3": "Filings SEC y noticias al instante",
+      "trust": "Usado por traders que se niegan a operar a ciegas.",
+      "backHome": "Volver al inicio",
+      "noAccount": "¿No tienes cuenta?",
+      "haveAccount": "¿Ya tienes cuenta?"
     }
   },
   "common": {

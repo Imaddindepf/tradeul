@@ -29,6 +29,27 @@ const isPublicRoute = createRouteMatcher([
 const isTaskRoute = createRouteMatcher(['/tasks(.*)'])
 
 export default clerkMiddleware(async (auth, req) => {
+    // ── Invitation / ticket forwarding ───────────────────────────────────────
+    // Clerk appends `__clerk_ticket` (+ `__clerk_status`) to the redirect URL
+    // when a user opens an invitation link. With no per-invitation redirect_url
+    // (the default for Dashboard-created invites, which can't set one), Clerk
+    // sends them to the app home (`/`) — where our prebuilt <SignUp/> isn't
+    // mounted, so the ticket is dropped and Restricted mode shows
+    // "access restricted". Per Clerk's guidance, the prebuilt <SignUp/>/<SignIn/>
+    // components consume the ticket automatically as long as it reaches their
+    // page, so we forward any ticket-bearing request to /sign-up (or /sign-in
+    // when __clerk_status signals an existing user), preserving the query.
+    const ticket = req.nextUrl.searchParams.get('__clerk_ticket')
+    if (ticket) {
+        const status = req.nextUrl.searchParams.get('__clerk_status')
+        const targetPath = status === 'sign_in' ? '/sign-in' : '/sign-up'
+        if (req.nextUrl.pathname !== targetPath) {
+            const dest = new URL(targetPath, req.url)
+            dest.search = req.nextUrl.search // keep __clerk_ticket & __clerk_status
+            return NextResponse.redirect(dest)
+        }
+    }
+
     const { userId, sessionClaims } = await auth()
 
     // ── Pending session tasks (mandatory password reset, etc.) ─────────────
