@@ -733,6 +733,90 @@ services:
           memory: 128M
 
   # ============================================================================
+  # OPENUL PERSISTER - Persiste openul:news en BD Postgres separada
+  # ============================================================================
+  openul-persister:
+    build:
+      context: ./services/openul-persister
+      dockerfile: Dockerfile
+    container_name: tradeul_openul_persister
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=127.0.0.1
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_STREAM_KEY=openul:news
+      - CONSUMER_GROUP=openul_persister
+      - CONSUMER_NAME=persister_1
+      # BD separada para news (mismo servidor que el motor de dilucion,
+      # via tunnel SSH 127.0.0.1:55433 -> 37.27.183.194:5432).
+      # Reutiliza el login dilution_admin sobre una BD distinta (openul).
+      - DB_HOST=127.0.0.1
+      - DB_PORT=55433
+      - DB_NAME=openul
+      - DB_USER=dilution_admin
+      - DB_PASSWORD=${DT_DB_PASSWORD}
+      - SERVICE_PORT=8071
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_healthy
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8071/health')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # ============================================================================
+  # AI NEWS BRIEF - Brief Fundamental de noticias (Claude Opus 4.8)
+  # ============================================================================
+  ai-news-brief:
+    build:
+      context: ./services/ai-news-brief
+      dockerfile: Dockerfile
+    container_name: tradeul_ai_news_brief
+    env_file:
+      - .env
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-opus-4-8}
+      - SERVICE_PORT=8072
+      # Endpoints internos para las tools:
+      #  - gateway por DNS de la red bridge
+      #  - dilution corre en host => alcanzable via gateway de tradeul_network
+      - GATEWAY_URL=http://api_gateway:8000
+      - DILUTION_URL=http://172.18.0.1:8009
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Monta docs/ para que el tratado del trader (si existe) sea la metodologia.
+      - ./docs:/app/docs:ro
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8072:8072"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  # ============================================================================
   # BENZINGA EARNINGS - Real-time earnings data streaming
   # ============================================================================
   benzinga-earnings:
@@ -929,6 +1013,9 @@ services:
       - MCP_DB_USER=${POSTGRES_USER:-tradeul_user}
       - MCP_DB_PASSWORD=${POSTGRES_PASSWORD}
       - MCP_DB_NAME=${POSTGRES_DB:-tradeul}
+      # dilution_tracker corre con network_mode: host (puerto 8009) y no tiene
+      # DNS en la red bridge => alcanzable via gateway de tradeul_network.
+      - MCP_DILUTION_TRACKER_URL=http://172.18.0.1:8009
     volumes:
       - polygon_data:/data/polygon:ro
       - backtester_data:/data/backtester:ro
@@ -971,6 +1058,10 @@ services:
       - BACKTESTER_URL=http://backtester:8060
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
       - REDIS_PASSWORD=${REDIS_PASSWORD}
+      # ai-news-brief en la misma red bridge => alcanzable por DNS del servicio.
+      - NEWS_BRIEF_URL=http://ai-news-brief:8072
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /tmp/tradeul_sandbox:/tmp/sandbox_data

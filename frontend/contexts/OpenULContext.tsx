@@ -33,11 +33,25 @@ interface OpenULContextValue {
   clearUnread: () => void;
   isWindowOpen: boolean;
   setWindowOpen: (open: boolean) => void;
+  loadOlder: () => void;
+  loadingOlder: boolean;
+  hasMore: boolean;
 }
 
 const OpenULContext = createContext<OpenULContextValue | null>(null);
 
-const MAX_ITEMS = 200;
+// Tope de memoria. La virtualizacion (react-virtuoso) mantiene el DOM
+// acotado a unos pocos nodos sin importar el tamano del array, asi que un
+// tope alto solo limita el heap de JS. Solo se recorta la cola (lo mas
+// antiguo) en el merge de items NUEVOS; nunca al cargar historial.
+const MAX_ITEMS = 5000;
+
+// Items por pagina al cargar historial hacia atras (scroll al fondo).
+const HISTORY_PAGE_SIZE = 50;
+
+// Freno duro de paginacion: dejamos de pedir mas alla de esto para que un
+// scroll infinito accidental no agote memoria.
+const HISTORY_HARD_CEILING = 10000;
 
 // If the tab has been hidden for at least this long we assume the SSE
 // connection might be zombie and force an explicit gap-fill on return.
@@ -54,11 +68,23 @@ export function OpenULProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [unreadCount, setUnreadCount] = useState(0);
   const [isWindowOpen, setWindowOpen] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const initialLoadDone = useRef(false);
+
+  // Refs sincronizados para leer estado actual dentro de callbacks estables
+  // (loadOlder se dispara desde el onScroll de Virtuoso).
+  const itemsRef = useRef<OpenULNewsItem[]>([]);
+  const loadingOlderRef = useRef(false);
+  const hasMoreRef = useRef(true);
+
+  useEffect(() => { itemsRef.current = items; }, [items]);
+  useEffect(() => { loadingOlderRef.current = loadingOlder; }, [loadingOlder]);
+  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
 
   // The last stream id we have actually delivered to React state. We use
   // this to ask the backend for a precise gap-fill on reconnect.
@@ -108,6 +134,57 @@ export function OpenULProvider({ children }: { children: React.ReactNode }) {
       // Network/abort — the SSE reconnect below will retry via Last-Event-ID.
     }
   }, [applyIncomingItems]);
+
+  // Carga de historial hacia atras (mas antiguo) desde la BD via cursor.
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !hasMoreRef.current) return;
+
+    const current = itemsRef.current;
+    if (current.length >= HISTORY_HARD_CEILING) {
+      setHasMore(false);
+      return;
+    }
+
+    const oldest = current[current.length - 1];
+    const beforeTs = oldest?.received_ts;
+    if (beforeTs == null) return;
+
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const res = await fetch(
+        `/api/openul/history?before_ts=${encodeURIComponent(beforeTs)}&limit=${HISTORY_PAGE_SIZE}`,
+        { cache: 'no-store' },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const older = (Array.isArray(data.results) ? data.results : []) as OpenULNewsItem[];
+
+      // Si el backend devolvio menos de una pagina completa, no hay mas.
+      if (older.length < HISTORY_PAGE_SIZE) setHasMore(false);
+
+      if (older.length > 0) {
+        setItems((prev) => {
+          const seen = new Set(prev.map((p) => p.id));
+          const fresh = older.filter((it) => it.id && !seen.has(it.id));
+          // Sin items nuevos => el cursor no avanza: paramos para no entrar
+          // en un bucle de fetch contra el mismo borde.
+          if (fresh.length === 0) {
+            setHasMore(false);
+            return prev;
+          }
+          return [...prev, ...fresh].sort(
+            (a, b) => (b.received_ts ?? 0) - (a.received_ts ?? 0),
+          );
+        });
+      }
+    } catch {
+      // Silencioso: el usuario puede reintentar haciendo scroll de nuevo.
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, []);
 
   const loadInitialNews = useCallback(async () => {
     if (initialLoadDone.current) return;
@@ -269,6 +346,10 @@ export function OpenULProvider({ children }: { children: React.ReactNode }) {
       lastStreamIdRef.current = null;
       lastSseAtRef.current = Date.now();
       hiddenSinceRef.current = 0;
+      hasMoreRef.current = true;
+      loadingOlderRef.current = false;
+      setHasMore(true);
+      setLoadingOlder(false);
 
       // Order matters: load history → seed stream id → connect SSE so the
       // very first connect resumes from the latest known event.
@@ -279,6 +360,8 @@ export function OpenULProvider({ children }: { children: React.ReactNode }) {
       setItems([]);
       setUnreadCount(0);
       lastStreamIdRef.current = null;
+      setHasMore(true);
+      setLoadingOlder(false);
     }
 
     return () => {
@@ -298,6 +381,9 @@ export function OpenULProvider({ children }: { children: React.ReactNode }) {
     clearUnread,
     isWindowOpen,
     setWindowOpen,
+    loadOlder,
+    loadingOlder,
+    hasMore,
   };
 
   return (

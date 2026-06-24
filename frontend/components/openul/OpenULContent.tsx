@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState, useMemo, useCallback, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import { Radio, ChevronDown, Clock, ArrowUp, TrendingUp, TrendingDown } from 'lucide-react';
+import { Radio, ChevronDown, Clock, ArrowUp, TrendingUp, TrendingDown, Sparkles } from 'lucide-react';
 import { useOpenUL, type OpenULNewsItem, type OpenULMedia } from '@/contexts/OpenULContext';
+import { AIAgentContent } from '@/components/ai-agent';
+import { requestContextBrief } from '@/lib/agentBridge';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
-import { useCurrentWindowId } from '@/contexts/FloatingWindowContext';
+import { useCurrentWindowId, useFloatingWindowActions, useFloatingWindowsList } from '@/contexts/FloatingWindowContext';
 import { useUserPreferencesStore, selectFont, selectTimezone } from '@/stores/useUserPreferencesStore';
 
 const FONT_CLASS_MAP: Record<string, string> = {
@@ -151,7 +153,7 @@ function MediaThumbnail({ media }: { media: OpenULMedia }) {
   );
 }
 
-function NewsItem({ item, isNew, tz, onTickerClick }: { item: OpenULNewsItem; isNew: boolean; tz: string; onTickerClick: (t: string) => void }) {
+function NewsItem({ item, isNew, tz, onTickerClick, onOpenBrief }: { item: OpenULNewsItem; isNew: boolean; tz: string; onTickerClick: (t: string) => void; onOpenBrief: (item: OpenULNewsItem) => void }) {
   const [expanded, setExpanded] = useState(false);
   const cleanText = stripEmojis(item.text);
   const lines = cleanText.split('\n').filter((l) => l.trim());
@@ -218,6 +220,14 @@ function NewsItem({ item, isNew, tz, onTickerClick }: { item: OpenULNewsItem; is
               ))}
             </div>
           )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenBrief(item); }}
+            title="Brief Fundamental con IA"
+            className="ml-auto flex items-center gap-0.5 px-1 py-px text-[8px] font-mono font-bold text-primary border border-primary/30 bg-primary/5 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-primary/15 hover:border-primary transition-all"
+          >
+            <Sparkles className="w-2.5 h-2.5" />
+            Brief
+          </button>
         </div>
       </div>
     </div>
@@ -244,8 +254,10 @@ function HeaderPortal({ windowId, todayCount, status }: { windowId: string; toda
 }
 
 export function OpenULContent() {
-  const { items, status, clearUnread, setWindowOpen } = useOpenUL();
+  const { items, status, clearUnread, setWindowOpen, loadOlder, loadingOlder, hasMore } = useOpenUL();
   const { executeTickerCommand } = useCommandExecutor();
+  const { openWindow, bringToFront } = useFloatingWindowActions();
+  const windowsList = useFloatingWindowsList();
   const windowId = useCurrentWindowId();
   const font = useUserPreferencesStore(selectFont);
   const tz = useUserPreferencesStore(selectTimezone);
@@ -260,6 +272,35 @@ export function OpenULContent() {
   const handleTickerClick = useCallback((ticker: string) => {
     executeTickerCommand(ticker, 'chart');
   }, [executeTickerCommand]);
+
+  // Abre (o reutiliza) la ventana del Agente IA, miniaturizada, y pide el
+  // Brief de Contexto de la noticia (persiste en el hilo, follow-ups en vivo).
+  const handleOpenBrief = useCallback((item: OpenULNewsItem) => {
+    const news = {
+      text: item.text,
+      tickers: item.tickers || [],
+      created_at: item.created_at,
+      received_at: item.received_at,
+      id: item.id,
+    };
+    const existing = windowsList.find((w) => w.title === 'AI Agent');
+    if (existing) {
+      bringToFront(existing.id);
+    } else {
+      const sw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+      openWindow({
+        title: 'AI Agent',
+        content: <AIAgentContent />,
+        width: 540,
+        height: 660,
+        x: Math.max(40, sw - 580),
+        y: 80,
+        minWidth: 380,
+        minHeight: 440,
+      });
+    }
+    requestContextBrief(news);
+  }, [windowsList, openWindow, bringToFront]);
 
   useEffect(() => {
     setWindowOpen(true);
@@ -302,11 +343,34 @@ export function OpenULContent() {
     if (item.type === 'reaction') {
       return <ReactionItem item={item} tz={tz} onTickerClick={handleTickerClick} />;
     }
-    return <NewsItem item={item} isNew={newItemIds.has(item.id)} tz={tz} onTickerClick={handleTickerClick} />;
-  }, [tz, handleTickerClick, newItemIds]);
+    return <NewsItem item={item} isNew={newItemIds.has(item.id)} tz={tz} onTickerClick={handleTickerClick} onOpenBrief={handleOpenBrief} />;
+  }, [tz, handleTickerClick, newItemIds, handleOpenBrief]);
+
+  // Clave estable por item: evita que Virtuoso re-monte filas cuando llegan
+  // noticias nuevas por arriba (los indices se desplazan, las claves no).
+  const computeItemKey = useCallback((_index: number, item: OpenULNewsItem) => item.id, []);
+
+  const Footer = useCallback(() => {
+    if (loadingOlder) {
+      return (
+        <div className="flex items-center justify-center gap-1.5 py-2 text-[9px] font-mono text-muted-fg">
+          <span className="w-2 h-2 rounded-full border border-muted-fg border-t-transparent animate-spin" />
+          Loading older news…
+        </div>
+      );
+    }
+    if (!hasMore && items.length > 0) {
+      return (
+        <div className="py-2 text-center text-[9px] font-mono text-muted-fg/40">
+          — end of history —
+        </div>
+      );
+    }
+    return null;
+  }, [loadingOlder, hasMore, items.length]);
 
   return (
-    <div className={`flex flex-col h-full bg-surface select-text ${fontClass}`}>
+    <div className={`relative flex flex-col h-full bg-surface select-text ${fontClass}`}>
       {windowId && <HeaderPortal windowId={windowId} todayCount={todayCount} status={status} />}
 
       {items.length === 0 ? (
@@ -322,8 +386,12 @@ export function OpenULContent() {
           ref={virtuosoRef}
           data={items}
           itemContent={renderItem}
+          computeItemKey={computeItemKey}
           atTopStateChange={setAtTop}
+          endReached={loadOlder}
+          increaseViewportBy={{ top: 0, bottom: 600 }}
           overscan={400}
+          components={{ Footer }}
           className="flex-1"
         />
       )}

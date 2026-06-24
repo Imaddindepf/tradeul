@@ -6,6 +6,7 @@ and streams intermediate node events + the final response back via WebSocket.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -36,6 +37,169 @@ def _detect_language(text: str) -> str:
     matches = _SPANISH_MARKERS.findall(text)
     # If 2+ Spanish markers found, it's Spanish
     return "es" if len(matches) >= 2 else "en"
+
+
+# Etapas mostradas en vivo mientras Opus trabaja (no son medibles, son guía UX).
+_BRIEF_STAGES = [
+    "Leyendo la noticia que ya tenemos…",
+    "Consultando datos internos de Tradeul…",
+    "Buscando contexto y antecedentes en la web…",
+    "Evaluando qué cambia en el fundamento…",
+    "Redactando el brief…",
+]
+_FOLLOWUP_STAGES = [
+    "Repasando el contexto del hilo…",
+    "Buscando lo que haga falta…",
+    "Redactando la respuesta…",
+]
+
+
+async def _progress_pump(websocket: WebSocket, stages: list[str], interval: float = 9.0) -> None:
+    """Emite mensajes de progreso escalonados sobre el step en curso."""
+    i = 0
+    try:
+        while True:
+            msg = stages[min(i, len(stages) - 1)]
+            await websocket.send_json({
+                "type": "agent_progress",
+                "node": "context_brief",
+                "message": msg,
+                "timestamp": time.time(),
+            })
+            i += 1
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        return
+    except Exception:  # noqa: BLE001
+        return
+
+
+async def _handle_context_brief(
+    websocket: WebSocket, client_id: str, message: dict[str, Any],
+    thread_id: str, query: str,
+) -> None:
+    """Route a 'context brief' request to the ai-news-brief service (Opus 4.8).
+
+    First turn -> full fundamental brief of the news.
+    Follow-up (thread already has history) -> conversational answer, same engine,
+    keeping the original news as context.
+
+    Persists each turn to the same Redis memory the normal agent uses, so it
+    shows up in conversation history and supports follow-ups.
+    """
+    from clients import news_brief_client
+
+    memory = getattr(websocket.app.state, "memory", None)
+
+    clean_q = query
+    if clean_q.startswith("/contexto"):
+        clean_q = clean_q[len("/contexto"):].strip()
+
+    # News context from the frontend, or build a minimal one from the text.
+    news_ctx = message.get("news_context") or {}
+    if not news_ctx.get("text"):
+        tickers = re.findall(r"\$([A-Z]{1,5})", clean_q or query)
+        news_ctx = {"text": clean_q or query, "tickers": tickers}
+
+    # Prior turns of this thread (for follow-ups, same engine + context).
+    history: list[dict[str, str]] = []
+    if memory:
+        try:
+            past = await memory.get_conversation_history("default", thread_id, limit=8)
+            for turn in past:
+                q = turn.get("query")
+                r = turn.get("response")
+                if q:
+                    history.append({"role": "user", "content": q})
+                if r:
+                    history.append({"role": "assistant", "content": r})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("context_brief history load failed: %s", exc)
+
+    is_followup = len(history) > 0
+
+    # Abre un "step" visible para que el usuario vea el progreso en vivo.
+    await websocket.send_json({
+        "type": "node_started",
+        "node": "context_brief",
+        "timestamp": time.time(),
+    })
+
+    stages = _FOLLOWUP_STAGES if is_followup else _BRIEF_STAGES
+    pump = asyncio.create_task(_progress_pump(websocket, stages))
+
+    start_time = time.time()
+    try:
+        if is_followup:
+            result = await news_brief_client.followup(news_ctx, history, clean_q or query)
+        else:
+            result = await news_brief_client.generate_brief(news_ctx)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("context_brief failed client=%s: %s", client_id, exc)
+        pump.cancel()
+        await asyncio.gather(pump, return_exceptions=True)
+        await websocket.send_json({
+            "type": "node_error",
+            "node": "context_brief",
+            "error": str(exc),
+        })
+        await websocket.send_json({
+            "type": "error",
+            "message": f"El brief de contexto falló: {exc}",
+        })
+        return
+
+    pump.cancel()
+    await asyncio.gather(pump, return_exceptions=True)
+
+    brief_md = result.get("brief_markdown") or "(sin contenido)"
+    total_ms = int((time.time() - start_time) * 1000)
+
+    # Resumen legible de lo que se usó (sin revelar proveedores).
+    tools_used = result.get("tools_used", []) or []
+    sources = result.get("sources", []) or []
+    _tool_labels = {
+        "get_company_fundamentals": "fundamentales",
+        "get_analyst_ratings": "analistas",
+        "get_cash_and_dilution": "caja/dilución",
+    }
+    used_labels = [_tool_labels.get(t, t) for t in dict.fromkeys(tools_used)]
+    summary_parts = []
+    if used_labels:
+        summary_parts.append("Datos internos: " + ", ".join(used_labels))
+    summary_parts.append(f"{len(sources)} fuente(s) web")
+    completion_preview = " · ".join(summary_parts)
+
+    await websocket.send_json({
+        "type": "node_completed",
+        "node": "context_brief",
+        "elapsed_ms": total_ms,
+        "preview": completion_preview,
+    })
+
+    await websocket.send_json({
+        "type": "final_response",
+        "response": brief_md,
+        "thread_id": thread_id,
+        "metadata": {
+            "total_elapsed_ms": total_ms,
+            "client_id": client_id,
+            "mode": "context_brief",
+            "sources": sources,
+            "tools_used": tools_used,
+        },
+    })
+
+    if memory:
+        try:
+            await memory.store_conversation(
+                user_id="default",
+                thread_id=thread_id,
+                query=(clean_q or query)[:500],
+                response=brief_md[:6000],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("context_brief persist failed: %s", exc)
 
 
 async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
@@ -94,6 +258,11 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "type": "ack",
                 "thread_id": thread_id,
             })
+
+            # ── Context Brief mode: route to ai-news-brief (Opus), bypass graph ──
+            if mode == "context_brief" or query.startswith("/contexto"):
+                await _handle_context_brief(websocket, client_id, message, thread_id, query)
+                continue
 
             # Build initial agent state (V5 parallel architecture)
             # If user chose a clarification option, prepend context

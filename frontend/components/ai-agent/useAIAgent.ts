@@ -17,6 +17,12 @@ import {
   ClarificationData,
   ChartContext,
 } from './types';
+import {
+  AGENT_CONTEXT_BRIEF_EVENT,
+  consumePendingBrief,
+  clearPendingBrief,
+  type ContextBriefNews,
+} from '@/lib/agentBridge';
 
 // V4 agent runs behind Caddy at agent.tradeul.com/v4/
 const AGENT_BASE = process.env.NEXT_PUBLIC_AI_AGENT_V4_API_URL || 'https://agent.tradeul.com/v4';
@@ -40,6 +46,7 @@ const NODE_LABELS: Record<string, string> = {
   synthesizer: 'Synthesizer',
   dilution: 'Dilution Tracker',
   context_enricher: 'Context',
+  context_brief: 'Contexto Fundamental',
 };
 
 function generateSessionId(): string {
@@ -69,6 +76,10 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
   const [sessionId, setSessionId] = useState<string>(() => generateSessionId());
 
   const activeChartRef = useRef<{ ticker: string; interval: string; range: string } | null>(null);
+  // Si el hilo actual es un "Brief de Contexto", guardamos la noticia para que
+  // los follow-ups vayan al mismo motor (context_brief) con su contexto.
+  const contextNewsRef = useRef<ContextBriefNews | null>(null);
+  const pendingContextRef = useRef<ContextBriefNews | null>(null);
 
   const MAX_MESSAGES = 200;
   const MAX_RESULT_BLOCKS = 100;
@@ -488,9 +499,65 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
     // Use the persistent sessionId as thread_id for conversation continuity
     const payload: Record<string, unknown> = { query: content.trim(), thread_id: sessionId, mode: 'auto' };
+    // Si estamos en un hilo de Brief de Contexto, los follow-ups van al mismo motor.
+    if (contextNewsRef.current) {
+      payload.mode = 'context_brief';
+      payload.news_context = contextNewsRef.current;
+    }
     if (ctxToSend) { payload.chart_context = ctxToSend; setChartContext(null); }
     wsRef.current.send(JSON.stringify(payload));
   }, [cancelPendingRequest, chartContext, sessionId]);
+
+  // SEND CONTEXT BRIEF — abre un hilo NUEVO para una noticia (Opus 4.8 + tools)
+  const sendContextBrief = useCallback((news: ContextBriefNews) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setError('No conectado al servidor');
+      return;
+    }
+    if (pendingRequestRef.current) cancelPendingRequest('error');
+
+    const newSession = generateSessionId();
+    setSessionId(newSession);
+    contextNewsRef.current = {
+      text: news.text,
+      tickers: news.tickers || [],
+      created_at: news.created_at,
+      received_at: news.received_at,
+      id: news.id,
+    };
+
+    const now = Date.now();
+    const messageId = `user-${now}`;
+    const assistantMsgId = `assistant-${now}`;
+    const label = `Contexto de la noticia: "${news.text.slice(0, 160)}${news.text.length > 160 ? '…' : ''}"`;
+
+    // Hilo fresco
+    setResultBlocks([]);
+    setMessages([{ id: messageId, role: 'user', content: label, timestamp: new Date() }]);
+    setIsLoading(true);
+    setError(null);
+
+    pendingRequestRef.current = { messageId, assistantMsgId, content: label, sentAt: now, threadId: newSession };
+    lastActivityRef.current = now;
+    nodeStartTimesRef.current = {};
+    requestTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, REQUEST_TIMEOUT_MS);
+    activityTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, ACTIVITY_TIMEOUT_MS);
+
+    wsRef.current.send(JSON.stringify({
+      query: news.text.slice(0, 400),
+      thread_id: newSession,
+      mode: 'context_brief',
+      news_context: contextNewsRef.current,
+    }));
+  }, [cancelPendingRequest]);
+
+  const triggerContextBrief = useCallback((news: ContextBriefNews) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      sendContextBrief(news);
+    } else {
+      pendingContextRef.current = news;  // se enviará al conectar
+    }
+  }, [sendContextBrief]);
 
   const sendClarificationChoice = useCallback((originalQuery: string, rewrite: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -525,6 +592,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     setMessages([]);
     setResultBlocks([]);
     setSessionId(generateSessionId());
+    contextNewsRef.current = null;  // vuelve al agente normal
   }, []);
 
   // Load a past session — replaces current messages and sessionId
@@ -556,6 +624,32 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     window.addEventListener('agent:chart-active', handler as EventListener);
     return () => window.removeEventListener('agent:chart-active', handler as EventListener);
   }, []);
+
+  // Listen for context-brief requests (from OpenUL/News) when already mounted
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ news: ContextBriefNews }>) => {
+      clearPendingBrief();
+      if (e.detail?.news) triggerContextBrief(e.detail.news);
+    };
+    window.addEventListener(AGENT_CONTEXT_BRIEF_EVENT, handler as EventListener);
+    return () => window.removeEventListener(AGENT_CONTEXT_BRIEF_EVENT, handler as EventListener);
+  }, [triggerContextBrief]);
+
+  // On mount, consume any pending brief requested before the window existed
+  useEffect(() => {
+    const pending = consumePendingBrief();
+    if (pending) pendingContextRef.current = pending;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Flush a queued context brief once the WS is connected
+  useEffect(() => {
+    if (isConnected && pendingContextRef.current) {
+      const n = pendingContextRef.current;
+      pendingContextRef.current = null;
+      sendContextBrief(n);
+    }
+  }, [isConnected, sendContextBrief]);
 
   // Heartbeat
   useEffect(() => {
