@@ -689,16 +689,25 @@ export function useDrawingInteractions({
 
             switch (e.key) {
                 case 'Escape': cancelDrawing(); selectDrawing(null); break;
-                case 'h': case 'H': setActiveTool(activeTool === 'horizontal_line' ? 'none' : 'horizontal_line'); break;
-                case 't': case 'T': setActiveTool(activeTool === 'trendline' ? 'none' : 'trendline'); break;
-                case 'f': case 'F': setActiveTool(activeTool === 'fibonacci' ? 'none' : 'fibonacci'); break;
-                case 'r': case 'R': setActiveTool(activeTool === 'rectangle' ? 'none' : 'rectangle'); break;
-                case 'v': case 'V': setActiveTool(activeTool === 'vertical_line' ? 'none' : 'vertical_line'); break;
-                case 'y': case 'Y': setActiveTool(activeTool === 'ray' ? 'none' : 'ray'); break;
-                case 'e': case 'E': setActiveTool(activeTool === 'extended_line' ? 'none' : 'extended_line'); break;
-                case 'c': case 'C': if (!e.metaKey && !e.ctrlKey) setActiveTool(activeTool === 'circle' ? 'none' : 'circle'); break;
-                case 'm': case 'M': if (!e.metaKey && !e.ctrlKey) setActiveTool(activeTool === 'measure' ? 'none' : 'measure'); break;
                 case 'Delete': case 'Backspace': if (selectedDrawingId) removeDrawing(selectedDrawingId); break;
+            }
+
+            // Herramientas de dibujo: Alt + letra (estilo TradingView).
+            // Las letras sueltas quedan libres para el buscador de ticker
+            // (type-ahead) de la ventana enfocada. Usamos e.code porque en
+            // algunos teclados Alt cambia el carácter de e.key.
+            if (e.altKey && !e.metaKey && !e.ctrlKey) {
+                switch (e.code) {
+                    case 'KeyH': e.preventDefault(); setActiveTool(activeTool === 'horizontal_line' ? 'none' : 'horizontal_line'); break;
+                    case 'KeyT': e.preventDefault(); setActiveTool(activeTool === 'trendline' ? 'none' : 'trendline'); break;
+                    case 'KeyF': e.preventDefault(); setActiveTool(activeTool === 'fibonacci' ? 'none' : 'fibonacci'); break;
+                    case 'KeyR': e.preventDefault(); setActiveTool(activeTool === 'rectangle' ? 'none' : 'rectangle'); break;
+                    case 'KeyV': e.preventDefault(); setActiveTool(activeTool === 'vertical_line' ? 'none' : 'vertical_line'); break;
+                    case 'KeyY': e.preventDefault(); setActiveTool(activeTool === 'ray' ? 'none' : 'ray'); break;
+                    case 'KeyE': e.preventDefault(); setActiveTool(activeTool === 'extended_line' ? 'none' : 'extended_line'); break;
+                    case 'KeyC': e.preventDefault(); setActiveTool(activeTool === 'circle' ? 'none' : 'circle'); break;
+                    case 'KeyM': e.preventDefault(); setActiveTool(activeTool === 'measure' ? 'none' : 'measure'); break;
+                }
             }
             // Replay hotkeys
             if (e.shiftKey && replay.replayState.mode !== 'idle') {

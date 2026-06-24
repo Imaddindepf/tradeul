@@ -172,11 +172,11 @@ const SIDEBAR_CATEGORIES: ToolCategory[] = [
   {
     id: 'lines',
     tools: [
-      { id: 'trendline', label: 'Trend Line', shortcut: 'T', icon: TrendlineIcon, enabled: true },
-      { id: 'horizontal_line', label: 'Horizontal Line', shortcut: 'H', icon: HLineIcon, enabled: true },
-      { id: 'vertical_line', label: 'Vertical Line', shortcut: 'V', icon: VLineIcon, enabled: true },
-      { id: 'ray', label: 'Ray', shortcut: 'Y', icon: RayIcon, enabled: true },
-      { id: 'extended_line', label: 'Extended Line', shortcut: 'E', icon: ExtendedLineIcon, enabled: true },
+      { id: 'trendline', label: 'Trend Line', shortcut: 'Alt+T', icon: TrendlineIcon, enabled: true },
+      { id: 'horizontal_line', label: 'Horizontal Line', shortcut: 'Alt+H', icon: HLineIcon, enabled: true },
+      { id: 'vertical_line', label: 'Vertical Line', shortcut: 'Alt+V', icon: VLineIcon, enabled: true },
+      { id: 'ray', label: 'Ray', shortcut: 'Alt+Y', icon: RayIcon, enabled: true },
+      { id: 'extended_line', label: 'Extended Line', shortcut: 'Alt+E', icon: ExtendedLineIcon, enabled: true },
       { id: 'parallel_channel', label: 'Parallel Channel', icon: ParallelChannelIcon, enabled: true },
     ],
   },
@@ -192,7 +192,7 @@ const SIDEBAR_CATEGORIES: ToolCategory[] = [
   {
     id: 'fibonacci',
     tools: [
-      { id: 'fibonacci', label: 'Fib Retracement', shortcut: 'F', icon: FibIcon, enabled: true },
+      { id: 'fibonacci', label: 'Fib Retracement', shortcut: 'Alt+F', icon: FibIcon, enabled: true },
       { id: 'fib_extension', label: 'Fib Extension', icon: FibExtIcon, enabled: false },
       { id: 'fib_fan', label: 'Fib Fan', icon: FibFanIcon, enabled: false },
     ],
@@ -211,8 +211,8 @@ const SIDEBAR_CATEGORIES: ToolCategory[] = [
   {
     id: 'shapes',
     tools: [
-      { id: 'rectangle', label: 'Rectangle', shortcut: 'R', icon: RectIcon, enabled: true },
-      { id: 'circle', label: 'Circle', shortcut: 'C', icon: CircleIcon, enabled: true },
+      { id: 'rectangle', label: 'Rectangle', shortcut: 'Alt+R', icon: RectIcon, enabled: true },
+      { id: 'circle', label: 'Circle', shortcut: 'Alt+C', icon: CircleIcon, enabled: true },
       { id: 'triangle', label: 'Triangle', icon: TriangleIcon, enabled: true },
     ],
   },
@@ -227,7 +227,7 @@ const SIDEBAR_CATEGORIES: ToolCategory[] = [
   {
     id: 'measure',
     tools: [
-      { id: 'measure', label: 'Measure', shortcut: 'M', icon: MeasureIcon, enabled: true },
+      { id: 'measure', label: 'Measure', shortcut: 'Alt+M', icon: MeasureIcon, enabled: true },
       { id: 'price_range', label: 'Price Range', icon: PriceRangeIcon, enabled: true },
       { id: 'date_range', label: 'Date Range', icon: DateRangeIcon, enabled: true },
       { id: 'ruler', label: 'Ruler', icon: RulerIcon, enabled: false },
