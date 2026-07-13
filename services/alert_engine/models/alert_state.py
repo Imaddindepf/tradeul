@@ -94,6 +94,10 @@ class AlertState:
     # ── Relative volume ──
     rvol: Optional[float] = None
 
+    # ── Pre-market volume (frozen at 9:30 ET, live during pre-market) ──
+    premarket_volume: Optional[int] = None
+    premarket_rvol: Optional[float] = None
+
     # ── Volatility / ATR ──
     atr: Optional[float] = None
     atr_percent: Optional[float] = None

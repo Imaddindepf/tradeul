@@ -378,7 +378,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   // ================================================================
   // LOADING STATE
   // ================================================================
-  if (!stats.initialLoadComplete && !isSearchMode) {
+  if (!stats.initialLoadComplete && !isSearchMode && articles.length === 0) {
     return (
       <div className="flex items-center justify-center h-full bg-surface">
         <div className="text-center">

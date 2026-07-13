@@ -129,6 +129,17 @@ async def get_current_user(
         )
 
 
+async def current_user_id(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> str:
+    """Devuelve el user_id del JWT verificado.
+
+    Se usa para endpoints que antes recibían el user_id como query param
+    (vulnerable a IDOR): ahora la identidad SIEMPRE se deriva del token.
+    """
+    return user.id
+
+
 async def require_admin(
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> AuthenticatedUser:

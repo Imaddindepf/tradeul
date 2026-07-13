@@ -5,6 +5,7 @@ Centralized service for downloading and maintaining Polygon flat files.
 Provides minute_aggs and day_aggs data for other services.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
@@ -91,6 +92,7 @@ class DownloadRequest(BaseModel):
     end_date: Optional[str] = None  # YYYY-MM-DD, defaults to start_date
     data_types: list[str] = ["day_aggs"]  # minute_aggs, day_aggs
     force: bool = False
+    wait: bool = False  # Esperar el resultado real en lugar de solo encolar
 
 
 class StatsResponse(BaseModel):
@@ -130,7 +132,8 @@ async def download_data(request: DownloadRequest, background_tasks: BackgroundTa
     """
     Download data for a date range
     
-    Runs in background to avoid timeout.
+    Por defecto se encola en background. Los orquestadores que necesitan
+    confirmar que los Parquet existen pueden usar ``wait=true``.
     """
     try:
         start = datetime.strptime(request.start_date, "%Y-%m-%d")
@@ -151,6 +154,17 @@ async def download_data(request: DownloadRequest, background_tasks: BackgroundTa
             files = day_downloader.download_range(start, end, force=request.force)
             results["day_aggs"] = len(files)
         logger.info("Download complete", **results)
+        return results
+
+    if request.wait:
+        results = await asyncio.to_thread(run_download)
+        return {
+            "status": "completed",
+            "start_date": request.start_date,
+            "end_date": request.end_date or request.start_date,
+            "data_types": request.data_types,
+            "results": results,
+        }
     
     background_tasks.add_task(run_download)
     

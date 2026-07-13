@@ -116,17 +116,11 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
   const fontClass = FONT_CLASSES[font] || 'font-jetbrains-mono';
   const { state: windowState, updateState: updateWindowState } = useWindowState<HeatmapWindowState>();
   
-  // Market session state
+  // Market session state — el store global ya se mantiene sincronizado por
+  // useMarketClockSync (AppShell); no arrancar/parar polling local aquí
+  // (el stopPolling al desmontar mataba el polling compartido de toda la app).
   const isClosed = useMarketSessionStore(selectIsClosed);
   const session = useMarketSessionStore(selectSession);
-  const startPolling = useMarketSessionStore(state => state.startPolling);
-  const stopPolling = useMarketSessionStore(state => state.stopPolling);
-  
-  // Start market session polling on mount
-  useEffect(() => {
-    startPolling(30000); // Poll every 30 seconds
-    return () => stopPolling();
-  }, [startPolling, stopPolling]);
   
   // Container ref for responsive sizing
   const containerRef = useRef<HTMLDivElement>(null);

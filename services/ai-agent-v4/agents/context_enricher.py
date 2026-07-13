@@ -12,7 +12,7 @@ import logging
 import time
 from typing import Any
 
-from agents._mcp_tools import call_mcp_tool
+from agents.mcp_catalog import MCP
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ async def _noop():
 async def _fetch_regime() -> dict:
     """Fetch market regime from market_pulse MCP tool."""
     try:
-        return await call_mcp_tool("market_pulse", "get_market_regime", {})
+        return await MCP.market_pulse.get_market_regime({})
     except Exception as e:
         logger.warning("Regime fetch failed: %s", e)
         return {"error": str(e)}
@@ -84,9 +84,7 @@ async def _fetch_ticker_positioning(tickers: list[str]) -> dict:
         return {}
 
     try:
-        classification = await call_mcp_tool(
-            "screener", "enrich_with_classification", {"symbols": tickers}
-        )
+        classification = await MCP.screener.enrich_with_classification({"symbols": tickers})
     except Exception:
         return {}
 
@@ -103,7 +101,7 @@ async def _fetch_ticker_positioning(tickers: list[str]) -> dict:
 
     # Fetch sector performance for the relevant sectors
     try:
-        sector_perf = await call_mcp_tool("market_pulse", "analyze_market", {
+        sector_perf = await MCP.market_pulse.analyze_market({
             "queries": [{"group": "sectors", "limit": 15}],
             "metrics": ["weighted_change", "breadth", "avg_rvol", "avg_change_5d"],
         })

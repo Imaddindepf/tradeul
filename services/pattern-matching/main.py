@@ -170,7 +170,10 @@ app = FastAPI(
     title="Pattern Matching Service",
     description="Ultra-fast pattern similarity search for financial time series using FAISS",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # Include Pattern Real-Time router

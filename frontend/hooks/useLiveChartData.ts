@@ -1,14 +1,23 @@
 /**
  * useLiveChartData - Hook para datos de chart con actualización en tiempo real
- * 
+ *
  * ARQUITECTURA:
  * 1. Datos históricos cargados via API → setData (una sola vez)
  * 2. Actualizaciones en tiempo real via WebSocket → callback imperativo (sin re-render)
- * 3. Page Lifecycle recovery: visibilitychange + freeze/resume (Chrome 133+)
- *    Al volver de background, fetch solo barras faltantes + re-subscribe WS.
+ * 3. Resiliencia (un chart de trading debe recuperarse SOLO, siempre):
+ *    - visibilitychange + freeze/resume: backfill de barras al volver de background
+ *    - reconexión WS: gap-check independiente de visibility (suspensión del SO,
+ *      restart del servidor, cortes de red)
+ *    - retry con backoff de fetchHistorical + evento 'online'; NUNCA se borran
+ *      las velas existentes por un error de red
+ *    - trading_day_changed: invalida caché y recarga
+ *    - watchdog de staleness: el badge LIVE se apaga si el feed se queda mudo
+ *      con el mercado abierto
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { applyAggregate, mergeAuthoritativeBar, sealedToChartBar } from '@/lib/barAggregation';
+import { isChartAggregateMsg, isChartBarSealedMsg, isTradingDayChangedMsg } from '@/lib/wsContracts';
 
 // ============================================================================
 // Types
@@ -50,42 +59,30 @@ const INTERVAL_SECONDS: Record<ChartInterval, number> = {
   '1year': 31536000,
 };
 
-function getETMinuteOfDay(unixSecs: number): number {
-  const d = new Date(unixSecs * 1000);
-  const parts = d.toLocaleString('en-US', {
-    timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false,
-  });
-  const [h, m] = parts.split(':').map(Number);
-  return h * 60 + m;
-}
-
-function getDailyBarTime(unixSecs: number, lastBarTime: number): number {
-  const d = new Date(unixSecs * 1000);
-  const lastD = new Date(lastBarTime * 1000);
-  const etOpts: Intl.DateTimeFormatOptions = {
-    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-  };
-  if (d.toLocaleDateString('en-US', etOpts) === lastD.toLocaleDateString('en-US', etOpts)) {
-    return lastBarTime;
-  }
-  return lastBarTime + 86400;
-}
-
-function isRegularHours(unixSecs: number): boolean {
-  const min = getETMinuteOfDay(unixSecs);
-  return min >= 570 && min < 960; // 9:30 to 16:00 ET
-}
-
 // Recovery thresholds
 const GAP_IGNORE_MS = 5_000;       // < 5s away → do nothing
 const GAP_PARTIAL_MAX_MS = 300_000; // < 5min → partial fetch
 // > 5min → full refetch
+
+// Retry de fetchHistorical tras error de red (típico: WiFi reconectando al
+// despertar el portátil). Backoff exponencial con techo — nunca nos rendimos:
+// un chart de trading debe recuperarse solo, como la conexión WS.
+const FETCH_RETRY_BASE_MS = 1_000;
+const FETCH_RETRY_MAX_MS = 30_000;
+
+// Watchdog de staleness del feed: durante MARKET_OPEN, si un símbolo
+// suscrito no emite nada en este tiempo, el feed está roto (o el valor
+// halted) → apagar el badge LIVE. En pre/post no aplica: los trades
+// esporádicos son normales y el silencio no implica feed caído.
+const FEED_STALE_MS = 60_000;
+const FEED_WATCHDOG_INTERVAL_MS = 10_000;
 
 // ============================================================================
 // WebSocket Manager Access
 // ============================================================================
 
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
+import { useMarketSessionStore } from '@/stores/useMarketSessionStore';
 
 // ============================================================================
 // Module-level bar cache (survives unmount/remount)
@@ -188,6 +185,16 @@ export function useLiveChartData(
   // chart_aggregator caído), A.* actúa de fallback.
   const lastTradesFeedMsgAtRef = useRef(0);
 
+  // Último mensaje de feed (de cualquier fuente) para nuestro símbolo.
+  // Alimenta el watchdog de staleness del badge LIVE.
+  const lastFeedMsgAtRef = useRef(0);
+
+  // Secuencia por símbolo del servidor (M5): si seq salta más de +1, el
+  // servidor descartó mensajes para esta conexión (backpressure) o la red
+  // los perdió → backfill REST en vez de velas silenciosamente incompletas.
+  const lastSeqRef = useRef<number | null>(null);
+  const lastSeqGapRecoveryAtRef = useRef(0);
+
   // Render-phase sync: cuando el estado `data` cambia (load/loadMore/refetch)
   // el espejo vivo se reconstruye desde él, descartando las velas WS
   // provisionales (el fetch ya las trae consolidadas).
@@ -234,11 +241,37 @@ export function useLiveChartData(
   // Cargar datos históricos
   // ============================================================================
 
+  // Retry automático de fetchHistorical (backoff exponencial, sin límite de
+  // intentos). Un fallo transitorio (WiFi reconectando al despertar el
+  // portátil) NUNCA debe dejar el chart vacío ni muerto.
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryAttemptRef = useRef(0);
+  // Última clave (ticker:interval[:replay]) cargada con éxito — distingue
+  // cold load (cambio de ticker/interval) de revalidación en background.
+  // Si montamos con caché de módulo, esa clave ya está "cargada".
+  const lastLoadedKeyRef = useRef<string | null>(cached ? cacheKey : null);
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
   const fetchHistorical = useCallback(async () => {
     if (!ticker) return;
 
-    setLoading(true);
-    setError(null);
+    clearRetryTimer();
+
+    // Cold load = primera carga de ESTE (ticker, interval) — mostrar overlay
+    // y (vía loading=true) pausar la suscripción WS hasta tener velas del
+    // ticker correcto. Si ya cargamos esta clave antes, es una revalidación
+    // en background: no ocultar el chart ni interrumpir el realtime.
+    const fetchKey = barCacheKey(ticker, interval, replayTo);
+    const isColdLoad = dataRef.current.length === 0 || lastLoadedKeyRef.current !== fetchKey;
+    if (isColdLoad) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
       let url = `${API_URL}/api/v1/chart/${ticker}?interval=${interval}`;
@@ -255,10 +288,13 @@ export function useLiveChartData(
 
       bars.sort((a, b) => a.time - b.time);
 
+      retryAttemptRef.current = 0;
+      lastLoadedKeyRef.current = fetchKey;
+      setError(null);
       setData(bars);
       setOldestTime(result.oldest_time || null);
       setHasMore(result.has_more || false);
-      setBarCache(barCacheKey(ticker, interval, replayTo), bars, result.oldest_time || null, result.has_more || false);
+      setBarCache(fetchKey, bars, result.oldest_time || null, result.has_more || false);
 
       if (bars.length > 0) {
         lastBarRef.current = bars[bars.length - 1];
@@ -266,12 +302,44 @@ export function useLiveChartData(
 
     } catch (err) {
       console.error('[LiveChart] Fetch error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load chart');
-      setData([]);
+      // NUNCA borrar datos existentes por un error de red: quedarse con las
+      // velas (marginalmente stale) es estrictamente mejor que un chart vacío.
+      if (isColdLoad) {
+        setError(err instanceof Error ? err.message : 'Failed to load chart');
+      }
+
+      const attempt = retryAttemptRef.current + 1;
+      retryAttemptRef.current = attempt;
+      const delay = Math.min(FETCH_RETRY_BASE_MS * 2 ** (attempt - 1), FETCH_RETRY_MAX_MS);
+      retryTimerRef.current = setTimeout(() => {
+        void fetchHistoricalRef.current();
+      }, delay);
     } finally {
-      setLoading(false);
+      if (isColdLoad) setLoading(false);
     }
-  }, [ticker, interval, replayTo]);
+  }, [ticker, interval, replayTo, clearRetryTimer]);
+
+  // Ref estable para timers/listeners (evita capturar closures obsoletos).
+  const fetchHistoricalRef = useRef(fetchHistorical);
+  useEffect(() => { fetchHistoricalRef.current = fetchHistorical; }, [fetchHistorical]);
+
+  // Cancelar retries pendientes al cambiar ticker/interval o desmontar.
+  useEffect(() => {
+    retryAttemptRef.current = 0;
+    return clearRetryTimer;
+  }, [ticker, interval, replayTo, clearRetryTimer]);
+
+  // Recuperación por evento 'online': si el navegador recupera red y hay un
+  // retry en cola o un error activo, refetch inmediato sin esperar el backoff.
+  useEffect(() => {
+    const onOnline = () => {
+      if (retryTimerRef.current || retryAttemptRef.current > 0) {
+        void fetchHistoricalRef.current();
+      }
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
 
   const loadMore = useCallback(async (): Promise<boolean> => {
     if (!tickerRef.current || !oldestTimeRef.current || !hasMoreRef.current || isLoadingMoreRef.current) return false;
@@ -412,6 +480,18 @@ export function useLiveChartData(
     fetchHistorical();
   }, [fetchHistorical]);
 
+  // Cambio de día de trading (emitido por el SharedWorker al reconectar con
+  // trading_date distinto, o en la transición de día del servidor): las velas
+  // cacheadas son del día anterior → invalidar y recargar.
+  useEffect(() => {
+    const subscription = messages$.subscribe((message: any) => {
+      if (!isTradingDayChangedMsg(message)) return;
+      _barCache.clear();
+      void fetchHistoricalRef.current();
+    });
+    return () => subscription.unsubscribe();
+  }, [messages$]);
+
   // ============================================================================
   // Actualizaciones en tiempo real via WebSocket (SIN setData)
   // ============================================================================
@@ -431,14 +511,66 @@ export function useLiveChartData(
     if (!subscribedRef.current) {
       send({ action: 'subscribe_chart', symbol: tickerRef.current });
       subscribedRef.current = true;
+      // La secuencia del servidor es por símbolo y sobrevive a nuestra
+      // (re)suscripción: resetear la referencia local para no confundir el
+      // primer seq visto con un hueco.
+      lastSeqRef.current = null;
     }
 
     const subscription = messages$.subscribe({
       next: (message: any) => {
-        if (message?.type !== 'chart_aggregate') return;
+        // Validación de contrato en el borde: mensajes malformados se
+        // descartan aquí (con contador en wsContracts) y nunca llegan a
+        // producir velas con NaN/undefined.
+        const isAggregate = isChartAggregateMsg(message);
+        const isSealed = !isAggregate && isChartBarSealedMsg(message);
+        if (!isAggregate && !isSealed) return;
         if (message.symbol !== tickerRef.current) return;
 
-        // Dedup feed doble (ver comentario en lastTradesFeedMsgAtRef)
+        // Feed vivo: cualquier mensaje de nuestro símbolo cuenta para el
+        // watchdog de staleness, aunque luego se descarte por dedup.
+        lastFeedMsgAtRef.current = Date.now();
+
+        // ── M5: detección de mensajes perdidos por secuencia ──────────────
+        if (typeof message.seq === 'number') {
+          const prev = lastSeqRef.current;
+          lastSeqRef.current = message.seq;
+          if (prev !== null && message.seq > prev + 1) {
+            // Se perdieron (seq - prev - 1) mensajes → la vela local puede
+            // estar incompleta. Backfill REST (throttled a 1 por 5s).
+            const now = Date.now();
+            if (now - lastSeqGapRecoveryAtRef.current > 5_000) {
+              lastSeqGapRecoveryAtRef.current = now;
+              const lb = lastBarRef.current;
+              if (lb) void fetchGapBars(lb.time);
+            }
+          }
+        }
+
+        // ── M4: vela SELLADA (autoritativa) de bar_builder ────────────────
+        if (isSealed) {
+          const sealed = message.data;
+          // Solo aplica si el timeframe sellado coincide con el intervalo visible.
+          if (sealed.timeframe * 60 !== intervalSecs) return;
+          const authoritative = sealedToChartBar(sealed);
+          if (!authoritative) return;
+
+          const lastBar = lastBarRef.current;
+          if (!lastBar || authoritative.time !== lastBar.time) return;
+
+          // Reemplazar la vela provisional por la versión consolidada
+          // (open real del bucket, volumen exacto). high/low se conservan
+          // si localmente vimos extremos que el builder aún no integró.
+          const corrected = mergeAuthoritativeBar(lastBar, authoritative);
+          lastBarRef.current = corrected;
+          applyLiveBar(corrected);
+          if (updateHandlerRef.current) {
+            updateHandlerRef.current(corrected, false);
+          }
+          return;
+        }
+
+        // ── chart_aggregate: dedup del feed doble ─────────────────────────
         const TRADES_FEED_ALIVE_MS = 10_000;
         if (message.source === 'trades') {
           lastTradesFeedMsgAtRef.current = Date.now();
@@ -446,87 +578,31 @@ export function useLiveChartData(
           return; // A.* descartado: el feed de trades ya cubre este flujo
         }
 
-        const aggData = message.data;
-        const timeSecs = Math.floor(aggData.t / 1000);
+        const action = applyAggregate(lastBarRef.current, message.data, intervalSecs, isDailyOrAbove);
 
-        // Daily candles only reflect regular session (9:30-16:00 ET)
-        if (isDailyOrAbove && !isRegularHours(timeSecs)) {
-          if (extendedHoursPriceRef.current) {
-            extendedHoursPriceRef.current(aggData.c);
-          }
-          return;
-        }
+        switch (action.kind) {
+          case 'extended-hours':
+            // Diario+: tick fuera de sesión regular → solo overlay pre/post.
+            extendedHoursPriceRef.current?.(action.price);
+            return;
 
-        const lastBar = lastBarRef.current;
-        if (!lastBar) return;
-
-        const barTime = isDailyOrAbove
-          ? getDailyBarTime(timeSecs, lastBar.time)
-          : Math.floor(timeSecs / intervalSecs) * intervalSecs;
-
-        // Construir nueva barra desde aggregate
-        // v = volumen del aggregate (ese segundo), NO av (acumulado del día)
-        const newBar: ChartBar = {
-          time: barTime,
-          open: aggData.o,
-          high: aggData.h,
-          low: aggData.l,
-          close: aggData.c,
-          volume: aggData.v,  // Volumen de este aggregate
-        };
-
-        if (barTime === lastBar.time) {
-          // MISMO período → actualizar última barra (merge OHLCV)
-          // SUMAR volúmenes de cada aggregate del mismo período
-          const updatedBar: ChartBar = {
-            time: barTime,
-            open: lastBar.open,
-            high: Math.max(lastBar.high, newBar.high),
-            low: Math.min(lastBar.low, newBar.low),
-            close: newBar.close,
-            volume: lastBar.volume + aggData.v,  // SUMAR volumen del nuevo aggregate
-          };
-
-          // Actualizar refs (sin re-render)
-          lastBarRef.current = updatedBar;
-          applyLiveBar(updatedBar);
-
-          // Notificar al chart via callback imperativo
-          if (updateHandlerRef.current) {
-            updateHandlerRef.current(updatedBar, false);
-          }
-
-          setIsLive(true);
-
-        } else if (barTime > lastBar.time) {
-          // NUEVO período. Si hay un gap real (> 1 barra), no inventamos
-          // velas interpoladas — eso pinta una línea falsa y rompe los
-          // indicadores. En su lugar, pedimos al backend las barras reales
-          // (que ahora incluyen el live-bar-stitch desde bar_builder).
-          const gapBars = Math.floor((barTime - lastBar.time) / intervalSecs) - 1;
-          if (gapBars > 0) {
-            // Fire-and-forget. loadForward() consultará /api/v1/chart?after=
-            // que ya viene stitcheado con la barra en formación.
-            void loadForward();
-            // Importante: NO emitimos la newBar todavía. Esperamos a que
-            // loadForward la traiga con el OPEN real del período. Si nunca
-            // llega (mercado cerrado, etc.), el siguiente WS chart_aggregate
-            // se merge-eará contra lastBar cuando barTime vuelva a coincidir.
+          case 'merge':
+          case 'new-bar': {
+            lastBarRef.current = action.bar;
+            applyLiveBar(action.bar);
+            updateHandlerRef.current?.(action.bar, action.kind === 'new-bar');
+            setIsLive(true);
             return;
           }
 
-          // Caso normal: nueva vela contigua. El OPEN puede ser inexacto
-          // (es solo el primer trade del WS, no el verdadero open del minuto).
-          // Marcamos la vela como provisional — el siguiente fetchHistorical
-          // o loadForward la sobrescribirá con datos reales del backend.
-          lastBarRef.current = newBar;
-          applyLiveBar(newBar);
+          case 'gap-backfill':
+            // Hueco de ≥1 vela: NO inventar velas interpoladas. loadForward()
+            // trae las barras reales (con live-bar-stitch de bar_builder).
+            void loadForward();
+            return;
 
-          if (updateHandlerRef.current) {
-            updateHandlerRef.current(newBar, true);
-          }
-
-          setIsLive(true);
+          case 'ignore':
+            return;
         }
       },
       error: (err: any) => {
@@ -535,7 +611,9 @@ export function useLiveChartData(
       }
     });
 
-    setIsLive(true);
+    // NO marcar isLive aquí: suscribirse no garantiza que lleguen datos.
+    // isLive se enciende al recibir el primer chart_aggregate real y lo
+    // apaga el watchdog de staleness si el feed se queda mudo.
 
     // Cleanup
     return () => {
@@ -546,7 +624,7 @@ export function useLiveChartData(
       subscription.unsubscribe();
       setIsLive(false);
     };
-  }, [loading, data.length, ticker, isConnected, messages$, send, replayTo, loadForward, applyLiveBar]);
+  }, [loading, data.length, ticker, isConnected, messages$, send, replayTo, loadForward, applyLiveBar, fetchGapBars]);
 
   // ============================================================================
   // Page Lifecycle: visibility + freeze/resume recovery
@@ -571,11 +649,10 @@ export function useLiveChartData(
 
       if (awayMs < GAP_IGNORE_MS) return;
 
-      const isIntraday = ['1min', '5min', '15min'].includes(intervalRef.current);
+      const isIntraday = ['1min', '2min', '5min', '15min', '30min', '1hour'].includes(intervalRef.current);
 
       if (awayMs > GAP_PARTIAL_MAX_MS || !isIntraday) {
-        // Long absence → full reload (triggers loading=true → WS effect
-        // will auto-unsubscribe/resubscribe via its deps)
+        // Long absence → full reload
         fetchHistorical();
       } else {
         // Short absence → fetch only missing bars imperatively
@@ -608,6 +685,59 @@ export function useLiveChartData(
       document.removeEventListener('resume', handleResume);
     };
   }, [fetchHistorical, fetchGapBars]);
+
+  // ============================================================================
+  // Recuperación al RECONECTAR el WebSocket (independiente de visibility).
+  //
+  // Cubre los casos que visibilitychange no ve: suspensión del SO sin evento
+  // (portátil cerrado con la pestaña visible), restart del websocket_server,
+  // cortes de red. Sin esto, la recuperación dependía de que llegara un tick
+  // con gap — en tickers ilíquidos podía tardar minutos o no llegar nunca.
+  // ============================================================================
+
+  const lastDisconnectAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isConnected) {
+      if (lastDisconnectAtRef.current === null) {
+        lastDisconnectAtRef.current = Date.now();
+      }
+      return;
+    }
+
+    const downSince = lastDisconnectAtRef.current;
+    lastDisconnectAtRef.current = null;
+    if (downSince === null) return; // conexión inicial, no reconexión
+    if (replayTo || !tickerRef.current) return;
+
+    const downMs = Date.now() - downSince;
+    if (downMs < GAP_IGNORE_MS) return;
+
+    const isIntraday = ['1min', '2min', '5min', '15min', '30min', '1hour'].includes(intervalRef.current);
+    const lastBar = lastBarRef.current;
+
+    if (downMs <= GAP_PARTIAL_MAX_MS && isIntraday && lastBar) {
+      fetchGapBars(lastBar.time);
+    } else {
+      void fetchHistoricalRef.current();
+    }
+  }, [isConnected, replayTo, fetchGapBars]);
+
+  // ============================================================================
+  // Watchdog de staleness del feed: con el mercado ABIERTO, si nuestro símbolo
+  // no emite nada en FEED_STALE_MS, el badge LIVE se apaga. Un indicador LIVE
+  // que no puede ponerse en falso no es un indicador.
+  // ============================================================================
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!lastFeedMsgAtRef.current) return;
+      const stale = Date.now() - lastFeedMsgAtRef.current > FEED_STALE_MS;
+      if (stale && useMarketSessionStore.getState().isMarketOpen) {
+        setIsLive(false);
+      }
+    }, FEED_WATCHDOG_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   // ============================================================================
   // Return

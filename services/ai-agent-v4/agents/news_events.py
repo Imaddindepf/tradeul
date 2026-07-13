@@ -27,7 +27,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from agents._mcp_tools import call_mcp_tool
+from agents.mcp_catalog import MCP
 
 
 # -- Intent detection --
@@ -369,7 +369,7 @@ async def news_events_node(state: dict) -> dict:
     # Fetch market session when earnings are relevant (synthesizer needs it)
     if wants_earn:
         try:
-            session = await call_mcp_tool("scanner", "get_market_session", {})
+            session = await MCP.scanner.get_market_session({})
             results["market_session"] = session
         except Exception as exc:
             errors.append(f"market_session: {exc}")
@@ -378,21 +378,21 @@ async def news_events_node(state: dict) -> dict:
     if tickers:
         async def _fetch_ticker_news(t: str):
             try:
-                raw = await call_mcp_tool("news", "get_news_by_ticker", {"symbol": t, "count": 10})
+                raw = await MCP.news.get_news_by_ticker({"symbol": t, "count": 10})
                 return ("ticker_news", t, _clean_news(raw), None)
             except Exception as exc:
                 return ("ticker_news", t, None, f"news/{t}: {exc}")
 
         async def _fetch_ticker_events(t: str):
             try:
-                raw = await call_mcp_tool("events", "get_events_by_ticker", {"symbol": t, "count": 20})
+                raw = await MCP.events.get_events_by_ticker({"symbol": t, "count": 20})
                 return ("ticker_events", t, _clean_events(raw), None)
             except Exception as exc:
                 return ("ticker_events", t, None, f"events/{t}: {exc}")
 
         async def _fetch_ticker_earnings(t: str):
             try:
-                raw = await call_mcp_tool("earnings", "get_earnings_by_ticker", {"ticker": t})
+                raw = await MCP.earnings.get_earnings_by_ticker({"ticker": t})
                 return ("ticker_earnings", t, _clean_earnings(raw), None)
             except Exception as exc:
                 return ("ticker_earnings", t, None, f"earnings/{t}: {exc}")
@@ -402,7 +402,7 @@ async def news_events_node(state: dict) -> dict:
                 params = {"symbol": t, "date_from": df, "date_to": dt, "limit": 50}
                 if evt:
                     params["event_type"] = evt
-                raw = await call_mcp_tool("events", "query_historical_events", params)
+                raw = await MCP.events.query_historical_events(params)
                 return ("historical_events", t, _clean_events(raw), None)
             except Exception as exc:
                 return ("historical_events", t, None, f"hist_events/{t}: {exc}")
@@ -410,7 +410,9 @@ async def news_events_node(state: dict) -> dict:
         async def _fetch_sec_filings(t: str, df: str, dt: str):
             """Search SEC filings ±2 days around target candle (8-K = material events)."""
             try:
-                raw = await call_mcp_tool("sec_filings", "search_filings", {
+                # Gateway mounts the SEC server with prefix "sec" (the old
+                # "sec_filings" prefix 404'd silently on every call).
+                raw = await MCP.sec.search_filings({
                     "ticker": t, "date_from": df, "date_to": dt, "page_size": 10,
                 })
                 filings = raw.get("results", raw.get("filings", []))
@@ -499,9 +501,7 @@ async def news_events_node(state: dict) -> dict:
             if timeframe in ("upcoming", "general"):
                 days = _extract_days(query)
                 try:
-                    raw = await call_mcp_tool(
-                        "earnings",
-                        "get_upcoming_earnings",
+                    raw = await MCP.earnings.get_upcoming_earnings(
                         {"days": days, "min_importance": 3, "limit": 100},
                     )
                     results["upcoming_earnings"] = _clean_upcoming_earnings(raw)
@@ -510,7 +510,7 @@ async def news_events_node(state: dict) -> dict:
 
             if timeframe == "today":
                 try:
-                    raw = await call_mcp_tool("earnings", "get_today_earnings", {})
+                    raw = await MCP.earnings.get_today_earnings({})
                     results["today_earnings"] = _clean_today_earnings(raw)
                 except Exception as exc:
                     errors.append(f"today_earnings: {exc}")
@@ -526,7 +526,7 @@ async def news_events_node(state: dict) -> dict:
                 }
                 if event_type:
                     params["event_type"] = event_type
-                raw = await call_mcp_tool("events", "query_historical_events", params)
+                raw = await MCP.events.query_historical_events(params)
                 results["historical_events"] = _clean_events(raw)
             except Exception as exc:
                 errors.append(f"hist_events: {exc}")
@@ -534,14 +534,14 @@ async def news_events_node(state: dict) -> dict:
             # Also fetch event stats for context
             try:
                 stats_params = {"date": date_from}
-                raw_stats = await call_mcp_tool("events", "get_event_stats", stats_params)
+                raw_stats = await MCP.events.get_event_stats(stats_params)
                 results["event_stats"] = raw_stats
             except Exception as exc:
                 errors.append(f"event_stats: {exc}")
 
         if wants_nws or (not wants_earn and not wants_hist_events):
             try:
-                raw = await call_mcp_tool("news", "get_latest_news", {"count": 15})
+                raw = await MCP.news.get_latest_news({"count": 15})
                 results["latest_news"] = _clean_news(raw)
             except Exception as exc:
                 errors.append(f"latest_news: {exc}")

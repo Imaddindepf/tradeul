@@ -10,9 +10,10 @@ from datetime import date, datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from auth import require_admin, AuthenticatedUser
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
 
@@ -155,7 +156,8 @@ async def get_morning_news_by_date(report_date: str):
 
 @router.post("/generate")
 async def generate_morning_news_now(
-    force: bool = Query(default=False, description="Forzar regeneración aunque ya exista")
+    force: bool = Query(default=False, description="Forzar regeneración aunque ya exista"),
+    admin: AuthenticatedUser = Depends(require_admin),
 ):
     """
     Generar el Morning News Call manualmente (para testing/admin).

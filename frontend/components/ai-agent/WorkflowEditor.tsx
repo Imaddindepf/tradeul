@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useState, useCallback, useRef, useEffect } from 'react';
+import { useAuth } from '@clerk/nextjs';
 import ReactFlow, {
     Node,
     Edge,
@@ -1989,6 +1990,7 @@ interface WorkflowEditorProps {
 }
 
 export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps) => {
+    const { getToken } = useAuth();
     const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
     const [showPalette, setShowPalette] = useState(false);
@@ -2101,9 +2103,13 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                 data: { ...n.data, status: idx === 0 ? 'running' : 'idle' }
             })));
 
+            const token = await getToken({ skipCache: true });
             const response = await fetch(`${AGENT_URL}/api/workflow-execute`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
                 body: JSON.stringify(workflow),
                 signal: abortRef.current.signal,
             });
@@ -2366,7 +2372,7 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
         } finally {
             setIsExecuting(false);
         }
-    }, [convertToBackendFormat, setNodes, nodes, onExecute]);
+    }, [convertToBackendFormat, setNodes, nodes, onExecute, getToken]);
 
     const handleReset = useCallback(() => {
         setError(null);

@@ -16,10 +16,12 @@
  * here MUST produce the same steady-state values as the worker's, or the last
  * bar visibly jumps when a live tick lands. If you change a formula in one
  * file, change it in the other (notably: squeeze momentum = close − keltner
- * EMA; VWAP resets on LOCAL date boundary; MACD/squeeze histogram colors).
+ * EMA; VWAP resets on the ET (America/New_York) date boundary — the exchange
+ * session, NOT the browser's local date; MACD/squeeze histogram colors).
  */
 
 import type { ChartBar } from './constants';
+import { isDifferentETDay } from '@/lib/marketTime';
 
 // ─── Result value types ───────────────────────────────────────────────────────
 
@@ -332,13 +334,10 @@ function createVWAP(): VWAPState {
 }
 
 function isDifferentDay(t1: number, t2: number): boolean {
-  // LOCAL date boundary — must match the worker's `toDateString()` day reset
-  // so live VWAP continues the historical series without a jump.
-  const d1 = new Date(t1 * 1000);
-  const d2 = new Date(t2 * 1000);
-  return d1.getDate() !== d2.getDate() ||
-         d1.getMonth() !== d2.getMonth() ||
-         d1.getFullYear() !== d2.getFullYear();
+  // ET (exchange) date boundary — must match the worker's ET day reset so
+  // live VWAP continues the historical series without a jump. Anchoring to
+  // the browser's local date split the US session in two for non-ET users.
+  return isDifferentETDay(t1, t2);
 }
 
 function updateVWAP(s: VWAPState, bar: { time: number; high: number; low: number; close: number; volume: number }, isNewBar: boolean): number | undefined {

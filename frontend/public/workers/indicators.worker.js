@@ -387,6 +387,34 @@ function calculateOBV(closes, volumes, times) {
   return values.map(function(value, i) { return { time: times[i + offset], value: value }; });
 }
 
+// Fecha de calendario ET (America/New_York) — el VWAP debe resetear en el
+// límite de sesión del EXCHANGE, no en la fecha local del navegador (que
+// para usuarios fuera de ET partía la sesión US en dos).
+// ⚠ CONTRATO con IncrementalIndicatorEngine.isDifferentDay: misma frontera.
+var ET_DATE_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function etDateString(unixSecs) {
+  return ET_DATE_FMT.format(new Date(unixSecs * 1000));
+}
+
+var ET_TIME_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+// Slot "HH:MM" en hora ET — los slots de RVOL deben compararse en la hora
+// del exchange, no en la hora local del navegador ni en UTC.
+function etSlotKey(unixSecs) {
+  return ET_TIME_FMT.format(new Date(unixSecs * 1000));
+}
+
 function calculateVWAP(bars, times) {
   var result = [];
   var cumulativeTPV = 0;
@@ -395,7 +423,7 @@ function calculateVWAP(bars, times) {
 
   for (var i = 0; i < bars.length; i++) {
     var bar = bars[i];
-    var barDate = new Date(bar.time * 1000).toDateString();
+    var barDate = etDateString(bar.time);
 
     if (currentDay !== barDate) {
       cumulativeTPV = 0;
@@ -429,9 +457,11 @@ function calculateRVOL(bars, times, lookbackDays, interval) {
 
   for (var i = 0; i < bars.length; i++) {
     var bar = bars[i];
-    var date = new Date(bar.time * 1000);
-    var dateStr = date.toISOString().split('T')[0];
-    var slotKey = String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+    // Día y slot en hora ET (exchange). Antes: día por fecha UTC (las velas
+    // de post-market >20:00 ET caían en el día siguiente) y slot por hora
+    // local del navegador (dependía del timezone del usuario).
+    var dateStr = etDateString(bar.time);
+    var slotKey = etSlotKey(bar.time);
 
     if (!dayBars.has(dateStr)) dayBars.set(dateStr, []);
     dayBars.get(dateStr).push({ time: bar.time, volume: bar.volume, slotKey: slotKey, originalIndex: i });
@@ -461,9 +491,8 @@ function calculateRVOL(bars, times, lookbackDays, interval) {
 
   for (var i2 = 0; i2 < bars.length; i2++) {
     var bar2 = bars[i2];
-    var date2 = new Date(bar2.time * 1000);
-    var dateStr3 = date2.toISOString().split('T')[0];
-    var slotKey2 = String(date2.getHours()).padStart(2, '0') + ':' + String(date2.getMinutes()).padStart(2, '0');
+    var dateStr3 = etDateString(bar2.time);
+    var slotKey2 = etSlotKey(bar2.time);
 
     var dayData2 = dayBars.get(dateStr3);
     var currentBarData = null;

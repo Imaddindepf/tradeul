@@ -21,6 +21,10 @@ import { useEventFiltersStore, type ActiveEventFilters } from '@/stores/useEvent
 import type { UserFilter } from '@/lib/types/scannerFilters';
 import { SECURITY_TYPES, SECTORS, INDUSTRIES } from '@/lib/constants/filters';
 import { FILTER_GROUPS, FILTER_LABELS, DILUTION_FILTERS } from '@/lib/filter-catalog.generated';
+import { FilterRangeRow, AlertThresholdInput } from '@/components/ui/FilterNumInput';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
+import { filterHelp, implausibleHint } from '@/lib/filterGlossary';
+import { useTranslation } from 'react-i18next';
 
 // ============================================================================
 // Types
@@ -135,38 +139,6 @@ function alertTypeLabel(eventType: string): string {
 }
 
 // ============================================================================
-// Unit system & formatted numeric input
-// ============================================================================
-
-const UNIT_MUL: Record<string, number> = { '': 1, K: 1e3, M: 1e6, B: 1e9 };
-
-const fmtLocale = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 6 });
-
-/** Numeric input with thousand-separator formatting on blur, raw editing on focus */
-function FmtNum({ value, onChange, placeholder, className }: {
-  value: number | undefined;
-  onChange: (v: number | undefined) => void;
-  placeholder?: string;
-  className?: string;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [editStr, setEditStr] = useState('');
-  const display = value !== undefined ? fmtLocale(value) : '';
-  return (
-    <input type="text" inputMode="decimal"
-      value={editing ? editStr : display}
-      onFocus={() => { setEditing(true); setEditStr(value !== undefined ? String(value) : ''); }}
-      onBlur={() => {
-        setEditing(false);
-        const s = editStr.replace(/,/g, '').trim();
-        onChange(s && !isNaN(Number(s)) ? Number(s) : undefined);
-      }}
-      onChange={e => setEditStr(e.target.value)}
-      placeholder={placeholder} className={className} />
-  );
-}
-
-// ============================================================================
 // Component
 // ============================================================================
 
@@ -180,6 +152,7 @@ export function ConfigWindow({
 }: ConfigWindowProps) {
   const [builderMode, setBuilderMode] = useState<BuilderMode>(initialMode || 'strategy');
   const [activeTab, setActiveTab] = useState<ConfigTab>(initialTab || 'saved');
+  const { i18n } = useTranslation();
 
   // Strategy state
   const {
@@ -216,7 +189,6 @@ export function ConfigWindow({
   const [filters, setFilters] = useState<Record<string, number | string | undefined>>(
     extractEditableFilters(resolvedInitialFilters)
   );
-  const [filterUnits, setFilterUnits] = useState<Record<string, string>>({});
   const [symbolsInclude, setSymbolsInclude] = useState(initialSymbolsInclude || '');
   const [symbolsExclude, setSymbolsExclude] = useState(initialSymbolsExclude || '');
   const [saving, setSaving] = useState(false);
@@ -224,19 +196,6 @@ export function ConfigWindow({
   const [loadedStrategyId, setLoadedStrategyId] = useState<string | null>(null);
   // Snapshot of loaded strategy to detect modifications
   const [loadedSnapshot, setLoadedSnapshot] = useState<{ alerts: string[]; filters: Record<string, any>; name: string } | null>(null);
-
-  // Unit helpers: raw value <-> display value
-  const getUnit = useCallback((id: string, def?: string) => filterUnits[id] || def || '', [filterUnits]);
-  const getMul = useCallback((id: string, def?: string) => UNIT_MUL[filterUnits[id] || def || ''] || 1, [filterUnits]);
-  const setUnitFor = useCallback((id: string, u: string) => setFilterUnits(p => ({ ...p, [id]: u })), []);
-  const rawToDisplay = useCallback((raw: number | undefined, id: string, def?: string): string => {
-    if (raw === undefined) return '';
-    return parseFloat((raw / (UNIT_MUL[filterUnits[id] || def || ''] || 1)).toPrecision(10)).toString();
-  }, [filterUnits]);
-  const displayToRaw = useCallback((val: string, id: string, def?: string): number | undefined => {
-    if (!val) return undefined;
-    return Number(val) * (UNIT_MUL[filterUnits[id] || def || ''] || 1);
-  }, [filterUnits]);
 
   // Loaded scan (top list) state
   const [loadedScanId, setLoadedScanId] = useState<number | null>(null);
@@ -959,17 +918,12 @@ export function ConfigWindow({
                                   }`}
                               >{a.name}</button>
                               {sel && cs.type !== 'none' && (
-                                <input
-                                  type="number"
-                                  step="any"
+                                <AlertThresholdInput
+                                  value={filters[csKey] as number | undefined}
                                   placeholder={cs.defaultValue != null ? String(cs.defaultValue) : cs.hint || ''}
+                                  unit={cs.unit || undefined}
                                   title={`${cs.label}${cs.unit ? ` (${cs.unit})` : ''}`}
-                                  value={filters[csKey] ?? ''}
-                                  onChange={e => {
-                                    const v = e.target.value;
-                                    setFilter(csKey, v === '' ? undefined : Number(v));
-                                  }}
-                                  className="w-14 px-1 py-[1px] text-[10px] tabular-nums border border-border rounded bg-[var(--color-input-bg)] text-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary"
+                                  onChange={v => setFilter(csKey, v)}
                                 />
                               )}
                             </div>
@@ -1004,7 +958,7 @@ export function ConfigWindow({
                   className="flex-1 px-1.5 py-0.5 text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface" />
                 <span className="text-[10px] text-muted-fg tabular-nums">{activeFilterCount}</span>
                 {activeFilterCount > 0 && (
-                  <button onClick={() => { setFilters({}); setFilterUnits({}); }} className="text-[10px] text-muted-fg hover:text-blue-600">clear</button>
+                  <button onClick={() => { setFilters({}); }} className="text-[10px] text-muted-fg hover:text-blue-600">clear</button>
                 )}
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -1023,34 +977,26 @@ export function ConfigWindow({
                         <div className="px-2 py-1 space-y-[3px]">
                           {g.filters.map((f) => {
                             const wu = hasUnits(f);
-                            const uid = f.label;
-                            const curUnit = wu ? getUnit(uid, f.defU) : '';
-                            const m = wu ? (UNIT_MUL[curUnit] || 1) : 1;
-                            const toDisp = (raw: number | undefined) => raw !== undefined ? raw / m : undefined;
-                            const toRaw = (v: number | undefined) => v !== undefined ? v * m : undefined;
+                            const help = filterHelp(f.label, i18n.language);
+                            const warnMsg = implausibleHint(f.label, f.suf, filters[f.minK] as number | undefined, i18n.language)
+                              || implausibleHint(f.label, f.suf, filters[f.maxK] as number | undefined, i18n.language);
                             return (
-                              <div key={f.label} className="flex items-center gap-1">
-                                <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">{f.label}</span>
-                                <FmtNum
-                                  value={toDisp(filters[f.minK] as number | undefined)}
-                                  onChange={v => setFilter(f.minK, toRaw(v))}
-                                  placeholder={f.phMin}
-                                  className="w-[72px] px-1.5 py-[3px] text-[11px] font-mono border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)] text-foreground text-right tabular-nums" />
-                                <span className="text-muted-fg/50 text-[8px]">-</span>
-                                <FmtNum
-                                  value={toDisp(filters[f.maxK] as number | undefined)}
-                                  onChange={v => setFilter(f.maxK, toRaw(v))}
-                                  placeholder={f.phMax}
-                                  className="w-[72px] px-1.5 py-[3px] text-[11px] font-mono border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)] text-foreground text-right tabular-nums" />
-                                {wu ? (
-                                  <select value={curUnit} onChange={e => setUnitFor(uid, e.target.value)}
-                                    className="w-8 py-[1px] text-[9px] text-muted-fg border border-border rounded bg-[var(--color-input-bg)] focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer appearance-none text-center">
-                                    {f.units.map(u => <option key={u} value={u}>{u || 'sh'}</option>)}
-                                  </select>
-                                ) : (
-                                  f.suf ? <span className="text-[9px] text-muted-fg/50 w-3 text-center">{f.suf}</span> : <span className="w-3" />
-                                )}
-                              </div>
+                              <FilterRangeRow
+                                key={f.label}
+                                label={f.label}
+                                compactLabel
+                                minValue={filters[f.minK] as number | undefined}
+                                maxValue={filters[f.maxK] as number | undefined}
+                                onMinChange={v => setFilter(f.minK, v)}
+                                onMaxChange={v => setFilter(f.maxK, v)}
+                                unitOpts={wu ? f.units : undefined}
+                                defaultUnit={wu ? f.defU : undefined}
+                                phMin={f.phMin}
+                                phMax={f.phMax}
+                                suffix={f.suf || undefined}
+                                help={help ? <InfoTooltip content={help} /> : undefined}
+                                warn={warnMsg ? <InfoTooltip content={warnMsg} variant="warn" placement="left" size={11} /> : undefined}
+                              />
                             );
                           })}
                         </div>

@@ -17,7 +17,7 @@ import asyncio
 import time
 from typing import Any
 
-from agents._mcp_tools import call_mcp_tool
+from agents.mcp_catalog import MCP
 
 
 # ── Intent detection ────────────────────────────────────────────────
@@ -234,7 +234,7 @@ async def financial_node(state: dict) -> dict:
                 if quarterly:
                     params["period"] = "quarter"
                     params["limit"] = 8
-                raw = await call_mcp_tool("financials", "get_financial_statements", params)
+                raw = await MCP.financials.get_financial_statements(params)
                 ticker_data["financials"] = _clean_financial_statements(raw)
             except Exception as exc:
                 ticker_errors.append(f"financials/{ticker}: {exc}")
@@ -242,7 +242,7 @@ async def financial_node(state: dict) -> dict:
         # 2. SEC filings — cleaned to metadata rows only
         if fetch_sec:
             try:
-                raw = await call_mcp_tool("sec", "search_filings", {"ticker": ticker, "page_size": 10})
+                raw = await MCP.sec.search_filings({"ticker": ticker, "page_size": 10})
                 ticker_data["sec_filings"] = _clean_sec_filings(raw)
             except Exception as exc:
                 ticker_errors.append(f"sec_filings/{ticker}: {exc}")

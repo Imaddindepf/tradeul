@@ -92,7 +92,9 @@ class RealtimeTickerMonitor:
                 if result.get('success'):
                     recovered = result.get('tickers_recovered', 0)
                     if recovered > 0:
-                        self.tickers_recovered_today.extend(result.get('valid_found', []))
+                        # 'symbols' es la lista de tickers; 'valid_found' es un
+                        # contador (int) — extender con el int rompía el monitor.
+                        self.tickers_recovered_today.extend(result.get('symbols', []))
                         logger.info(
                             "immediate_recovery_completed",
                             recovered=recovered,

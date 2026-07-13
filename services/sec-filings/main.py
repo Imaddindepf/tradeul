@@ -146,7 +146,10 @@ app = FastAPI(
     title="SEC Filings Service",
     description="Real-time + historical SEC EDGAR filings",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # CORS

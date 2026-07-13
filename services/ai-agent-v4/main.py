@@ -13,12 +13,23 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from auth import (
+    AgentAuthError,
+    extract_bearer_token,
+    extract_ws_token,
+    verify_clerk_token,
+)
 from handlers.rest_handler import router as rest_router
 from handlers.trigger_handler import router as trigger_router
 from handlers.websocket_handler import handle_websocket
 
 logger = logging.getLogger(__name__)
+
+# Rutas HTTP que NO requieren autenticación (healthcheck del contenedor/LB).
+_AUTH_EXEMPT_PATHS = {"/api/health"}
 
 # ── Logging setup ────────────────────────────────────────────────
 logging.basicConfig(
@@ -35,8 +46,8 @@ async def lifespan(app: FastAPI):
     logger.info("AI Agent V4 starting up...")
 
     # Initialize the LangGraph orchestrator (eagerly, so errors surface early)
-    from graph.orchestrator import get_graph
-    graph = get_graph()
+    from graph.orchestrator import init_graph
+    graph = await init_graph()
     logger.info("LangGraph orchestrator initialized: %s", graph)
 
     # Store graph ref on app state for access from handlers
@@ -56,6 +67,10 @@ async def lifespan(app: FastAPI):
     memory_mgr = MemoryManager()
     app.state.memory = memory_mgr
     logger.info("Memory Manager initialized")
+
+    # Validate the MCP tool catalog against the live gateway (non-fatal)
+    from agents.mcp_catalog import validate_catalog
+    await validate_catalog()
 
     yield  # ── app is running ──
 
@@ -87,6 +102,13 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
+    # Release the durable checkpointer connection
+    try:
+        from graph.orchestrator import close_graph
+        await close_graph()
+    except Exception:
+        pass
+
     logger.info("AI Agent V4 shutdown complete.")
 
 
@@ -97,7 +119,38 @@ app = FastAPI(
     description="Multi-agent LangGraph orchestrator for financial intelligence",
     version="4.0.0",
     lifespan=lifespan,
+    # Sin superficie de descubrimiento pública.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
+
+
+class ClerkAuthMiddleware(BaseHTTPMiddleware):
+    """Exige un JWT de Clerk válido en todas las rutas HTTP salvo el healthcheck.
+
+    El WebSocket se autentica aparte (query param ?token=) porque el middleware
+    HTTP de Starlette no intercepta el scope 'websocket'.
+    """
+
+    async def dispatch(self, request, call_next):
+        # Preflight CORS: los navegadores no envían Authorization en OPTIONS.
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        if request.url.path in _AUTH_EXEMPT_PATHS:
+            return await call_next(request)
+
+        token = extract_bearer_token(request.headers.get("Authorization"))
+        try:
+            verify_clerk_token(token or "")
+        except AgentAuthError as exc:
+            logger.info("agent_http_auth_denied path=%s reason=%s", request.url.path, exc)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Authentication required"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return await call_next(request)
 
 # ── CORS ─────────────────────────────────────────────────────────
 
@@ -105,6 +158,10 @@ ALLOWED_ORIGINS = os.getenv(
     "CORS_ORIGINS",
     "http://localhost:3000,http://localhost:3001,http://localhost:8031,https://tradeul.com,https://agent.tradeul.com",
 ).split(",")
+
+# Orden importante: ClerkAuth se añade ANTES que CORS para que CORS quede como
+# middleware más externo y añada cabeceras también a las respuestas 401.
+app.add_middleware(ClerkAuthMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -124,7 +181,18 @@ app.include_router(trigger_router)
 
 @app.websocket("/ws/chat/{client_id}")
 async def ws_chat(websocket: WebSocket, client_id: str):
-    """WebSocket endpoint for real-time streaming chat."""
+    """WebSocket endpoint for real-time streaming chat.
+
+    Requiere ?token=<jwt de Clerk> en la URL. Si falta o es inválido se rechaza
+    el handshake (mismo patrón que ws.tradeul.com / wschat.tradeul.com).
+    """
+    token = extract_ws_token(websocket.scope.get("query_string", b"").decode("latin-1"))
+    try:
+        verify_clerk_token(token or "")
+    except AgentAuthError as exc:
+        logger.info("agent_ws_auth_denied client_id=%s reason=%s", client_id, exc)
+        await websocket.close(code=4401)  # 4401 = app-level "unauthorized"
+        return
     await handle_websocket(websocket, client_id)
 
 

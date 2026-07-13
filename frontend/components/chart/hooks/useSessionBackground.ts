@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 import type { ISeriesApi, UTCTimestamp } from 'lightweight-charts';
 import type { ChartBar } from '../constants';
+import { getSessionKind } from '@/lib/marketTime';
 
 function getSessionColors() {
     const isDark = typeof document !== 'undefined' &&
@@ -15,18 +16,9 @@ function getSessionColors() {
 
 export function getSessionColor(barTimeSeconds: number): string {
     const SESSION_COLORS = getSessionColors();
-    const date = new Date(barTimeSeconds * 1000);
-    const etParts = date.toLocaleString('en-US', {
-        timeZone: 'America/New_York',
-        hour: 'numeric',
-        minute: 'numeric',
-        hour12: false,
-    });
-    const [hStr, mStr] = etParts.split(':');
-    const totalMinutes = parseInt(hStr) * 60 + parseInt(mStr);
-
-    if (totalMinutes >= 240 && totalMinutes < 570) return SESSION_COLORS.preMarket;
-    if (totalMinutes >= 960 && totalMinutes < 1200) return SESSION_COLORS.postMarket;
+    const kind = getSessionKind(barTimeSeconds);
+    if (kind === 'pre') return SESSION_COLORS.preMarket;
+    if (kind === 'post') return SESSION_COLORS.postMarket;
     return SESSION_COLORS.regular;
 }
 

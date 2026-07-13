@@ -9,6 +9,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useAuth } from '@clerk/nextjs';
 import {
   Message,
   ResultBlockData,
@@ -66,6 +67,7 @@ interface PendingRequest {
 }
 
 export function useAIAgent(options: UseAIAgentOptions = {}) {
+  const { getToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [resultBlocks, setResultBlocks] = useState<ResultBlockData[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -274,8 +276,38 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
         case 'final_response': {
           const msgId = currentMessageIdRef.current;
-          if (!msgId) break;
           const response = data.response as string || '';
+
+          // Respuesta tardía: el socket se cayó (pestaña en background) y el
+          // servidor la entrega en la reconexión. La petición ya fue cancelada
+          // (msgId=null), así que reemplazamos el mensaje de error de conexión
+          // o añadimos uno nuevo, en vez de descartarla.
+          if (!msgId) {
+            if (!response) break;
+            if (data.thread_id && data.thread_id !== sessionId) break;
+            setMessages(prev => {
+              const revIdx = [...prev].reverse().findIndex(
+                m => m.role === 'assistant' && m.status === 'error'
+              );
+              if (revIdx !== -1) {
+                const realIdx = prev.length - 1 - revIdx;
+                return prev.map((m, i) =>
+                  i === realIdx
+                    ? { ...m, content: response, status: 'complete' as const }
+                    : m
+                );
+              }
+              return [...prev, {
+                id: `late-${Date.now()}`,
+                role: 'assistant' as const,
+                content: response,
+                timestamp: new Date(),
+                status: 'complete' as const,
+              }];
+            });
+            setIsLoading(false);
+            break;
+          }
           const totalMs = data.metadata?.total_elapsed_ms;
           const suggestedQuestions = (data.suggested_questions as string[]) || [];
 
@@ -393,13 +425,28 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
   // WEBSOCKET CONNECTION
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (isConnectingRef.current) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
 
     isConnectingRef.current = true;
-    const wsUrl = `${WS_BASE}/ws/chat/${clientIdRef.current}`;
+
+    // El agente exige un JWT de Clerk (?token=). Sin sesión no conectamos.
+    let token: string | null = null;
+    try {
+      token = await getToken({ skipCache: true });
+    } catch {
+      token = null;
+    }
+    if (!token) {
+      isConnectingRef.current = false;
+      setIsConnected(false);
+      setError('Inicia sesión para usar el agente de IA.');
+      return;
+    }
+
+    const wsUrl = `${WS_BASE}/ws/chat/${clientIdRef.current}?token=${encodeURIComponent(token)}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
@@ -430,7 +477,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     };
 
     wsRef.current = ws;
-  }, [handleWSMessage, cancelPendingRequest]);
+  }, [handleWSMessage, cancelPendingRequest, getToken]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }

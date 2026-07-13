@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getMarketSession } from '@/lib/api';
 import type { MarketSession } from '@/lib/types';
 import { Navbar, NavbarContent, UserMenu } from '@/components/layout/Navbar';
 import { PinnedCommands } from '@/components/layout/PinnedCommands';
@@ -16,7 +15,6 @@ import { useFloatingWindowActions, useFloatingWindowsList } from '@/contexts/Flo
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
-import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { WorkspaceTabs } from '@/components/layout/WorkspaceTabs';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsContent';
@@ -41,7 +39,7 @@ import { EarningsCalendarContent } from '@/components/floating-window/EarningsCa
 import { PredictionMarketsContent } from '@/components/floating-window';
 import { EventTableContent } from '@/components/events';
 import { useEventFiltersStore, type ActiveEventFilters } from '@/stores/useEventFiltersStore';
-import { useMarketSessionStore } from '@/stores/useMarketSessionStore';
+import { useMarketSessionStore, selectSession } from '@/stores/useMarketSessionStore';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 // Phase 1: All window types for full restoration
 import { FinancialAnalystCanvas } from '@/components/financial-analyst';
@@ -93,7 +91,8 @@ const DEFAULT_CATEGORIES = ['gappers_up', 'gappers_down', 'momentum_up', 'winner
 
 export default function ScannerPage() {
   const { t } = useTranslation();
-  const [session, setSession] = useState<MarketSession | null>(null);
+  // Sesión desde el store global único (sincronizado por useMarketClockSync).
+  const session = useMarketSessionStore(selectSession);
   const [mounted, setMounted] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandInput, setCommandInput] = useState('');
@@ -114,9 +113,6 @@ export default function ScannerPage() {
   const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, getScannerCategory } = useCommandExecutor();
   const { getSavedLayout, hasLayout, isLayoutInitialized } = useLayoutPersistence();
   const { activeWorkspace, saveCurrentLayout } = useWorkspaces();
-
-  // WebSocket (ya autenticado desde AuthWebSocketProvider)
-  const ws = useWebSocket();
 
   const layoutRestoredRef = useRef(false);
   const initialTablesOpenedRef = useRef(false);
@@ -488,53 +484,6 @@ export default function ScannerPage() {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  // Fetch market session inicial
-  useEffect(() => {
-    // Inicializar Zustand store global (CategoryTableV2 y otros lo necesitan)
-    useMarketSessionStore.getState().fetchSession();
-
-    const fetchSession = async () => {
-      try {
-        const sessionData = await getMarketSession();
-        setSession(sessionData);
-      } catch (error) {
-        console.error('Error fetching session:', error);
-      }
-    };
-
-    fetchSession();
-    // Polling de respaldo cada 60 segundos (el WebSocket maneja cambios en tiempo real)
-    const interval = setInterval(fetchSession, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Escuchar cambios de sesión en tiempo real vía WebSocket
-  useEffect(() => {
-    const subscription = ws.messages$.subscribe((message: any) => {
-      if (message.type === 'market_session_change' && message.data) {
-        const currentSession = message.data.current_session;
-
-        // Actualizar el estado de sesión inmediatamente
-        setSession((prev) => ({
-          ...prev,
-          current_session: currentSession,
-          trading_date: message.data.trading_date,
-          timestamp: message.data.timestamp,
-        } as MarketSession));
-
-        // Sincronizar Zustand store global (CategoryTableV2 y otros lo leen)
-        useMarketSessionStore.setState({
-          isMarketOpen: currentSession === 'MARKET_OPEN',
-          isPreMarket: currentSession === 'PRE_MARKET',
-          isPostMarket: currentSession === 'POST_MARKET',
-          isClosed: currentSession === 'CLOSED',
-        });
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [ws.messages$]);
 
   // Toggle de categoría del scanner (desde CommandPalette)
   const handleToggleCategory = useCallback((categoryId: string) => {

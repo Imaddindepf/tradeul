@@ -91,9 +91,16 @@ class RedisClient:
         await self._client.ping()
         logger.info("redis_connected")
     
+    # Cap stream length so stream:chat:* doesn't grow unbounded in Redis.
+    # Streams are history/replay only (real-time delivery is pub/sub), so
+    # keeping the last N entries per channel/group is enough.
+    STREAM_MAXLEN = int(os.getenv("CHAT_STREAM_MAXLEN", "10000"))
+
     async def xadd(self, stream: str, fields: Dict) -> str:
-        """Add to a stream"""
-        return await self._client.xadd(stream, fields)
+        """Add to a stream (approximate MAXLEN trim to bound memory)"""
+        return await self._client.xadd(
+            stream, fields, maxlen=self.STREAM_MAXLEN, approximate=True
+        )
     
     async def publish(self, channel: str, message: str):
         """Publish to a pub/sub channel"""

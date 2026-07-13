@@ -72,11 +72,22 @@ class BacktestSubmitNaturalResponse(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.post("/query", response_model=QueryResponse)
-async def run_query(request: QueryRequest) -> QueryResponse:
+async def run_query(request: QueryRequest, http_request: Request) -> QueryResponse:
     """Execute a query through the full LangGraph agent pipeline."""
     from graph.orchestrator import get_graph
 
     thread_id = request.thread_id or f"rest-{int(time.time() * 1000)}"
+
+    # ── Conversational memory: recent turns + cross-thread recall ──
+    memory = getattr(http_request.app.state, "memory", None)
+    memory_context: list[dict[str, Any]] = []
+    if memory:
+        try:
+            memory_context = await memory.build_memory_context(
+                user_id="default", thread_id=thread_id, query=request.query,
+            )
+        except Exception as exc:
+            logger.warning("memory_context load failed: %s", exc)
 
     initial_state: dict[str, Any] = {
         "messages": [{"role": "user", "content": request.query}],
@@ -91,7 +102,7 @@ async def run_query(request: QueryRequest) -> QueryResponse:
         "charts": [],
         "tables": [],
         "market_context": request.market_context,
-        "memory_context": [],
+        "memory_context": memory_context,
         "workflow_id": None,
         "trigger_context": None,
         "node_config": None,
@@ -118,6 +129,20 @@ async def run_query(request: QueryRequest) -> QueryResponse:
     elapsed_ms = int((time.time() - start_time) * 1000)
     exec_meta = final_state.get("execution_metadata", {})
     exec_meta["total_elapsed_ms"] = elapsed_ms
+
+    # ── Persist the turn so follow-ups have context (parity with WS) ──
+    if memory:
+        try:
+            await memory.store_conversation(
+                user_id="default",
+                thread_id=thread_id,
+                query=request.query,
+                response=(final_state.get("final_response") or "")[:2000],
+                tickers=final_state.get("tickers", []) or [],
+                intent=final_state.get("intent", "") or "",
+            )
+        except Exception as exc:
+            logger.warning("REST conversation persist failed: %s", exc)
 
     return QueryResponse(
         response=final_state.get("final_response", ""),
@@ -186,14 +211,23 @@ async def list_tools() -> list[ToolInfo]:
 
 @router.get("/graph/state/{thread_id}")
 async def get_graph_state(thread_id: str) -> dict[str, Any]:
-    """Inspect the graph state for a specific thread (debugging)."""
+    """Inspect the graph state for a specific thread (debugging only).
+
+    Disabled in production: it exposes full conversation state without auth.
+    Enable with DEBUG_ENDPOINTS=true (e.g. local development).
+    """
+    import os
+    if os.getenv("DEBUG_ENDPOINTS", "").lower() != "true":
+        raise HTTPException(status_code=404, detail="Not found")
+
     from graph.orchestrator import get_graph
 
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
     try:
-        state = graph.get_state(config)
+        # aget_state works with both sync (MemorySaver) and async (Postgres) checkpointers
+        state = await graph.aget_state(config)
         if state and hasattr(state, "values"):
             values = dict(state.values)
             # Sanitize messages for JSON serialization

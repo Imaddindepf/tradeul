@@ -6,6 +6,7 @@ import { SignIn, SignUp } from '@clerk/nextjs';
 import { motion } from 'framer-motion';
 import { SlidersHorizontal, ExternalLink, X } from 'lucide-react';
 import { useAppTranslation } from '@/hooks/useAppTranslation';
+import GmailAutoGoogle from '@/components/auth/GmailAutoGoogle';
 
 type AuthMode = 'signin' | 'signup';
 
@@ -443,7 +444,9 @@ export default function AuthExperience({ mode }: { mode: AuthMode }) {
 
             {mounted ? (
               mode === 'signin' ? (
-                <SignIn signUpUrl="/sign-up" fallbackRedirectUrl="/workspace" appearance={clerkAppearance} />
+                <GmailAutoGoogle>
+                  <SignIn signUpUrl="/sign-up" fallbackRedirectUrl="/workspace" appearance={clerkAppearance} />
+                </GmailAutoGoogle>
               ) : (
                 <SignUp signInUrl="/sign-in" fallbackRedirectUrl="/workspace" appearance={clerkAppearance} />
               )

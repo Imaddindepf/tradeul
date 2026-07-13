@@ -2,8 +2,7 @@
 Benzinga News Tasks
 """
 
-from .benzinga_client import BenzingaNewsClient
+from .openoutcrier_client import OpenOutcrierBenzingaClient
 from .news_stream_manager import BenzingaNewsStreamManager
 
-__all__ = ["BenzingaNewsClient", "BenzingaNewsStreamManager"]
-
+__all__ = ["OpenOutcrierBenzingaClient", "BenzingaNewsStreamManager"]

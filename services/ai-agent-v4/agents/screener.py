@@ -12,7 +12,7 @@ from typing import Any
 
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from agents._mcp_tools import call_mcp_tool
+from agents.mcp_catalog import MCP
 from agents._llm_retry import llm_invoke_with_retry
 
 
@@ -226,9 +226,7 @@ async def screener_node(state: dict) -> dict:
 
     # ── Step 2: Call screener MCP tool ───────────────────────────
     try:
-        screen_results = await call_mcp_tool(
-            "screener",
-            "run_screen",
+        screen_results = await MCP.screener.run_screen(
             {
                 "filters": filters,
                 "limit": 50,

@@ -14,6 +14,7 @@ import { NewsProvider } from '@/components/news/NewsProvider';
 import { InsightsProvider } from '@/components/insights';
 import { OpenULProvider } from '@/contexts/OpenULContext';
 import { useTradingDayReset } from '@/hooks/useTradingDayReset';
+import { useMarketClockSync } from '@/hooks/useMarketClockSync';
 import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { useEffect } from 'react';
@@ -33,6 +34,7 @@ function GlobalHooksHandler() {
   }, []);
 
   useTradingDayReset();
+  useMarketClockSync();
   useWorkspaceSync({ enableInitialLoad: true });
   return null;
 }

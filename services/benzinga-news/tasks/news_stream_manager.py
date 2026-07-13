@@ -17,7 +17,7 @@ import structlog
 import redis.asyncio as aioredis
 from redis.asyncio import Redis
 
-from .benzinga_client import BenzingaNewsClient
+from .openoutcrier_client import OpenOutcrierBenzingaClient
 from .catalyst_alert_engine import CatalystAlertEngine
 from models.news import BenzingaArticle
 
@@ -44,26 +44,27 @@ class BenzingaNewsStreamManager:
     
     def __init__(
         self,
-        api_key: str,
+        news_client: OpenOutcrierBenzingaClient,
         redis_client: Redis,
         poll_interval: int = 5,  # Segundos entre polls
-        enable_catalyst_alerts: bool = True  # Habilitar sistema de alertas
+        enable_catalyst_alerts: bool = True,  # Habilitar sistema de alertas
+        polygon_api_key: Optional[str] = None,  # Solo para fallback de precio del catalyst engine
     ):
         """
         Inicializa el manager
         
         Args:
-            api_key: Polygon.io API key
+            news_client: Cliente del feed Benzinga de OpenOutcrier
             redis_client: Cliente Redis conectado
             poll_interval: Intervalo de polling en segundos
             enable_catalyst_alerts: Si debe detectar alertas de catalyst
+            polygon_api_key: API key de Polygon (opcional, solo precios de mercado)
         """
-        self.api_key = api_key
         self.redis = redis_client
         self.poll_interval = poll_interval
         
-        # Cliente de noticias
-        self.news_client = BenzingaNewsClient(api_key)
+        # Cliente de noticias (fuente: OpenOutcrier feed Benzinga)
+        self.news_client = news_client
         
         # Motor de alertas de catalyst (detecta movimientos, el frontend filtra)
         self.enable_catalyst_alerts = enable_catalyst_alerts
@@ -71,7 +72,7 @@ class BenzingaNewsStreamManager:
         if enable_catalyst_alerts:
             self.catalyst_engine = CatalystAlertEngine(
                 redis_client=redis_client,
-                polygon_api_key=api_key
+                polygon_api_key=polygon_api_key
             )
         
         # Control de ejecución

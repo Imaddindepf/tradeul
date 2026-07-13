@@ -1,8 +1,9 @@
 """
 TradesCountTracker - Acumulador de trades del día desde WebSocket aggregates.
 
-Consume el stream:realtime:aggregates y suma los trades (n) de cada símbolo
-para proporcionar trades_today en tiempo real.
+Consume el stream:realtime:aggregates y suma el campo 'trades' de cada símbolo
+para proporcionar trades_today en tiempo real
+(contrato canónico: shared/contracts/realtime.py).
 """
 import asyncio
 from typing import Dict, Optional

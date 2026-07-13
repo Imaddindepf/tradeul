@@ -29,6 +29,7 @@ OBSERVABILIDAD:
 
 import asyncio
 from datetime import datetime, date, timedelta
+from pathlib import Path
 from typing import Optional, Dict, List, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -57,6 +58,10 @@ MAX_BACKFILL_DAYS = 14
 # Si la última sincronización exitosa lleva más de este umbral en horario
 # post-market, se publica un log ERROR (consumible por alertas externas).
 STALE_THRESHOLD_HOURS = 18
+
+# Polygon puede publicar el último día hábil con retraso durante el fin de
+# semana. Un hueco más antiguo no debe bloquear el resto del backfill.
+PUBLICATION_GRACE_DAYS = 3
 
 
 class SyncFlatFilesTask:
@@ -189,14 +194,35 @@ class SyncFlatFilesTask:
                         "end_date": target_date.isoformat(),
                         "data_types": ["day_aggs", "minute_aggs"],
                         "force": False,
+                        # El watcher no puede declarar éxito solo porque una
+                        # tarea fue encolada: el screener necesita los Parquet.
+                        "wait": True,
                     },
                 )
+                response.raise_for_status()
                 result = response.json()
+                downloads = result.get("results", {})
+                day_path = Path("/data/polygon/day_aggs") / f"{target_date.isoformat()}.parquet"
+                minute_path = Path("/data/polygon/minute_aggs") / f"{target_date.isoformat()}.parquet"
+                completed = (
+                    result.get("status") == "completed"
+                    and downloads.get("day_aggs") == 1
+                    and downloads.get("minute_aggs") == 1
+                    and day_path.is_file()
+                    and minute_path.is_file()
+                )
                 logger.info(
-                    "flat_files_download_queued",
+                    "flat_files_download_completed",
                     date=target_date.isoformat(),
+                    completed=completed,
                     result=result,
                 )
+                if not completed:
+                    return {
+                        "success": False,
+                        "error": "download_completed_without_required_parquet",
+                        "result": result,
+                    }
                 return {"success": True, "result": result}
             except Exception as e:
                 logger.error(
@@ -213,6 +239,7 @@ class SyncFlatFilesTask:
                     f"{self.pattern_matching_url}/api/data/update-daily",
                     json={"date": target_date.isoformat()},
                 )
+                response.raise_for_status()
                 result = response.json()
                 logger.info(
                     "pattern_matching_update_completed",
@@ -287,31 +314,43 @@ class SyncFlatFilesTask:
         result["minute_aggs_available"] = minute_exists
         result["day_aggs_available"] = day_exists
 
-        if not minute_exists:
+        if not minute_exists or not day_exists:
             logger.info(
-                "minute_aggs_not_available_yet",
+                "flat_files_not_available_yet",
                 date=target_date.isoformat(),
+                minute_aggs_available=minute_exists,
+                day_aggs_available=day_exists,
             )
-            result["message"] = "minute_aggs not available in Polygon yet"
+            result["message"] = "flat files not available in Polygon yet"
+            result["availability_pending"] = True
             return result
 
-        if day_exists:
-            download_result = await self.download_flat_files_for_local_services(target_date)
-            result["flat_files_downloaded"] = download_result.get("success", False)
-            result["day_aggs_downloaded"] = download_result.get("success", False)
+        download_result = await self.download_flat_files_for_local_services(target_date)
+        result["flat_files_downloaded"] = download_result.get("success", False)
+        result["day_aggs_downloaded"] = download_result.get("success", False)
+        if not result["flat_files_downloaded"]:
+            result["error"] = download_result.get("error", "local_download_failed")
+            result["download_result"] = download_result.get("result")
+            result["completed_at"] = datetime.now(NY_TZ).isoformat()
+            logger.warning("flat_files_local_download_failed", result=result)
+            return result
 
         pm_result = await self.update_pattern_matching(target_date)
         result["pattern_matching_updated"] = pm_result.get("success", False)
         result["pattern_matching_result"] = pm_result.get("result")
 
-        # Éxito = ambas operaciones críticas OK
-        result["success"] = bool(
-            result["flat_files_downloaded"] and result["pattern_matching_updated"]
-        )
+        # El estado de sync del screener depende de los Parquet locales, no
+        # de un servicio remoto independiente. PM queda observable pero no
+        # puede bloquear ni invalidar los datos locales.
+        result["success"] = result["flat_files_downloaded"]
         result["completed_at"] = datetime.now(NY_TZ).isoformat()
 
         if result["success"]:
-            logger.info("flat_files_sync_completed", target_date=target_date.isoformat())
+            logger.info(
+                "flat_files_sync_completed",
+                target_date=target_date.isoformat(),
+                pattern_matching_updated=result["pattern_matching_updated"],
+            )
         else:
             logger.warning("flat_files_sync_partial", result=result)
 
@@ -463,15 +502,30 @@ class FlatFilesWatcher:
                 await self._mark_synced(day)
                 continue
 
-            # Si fue un día reciente cuyo flat aún no se publicó, no lo
-            # consideramos "fallo" — simplemente saltamos el resto.
-            if result.get("message") == "minute_aggs not available in Polygon yet":
-                logger.info(
-                    "flat_files_skipping_unpublished_day",
+            # Un día reciente puede estar aún pendiente de publicación. Un
+            # hueco antiguo (feriado mal clasificado o anomalía de S3) debe
+            # conservarse visible y reintentable, pero no bloquear los días
+            # posteriores del backfill.
+            if result.get("availability_pending"):
+                age_days = (today - day).days
+                if age_days <= PUBLICATION_GRACE_DAYS:
+                    logger.info(
+                        "flat_files_waiting_for_recent_publication",
+                        day=day.isoformat(),
+                        age_days=age_days,
+                    )
+                    break
+
+                error = f"flat_files_unavailable_for_historical_day:{day.isoformat()}"
+                if first_failure is None:
+                    first_failure = result
+                await self._record_check(error=error)
+                logger.error(
+                    "flat_files_historical_gap_continuing_backfill",
                     day=day.isoformat(),
+                    age_days=age_days,
                 )
-                # No reintentamos los días posteriores en esta pasada
-                break
+                continue
 
             # Fallo real → registrar y abortar el backfill (lo retomará en
             # el próximo ciclo, así no martilleamos el endpoint).

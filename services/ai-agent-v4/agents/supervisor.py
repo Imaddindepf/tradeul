@@ -19,7 +19,7 @@ import logging
 import re
 from typing import Any
 
-from agents._mcp_tools import call_mcp_tool
+from agents.mcp_catalog import MCP
 from agents._ticker_utils import get_ticker_info, validate_tickers
 from agents._llm_retry import llm_invoke_with_retry
 
@@ -33,8 +33,11 @@ AVAILABLE_AGENTS = {
     "market_data": (
         "Real-time price data, enriched snapshots (145+ indicators), "
         "scanner rankings (winners, losers, gappers, momentum, volume, halts), "
-        "historical daily/minute bars. "
-        "Capabilities: current quotes, technicals, top movers, price history, OHLCV data."
+        "historical daily/minute bars, deep technical snapshots (RSI, MACD, BB, ADX...), "
+        "and FAISS pattern-similarity forecasts (probability up/down for the next minutes "
+        "based on historically similar price action). "
+        "Capabilities: current quotes, technicals, top movers, price history, OHLCV data, "
+        "pattern forecasts ('¿se parece a algún patrón?', 'probabilidad de que siga subiendo')."
     ),
     "news_events": (
         "Benzinga financial news, real-time market events (85+ types: breakouts, VWAP crosses, "
@@ -135,6 +138,24 @@ All selected agents execute IN PARALLEL — select every needed agent at once.
 Market session: {market_context}
 Scanner categories: {scanner_cats}
 </context>
+
+<conversation_awareness>
+The user message may include a [Conversation so far] block with prior turns of this
+thread (each turn: the user's query, the tickers it resolved to, and its intent).
+
+Follow-up resolution rules:
+1. If the current query is elliptical or uses pronouns/possessives ("y su caja?",
+   "what about its warrants?", "dame más detalles", "compáralo con AMD"), resolve
+   the missing subject from the MOST RECENT turn that has tickers.
+2. Inherit those tickers into the "tickers" field and route as if the user had
+   named them explicitly. Set confidence >= 0.9 — do NOT ask for clarification
+   when the conversation context disambiguates the subject.
+3. If the user explicitly names a NEW ticker or topic, the new subject wins;
+   ignore prior context.
+4. Mention the resolved subject in "plan" (e.g. "Follow-up sobre NVDA: ...").
+5. A [Relevant past analysis] block may include snippets from other conversations —
+   use it only as background, never as the subject of the current query.
+</conversation_awareness>
 
 <date_format_awareness>
 The user message starts with [Language: XX]. Use this to parse ambiguous dates:
@@ -397,7 +418,7 @@ async def _get_market_context_str(state: dict) -> str:
         )
 
     try:
-        session_data = await call_mcp_tool("scanner", "get_market_session", {})
+        session_data = await MCP.scanner.get_market_session({})
         if isinstance(session_data, dict) and "error" not in session_data:
             session = session_data.get("current_session", "UNKNOWN")
             is_trading = session_data.get("is_trading_day", True)
@@ -437,6 +458,49 @@ def _normalize_dates_to_iso(text: str, language: str) -> str:
         return f"{y:04d}-{mo:02d}-{d:02d}"
 
     return _NUMERIC_DATE_RE.sub(_replace, text)
+
+
+# ── Conversation context formatting ──────────────────────────────
+
+def _format_conversation_context(memory_context: list[dict]) -> str:
+    """Format memory_context entries into compact blocks for the planner prompt.
+
+    Returns "" when there is nothing useful, so the planner prompt stays
+    identical to the no-history case (cache-friendly).
+    """
+    if not memory_context:
+        return ""
+
+    thread_lines: list[str] = []
+    recall_lines: list[str] = []
+
+    for entry in memory_context:
+        source = entry.get("source", "")
+        if source == "thread":
+            q = (entry.get("query") or "").strip()
+            if not q:
+                continue
+            tickers = entry.get("tickers") or []
+            intent = entry.get("intent") or ""
+            meta = []
+            if tickers:
+                meta.append(f"tickers={','.join(tickers)}")
+            if intent:
+                meta.append(f"intent={intent}")
+            suffix = f" [{'; '.join(meta)}]" if meta else ""
+            thread_lines.append(f"- {q[:200]}{suffix}")
+        else:
+            content = (entry.get("content") or "").strip()
+            if content:
+                recall_lines.append(f"- {content[:200]}")
+
+    parts: list[str] = []
+    if thread_lines:
+        # Oldest first so "most recent" is last (matches LLM recency bias)
+        parts.append("[Conversation so far]\n" + "\n".join(thread_lines[-6:]))
+    if recall_lines:
+        parts.append("[Relevant past analysis]\n" + "\n".join(recall_lines[:3]))
+    return "\n\n".join(parts)
 
 
 # ── Main planner node ─────────────────────────────────────────────
@@ -535,6 +599,10 @@ async def query_planner_node(state: dict) -> dict:
     # ── Standard LLM-based routing ──
     user_content = f"[Language: {language}] {query}"
 
+    conversation_block = _format_conversation_context(state.get("memory_context") or [])
+    if conversation_block:
+        user_content = f"{conversation_block}\n\n[Current query]\n{user_content}"
+
     llm = _get_llm()
     messages = [
         {"role": "system", "content": system_prompt},
@@ -606,6 +674,29 @@ async def query_planner_node(state: dict) -> dict:
                 logger.info("Planner: ticker metadata loaded: %s", names)
 
     requested_agents = [a for a in decision.get("agents", []) if a in AVAILABLE_AGENTS]
+
+    # ── Execution mode shaping ──
+    # quick: cheapest useful answer — cap fan-out at 2 agents, drop research
+    #        (web search is the slowest agent by far).
+    # deep:  maximum coverage — always add research when tickers are present.
+    mode = state.get("mode", "auto")
+    if mode == "quick" and len(requested_agents) > 1:
+        _quick_priority = [
+            "market_data", "news_events", "dilution", "screener",
+            "financial", "backtest", "code_exec", "research",
+        ]
+        requested_agents = sorted(
+            [a for a in requested_agents if a != "research"],
+            key=_quick_priority.index,
+        )[:2] or requested_agents[:1]
+    elif mode == "deep":
+        if "research" not in requested_agents and decision.get("tickers"):
+            requested_agents.append("research")
+        if "financial" not in requested_agents and decision.get("intent") in (
+            "COMPLETE_ANALYSIS", "DEEP_RESEARCH", "CAUSAL",
+        ):
+            requested_agents.append("financial")
+
     theme_tags = decision.get("theme_tags", [])
     if theme_tags:
         theme_tags = [t.strip() for t in theme_tags if isinstance(t, str) and t.strip()]
@@ -622,10 +713,12 @@ async def query_planner_node(state: dict) -> dict:
         agent_tasks = None
 
     logger.info(
-        "Query planner: intent=%s confidence=%.2f tickers=%s agents=%s themes=%s pulse=%s tasks=%s plan=%s",
-        decision.get("intent", "?"), confidence, llm_tickers,
+        "Query planner: intent=%s confidence=%.2f mode=%s tickers=%s agents=%s themes=%s pulse=%s tasks=%s ctx_turns=%d plan=%s",
+        decision.get("intent", "?"), confidence, mode, llm_tickers,
         requested_agents, theme_tags,
-        bool(pulse_queries), bool(agent_tasks), decision.get("plan", "")[:120],
+        bool(pulse_queries), bool(agent_tasks),
+        len([e for e in (state.get("memory_context") or []) if e.get("source") == "thread"]),
+        decision.get("plan", "")[:120],
     )
 
     result_state = {

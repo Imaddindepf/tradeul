@@ -8,9 +8,10 @@ import asyncpg
 import structlog
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
+from auth import current_user_id
 from shared.config.settings import settings
 
 logger = structlog.get_logger()
@@ -125,7 +126,7 @@ def row_to_note(row) -> Note:
 # ============================================================================
 
 @router.get("", response_model=List[Note])
-async def get_notes(user_id: str = Query(..., description="User ID from Clerk")):
+async def get_notes(user_id: str = Depends(current_user_id)):
     """Get all notes for a user"""
     pool = await get_db_pool()
     
@@ -149,7 +150,7 @@ async def get_notes(user_id: str = Query(..., description="User ID from Clerk"))
 @router.post("", response_model=Note)
 async def create_note(
     data: NoteCreate,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Create a new note"""
     pool = await get_db_pool()
@@ -187,7 +188,7 @@ async def create_note(
 @router.get("/{note_id}", response_model=Note)
 async def get_note(
     note_id: str,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Get a specific note"""
     pool = await get_db_pool()
@@ -217,7 +218,7 @@ async def get_note(
 async def update_note(
     note_id: str,
     data: NoteUpdate,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Update a note"""
     pool = await get_db_pool()
@@ -280,7 +281,7 @@ async def update_note(
 @router.delete("/{note_id}")
 async def delete_note(
     note_id: str,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Delete a note"""
     pool = await get_db_pool()
@@ -308,7 +309,7 @@ async def delete_note(
 @router.post("/reorder")
 async def reorder_notes(
     data: NotesReorder,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Reorder notes"""
     pool = await get_db_pool()

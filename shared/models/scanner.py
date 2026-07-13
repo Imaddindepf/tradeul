@@ -141,6 +141,10 @@ class ScannerTicker(BaseModel):
     
     # Pre-Market metrics (capturado al inicio de MARKET_OPEN, 09:30 ET)
     premarket_change_percent: Optional[float] = Field(None, description="% change during pre-market (4AM-9:30AM from prev_close)")
+    premarket_volume: Optional[int] = Field(None, description="Pre-market accumulated volume (4:00-9:30 ET). Live during pre-market, frozen at open.")
+    premarket_volume_live: Optional[int] = Field(None, description="Live pre-market accumulated volume (None outside pre-market)")
+    premarket_dollar_volume: Optional[float] = Field(None, description="Pre-market dollar volume (premarket_volume × pre-market VWAP)")
+    premarket_rvol: Optional[float] = Field(None, description="Pre-market relative volume vs historical pre-market average")
     
     # Post-Market metrics (activos solo durante POST_MARKET session 16:00-20:00 ET)
     postmarket_change_percent: Optional[float] = Field(None, description="% change from regular session close (day.c)")
@@ -705,6 +709,13 @@ class FilterParameters(BaseModel):
     max_above_premarket_low: Optional[float] = Field(None, description="Max % above pre-market low")
     min_pos_in_premarket_range: Optional[float] = Field(None, description="Min position in pre-market range")
     max_pos_in_premarket_range: Optional[float] = Field(None, description="Max position in pre-market range")
+    # Pre-market volume
+    min_premarket_volume: Optional[int] = Field(None, description="Min pre-market volume")
+    max_premarket_volume: Optional[int] = Field(None, description="Max pre-market volume")
+    min_premarket_dollar_volume: Optional[float] = Field(None, description="Min pre-market dollar volume")
+    max_premarket_dollar_volume: Optional[float] = Field(None, description="Max pre-market dollar volume")
+    min_premarket_rvol: Optional[float] = Field(None, description="Min pre-market RVOL")
+    max_premarket_rvol: Optional[float] = Field(None, description="Max pre-market RVOL")
     
     # Multi-TF SMA distances
     min_dist_sma_5_2m: Optional[float] = Field(None, description="Min % dist SMA(5) 2min")

@@ -7,8 +7,8 @@ multi-timeframe OHLC bars in real-time.
 Timeframes: 1min, 2min, 5min, 10min, 15min, 30min, 60min, 240min, 720min
 
 When a bar closes, it's published to:
-  - Redis stream: stream:bars:{timeframe}min  (for alert_engine consumption)
-  - Redis hash:   bars:{timeframe}min:latest  (latest closed bar per symbol)
+  - Pub/sub: chart:sealed:{SYMBOL} (vela autoritativa → websocket_server → charts)
+  (stream:bars:{tf}min y bars:{tf}min:latest se eliminaron: sin consumidores)
 
 NEW (Live Bar Store):
   - Redis hash:   bars:{timeframe}min:current (currently-forming bar per symbol)
@@ -48,6 +48,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from zoneinfo import ZoneInfo
 
+from shared.contracts.realtime import parse_realtime_aggregate
+
 ET_TZ = ZoneInfo("America/New_York")
 
 # ============================================================================
@@ -67,9 +69,6 @@ TIMEFRAMES = [1, 2, 5, 10, 15, 30, 60, 240, 720]
 
 # Max bars to keep per symbol per timeframe (in Redis)
 MAX_BARS_HISTORY = 200
-
-# Stream max length per timeframe (auto-trim)
-STREAM_MAXLEN = 10_000
 
 # How often to flush in-formation bars to Redis (seconds).
 # Lower = more freshness, more Redis writes. 1s is the sweet spot.
@@ -208,6 +207,7 @@ class BarAggregator:
         # Statistics
         self.bars_closed = 0
         self.updates_processed = 0
+        self.messages_rejected = 0
         # Ventana [start_ms, end_ms) del día ET actual, para detectar el
         # rollover de día sin convertir timezone en cada aggregate.
         self._day_window: Optional[tuple] = None
@@ -218,9 +218,8 @@ class BarAggregator:
         barras a medio formar del día anterior.
 
         Sin esto, el primer aggregate del día siguiente cerraba y publicaba
-        en stream:bars:* la vela stale de ayer (alert_engine la consumía como
-        recién cerrada), y _current_bars acumulaba símbolos entre días
-        (trinquete de memoria).
+        como sellada la vela stale de ayer, y _current_bars acumulaba
+        símbolos entre días (trinquete de memoria).
         """
         if self._day_window is not None:
             start_ms, end_ms = self._day_window
@@ -268,25 +267,40 @@ class BarAggregator:
         """
         self.updates_processed += 1
 
-        symbol = data.get("sym") or data.get("symbol", "")
-        if not symbol:
-            return []
-
-        # Parse aggregate fields
+        # Skip silencioso de no-datos: market_internals publica índices
+        # sintéticos al mismo stream cuyo "close" puede ser <= 0 (p.ej. net
+        # highs-lows negativo). No son velas y no son violación de contrato.
         try:
-            price_open = float(data.get("o", 0) or data.get("open", 0))
-            price_high = float(data.get("h", 0) or data.get("high", 0))
-            price_low = float(data.get("l", 0) or data.get("low", 0))
-            price_close = float(data.get("c", 0) or data.get("close", 0))
-            volume = int(data.get("v", 0) or data.get("vol", 0) or 0)
-            trades = int(data.get("n", 0) or data.get("trades", 0) or 0)
-            vwap = float(data.get("a", 0) or data.get("vwap", 0) or 0)
-            timestamp_ms = int(data.get("s", 0) or data.get("timestamp_start", 0) or 0)
+            raw_close = float(data.get("close") or data.get("c") or 0)
         except (ValueError, TypeError):
+            raw_close = 0.0
+        if raw_close <= 0:
             return []
 
-        if price_close <= 0 or timestamp_ms <= 0:
+        # Parseo vía contrato compartido (shared/contracts/realtime.py):
+        # un solo sitio define los nombres de campo del stream. Un mensaje
+        # que no cumple el contrato (p.ej. sin campo de volumen) se descarta
+        # y se cuenta, en vez de producir velas con volume=0 silencioso.
+        agg = parse_realtime_aggregate(data)
+        if agg is None:
+            self.messages_rejected += 1
+            if self.messages_rejected == 1 or self.messages_rejected % 1000 == 0:
+                logger.warning(
+                    "aggregate_contract_violation",
+                    rejected_total=self.messages_rejected,
+                    sample_keys=sorted(data.keys())[:15],
+                )
             return []
+
+        symbol = agg.symbol
+        price_open = agg.open
+        price_high = agg.high
+        price_low = agg.low
+        price_close = agg.close
+        volume = agg.volume
+        trades = agg.trades
+        vwap = agg.vwap
+        timestamp_ms = agg.timestamp_start_ms
 
         self._check_day_rollover(timestamp_ms)
 
@@ -331,6 +345,7 @@ class BarAggregator:
         return {
             "updates_processed": self.updates_processed,
             "bars_closed": self.bars_closed,
+            "messages_rejected": self.messages_rejected,
             "active_bars_by_timeframe": symbols_by_tf,
         }
 
@@ -785,31 +800,29 @@ class BarBuilderService:
         if not bars:
             return
 
+        # NOTA: históricamente aquí también se publicaba a stream:bars:{tf}min
+        # (XADD) y bars:{tf}min:latest (HSET) para alert_engine. La auditoría
+        # de contratos confirmó que NINGÚN servicio los consume hoy, así que
+        # se eliminaron: eran ~2 escrituras Redis extra por vela cerrada
+        # (9 timeframes x miles de símbolos) sin ningún lector.
         pipe = self.redis.pipeline()
 
         for bar in bars:
             tf = bar["timeframe"]
             symbol = bar["symbol"]
 
-            # 1. Publish to stream for event consumption
-            stream_key = f"stream:bars:{tf}min"
-            pipe.xadd(
-                stream_key,
-                bar,
-                maxlen=STREAM_MAXLEN,
-                approximate=True,
-            )
-
-            # 2. Store latest bar in hash for lookups
-            hash_key = f"bars:{tf}min:latest"
-            pipe.hset(hash_key, symbol, json.dumps(bar))
-
-            # 3. Once a bar closes, the corresponding entry in :current is
+            # 1. Once a bar closes, the corresponding entry in :current is
             #    stale (the new in-formation bar will overwrite it on the
             #    next aggregate). Remove it so consumers don't see a closed
             #    bar masquerading as "current".
             current_hash = f"bars:{tf}min:current"
             pipe.hdel(current_hash, symbol)
+
+            # 2. SEALED BAR pub/sub → websocket_server → charts.
+            #    La vela cerrada es AUTORITATIVA: el frontend reemplaza su
+            #    vela provisional (construida tick a tick, con open inexacto)
+            #    por esta. Mismo patrón que chart:trades:{SYMBOL}.
+            pipe.publish(f"chart:sealed:{symbol}", json.dumps(bar))
 
         try:
             await pipe.execute()

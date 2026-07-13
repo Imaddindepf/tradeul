@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useRef, useState } from "react"
+import { useAuth } from "@clerk/nextjs"
 import { useWorkflowStore } from "@/stores/useWorkflowStore"
 import type { NodeResult } from "@/components/workflow-builder-v2/types"
 
@@ -23,6 +24,7 @@ interface WorkflowEvent {
 }
 
 export function useWorkflowExecution() {
+  const { getToken } = useAuth()
   const wsRef = useRef<WebSocket | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const startExecution = useWorkflowStore((s) => s.startExecution)
@@ -30,7 +32,7 @@ export function useWorkflowExecution() {
   const completeExecution = useWorkflowStore((s) => s.completeExecution)
   const getActiveWorkflow = useWorkflowStore((s) => s.getActiveWorkflow)
 
-  const execute = useCallback(() => {
+  const execute = useCallback(async () => {
     const workflow = getActiveWorkflow()
     if (!workflow) return
 
@@ -39,10 +41,23 @@ export function useWorkflowExecution() {
       wsRef.current.close()
     }
 
+    // El agente exige JWT de Clerk (?token=). Sin sesión no ejecutamos.
+    let token: string | null = null
+    try {
+      token = await getToken({ skipCache: true })
+    } catch {
+      token = null
+    }
+    if (!token) {
+      completeExecution("error")
+      return
+    }
+
     setIsRunning(true)
     startExecution()
 
-    const ws = new WebSocket(WS_URL)
+    const sep = WS_URL.includes("?") ? "&" : "?"
+    const ws = new WebSocket(`${WS_URL}${sep}token=${encodeURIComponent(token)}`)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -129,7 +144,7 @@ export function useWorkflowExecution() {
       setIsRunning(false)
       wsRef.current = null
     }
-  }, [getActiveWorkflow, startExecution, updateNodeStatus, completeExecution])
+  }, [getActiveWorkflow, startExecution, updateNodeStatus, completeExecution, getToken])
 
   const stop = useCallback(() => {
     if (wsRef.current) {

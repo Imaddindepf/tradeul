@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNotesStore, Note, TipTapContent } from '@/stores/useNotesStore';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useAuth } from '@clerk/nextjs';
 import { getUserTimezone } from '@/lib/date-utils';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -288,6 +288,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 export function NotesContent() {
   const { t } = useTranslation();
   const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
   const {
     notes,
     activeNoteId,
@@ -310,9 +311,9 @@ export function NotesContent() {
   // Fetch notes on mount if user is logged in
   useEffect(() => {
     if (isLoaded && user?.id) {
-      fetchNotes(user.id);
+      fetchNotes(getToken);
     }
-  }, [isLoaded, user?.id, fetchNotes]);
+  }, [isLoaded, user?.id, fetchNotes, getToken]);
 
   // Set first note as active if none selected
   useEffect(() => {
@@ -334,7 +335,7 @@ export function NotesContent() {
 
         saveTimeoutRef.current = setTimeout(() => {
           if (user?.id) {
-            updateNote(activeNoteId, { content }, user.id);
+            updateNote(activeNoteId, { content }, getToken);
           } else {
             updateLocalNote(activeNoteId, { content });
           }
@@ -343,7 +344,7 @@ export function NotesContent() {
         }, 500);
       }
     },
-    [activeNoteId, user?.id, updateNote, updateLocalNote]
+    [activeNoteId, user?.id, updateNote, updateLocalNote, getToken]
   );
 
   const forceSave = useCallback(() => {
@@ -352,14 +353,14 @@ export function NotesContent() {
         clearTimeout(saveTimeoutRef.current);
       }
       if (user?.id) {
-        updateNote(activeNoteId, { content: currentContentRef.current }, user.id);
+        updateNote(activeNoteId, { content: currentContentRef.current }, getToken);
       } else {
         updateLocalNote(activeNoteId, { content: currentContentRef.current });
       }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus(null), 1500);
     }
-  }, [activeNoteId, user?.id, updateNote, updateLocalNote]);
+  }, [activeNoteId, user?.id, updateNote, updateLocalNote, getToken]);
 
   // Ctrl+S handler
   useEffect(() => {
@@ -377,7 +378,7 @@ export function NotesContent() {
 
   const handleCreateNote = async () => {
     if (user?.id) {
-      await createNote(user.id);
+      await createNote(getToken);
     } else {
       createLocalNote();
     }
@@ -388,13 +389,13 @@ export function NotesContent() {
       // Last note - just clear it
       const emptyContent: TipTapContent = { type: 'doc', content: [] };
       if (user?.id) {
-        await updateNote(id, { content: emptyContent, title: 'Note 1' }, user.id);
+        await updateNote(id, { content: emptyContent, title: 'Note 1' }, getToken);
       } else {
         updateLocalNote(id, { content: emptyContent, title: 'Note 1' });
       }
     } else {
       if (user?.id) {
-        await deleteNote(id, user.id);
+        await deleteNote(id, getToken);
       } else {
         deleteLocalNote(id);
       }
@@ -403,7 +404,7 @@ export function NotesContent() {
 
   const handleRenameNote = async (id: string, newTitle: string) => {
     if (user?.id) {
-      await updateNote(id, { title: newTitle }, user.id);
+      await updateNote(id, { title: newTitle }, getToken);
     } else {
       updateLocalNote(id, { title: newTitle });
     }

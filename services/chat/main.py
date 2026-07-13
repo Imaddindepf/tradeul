@@ -54,7 +54,10 @@ app = FastAPI(
     title="Tradeul Chat Service",
     description="Community chat with real-time messaging and ticker integration",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # CORS - Allow frontend

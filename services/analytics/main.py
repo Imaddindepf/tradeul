@@ -194,6 +194,7 @@ async def handle_day_changed(event: Event) -> None:
         if enrichment_pipeline:
             enrichment_pipeline.clear_change_detector()
             logger.info("change_detector_reset")
+            enrichment_pipeline.reset_premarket_volume_for_new_day()
     else:
         logger.info("skipping_cache_reset", reason="holiday_mode_active", date=new_date_str)
 

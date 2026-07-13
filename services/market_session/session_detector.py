@@ -43,6 +43,7 @@ class SessionDetector:
         self.last_session: Optional[MarketSession] = None
         self.last_trading_date: Optional[date] = None
         self.session_change_count = 0
+        self.last_holidays_refresh_date: Optional[date] = None
         
         # Parse market hours from settings
         self.pre_market_start = self._parse_time(settings.pre_market_start)
@@ -101,6 +102,7 @@ class SessionDetector:
                 
                 # Cache holidays in Redis
                 await self._cache_holidays(holidays_response.holidays)
+                self.last_holidays_refresh_date = self._get_current_et_time().date()
                 
                 logger.info(
                     "Loaded holidays from Polygon",
@@ -111,6 +113,21 @@ class SessionDetector:
         
         except Exception as e:
             logger.error("Error loading holidays from Polygon", error=str(e))
+
+    async def refresh_holidays_if_due(self) -> None:
+        """Refresca el calendario una vez por día de mercado local.
+
+        Las claves de Redis expiran y el proceso puede vivir semanas; limitar
+        esta carga al arranque deja huecos previsibles en el calendario.
+
+        Un solo intento por día aunque falle: las claves duran 30 días en
+        Redis, así que perder un refresco puntual es inocuo, mientras que
+        reintentar en cada ciclo de 30s martillearía la API de Polygon.
+        """
+        today = self._get_current_et_time().date()
+        if self.last_holidays_refresh_date != today:
+            self.last_holidays_refresh_date = today
+            await self._load_holidays_from_polygon()
     
     async def _cache_holidays(self, holidays: List) -> None:
         """Cache holidays in Redis for fast lookup"""
@@ -366,6 +383,7 @@ class SessionDetector:
         Returns:
             SessionChangeEvent if session changed, None otherwise
         """
+        await self.refresh_holidays_if_due()
         status = await self._detect_current_session()
         
         # Check if session changed
@@ -453,20 +471,12 @@ class SessionDetector:
     
     async def _publish_session_change_event(self, event: SessionChangeEvent) -> None:
         """Publish session change event to Redis"""
-        # Publish to channel (legacy)
-        await self.redis.publish(
-            "events:session_change",
-            event.model_dump(mode='json')
-        )
-        
-        # Add to stream (legacy)
-        await self.redis.xadd(
-            settings.stream_session_events,
-            event.model_dump(mode='json'),
-            maxlen=1000
-        )
-        
-        # NUEVO: Publicar eventos al Event Bus.
+        # Los publishes legacy a "events:session_change" (canal) y
+        # "events:session" (stream) se eliminaron: la auditoría de contratos
+        # confirmó que ningún servicio los consume. El único camino real es
+        # el EventBus (canal events:session:changed → websocket_server).
+
+        # Publicar eventos al Event Bus.
         # raise_on_error=True: el llamador reintenta; sin esto el EventBus
         # traga la excepción y el evento se pierde sin posibilidad de retry.
         if self.event_bus:

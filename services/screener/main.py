@@ -197,6 +197,9 @@ app = FastAPI(
     description="High-performance stock screener with 60+ technical indicators",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # CORS

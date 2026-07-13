@@ -45,6 +45,10 @@ FILTER_DEFINITIONS = [
     ('min_price_from_intraday_low', 'max_price_from_intraday_low', 'price_from_intraday_low', False),
     ('min_market_cap', 'max_market_cap', 'market_cap', False),
     ('min_float', 'max_float', 'free_float', False),
+    # Pre-market volume (frozen at 9:30, filterable all day)
+    ('min_premarket_volume', 'max_premarket_volume', 'premarket_volume', False),
+    ('min_premarket_dollar_volume', 'max_premarket_dollar_volume', 'premarket_dollar_volume', False),
+    ('min_premarket_rvol', 'max_premarket_rvol', 'premarket_rvol', True),
     # Volume window % (Tradeul style)
     ('min_vol_1min_pct', 'max_vol_1min_pct', 'vol_1min_pct', False),
     ('min_vol_5min_pct', 'max_vol_5min_pct', 'vol_5min_pct', False),

@@ -1,7 +1,8 @@
 """
 VWAP Consumer - Maintains VWAP cache from WebSocket per-second aggregates.
 
-Reads field 'a' (Today's VWAP) from stream:realtime:aggregates.
+Reads field 'vwap' (Today's VWAP) from stream:realtime:aggregates
+(contrato canónico: shared/contracts/realtime.py).
 If VWAP is 0 or missing, keeps the last known value (prevents VWAP "disappearing").
 
 Only covers ~643 subscribed tickers (scanner-selected).

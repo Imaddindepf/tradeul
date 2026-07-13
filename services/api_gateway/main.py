@@ -12,6 +12,12 @@ import os
 import uuid
 from datetime import datetime
 from typing import Optional, List
+from zoneinfo import ZoneInfo
+
+# Todas las fechas "de trading" (rangos hacia Polygon, día actual) deben
+# calcularse en hora del exchange. Con datetime.now() naive (UTC en el
+# contenedor), entre las 20:00 y 23:59 ET el "hoy" apuntaba al día siguiente.
+ET_TZ = ZoneInfo("America/New_York")
 import structlog
 import httpx
 from contextlib import asynccontextmanager
@@ -53,7 +59,6 @@ from routes.rrg import router as rrg_router, set_redis_client as set_rrg_redis, 
 from routes.analyst_ratings import router as analyst_ratings_router
 from routes.perplexity_financials import router as perplexity_financials_router
 from routes.developer import router as developer_router, set_redis_client as set_developer_redis
-from routes.public import router as public_router, set_redis_client as set_public_redis
 from routes.bug_reports import router as bug_reports_router, set_redis_client as set_bug_reports_redis
 from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
@@ -139,10 +144,6 @@ async def lifespan(app: FastAPI):
     set_bug_reports_redis(redis_client)
     logger.info("developer_router_configured")
 
-    # Configurar router público (landing page, sin auth)
-    set_public_redis(redis_client)
-    logger.info("public_router_configured")
-    
     # Configurar router de institutional con SEC API client
     # Nota: se configura después de http_clients.initialize()
     
@@ -211,7 +212,12 @@ app = FastAPI(
     title="Tradeul Scanner API",
     description="API Gateway para el scanner en tiempo real",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    # Superficie de descubrimiento desactivada: nadie debe poder enumerar
+    # los endpoints desde fuera (api.tradeul.com/docs, /redoc, /openapi.json).
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # CORS Middleware
@@ -265,7 +271,6 @@ app.include_router(rrg_router)  # RRG (Relative Rotation Graph) with historical 
 app.include_router(analyst_ratings_router)  # Analyst ratings & price targets (Perplexity proxy)
 app.include_router(perplexity_financials_router)  # Balance Sheet + Cash Flow (Perplexity proxy)
 app.include_router(developer_router)               # Trader API key management (Openul stream)
-app.include_router(public_router)                  # Public endpoints (landing page, top movers, sin auth)
 app.include_router(bug_reports_router)             # Dashboard bug report submissions
 
 
@@ -2821,11 +2826,11 @@ async def get_earnings_calendar(
     from datetime import datetime, date as date_type
     
     try:
-        # Parse date or use today
+        # Parse date or use today (ET: entre 20:00-23:59 ET, UTC ya es mañana)
         if date:
             target_date = date_type.fromisoformat(date)
         else:
-            target_date = datetime.now().date()
+            target_date = datetime.now(tz=ET_TZ).date()
         
         # Try cache first
         cache_key = f"earnings:calendar:{target_date.isoformat()}"
@@ -2945,7 +2950,7 @@ async def get_upcoming_earnings(
     from datetime import datetime, date as date_type, timedelta
     
     try:
-        today = datetime.now().date()
+        today = datetime.now(tz=ET_TZ).date()
         end_date = today + timedelta(days=days)
         
         query = """
@@ -3710,11 +3715,11 @@ async def fetch_polygon_chunk(
     """
     from datetime import datetime as dt, timedelta
     
-    # Parse to_date
+    # Parse to_date (fallback en ET, no en el reloj UTC del contenedor)
     try:
         to_dt = dt.strptime(to_date, "%Y-%m-%d")
     except:
-        to_dt = dt.now()
+        to_dt = dt.now(tz=ET_TZ).replace(tzinfo=None)
     
     # Convert desired bars to calendar days, accounting for
     # weekends (~5/7 trading ratio) and holidays.
@@ -3921,6 +3926,7 @@ INTERVAL_TO_TF_MIN: dict = {
     "1min": 1,
     "2min": 2,
     "5min": 5,
+    "10min": 10,
     "15min": 15,
     "30min": 30,
     "1hour": 60,
@@ -4384,13 +4390,15 @@ async def get_chart_data(
     if symbol.startswith("TRDL:"):
         return await _get_internal_index_chart(symbol, interval, before, after, to, bars_limit)
     
+    # Fechas SIEMPRE en ET: un timestamp de las 19:30 ET es "hoy" para el
+    # mercado aunque en UTC ya sea mañana.
     from datetime import datetime as dt
     if before:
-        to_date = dt.fromtimestamp(before - 1).strftime("%Y-%m-%d")
+        to_date = dt.fromtimestamp(before - 1, tz=ET_TZ).strftime("%Y-%m-%d")
     elif to:
-        to_date = dt.fromtimestamp(to).strftime("%Y-%m-%d")
+        to_date = dt.fromtimestamp(to, tz=ET_TZ).strftime("%Y-%m-%d")
     else:
-        to_date = datetime.now().strftime("%Y-%m-%d")
+        to_date = datetime.now(tz=ET_TZ).strftime("%Y-%m-%d")
     
     range_key = f"after:{after}" if after else (f"to:{to}" if to else (before or 'latest'))
     cache_key = f"chart:v3:{symbol}:{interval}:{range_key}:{bars_limit}"

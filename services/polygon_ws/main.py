@@ -31,6 +31,7 @@ from shared.utils.redis_stream_manager import (
     get_stream_manager
 )
 from shared.models.polygon import PolygonTrade, PolygonQuote, PolygonAgg, PolygonLuld
+from shared.contracts.realtime import build_realtime_aggregate_payload
 from ws_client import PolygonWebSocketClient
 from subscription_reconciler import SubscriptionReconciler
 
@@ -314,21 +315,24 @@ async def handle_aggregate(agg: PolygonAgg):
     2. stream:realtime:aggregates (backward compat) -- para snapshot loop y otros
     """
     try:
-        payload = {
-            'symbol': agg.sym,
-            'open': str(agg.o),
-            'high': str(agg.h),
-            'low': str(agg.l),
-            'close': str(agg.c),
-            'volume': str(agg.v),
-            'volume_accumulated': str(agg.av),
-            'vwap': str(agg.a),
-            'avg_trade_size': str(agg.z),
-            'trades': str(getattr(agg, 'n', 0) or (int(agg.v / agg.z) if agg.z > 0 else 0)),
-            'timestamp_start': str(agg.s),
-            'timestamp_end': str(agg.e),
-            'otc': 'true' if agg.otc else 'false'
-        }
+        # Contrato canónico compartido: shared/contracts/realtime.py.
+        # Los consumidores (bar_builder, snapshot loop, ...) parsean con
+        # parse_realtime_aggregate(); no cambiar nombres de campo aquí.
+        payload = build_realtime_aggregate_payload(
+            symbol=agg.sym,
+            open_=agg.o,
+            high=agg.h,
+            low=agg.l,
+            close=agg.c,
+            volume=agg.v,
+            volume_accumulated=agg.av,
+            vwap=agg.a,
+            avg_trade_size=agg.z,
+            trades=getattr(agg, 'n', 0) or (int(agg.v / agg.z) if agg.z > 0 else 0),
+            timestamp_start_ms=agg.s,
+            timestamp_end_ms=agg.e,
+            otc=bool(agg.otc),
+        )
 
         partition = hash(agg.sym) % NUM_ALERT_PARTITIONS
         partitioned_stream = f"stream:agg:p{partition}"

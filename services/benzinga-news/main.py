@@ -18,6 +18,7 @@ import redis.asyncio as aioredis
 
 from config import settings
 from tasks.news_stream_manager import BenzingaNewsStreamManager
+from tasks.openoutcrier_client import OpenOutcrierBenzingaClient
 from models.news import BenzingaArticle, NewsFilterParams
 
 # Configurar logging para que structlog escriba a stdout
@@ -82,14 +83,21 @@ async def lifespan(app: FastAPI):
     
     # Start stream manager
     try:
+        news_client = OpenOutcrierBenzingaClient(
+            base_url=settings.ooc_base_url,
+            session_hash=settings.ooc_session_hash,
+            endpoint=settings.ooc_endpoint,
+        )
+
         stream_manager = BenzingaNewsStreamManager(
-            api_key=settings.polygon_api_key,
+            news_client=news_client,
             redis_client=redis_client,
-            poll_interval=settings.poll_interval_seconds
+            poll_interval=settings.poll_interval_seconds,
+            polygon_api_key=settings.polygon_api_key,
         )
         
         await stream_manager.start()
-        logger.info("✅ Stream manager started")
+        logger.info("✅ Stream manager started (source: OpenOutcrier bz feed)")
         
     except Exception as e:
         logger.error("❌ Failed to start stream manager", error=str(e))
@@ -141,7 +149,7 @@ async def status():
     except:
         pass
     
-    stream_stats = stream_manager.get_stats() if stream_manager else {}
+    stream_stats = await stream_manager.get_stats() if stream_manager else {}
     
     return {
         "status": "ok" if redis_ok and stream_manager else "degraded",
@@ -160,7 +168,7 @@ async def stream_status():
     
     return {
         "status": "running" if stream_manager._running else "stopped",
-        "stats": stream_manager.get_stats()
+        "stats": await stream_manager.get_stats()
     }
 
 

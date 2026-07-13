@@ -1,8 +1,18 @@
 /**
- * Market Session Store
- * 
- * Store global para el estado del mercado.
- * Se actualiza periódicamente y puede ser usado por cualquier componente.
+ * Market Session Store — ÚNICA fuente de verdad de la sesión de mercado.
+ *
+ * Se mantiene sincronizado por useMarketClockSync (montado una vez en
+ * AppShell), que combina:
+ *   1. Mensaje WS `connected` (snapshot de sesión al conectar/reconectar)
+ *   2. Eventos WS `market_session_change` (transiciones en tiempo real)
+ *   3. Refetch REST en visibilitychange y reconexión (pestaña dormida)
+ *   4. Polling REST de respaldo
+ *
+ * NINGÚN componente debe mantener su propia copia de la sesión ni hacer su
+ * propio fetch/subscribe: consumir SIEMPRE de este store. (Antes había tres
+ * copias desincronizadas — chart, workspace y este store — y la del chart se
+ * quedaba obsoleta al perderse eventos con la pestaña en background: la línea
+ * de pre-market no aparecía hasta la siguiente transición de sesión.)
  */
 
 import { create } from 'zustand';
@@ -18,13 +28,13 @@ interface MarketSessionState {
   isLoading: boolean;
   error: string | null;
   lastFetch: Date | null;
-  
+
   // Computed helpers
   isMarketOpen: boolean;
   isPreMarket: boolean;
   isPostMarket: boolean;
   isClosed: boolean;
-  
+
   // Actions
   fetchSession: () => Promise<void>;
   setSession: (session: MarketSession) => void;
@@ -38,69 +48,71 @@ interface MarketSessionState {
 
 let pollingInterval: NodeJS.Timeout | null = null;
 
+function computedFlags(currentSession: string) {
+  return {
+    isMarketOpen: currentSession === 'MARKET_OPEN',
+    isPreMarket: currentSession === 'PRE_MARKET',
+    isPostMarket: currentSession === 'POST_MARKET',
+    isClosed: currentSession === 'CLOSED',
+  };
+}
+
 export const useMarketSessionStore = create<MarketSessionState>((set, get) => ({
   session: null,
   isLoading: false,
   error: null,
   lastFetch: null,
-  
+
   // Computed (se actualizan cuando cambia session)
   isMarketOpen: false,
   isPreMarket: false,
   isPostMarket: false,
   isClosed: true,
-  
+
   fetchSession: async () => {
     set({ isLoading: true, error: null });
-    
+
     try {
       const session = await getMarketSession();
-      const currentSession = session.current_session;
-      
       set({
         session,
         isLoading: false,
         lastFetch: new Date(),
-        isMarketOpen: currentSession === 'MARKET_OPEN',
-        isPreMarket: currentSession === 'PRE_MARKET',
-        isPostMarket: currentSession === 'POST_MARKET',
-        isClosed: currentSession === 'CLOSED',
+        ...computedFlags(session.current_session),
       });
     } catch (error) {
+      // No tocar `session`: mejor un valor con segundos de retraso que
+      // perder el estado por un fallo de red transitorio.
       set({
         isLoading: false,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
   },
-  
+
   setSession: (session: MarketSession) => {
-    const currentSession = session.current_session;
     set({
       session,
       lastFetch: new Date(),
-      isMarketOpen: currentSession === 'MARKET_OPEN',
-      isPreMarket: currentSession === 'PRE_MARKET',
-      isPostMarket: currentSession === 'POST_MARKET',
-      isClosed: currentSession === 'CLOSED',
+      ...computedFlags(session.current_session),
     });
   },
-  
+
   startPolling: (intervalMs = 30000) => {
     // Fetch immediately
     get().fetchSession();
-    
+
     // Clear existing interval
     if (pollingInterval) {
       clearInterval(pollingInterval);
     }
-    
+
     // Start polling
     pollingInterval = setInterval(() => {
       get().fetchSession();
     }, intervalMs);
   },
-  
+
   stopPolling: () => {
     if (pollingInterval) {
       clearInterval(pollingInterval);
@@ -115,13 +127,13 @@ export const useMarketSessionStore = create<MarketSessionState>((set, get) => ({
 
 export const selectSession = (state: MarketSessionState) => state.session;
 export const selectIsClosed = (state: MarketSessionState) => state.isClosed;
-export const selectIsTrading = (state: MarketSessionState) => 
+export const selectIsTrading = (state: MarketSessionState) =>
   state.isMarketOpen || state.isPreMarket || state.isPostMarket;
 
 // Helper para obtener label del estado
 export const getSessionLabel = (session: MarketSession | null): string => {
   if (!session) return 'LOADING';
-  
+
   switch (session.current_session) {
     case 'MARKET_OPEN': return 'MARKET OPEN';
     case 'PRE_MARKET': return 'PRE-MARKET';
@@ -134,7 +146,7 @@ export const getSessionLabel = (session: MarketSession | null): string => {
 // Helper para obtener color del estado
 export const getSessionColor = (session: MarketSession | null): string => {
   if (!session) return 'text-muted-fg';
-  
+
   switch (session.current_session) {
     case 'MARKET_OPEN': return 'text-green-500';
     case 'PRE_MARKET': return 'text-blue-500';

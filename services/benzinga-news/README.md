@@ -2,13 +2,17 @@
 
 Servicio de streaming de noticias de Benzinga en tiempo real.
 
+> **Fuente:** el feed Benzinga se obtiene de **OpenOutcrier** (canal `bz` de su
+> plataforma Pro), NO de Polygon. El acceso Pro se autentica con la cookie de
+> sesión `hash` (`OOC_SESSION_HASH`). Polygon ya no se usa para noticias.
+
 ## 🎯 Características
 
 ### Real-Time (Polling)
-- ✅ Polling periódico a Benzinga API (via Polygon.io)
+- ✅ Polling periódico al feed Benzinga de OpenOutcrier (`POST /load`, `type=bz`)
 - ✅ Publicación a Redis streams para broadcast al frontend
 - ✅ Caché de noticias recientes y por ticker
-- ✅ Deduplicación automática
+- ✅ Deduplicación automática (por `bz_id`, el ID nativo de Benzinga)
 
 ### REST API
 - ✅ Endpoints para buscar y filtrar noticias
@@ -17,12 +21,14 @@ Servicio de streaming de noticias de Benzinga en tiempo real.
 
 ## 🚀 Quick Start
 
-### 1. Configurar API Key
+### 1. Configurar la cookie de OpenOutcrier
 
-Asegúrate de tener la API key de Polygon.io en el `.env`:
+Asegúrate de tener la cookie de sesión Pro de OpenOutcrier en el `.env`:
 
 ```bash
-POLYGON_API_KEY=tu_api_key_aqui
+OOC_SESSION_HASH=tu_cookie_hash_aqui
+OOC_BASE_URL=https://openoutcrier.com   # opcional
+# POLYGON_API_KEY es opcional (solo fallback de precio del catalyst engine)
 ```
 
 ### 2. Levantar servicio
@@ -99,7 +105,10 @@ Variables de entorno:
 
 | Variable | Default | Descripción |
 |----------|---------|-------------|
-| `POLYGON_API_KEY` | - | API key de Polygon.io (requerido) |
+| `OOC_SESSION_HASH` | - | Cookie `hash` de la sesión Pro de OpenOutcrier (requerido) |
+| `OOC_BASE_URL` | https://openoutcrier.com | Base URL de OpenOutcrier |
+| `OOC_ENDPOINT` | /load | Endpoint del feed |
+| `POLYGON_API_KEY` | - | API key de Polygon (opcional, solo precios del catalyst engine) |
 | `REDIS_HOST` | redis | Host de Redis |
 | `REDIS_PORT` | 6379 | Puerto de Redis |
 | `REDIS_PASSWORD` | - | Password de Redis |

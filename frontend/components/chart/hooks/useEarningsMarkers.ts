@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { ChartEvent } from '../primitives/EventMarkerPrimitive';
+import { useUserPreferencesStore, selectTimezone } from '@/stores/useUserPreferencesStore';
 
 /**
  * Full earnings record as returned by `/api/v1/earnings/ticker/{ticker}`.
@@ -33,7 +34,7 @@ export interface EarningsRecord {
     beat_revenue: boolean | null;
     guidance_direction: string | null;
     guidance_commentary: string | null;
-    key_highlights: string | null;
+    key_highlights: string[] | null;
     importance: number | null;
     date_status: string | null;
     eps_method: string | null;
@@ -49,6 +50,7 @@ export function useEarningsMarkers(
     enabled: boolean,
 ) {
     const [records, setRecords] = useState<EarningsRecord[]>([]);
+    const tz = useUserPreferencesStore(selectTimezone);
 
     useEffect(() => {
         if (!currentTicker) {
@@ -58,7 +60,7 @@ export function useEarningsMarkers(
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
         const controller = new AbortController();
         fetch(
-            `${apiUrl}/api/v1/earnings/ticker/${currentTicker.toUpperCase()}?limit=100`,
+            `${apiUrl}/api/v1/earnings/ticker/${currentTicker.toUpperCase()}?timezone=${encodeURIComponent(tz)}&limit=100`,
             { signal: controller.signal },
         )
             .then(res => res.ok ? res.json() : null)
@@ -70,7 +72,7 @@ export function useEarningsMarkers(
                 if (err.name !== 'AbortError') setRecords([]);
             });
         return () => controller.abort();
-    }, [currentTicker]);
+    }, [currentTicker, tz]);
 
     const events = useMemo<ChartEvent[]>(() => {
         if (!enabled) return [];

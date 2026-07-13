@@ -177,6 +177,10 @@ class ClearRealtimeCachesTask:
             "snapshot:enriched:*",
             # Financial Analyst reports - se limpian cada nuevo día de trading
             "fan:report:*",
+            # Chart REST cache (api_gateway): los TTLs por intervalo llegan a
+            # 4h (daily) y 30min (1hour) — sin esta limpieza, tras el rollover
+            # se servían velas "latest" del día anterior durante minutos.
+            "chart:v3:*",
         ]
         
         for pattern in patterns_to_check:

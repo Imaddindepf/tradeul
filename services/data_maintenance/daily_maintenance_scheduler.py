@@ -147,15 +147,22 @@ class DailyMaintenanceScheduler:
             redis_key = f"market:holiday:{date_str}:{exchange}"
             holiday_data = await self.redis.get(redis_key)
             
-            is_holiday = (
-                holiday_data is not None and 
-                holiday_data.get("status") == "closed"
-            )
+            # Redis es una caché de Polygon, no la fuente exclusiva de verdad.
+            # Una cache miss ocurre normalmente al expirar el TTL y no puede
+            # convertir un feriado conocido en día de trading.
+            if holiday_data is not None:
+                is_holiday = holiday_data.get("status") == "closed"
+            else:
+                is_holiday = check_date in FALLBACK_HOLIDAYS
             
             self._holidays_cache[cache_key] = is_holiday
             
             if is_holiday:
-                logger.info("market_holiday_detected", date=date_str, name=holiday_data.get("name"))
+                logger.info(
+                    "market_holiday_detected",
+                    date=date_str,
+                    name=holiday_data.get("name") if holiday_data else "fallback_calendar",
+                )
             
             return is_holiday
             

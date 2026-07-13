@@ -2,10 +2,13 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+# Código compartido (contratos de streams, utils)
+COPY shared/ /app/shared/
+
+COPY services/bar_builder/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY services/bar_builder/ /app/
 
 EXPOSE 8050
 

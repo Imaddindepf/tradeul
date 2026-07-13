@@ -68,6 +68,10 @@ class EnrichedData:
     
     # Pre/Post market metrics
     premarket_change_percent: Optional[float] = None
+    premarket_volume: Optional[int] = None
+    premarket_volume_live: Optional[int] = None
+    premarket_dollar_volume: Optional[float] = None
+    premarket_rvol: Optional[float] = None
     postmarket_change_percent: Optional[float] = None
     postmarket_volume: Optional[int] = None
 
@@ -143,6 +147,10 @@ class EnrichedDataExtractor:
         
         # Pre/Post market
         data.premarket_change_percent = atr_data.get('premarket_change_percent')
+        data.premarket_volume = atr_data.get('premarket_volume')
+        data.premarket_volume_live = atr_data.get('premarket_volume_live')
+        data.premarket_dollar_volume = atr_data.get('premarket_dollar_volume')
+        data.premarket_rvol = atr_data.get('premarket_rvol')
         data.postmarket_change_percent = atr_data.get('postmarket_change_percent')
         data.postmarket_volume = atr_data.get('postmarket_volume')
         

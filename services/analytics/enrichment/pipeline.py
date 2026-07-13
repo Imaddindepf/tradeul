@@ -119,6 +119,20 @@ class EnrichmentPipeline:
         self._premarket_lows: Dict[str, float] = {}
         self._premarket_frozen = False
 
+        # Pre-market VOLUME engine (accumulated 4:00-9:30 ET from min.av, frozen at open).
+        # _premarket_volumes:    live accumulated premarket volume per symbol (cumulative min.av)
+        # _premarket_vwaps:      live premarket VWAP per symbol (for dollar volume)
+        # _premarket_volume_frozen / _premarket_vwap_frozen: snapshot taken at 9:30 ET
+        # _premarket_volume_frozen_flag: guards the one-time freeze on PRE_MARKET→MARKET_OPEN
+        # _premarket_volume_recovered: guards Redis recovery after a restart past 9:30
+        self._premarket_volumes: Dict[str, int] = {}
+        self._premarket_vwaps: Dict[str, float] = {}
+        self._premarket_volume_frozen: Dict[str, int] = {}
+        self._premarket_vwap_frozen: Dict[str, float] = {}
+        self._premarket_rvol_frozen: Dict[str, float] = {}
+        self._premarket_volume_frozen_flag = False
+        self._premarket_volume_recovered = False
+
         # Post-market: freeze regular close at 16:00 ET and cache regular volumes
         self._regular_close_cache: Dict[str, float] = {}
         self._regular_close_frozen = False
@@ -222,27 +236,68 @@ class EnrichmentPipeline:
                 self._regular_volumes_cache.clear()
                 self._regular_volumes_loaded = False
 
-        # Pre-market high/low: track during pre-market, freeze at open
+        # Pre-market high/low + VOLUME: track during pre-market, freeze at open.
+        # Volume source: min.av (Polygon's accumulated volume of the day). During
+        # pre-market day.v is 0/stale, but min.av accumulates from 4:00 ET, so it IS
+        # the running pre-market volume. We keep the running max (monotonic guard).
         if session == MarketSession.PRE_MARKET:
             self._premarket_frozen = False
+            self._premarket_volume_frozen_flag = False
             for td in tickers_data:
                 sym = td.get('ticker')
+                if not sym:
+                    continue
                 lt = td.get('lastTrade', {})
                 p = lt.get('p') if isinstance(lt, dict) else None
-                if sym and p and p > 0:
+                if p and p > 0:
                     cur_h = self._premarket_highs.get(sym, 0)
                     cur_l = self._premarket_lows.get(sym, float('inf'))
                     if p > cur_h:
                         self._premarket_highs[sym] = p
                     if p < cur_l:
                         self._premarket_lows[sym] = p
+                # Pre-market volume from min.av (accumulated). Fallback to day.v.
+                min_d = td.get('min', {})
+                av = min_d.get('av') if isinstance(min_d, dict) else None
+                if av is None:
+                    day_d = td.get('day', {})
+                    av = day_d.get('v') if isinstance(day_d, dict) else None
+                if av is not None:
+                    try:
+                        av_int = int(av)
+                        if av_int > self._premarket_volumes.get(sym, 0):
+                            self._premarket_volumes[sym] = av_int
+                        # Track pre-market VWAP for dollar volume (min.vw or session vwap)
+                        vw = min_d.get('vw') if isinstance(min_d, dict) else None
+                        if vw and vw > 0:
+                            self._premarket_vwaps[sym] = float(vw)
+                        elif p and p > 0 and sym not in self._premarket_vwaps:
+                            self._premarket_vwaps[sym] = float(p)
+                    except (TypeError, ValueError):
+                        pass
         elif session == MarketSession.MARKET_OPEN and not self._premarket_frozen:
             self._premarket_frozen = True
+            # Freeze pre-market volume snapshot ONCE on PRE_MARKET → MARKET_OPEN.
+            if not self._premarket_volume_frozen_flag:
+                await self._freeze_premarket_volume(now)
+                self._premarket_volume_frozen_flag = True
         elif session == MarketSession.CLOSED:
             self._premarket_highs.clear()
             self._premarket_lows.clear()
             self._premarket_frozen = False
         
+        # Restart recovery: if analytics started after 9:30, the in-memory freeze is
+        # empty. Load the frozen snapshot from Redis once so premarket_volume survives
+        # a mid-session restart.
+        if (
+            session in (MarketSession.MARKET_OPEN, MarketSession.POST_MARKET)
+            and not self._premarket_volume_frozen
+            and not self._premarket_volume_recovered
+        ):
+            await self._load_premarket_volume_frozen(now)
+            self._premarket_volume_recovered = True
+            self._premarket_frozen = True
+
         # Load regular session volumes from scanner's PostMarketVolumeCapture (once per post-market)
         if session == MarketSession.POST_MARKET and not self._regular_volumes_loaded:
             await self._load_regular_volumes(now)
@@ -976,6 +1031,31 @@ class EnrichmentPipeline:
             ticker_data['postmarket_volume'] = None
 
         # ================================================================
+        # Pre-market VOLUME (live during pre-market, frozen at 9:30 ET for the rest of the day)
+        #   premarket_volume:        canonical value for filters/alerts (live → frozen)
+        #   premarket_volume_live:   explicit live-only value (None outside pre-market)
+        #   premarket_dollar_volume: premarket_volume × pre-market VWAP
+        #   premarket_rvol:          relative volume vs historical pre-market average
+        # ================================================================
+        if _session == MarketSession.PRE_MARKET:
+            _pm_vol = self._premarket_volumes.get(symbol)
+            _pm_vwap = self._premarket_vwaps.get(symbol) or price
+            ticker_data['premarket_volume'] = _pm_vol
+            ticker_data['premarket_volume_live'] = _pm_vol
+            ticker_data['premarket_rvol'] = ticker_data.get('rvol')
+        else:
+            _pm_vol = self._premarket_volume_frozen.get(symbol)
+            _pm_vwap = self._premarket_vwap_frozen.get(symbol)
+            ticker_data['premarket_volume'] = _pm_vol
+            ticker_data['premarket_volume_live'] = None
+            ticker_data['premarket_rvol'] = self._premarket_rvol_frozen.get(symbol)
+
+        if _pm_vol is not None and _pm_vwap and _pm_vwap > 0:
+            ticker_data['premarket_dollar_volume'] = round(_pm_vol * _pm_vwap, 2)
+        else:
+            ticker_data['premarket_dollar_volume'] = None
+
+        # ================================================================
         # Dilution risk scores (from dilution:scores:latest, refreshed every 5 min)
         # Null for tickers not in the dilution tracker DB (e.g. AAPL, MSFT).
         # ================================================================
@@ -1460,6 +1540,98 @@ class EnrichmentPipeline:
         except Exception as e:
             logger.error("error_writing_last_close", error=str(e))
     
+    # ================================================================
+    # Pre-market volume engine: freeze / recovery / daily reset
+    # ================================================================
+
+    def _premarket_frozen_keys(self, now: datetime) -> tuple:
+        """Redis hash keys for the frozen pre-market volume snapshot of the day."""
+        date_str = now.strftime("%Y%m%d")
+        return (
+            f"session_vol:premarket:frozen:{date_str}",
+            f"session_vol:premarket:vwap:{date_str}",
+        )
+
+    async def _freeze_premarket_volume(self, now: datetime) -> None:
+        """
+        Freeze the accumulated pre-market volume at the 9:30 ET open.
+
+        Copies the in-memory running totals into the frozen caches (served the rest
+        of the day) and persists them to Redis so other services and a restarted
+        analytics process can recover the snapshot. Idempotent: HSET overwrite.
+        """
+        try:
+            self._premarket_volume_frozen = dict(self._premarket_volumes)
+            self._premarket_vwap_frozen = dict(self._premarket_vwaps)
+
+            # Snapshot the per-symbol RVOL (during pre-market this is the pre-market RVOL).
+            try:
+                rvol_hash = await self.redis.client.hgetall("rvol:current_slot")
+                for k, v in (rvol_hash or {}).items():
+                    sym = k.decode() if isinstance(k, bytes) else k
+                    try:
+                        self._premarket_rvol_frozen[sym] = float(v)
+                    except (TypeError, ValueError):
+                        pass
+            except Exception:
+                pass
+
+            vol_key, vwap_key = self._premarket_frozen_keys(now)
+            if self._premarket_volume_frozen:
+                pipe = self.redis.client.pipeline()
+                pipe.delete(vol_key)
+                pipe.delete(vwap_key)
+                # mapping must be str→str for redis hashes
+                pipe.hset(vol_key, mapping={s: str(v) for s, v in self._premarket_volume_frozen.items()})
+                if self._premarket_vwap_frozen:
+                    pipe.hset(vwap_key, mapping={s: str(v) for s, v in self._premarket_vwap_frozen.items()})
+                pipe.expire(vol_key, 172800)   # 48h
+                pipe.expire(vwap_key, 172800)
+                await pipe.execute()
+
+            logger.info(
+                "premarket_volume_frozen",
+                symbols=len(self._premarket_volume_frozen),
+                at=now.strftime("%H:%M:%S"),
+            )
+        except Exception as e:
+            logger.error("premarket_volume_freeze_error", error=str(e))
+
+    async def _load_premarket_volume_frozen(self, now: datetime) -> None:
+        """Recover the frozen pre-market volume snapshot from Redis after a restart."""
+        try:
+            vol_key, vwap_key = self._premarket_frozen_keys(now)
+            vol_hash = await self.redis.client.hgetall(vol_key)
+            if vol_hash:
+                for k, v in vol_hash.items():
+                    sym = k.decode() if isinstance(k, bytes) else k
+                    try:
+                        self._premarket_volume_frozen[sym] = int(float(v))
+                    except (TypeError, ValueError):
+                        pass
+            vwap_hash = await self.redis.client.hgetall(vwap_key)
+            if vwap_hash:
+                for k, v in vwap_hash.items():
+                    sym = k.decode() if isinstance(k, bytes) else k
+                    try:
+                        self._premarket_vwap_frozen[sym] = float(v)
+                    except (TypeError, ValueError):
+                        pass
+            logger.info("premarket_volume_recovered", symbols=len(self._premarket_volume_frozen))
+        except Exception as e:
+            logger.error("premarket_volume_recovery_error", error=str(e))
+
+    def reset_premarket_volume_for_new_day(self) -> None:
+        """Clear all pre-market volume state. Called on DAY_CHANGED before pre-market."""
+        self._premarket_volumes.clear()
+        self._premarket_vwaps.clear()
+        self._premarket_volume_frozen.clear()
+        self._premarket_vwap_frozen.clear()
+        self._premarket_rvol_frozen.clear()
+        self._premarket_volume_frozen_flag = False
+        self._premarket_volume_recovered = False
+        logger.info("premarket_volume_reset_for_new_day")
+
     async def _load_regular_volumes(self, now: datetime) -> None:
         """
         Load regular-session volumes captured by scanner's PostMarketVolumeCapture.

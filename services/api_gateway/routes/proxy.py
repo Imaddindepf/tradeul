@@ -64,21 +64,6 @@ async def proxy_market_session():
         raise HTTPException(status_code=503, detail="Market session service unavailable")
 
 
-@router.get("/api/session/market-status")
-async def proxy_market_status():
-    """Proxy to market session service - get market status"""
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{MARKET_SESSION_URL}/api/session/market-status")
-            return JSONResponse(
-                content=response.json(),
-                status_code=response.status_code
-            )
-    except httpx.RequestError as e:
-        logger.error("market_status_proxy_error", error=str(e))
-        raise HTTPException(status_code=503, detail="Market session service unavailable")
-
-
 # ============================================================================
 # SEC FILINGS PROXY
 # ============================================================================

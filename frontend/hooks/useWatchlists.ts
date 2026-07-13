@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import { authFetchStandalone } from '@/hooks/useAuthFetch';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -74,7 +75,13 @@ interface WatchlistUpdate {
 }
 
 export function useWatchlists() {
-  const { userId } = useAuth();
+  const { userId, getToken } = useAuth();
+  // La identidad SIEMPRE viaja en el JWT (Authorization: Bearer). El backend
+  // deriva el user_id del token; ya no se manda por query param (evita IDOR).
+  const authedFetch = useCallback(
+    (url: string, options: RequestInit = {}) => authFetchStandalone(url, getToken, options),
+    [getToken]
+  );
   const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
   const [activeWatchlistId, setActiveWatchlistId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,7 +102,7 @@ export function useWatchlists() {
         setLoading(true);
       }
 
-      const res = await fetch(`${API_URL}/api/v1/watchlists?user_id=${userId}`);
+      const res = await authedFetch(`${API_URL}/api/v1/watchlists`);
       if (!res.ok) throw new Error('Failed to fetch watchlists');
 
       const data = await res.json();
@@ -126,7 +133,7 @@ export function useWatchlists() {
     if (!userId) return null;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/watchlists?user_id=${userId}`, {
+      const res = await authedFetch(`${API_URL}/api/v1/watchlists`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -150,7 +157,7 @@ export function useWatchlists() {
     if (!userId) return false;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/watchlists/${id}?user_id=${userId}`, {
+      const res = await authedFetch(`${API_URL}/api/v1/watchlists/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -173,7 +180,7 @@ export function useWatchlists() {
     if (!userId) return false;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/watchlists/${id}?user_id=${userId}`, {
+      const res = await authedFetch(`${API_URL}/api/v1/watchlists/${id}`, {
         method: 'DELETE',
       });
 
@@ -200,7 +207,7 @@ export function useWatchlists() {
     if (!userId) return false;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/watchlists/${watchlistId}/tickers?user_id=${userId}`, {
+      const res = await authedFetch(`${API_URL}/api/v1/watchlists/${watchlistId}/tickers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: symbol.toUpperCase() }),
@@ -227,7 +234,7 @@ export function useWatchlists() {
     if (!userId) return 0;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/watchlists/${watchlistId}/tickers/batch?user_id=${userId}`, {
+      const res = await authedFetch(`${API_URL}/api/v1/watchlists/${watchlistId}/tickers/batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(symbols.map(s => s.toUpperCase())),
@@ -252,8 +259,8 @@ export function useWatchlists() {
     if (!userId) return false;
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/watchlists/${watchlistId}/tickers/${symbol.toUpperCase()}?user_id=${userId}`,
+      const res = await authedFetch(
+        `${API_URL}/api/v1/watchlists/${watchlistId}/tickers/${symbol.toUpperCase()}`,
         { method: 'DELETE' }
       );
 
@@ -284,7 +291,7 @@ export function useWatchlists() {
     if (!userId) return null;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/watchlists/${watchlistId}/sections?user_id=${userId}`, {
+      const res = await authedFetch(`${API_URL}/api/v1/watchlists/${watchlistId}/sections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -315,7 +322,7 @@ export function useWatchlists() {
     if (!userId) return false;
 
     try {
-      const res = await fetch(`${API_URL}/api/v1/watchlists/${watchlistId}/sections/${sectionId}?user_id=${userId}`, {
+      const res = await authedFetch(`${API_URL}/api/v1/watchlists/${watchlistId}/sections/${sectionId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -347,12 +354,11 @@ export function useWatchlists() {
 
     try {
       const url = new URL(`${API_URL}/api/v1/watchlists/${watchlistId}/sections/${sectionId}`);
-      url.searchParams.set('user_id', userId);
       if (moveTickersTo) {
         url.searchParams.set('move_tickers_to', moveTickersTo);
       }
 
-      const res = await fetch(url.toString(), { method: 'DELETE' });
+      const res = await authedFetch(url.toString(), { method: 'DELETE' });
 
       if (!res.ok) throw new Error('Failed to delete section');
 
@@ -398,8 +404,8 @@ export function useWatchlists() {
     if (!userId) return false;
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/v1/watchlists/${watchlistId}/sections/${sectionId}/tickers?user_id=${userId}`,
+      const res = await authedFetch(
+        `${API_URL}/api/v1/watchlists/${watchlistId}/sections/${sectionId}/tickers`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

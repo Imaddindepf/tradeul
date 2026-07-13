@@ -1177,11 +1177,28 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         }
       }
 
+      // Cambio de fecha calendario (medianoche ET, incluye fines de semana y
+      // festivos). NO vaciamos la tabla: igual que las tablas del scanner
+      // (que conservan su snapshot congelado en Redis), pedimos un snapshot
+      // fresco al servidor. El servidor decide qué sesión mostrar: en días no
+      // operativos devuelve la última sesión real de trading, así que la tabla
+      // se repuebla en vez de quedar en blanco.
       if (msg.type === 'trading_day_changed') {
-        setEvents([]);
         clearCategoryCache(categoryId);
-        setHasMore(false);
         oldestEventTsRef.current = null;
+        setResyncTrigger((n) => n + 1);
+      }
+
+      // Inicio de premarket de un nuevo día operativo: aquí sí se vacía y
+      // recarga, en paralelo con las tablas del scanner (la limpieza de
+      // mantenimiento de las 3:45 AM ET borra scanner:category:* y el scanner
+      // empieza a publicar rankings nuevos a las 4:00). El snapshot fresco
+      // devolverá la nueva sesión (vacía al principio) y los eventos live
+      // irán poblando la tabla.
+      if (msg.type === 'market_session_change' && msg.data?.current_session === 'PRE_MARKET' && msg.data?.from_session === 'CLOSED') {
+        clearCategoryCache(categoryId);
+        oldestEventTsRef.current = null;
+        setResyncTrigger((n) => n + 1);
       }
     });
 

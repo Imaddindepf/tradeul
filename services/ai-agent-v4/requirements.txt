@@ -3,10 +3,13 @@ langgraph>=0.3.0
 langchain-core>=0.3.0
 langchain-google-genai>=2.1.0
 langchain-openai>=0.3.0
-langgraph-checkpoint-redis>=0.1.0
+# Durable checkpoints on TimescaleDB/Postgres (redis:7-alpine lacks the
+# RediSearch/RedisJSON modules that langgraph-checkpoint-redis requires)
+langgraph-checkpoint-postgres>=2.0.0
+psycopg[binary]>=3.1.0
 
-# MCP Client (to connect to MCP Gateway)
-fastmcp>=2.3.0
+# Retry/backoff for LLM calls (used by agents/_llm_retry.py)
+tenacity>=8.2.0
 
 # LLM Providers
 google-genai>=1.65.0
@@ -16,14 +19,12 @@ xai-sdk>=1.5.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.27.0
 
+# Auth — verificación de JWT de Clerk (WS + REST del agente)
+pyjwt[crypto]>=2.8.0
+
 # Data
 redis[hiredis]>=5.0.0
 httpx>=0.28.0
 orjson>=3.10.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
-
-# Existing sandbox support
-docker>=6.1.3
-pyarrow>=14.0.0
-pandas>=2.2.0

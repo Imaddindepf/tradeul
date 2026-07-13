@@ -11,6 +11,8 @@ from typing import List, Optional
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, Depends
 
+from auth import current_user_id
+
 from shared.models.watchlist import (
     Watchlist, WatchlistCreate, WatchlistUpdate, WatchlistReorder,
     WatchlistTicker, WatchlistTickerCreate, WatchlistTickerUpdate,
@@ -92,7 +94,7 @@ def parse_ticker(tr) -> WatchlistTicker:
 
 
 @router.get("", response_model=List[Watchlist])
-async def get_watchlists(user_id: str = Query(..., description="User ID from Clerk")):
+async def get_watchlists(user_id: str = Depends(current_user_id)):
     """Get all watchlists for a user with sections and tickers"""
     pool = await get_db_pool()
     
@@ -190,7 +192,7 @@ async def get_watchlists(user_id: str = Query(..., description="User ID from Cle
 @router.post("", response_model=Watchlist)
 async def create_watchlist(
     data: WatchlistCreate,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Create a new watchlist"""
     pool = await get_db_pool()
@@ -254,7 +256,7 @@ async def create_watchlist(
 async def update_watchlist(
     watchlist_id: str,
     data: WatchlistUpdate,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Update a watchlist"""
     pool = await get_db_pool()
@@ -380,7 +382,7 @@ async def update_watchlist(
 @router.delete("/{watchlist_id}")
 async def delete_watchlist(
     watchlist_id: str,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Delete a watchlist"""
     pool = await get_db_pool()
@@ -408,7 +410,7 @@ async def delete_watchlist(
 @router.post("/reorder")
 async def reorder_watchlists(
     data: WatchlistReorder,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Reorder watchlist tabs"""
     pool = await get_db_pool()
@@ -439,7 +441,7 @@ async def reorder_watchlists(
 async def add_ticker(
     watchlist_id: str,
     data: WatchlistTickerCreate,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Add a ticker to a watchlist"""
     pool = await get_db_pool()
@@ -490,7 +492,7 @@ async def add_ticker(
 async def add_tickers_batch(
     watchlist_id: str,
     symbols: List[str],
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Add multiple tickers to a watchlist"""
     pool = await get_db_pool()
@@ -533,7 +535,7 @@ async def update_ticker(
     watchlist_id: str,
     symbol: str,
     data: WatchlistTickerUpdate,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Update a ticker in a watchlist"""
     pool = await get_db_pool()
@@ -628,7 +630,7 @@ async def update_ticker(
 async def remove_ticker(
     watchlist_id: str,
     symbol: str,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Remove a ticker from a watchlist"""
     pool = await get_db_pool()
@@ -666,7 +668,7 @@ async def remove_ticker(
 # ============================================================================
 
 @router.get("/state", response_model=QuoteMonitorState)
-async def get_quote_monitor_state(user_id: str = Query(..., description="User ID from Clerk")):
+async def get_quote_monitor_state(user_id: str = Depends(current_user_id)):
     """Get full Quote Monitor state for a user"""
     watchlists = await get_watchlists(user_id)
     
@@ -704,7 +706,7 @@ async def get_quote_monitor_state(user_id: str = Query(..., description="User ID
 @router.put("/state/active/{watchlist_id}")
 async def set_active_watchlist(
     watchlist_id: str,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Set the active watchlist for a user"""
     pool = await get_db_pool()
@@ -732,7 +734,7 @@ async def set_active_watchlist(
 @router.get("/{watchlist_id}/sections", response_model=List[WatchlistSection])
 async def get_sections(
     watchlist_id: str,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Get all sections for a watchlist"""
     pool = await get_db_pool()
@@ -793,7 +795,7 @@ async def get_sections(
 async def create_section(
     watchlist_id: str,
     data: WatchlistSectionCreate,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Create a new section in a watchlist"""
     pool = await get_db_pool()
@@ -849,7 +851,7 @@ async def update_section(
     watchlist_id: str,
     section_id: str,
     data: WatchlistSectionUpdate,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Update a section"""
     pool = await get_db_pool()
@@ -942,8 +944,8 @@ async def update_section(
 async def delete_section(
     watchlist_id: str,
     section_id: str,
-    user_id: str = Query(..., description="User ID from Clerk"),
-    move_tickers_to: Optional[str] = Query(None, description="Move tickers to another section (or null for unsorted)")
+    move_tickers_to: Optional[str] = Query(None, description="Move tickers to another section (or null for unsorted)"),
+    user_id: str = Depends(current_user_id)
 ):
     """Delete a section. Tickers can be moved to another section or become unsorted."""
     pool = await get_db_pool()
@@ -996,7 +998,7 @@ async def delete_section(
 async def reorder_sections(
     watchlist_id: str,
     data: WatchlistSectionReorder,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Reorder sections within a watchlist"""
     pool = await get_db_pool()
@@ -1034,7 +1036,7 @@ async def move_tickers_to_section(
     watchlist_id: str,
     section_id: str,
     data: TickerMoveToSection,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(current_user_id)
 ):
     """Move tickers to a section (use 'unsorted' as section_id to remove from section)"""
     pool = await get_db_pool()

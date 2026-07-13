@@ -363,6 +363,13 @@ interface EventFilterParameters {
   // Post-Market Volume
   min_postmarket_volume?: number;
   max_postmarket_volume?: number;
+  // Pre-Market Volume
+  min_premarket_volume?: number;
+  max_premarket_volume?: number;
+  min_premarket_dollar_volume?: number;
+  max_premarket_dollar_volume?: number;
+  min_premarket_rvol?: number;
+  max_premarket_rvol?: number;
   // Avg Volume 3M
   min_avg_volume_3m?: number;
   max_avg_volume_3m?: number;

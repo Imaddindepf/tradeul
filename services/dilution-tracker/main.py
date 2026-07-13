@@ -122,7 +122,10 @@ app = FastAPI(
     title="Dilution Tracker",
     description="Análisis de dilución de acciones y cash runway",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # CORS

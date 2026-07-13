@@ -1192,6 +1192,36 @@
       "parser": "pi"
     },
     {
+      "subKey": "premarketVolumeMin",
+      "dataKey": "premarket_volume_min",
+      "parser": "pi"
+    },
+    {
+      "subKey": "premarketVolumeMax",
+      "dataKey": "premarket_volume_max",
+      "parser": "pi"
+    },
+    {
+      "subKey": "premarketDollarVolumeMin",
+      "dataKey": "premarket_dollar_volume_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "premarketDollarVolumeMax",
+      "dataKey": "premarket_dollar_volume_max",
+      "parser": "pf"
+    },
+    {
+      "subKey": "premarketRvolMin",
+      "dataKey": "premarket_rvol_min",
+      "parser": "pf"
+    },
+    {
+      "subKey": "premarketRvolMax",
+      "dataKey": "premarket_rvol_max",
+      "parser": "pf"
+    },
+    {
       "subKey": "avgVolume3mMin",
       "dataKey": "avg_volume_3m_min",
       "parser": "pi"

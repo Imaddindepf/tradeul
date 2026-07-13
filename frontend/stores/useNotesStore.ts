@@ -2,6 +2,9 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { authFetchStandalone } from '@/hooks/useAuthFetch';
+
+type GetToken = (opts?: { skipCache?: boolean }) => Promise<string | null>;
 
 // ProseMirror/TipTap document type
 export interface TipTapContent {
@@ -28,11 +31,12 @@ interface NotesState {
   isSynced: boolean;
   error: string | null;
 
-  // Actions
-  fetchNotes: (userId: string) => Promise<void>;
-  createNote: (userId: string) => Promise<string | null>;
-  updateNote: (noteId: string, updates: Partial<Pick<Note, 'title' | 'content'>>, userId: string) => Promise<void>;
-  deleteNote: (noteId: string, userId: string) => Promise<void>;
+  // Actions. La identidad va SIEMPRE en el JWT (Authorization: Bearer) que
+  // devuelve getToken(); el backend deriva el user_id del token (no query param).
+  fetchNotes: (getToken: GetToken) => Promise<void>;
+  createNote: (getToken: GetToken) => Promise<string | null>;
+  updateNote: (noteId: string, updates: Partial<Pick<Note, 'title' | 'content'>>, getToken: GetToken) => Promise<void>;
+  deleteNote: (noteId: string, getToken: GetToken) => Promise<void>;
   setActiveNote: (id: string | null) => void;
   getActiveNote: () => Note | null;
 
@@ -57,11 +61,11 @@ export const useNotesStore = create<NotesState>()(
       isSynced: false,
       error: null,
 
-      fetchNotes: async (userId: string) => {
+      fetchNotes: async (getToken: GetToken) => {
         set({ isLoading: true, error: null });
 
         try {
-          const res = await fetch(`${API_BASE}/api/v1/notes?user_id=${encodeURIComponent(userId)}`);
+          const res = await authFetchStandalone(`${API_BASE}/api/v1/notes`, getToken);
 
           if (!res.ok) {
             throw new Error(`Failed to fetch notes: ${res.status}`);
@@ -81,7 +85,7 @@ export const useNotesStore = create<NotesState>()(
         }
       },
 
-      createNote: async (userId: string) => {
+      createNote: async (getToken: GetToken) => {
         const existingNotes = get().notes;
         let titleNumber = existingNotes.length + 1;
         let title = `Note ${titleNumber}`;
@@ -91,9 +95,8 @@ export const useNotesStore = create<NotesState>()(
         }
 
         try {
-          const res = await fetch(`${API_BASE}/api/v1/notes?user_id=${encodeURIComponent(userId)}`, {
+          const res = await authFetchStandalone(`${API_BASE}/api/v1/notes`, getToken, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title, content: emptyContent })
           });
 
@@ -116,7 +119,7 @@ export const useNotesStore = create<NotesState>()(
         }
       },
 
-      updateNote: async (noteId: string, updates: Partial<Pick<Note, 'title' | 'content'>>, userId: string) => {
+      updateNote: async (noteId: string, updates: Partial<Pick<Note, 'title' | 'content'>>, getToken: GetToken) => {
         // Optimistic update
         set((state) => ({
           notes: state.notes.map((note) =>
@@ -132,9 +135,8 @@ export const useNotesStore = create<NotesState>()(
         }
 
         try {
-          const res = await fetch(`${API_BASE}/api/v1/notes/${noteId}?user_id=${encodeURIComponent(userId)}`, {
+          const res = await authFetchStandalone(`${API_BASE}/api/v1/notes/${noteId}`, getToken, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updates)
           });
 
@@ -146,7 +148,7 @@ export const useNotesStore = create<NotesState>()(
         }
       },
 
-      deleteNote: async (noteId: string, userId: string) => {
+      deleteNote: async (noteId: string, getToken: GetToken) => {
         const state = get();
         const newNotes = state.notes.filter((note) => note.id !== noteId);
         const wasActive = state.activeNoteId === noteId;
@@ -164,7 +166,7 @@ export const useNotesStore = create<NotesState>()(
         }
 
         try {
-          await fetch(`${API_BASE}/api/v1/notes/${noteId}?user_id=${encodeURIComponent(userId)}`, {
+          await authFetchStandalone(`${API_BASE}/api/v1/notes/${noteId}`, getToken, {
             method: 'DELETE'
           });
         } catch (error) {

@@ -156,7 +156,8 @@ Tradeul es una plataforma de trading en tiempo real que procesa +11,000 tickers 
 
 | Stream | Max | Publicador | Consumidores |
 |--------|-----|-----------|-------------|
-| `stream:realtime:aggregates` | 3000 | polygon_ws | analytics, alert_engine, ws_server |
+| `stream:realtime:aggregates` | 3000 | polygon_ws | analytics, bar_builder, ws_server, benzinga (catalyst) |
+| `stream:agg:p{0..3}` | 50000 | polygon_ws | alert_engine (particionado por símbolo) |
 | `stream:realtime:quotes` | - | polygon_ws | ws_server |
 | `stream:halt:events` | 500 | polygon_ws | alert_engine |
 | `stream:ranking:deltas` | 5000 | scanner | ws_server |
@@ -168,7 +169,8 @@ Tradeul es una plataforma de trading en tiempo real que procesa +11,000 tickers 
 
 | Stream | Consumer Group | Consumer | Servicio |
 |--------|---------------|----------|----------|
-| `stream:realtime:aggregates` | `alert_engine_aggregates` | `detector_1` | alert_engine |
+| `stream:agg:p{N}` | `alert_engine_p{N}` | worker por partición | alert_engine |
+| `stream:realtime:aggregates` | `bar_builder` | `bar_builder_1` | bar_builder |
 | `stream:realtime:aggregates` | `websocket_server_aggregates` | `ws_server_1` | ws_server |
 | `stream:halt:events` | `alert_engine_halts` | `detector_1` | alert_engine |
 | `stream:ranking:deltas` | `websocket_server_deltas` | `ws_server_1` | ws_server |
@@ -570,10 +572,11 @@ Catalogo completo en `services/alert_engine/registry/alert_catalog.py`:
 
 `services/bar_builder/main.py` — Nuevo servicio para barras intradía:
 
-- Consume `stream:realtime:aggregates` (1s data de Polygon WS)
-- Construye OHLC bars en 7 timeframes: 1m, 2m, 5m, 10m, 15m, 30m, 60m
-- Publica barra cerrada a `stream:bars:{timeframe}` para alert_engine
-- Almacena ultima barra en `bars:{timeframe}:latest` hash
+- Consume `stream:realtime:aggregates` (1s data de Polygon WS; contrato: `shared/contracts/realtime.py`)
+- Construye OHLC bars en 9 timeframes: 1m, 2m, 5m, 10m, 15m, 30m, 60m, 240m, 720m
+- Publica vela en formación a `bars:{tf}min:current` (api_gateway live-bar-stitch)
+- Publica vela sellada a `chart:sealed:{SYMBOL}` (pub/sub → websocket_server → charts)
+- (`stream:bars:{tf}min` y `bars:{tf}min:latest` se eliminaron por no tener consumidores)
 - Foundation para Phase 3-5 alerts (ORB, candlestick patterns, MACD crosses)
 
 ### 12.6 API Endpoints

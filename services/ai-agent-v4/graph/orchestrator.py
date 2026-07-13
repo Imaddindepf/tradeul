@@ -12,6 +12,9 @@ Context enricher auto-injects sector/industry/theme context.
 Synthesizer produces the final response from merged results.
 """
 from __future__ import annotations
+import logging
+import os
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from graph.state import AgentState
@@ -29,9 +32,12 @@ from agents.context_enricher import context_enricher_node
 
 ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener", "backtest", "dilution"]
 
+logger = logging.getLogger(__name__)
 
-def build_graph() -> StateGraph:
-    checkpointer = MemorySaver()
+
+def build_graph(checkpointer=None) -> StateGraph:
+    if checkpointer is None:
+        checkpointer = MemorySaver()
     graph = StateGraph(AgentState)
 
     graph.add_node("query_planner", query_planner_node)
@@ -64,10 +70,55 @@ def build_graph() -> StateGraph:
 
 
 _graph = None
+_checkpointer_ctx = None
+
+
+async def init_graph():
+    """Build the graph with a durable Postgres checkpointer when available.
+
+    Falls back to in-memory checkpoints (single process, lost on restart)
+    if CHECKPOINT_DB_URL is unset or the database is unreachable.
+    Called once from the FastAPI lifespan.
+    """
+    global _graph, _checkpointer_ctx
+    if _graph is not None:
+        return _graph
+
+    checkpointer = None
+    db_url = os.getenv("CHECKPOINT_DB_URL", "").strip()
+    if db_url:
+        try:
+            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+            _checkpointer_ctx = AsyncPostgresSaver.from_conn_string(db_url)
+            checkpointer = await _checkpointer_ctx.__aenter__()
+            await checkpointer.setup()
+            logger.info("Using Postgres checkpointer (durable, multi-replica safe)")
+        except Exception as exc:
+            logger.warning("Postgres checkpointer unavailable (%s); falling back to MemorySaver", exc)
+            _checkpointer_ctx = None
+            checkpointer = None
+
+    if checkpointer is None:
+        logger.warning("Using in-memory checkpointer: state is lost on restart")
+
+    _graph = build_graph(checkpointer)
+    return _graph
+
+
+async def close_graph():
+    """Release the checkpointer connection on shutdown."""
+    global _checkpointer_ctx
+    if _checkpointer_ctx is not None:
+        try:
+            await _checkpointer_ctx.__aexit__(None, None, None)
+        except Exception:
+            pass
+        _checkpointer_ctx = None
 
 
 def get_graph():
     global _graph
     if _graph is None:
+        # Sync fallback for callers outside the app lifespan (e.g. scripts).
         _graph = build_graph()
     return _graph

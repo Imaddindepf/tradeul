@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
@@ -957,8 +958,10 @@ async def call_gemini_with_retry(prompt: str, ticker: str) -> Dict[str, Any]:
         try:
             logger.info(f"[{ticker}] Attempt {attempt + 1}/{MAX_RETRIES}")
             
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
+            # Async API: the sync client.models.generate_content blocks the
+            # FastAPI event loop for the whole report generation.
+            response = await client.aio.models.generate_content(
+                model=GEMINI_MODEL,
                 contents=prompt,
                 config={
                     "tools": [google_search_tool],

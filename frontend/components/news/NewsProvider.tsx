@@ -14,7 +14,7 @@
  * - NewsContent: PRESENTACIÓN (consume, filtra, muestra)
  */
 
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useSquawk } from '@/contexts/SquawkContext';
@@ -53,61 +53,78 @@ export function NewsProvider({ children }: NewsProviderProps) {
   const addNewsArticlesBatchToTickers = useNewsTickersStore((state) => state.addNewsArticlesBatch);
 
   // Refs para evitar re-ejecuciones innecesarias
-  const initialLoadDoneRef = useRef(false);
+  const fetchInFlightRef = useRef(false);
+  const hasFetchedOnceRef = useRef(false);
   const isSubscribedRef = useRef(false);
   const wasConnectedRef = useRef(false);
   const wsSendRef = useRef(ws.send);
   wsSendRef.current = ws.send;
 
+  const feedTickerArticles = useCallback((results: NewsArticle[]) => {
+    const tickerArticles = results
+      .filter((a) => a.tickers && a.tickers.length > 0)
+      .map((a) => ({
+        id: a.benzinga_id || a.id || '',
+        title: a.title,
+        author: a.author,
+        published: a.published,
+        url: a.url,
+        tickers: a.tickers || [],
+        teaser: a.teaser,
+      }));
+
+    if (tickerArticles.length > 0) {
+      addNewsArticlesBatchToTickers(tickerArticles);
+    }
+  }, [addNewsArticlesBatchToTickers]);
+
+  const fetchInitialNews = useCallback(async () => {
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/news/api/v1/news?limit=200`);
+
+      if (!response.ok) {
+        console.error('[NewsProvider] Failed to fetch initial news:', response.status);
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.results && Array.isArray(data.results)) {
+        addArticlesBatch(data.results, false);
+        feedTickerArticles(data.results);
+      }
+    } catch (error) {
+      console.error('[NewsProvider] Error fetching initial news:', error);
+    } finally {
+      fetchInFlightRef.current = false;
+      hasFetchedOnceRef.current = true;
+      // Siempre desbloquear la UI aunque el fetch falle o venga vacío
+      markInitialLoadComplete();
+    }
+  }, [addArticlesBatch, feedTickerArticles, markInitialLoadComplete]);
+
   // ================================================================
-  // CARGA INICIAL DE NOTICIAS (una sola vez)
+  // CARGA INICIAL DE NOTICIAS
   // ================================================================
   useEffect(() => {
-    if (initialLoadDoneRef.current) return;
-    initialLoadDoneRef.current = true;
-
-    const fetchInitialNews = async () => {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        const response = await fetch(`${apiUrl}/news/api/v1/news?limit=200`);
-
-        if (!response.ok) {
-          console.error('[NewsProvider] Failed to fetch initial news:', response.status);
-          return;
-        }
-
-        const data = await response.json();
-
-        if (data.results && Array.isArray(data.results)) {
-          // Agregar al store principal
-          const addedCount = addArticlesBatch(data.results, false);
-
-          // Agregar al store de tickers (para intersección scanner+news)
-          const tickerArticles = data.results
-            .filter((a: NewsArticle) => a.tickers && a.tickers.length > 0)
-            .map((a: NewsArticle) => ({
-              id: a.benzinga_id || a.id || '',
-              title: a.title,
-              author: a.author,
-              published: a.published,
-              url: a.url,
-              tickers: a.tickers || [],
-              teaser: a.teaser,
-            }));
-
-          if (tickerArticles.length > 0) {
-            addNewsArticlesBatchToTickers(tickerArticles);
-          }
-
-          markInitialLoadComplete();
-        }
-      } catch (error) {
-        console.error('[NewsProvider] Error fetching initial news:', error);
-      }
-    };
-
     fetchInitialNews();
-  }, [addArticlesBatch, addNewsArticlesBatchToTickers, markInitialLoadComplete]);
+  }, [fetchInitialNews]);
+
+  // Re-fetch tras reset del store (p. ej. trading_day_changed)
+  useEffect(() => {
+    return useNewsStore.subscribe(
+      (state) => state.stats.initialLoadComplete,
+      (initialLoadComplete, previousInitialLoadComplete) => {
+        if (previousInitialLoadComplete && !initialLoadComplete) {
+          fetchInitialNews();
+        }
+      }
+    );
+  }, [fetchInitialNews]);
 
   // ================================================================
   // SINCRONIZAR ESTADO DE CONEXIÓN
@@ -142,23 +159,14 @@ export function NewsProvider({ children }: NewsProviderProps) {
     // Gap fill: on RECONNECTION (not first connect), fetch recent articles
     // to recover any news missed during the WebSocket disconnection window.
     // The store's _seenIds dedup ensures no duplicates.
-    if (wasConnectedRef.current && initialLoadDoneRef.current) {
+    if (wasConnectedRef.current && hasFetchedOnceRef.current) {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       fetch(`${apiUrl}/news/api/v1/news?limit=100`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (data?.results?.length) {
             addArticlesBatch(data.results, false);
-            // Also feed tickers store for scanner+news intersection
-            const tickerArticles = data.results
-              .filter((a: any) => a.tickers?.length > 0)
-              .map((a: any) => ({
-                id: a.benzinga_id || a.id || '',
-                title: a.title, author: a.author,
-                published: a.published, url: a.url,
-                tickers: a.tickers || [], teaser: a.teaser,
-              }));
-            if (tickerArticles.length > 0) addNewsArticlesBatchToTickers(tickerArticles);
+            feedTickerArticles(data.results);
             console.log(`[NewsProvider] Gap fill: merged ${data.results.length} articles on reconnect`);
           }
         })
@@ -168,7 +176,7 @@ export function NewsProvider({ children }: NewsProviderProps) {
 
     // NO retornamos cleanup aquí - la desuscripción solo ocurre cuando
     // isConnected cambia a false (manejado arriba)
-  }, [ws.isConnected, ws.subscribeNews]); // Añadir ws.subscribeNews a dependencias
+  }, [ws.isConnected, ws.subscribeNews, addArticlesBatch, feedTickerArticles]);
 
   // Cleanup al desmontar el componente
   useEffect(() => {
@@ -215,6 +223,10 @@ export function NewsProvider({ children }: NewsProviderProps) {
         return;
       }
 
+      if (!useNewsStore.getState().stats.initialLoadComplete) {
+        markInitialLoadComplete();
+      }
+
       // Agregar al store de tickers (para intersección scanner+news)
       if (article.tickers && article.tickers.length > 0) {
         addNewsArticleToTickers({
@@ -254,6 +266,7 @@ export function NewsProvider({ children }: NewsProviderProps) {
     ws.messages$,
     addArticle,
     addNewsArticleToTickers,
+    markInitialLoadComplete,
     processCatalystNews,
     squawk,
     isPaused,

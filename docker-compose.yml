@@ -38,6 +38,10 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg15
     container_name: tradeul_timescale
+    # Docker default /dev/shm=64MB se queda corto para queries paralelas de
+    # Postgres ("could not resize shared memory segment ... No space left on
+    # device" en historical events). Aplica al recrear el contenedor.
+    shm_size: 1gb
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tradeul}
       POSTGRES_USER: ${POSTGRES_USER:-tradeul_user}
@@ -467,6 +471,8 @@ services:
         condition: service_healthy
       timescaledb:
         condition: service_healthy
+      polygon_data:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - tradeul_network
@@ -672,7 +678,12 @@ services:
     env_file:
       - .env
     environment:
-      - POLYGON_API_KEY=${POLYGON_API_KEY}
+      # Fuente de noticias: feed Benzinga de OpenOutcrier (canal bz)
+      - OOC_BASE_URL=${OOC_BASE_URL:-https://openoutcrier.com}
+      - OOC_SESSION_HASH=${OOC_SESSION_HASH}
+      - OOC_ENDPOINT=/load
+      # Polygon ya NO se usa para noticias; solo fallback de precio del catalyst engine
+      - POLYGON_API_KEY=${POLYGON_API_KEY:-}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
@@ -880,7 +891,7 @@ services:
       - EVENTS_CACHE_TTL=300
       - REFRESH_INTERVAL_SECONDS=300
       - MAX_EVENTS_FETCH=800
-      - GOOGLE_API_KEY=${GEMINI_TRADEUL_AGENT}
+      # GOOGLE_API_KEY eliminada: prediction-markets V4 no usa LLM
       - PYTHONUNBUFFERED=1
     depends_on:
       redis:
@@ -1016,6 +1027,8 @@ services:
       # dilution_tracker corre con network_mode: host (puerto 8009) y no tiene
       # DNS en la red bridge => alcanzable via gateway de tradeul_network.
       - MCP_DILUTION_TRACKER_URL=http://172.18.0.1:8009
+      # pattern-matching corre en servidor dedicado (no está en este compose)
+      - MCP_PATTERN_MATCHING_URL=${PATTERN_MATCHING_URL:-http://37.27.183.194:8025}
     volumes:
       - polygon_data:/data/polygon:ro
       - backtester_data:/data/backtester:ro
@@ -1058,12 +1071,16 @@ services:
       - BACKTESTER_URL=http://backtester:8060
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
       - REDIS_PASSWORD=${REDIS_PASSWORD}
+      # Checkpoints durables de LangGraph en TimescaleDB (sobreviven reinicios
+      # y permiten varias réplicas del agente)
+      - CHECKPOINT_DB_URL=postgresql://${POSTGRES_USER:-tradeul_user}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-tradeul}
       # ai-news-brief en la misma red bridge => alcanzable por DNS del servicio.
       - NEWS_BRIEF_URL=http://ai-news-brief:8072
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # NOTA: docker.sock eliminado — el sandbox de code_exec no está implementado
+    # y montar el socket sin auth en el WS/REST era un riesgo de seguridad grave.
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /tmp/tradeul_sandbox:/tmp/sandbox_data
       - polygon_data:/data/polygon:ro
     logging:
@@ -1073,6 +1090,8 @@ services:
         max-file: "3"
     depends_on:
       redis:
+        condition: service_healthy
+      timescaledb:
         condition: service_healthy
       mcp_gateway:
         condition: service_started
@@ -1425,9 +1444,9 @@ services:
   # and builds 1/2/5/10/15/30/60/240/720 min bars.
   #
   # Publishes:
-  #   - stream:bars:{tf}min        (closed bars, for alert_engine)
-  #   - bars:{tf}min:latest        (closed bars hash, for lookups)
-  #   - bars:{tf}min:current       (IN-FORMATION bars hash, for zero-gap charts)
+  #   - bars:{tf}min:current       (IN-FORMATION bars hash — api_gateway live-bar-stitch)
+  #   - chart:sealed:{SYMBOL}      (pub/sub velas selladas — websocket_server → charts)
+  # (stream:bars:{tf}min y bars:{tf}min:latest eliminados: sin consumidores)
   #
   # HTTP API on port 8050:
   #   - GET  /health
@@ -1435,8 +1454,9 @@ services:
   #     a fresh ticker so the live bar is populated before WS catches up)
   bar_builder:
     build:
-      context: ./services/bar_builder
-      dockerfile: Dockerfile
+      # Contexto raíz para poder importar shared/ (contratos de streams).
+      context: .
+      dockerfile: services/bar_builder/Dockerfile
     container_name: tradeul_bar_builder
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379

@@ -10,8 +10,14 @@ from typing import Optional
 class Settings(BaseSettings):
     """Configuration settings for Benzinga News service"""
     
-    # Polygon API (Benzinga News is accessed through Polygon)
-    polygon_api_key: str = Field(..., description="Polygon.io API key")
+    # Fuente de noticias: OpenOutcrier (feed Benzinga vía canal `bz`)
+    ooc_base_url: str = Field(default="https://openoutcrier.com", description="OpenOutcrier base URL")
+    ooc_session_hash: str = Field(..., description="Cookie `hash` de la sesión Pro de OpenOutcrier")
+    ooc_endpoint: str = Field(default="/load", description="Endpoint del feed OpenOutcrier")
+
+    # Polygon API — ya NO se usa para noticias. Solo lo usa el catalyst engine
+    # como fallback de precio de mercado (dato de mercado, no de Benzinga).
+    polygon_api_key: Optional[str] = Field(default=None, description="Polygon.io API key (solo precios, opcional)")
     
     # Redis
     redis_host: str = Field(default="redis", description="Redis host")

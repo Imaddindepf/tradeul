@@ -100,7 +100,10 @@ app = FastAPI(
     title="Market Session Service",
     description="Detects and manages market session states",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # Configure CORS for frontend

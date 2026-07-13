@@ -16,6 +16,8 @@ interface TooltipProps {
     delay?: number;
     /** Optional className passed to the wrapper span. */
     className?: string;
+    /** When set, the tooltip wraps text up to this width (px) instead of staying single-line. */
+    maxWidth?: number;
     children: React.ReactElement;
 }
 
@@ -80,6 +82,7 @@ export function Tooltip({
     placement = 'bottom',
     delay = 250,
     className,
+    maxWidth,
     children,
 }: TooltipProps) {
     const id = useId();
@@ -158,8 +161,9 @@ export function Tooltip({
                         left: coords.left,
                         zIndex: 9999,
                         pointerEvents: 'none',
+                        maxWidth: maxWidth ? `${maxWidth}px` : undefined,
                     }}
-                    className="px-2 py-1 rounded text-[10.5px] font-medium leading-tight whitespace-nowrap bg-[color:var(--color-fg)] text-[color:var(--color-bg)] shadow-lg border border-[color:var(--color-border)]"
+                    className={`px-2 py-1 rounded text-[10.5px] font-medium leading-tight bg-[color:var(--color-fg)] text-[color:var(--color-bg)] shadow-lg border border-[color:var(--color-border)] ${maxWidth ? 'whitespace-normal' : 'whitespace-nowrap'}`}
                 >
                     <span>{content}</span>
                     {shortcut && (

@@ -29,7 +29,7 @@ import logging
 import time
 from typing import Any
 
-from agents._mcp_tools import call_mcp_tool
+from agents.mcp_catalog import MCP, MCPTool
 from agents._llm_retry import llm_invoke_with_retry
 
 logger = logging.getLogger(__name__)
@@ -834,7 +834,7 @@ async def dilution_node(state: dict) -> dict:
         """Determine tools to call based on focus, then call them in parallel."""
         t_data: dict[str, Any] = {}
         t_errors: list[str] = []
-        calls: list[tuple[str, str, dict]] = []  # (key, tool_name, args)
+        calls: list[tuple[str, MCPTool, dict]] = []  # (key, tool, args)
 
         # Determine which tools to call based on detected focus
         is_full = "full" in focuses or not focuses
@@ -843,41 +843,41 @@ async def dilution_node(state: dict) -> dict:
         if is_full:
             # Full analysis: enhanced profile + instrument context + risk
             calls = [
-                ("profile", "get_sec_dilution_profile", {"ticker": ticker}),
-                ("instrument_context", "get_instrument_context", {"ticker": ticker}),
-                ("risk_ratings", "get_dilution_risk_ratings", {"ticker": ticker}),
-                ("cash_runway", "get_cash_runway", {"ticker": ticker}),
-                ("dilution_analysis", "get_dilution_analysis", {"ticker": ticker}),
+                ("profile", MCP.dilution.get_sec_dilution_profile, {"ticker": ticker}),
+                ("instrument_context", MCP.dilution.get_instrument_context, {"ticker": ticker}),
+                ("risk_ratings", MCP.dilution.get_dilution_risk_ratings, {"ticker": ticker}),
+                ("cash_runway", MCP.dilution.get_cash_runway, {"ticker": ticker}),
+                ("dilution_analysis", MCP.dilution.get_dilution_analysis, {"ticker": ticker}),
             ]
         else:
             # Always get base profile + instrument_context (the latter is the
             # authoritative signal for whether this ticker is in our tracking DB)
-            calls.append(("profile", "get_sec_dilution_profile", {"ticker": ticker}))
-            calls.append(("instrument_context", "get_instrument_context", {"ticker": ticker}))
+            calls.append(("profile", MCP.dilution.get_sec_dilution_profile, {"ticker": ticker}))
+            calls.append(("instrument_context", MCP.dilution.get_instrument_context, {"ticker": ticker}))
 
             if "warrant" in focuses:
-                calls.append(("warrants_detail", "get_warrants", {"ticker": ticker}))
+                calls.append(("warrants_detail", MCP.dilution.get_warrants, {"ticker": ticker}))
 
             if "atm" in focuses or "shelf" in focuses:
-                calls.append(("instrument_context", "get_instrument_context", {"ticker": ticker}))
+                calls.append(("instrument_context", MCP.dilution.get_instrument_context, {"ticker": ticker}))
 
             if "cash" in focuses:
-                calls.append(("cash_position", "get_cash_position", {"ticker": ticker}))
-                calls.append(("cash_runway", "get_cash_runway", {"ticker": ticker}))
+                calls.append(("cash_position", MCP.dilution.get_cash_position, {"ticker": ticker}))
+                calls.append(("cash_runway", MCP.dilution.get_cash_runway, {"ticker": ticker}))
 
             if "risk" in focuses:
-                calls.append(("risk_ratings", "get_dilution_risk_ratings", {"ticker": ticker}))
+                calls.append(("risk_ratings", MCP.dilution.get_dilution_risk_ratings, {"ticker": ticker}))
 
             if "history" in focuses:
-                calls.append(("shares_history", "get_shares_history", {"ticker": ticker}))
-                calls.append(("completed_offerings", "get_completed_offerings", {"ticker": ticker}))
+                calls.append(("shares_history", MCP.dilution.get_shares_history, {"ticker": ticker}))
+                calls.append(("completed_offerings", MCP.dilution.get_completed_offerings, {"ticker": ticker}))
 
             if "instruments" in focuses:
-                calls.append(("instrument_context", "get_instrument_context", {"ticker": ticker}))
+                calls.append(("instrument_context", MCP.dilution.get_instrument_context, {"ticker": ticker}))
 
             if "potential" in focuses:
-                calls.append(("dilution_analysis", "get_dilution_analysis", {"ticker": ticker}))
-                calls.append(("risk_ratings", "get_dilution_risk_ratings", {"ticker": ticker}))
+                calls.append(("dilution_analysis", MCP.dilution.get_dilution_analysis, {"ticker": ticker}))
+                calls.append(("risk_ratings", MCP.dilution.get_dilution_risk_ratings, {"ticker": ticker}))
 
         # Deduplicate calls by key
         seen_keys: set[str] = set()
@@ -888,9 +888,9 @@ async def dilution_node(state: dict) -> dict:
                 unique_calls.append(call)
 
         # Execute all calls concurrently
-        async def _call(key: str, tool: str, args: dict):
+        async def _call(key: str, tool: MCPTool, args: dict):
             try:
-                raw = await call_mcp_tool("dilution", tool, args)
+                raw = await tool(args)
                 return key, raw, None
             except Exception as exc:
                 return key, None, str(exc)

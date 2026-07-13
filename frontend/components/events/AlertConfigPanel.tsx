@@ -13,6 +13,10 @@ import {
 import { useAlertStrategies, type AlertStrategy } from '@/hooks/useAlertStrategies';
 import { useAlertPresetsStore, type AlertPresetFilters } from '@/stores/useAlertPresetsStore';
 import type { ActiveEventFilters } from '@/stores/useEventFiltersStore';
+import { FilterRangeRow, AlertThresholdInput } from '@/components/ui/FilterNumInput';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
+import { filterHelp, implausibleHint } from '@/lib/filterGlossary';
+import { useTranslation } from 'react-i18next';
 
 interface AlertConfigPanelProps {
   selectedEventTypes: string[];
@@ -31,59 +35,32 @@ function DirectionIcon({ direction }: { direction: string }) {
   return <Minus className="w-3 h-3 text-muted-fg" />;
 }
 
-const UNIT_MUL: Record<string, number> = { '': 1, K: 1e3, M: 1e6, B: 1e9 };
-const fmtLocale = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 6 });
-
-/** Numeric input with thousand-separator formatting on blur */
-function FmtNum({ value, onChange, placeholder, className }: {
-  value: number | undefined;
-  onChange: (v: number | undefined) => void;
-  placeholder?: string;
-  className?: string;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [editStr, setEditStr] = useState('');
-  const display = value !== undefined ? fmtLocale(value) : '';
-  return (
-    <input type="text" inputMode="decimal"
-      value={editing ? editStr : display}
-      onFocus={() => { setEditing(true); setEditStr(value !== undefined ? String(value) : ''); }}
-      onBlur={() => {
-        setEditing(false);
-        const s = editStr.replace(/,/g, '').trim();
-        onChange(s && !isNaN(Number(s)) ? Number(s) : undefined);
-      }}
-      onChange={e => setEditStr(e.target.value)}
-      placeholder={placeholder} className={className} />
-  );
-}
-
 function FilterInput({ label, minValue, maxValue, onMinChange, onMaxChange, suffix, unitOpts, defaultUnit, phMin, phMax }: {
   label: string; minValue?: number; maxValue?: number;
   onMinChange: (v?: number) => void; onMaxChange: (v?: number) => void;
   suffix?: string; unitOpts?: string[]; defaultUnit?: string;
   phMin?: string; phMax?: string;
 }) {
-  const [unit, setUnit] = useState(defaultUnit || '');
-  const mul = UNIT_MUL[unit] || 1;
-  const toDisp = (raw?: number) => raw !== undefined ? raw / mul : undefined;
-  const toRaw = (v?: number) => v !== undefined ? v * mul : undefined;
-  const inputCls = "flex-1 min-w-0 px-1.5 py-[3px] text-[11px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-surface font-mono text-right tabular-nums";
+  const { i18n } = useTranslation();
+  const help = filterHelp(label, i18n.language);
+  const warnMsg = implausibleHint(label, suffix, minValue, i18n.language)
+    || implausibleHint(label, suffix, maxValue, i18n.language);
+
   return (
-    <div className="flex items-center gap-1.5 px-3 py-[3px]">
-      <span className="text-[11px] text-foreground/70 w-24 flex-shrink-0 font-medium">{label}</span>
-      <FmtNum value={toDisp(minValue)} onChange={v => onMinChange(toRaw(v))} placeholder={phMin || 'min'} className={inputCls} />
-      <span className="text-muted-fg/50 text-[9px]">-</span>
-      <FmtNum value={toDisp(maxValue)} onChange={v => onMaxChange(toRaw(v))} placeholder={phMax || 'max'} className={inputCls} />
-      {unitOpts ? (
-        <select value={unit} onChange={e => setUnit(e.target.value)}
-          className="w-9 py-[2px] text-[10px] text-muted-fg border border-border rounded bg-surface focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer appearance-none text-center">
-          {unitOpts.map(u => <option key={u} value={u}>{u || 'sh'}</option>)}
-        </select>
-      ) : suffix ? (
-        <span className="text-[10px] text-muted-fg w-4 text-center">{suffix}</span>
-      ) : <span className="w-4" />}
-    </div>
+    <FilterRangeRow
+      label={label}
+      minValue={minValue}
+      maxValue={maxValue}
+      onMinChange={onMinChange}
+      onMaxChange={onMaxChange}
+      unitOpts={unitOpts}
+      defaultUnit={defaultUnit}
+      phMin={phMin}
+      phMax={phMax}
+      suffix={suffix}
+      help={help ? <InfoTooltip content={help} /> : undefined}
+      warn={warnMsg ? <InfoTooltip content={warnMsg} variant="warn" placement="left" /> : undefined}
+    />
   );
 }
 
@@ -197,21 +174,25 @@ function SelectAlertsTab({ selectedEventTypes, onEventTypesChange, currentFilter
                             {locale === 'es' ? alert.nameEs : alert.name}
                           </span>
                         </button>
+                        {(locale === 'es' ? alert.descriptionEs : alert.description) && (
+                          <InfoTooltip
+                            content={locale === 'es' ? alert.descriptionEs : alert.description}
+                            placement="left"
+                          />
+                        )}
                         {sel && cs.type !== 'none' ? (
-                          <input
-                            type="number"
-                            step="any"
+                          <AlertThresholdInput
+                            value={currentFilters[csKey]}
                             placeholder={cs.defaultValue != null ? String(cs.defaultValue) : (locale === 'es' ? cs.labelEs : cs.label)}
+                            unit={cs.unit || undefined}
                             title={`${locale === 'es' ? cs.labelEs : cs.label}${cs.unit ? ` (${cs.unit})` : ''}`}
-                            value={currentFilters[csKey] ?? ''}
                             onClick={e => e.stopPropagation()}
-                            onChange={e => {
-                              const v = e.target.value;
+                            onChange={v => {
                               const next = { ...currentFilters };
-                              if (v === '') { delete next[csKey]; } else { next[csKey] = Number(v); }
+                              if (v === undefined) delete next[csKey];
+                              else next[csKey] = v;
                               onFiltersChange(next);
                             }}
-                            className="w-14 px-1 py-[2px] text-[10px] tabular-nums border border-border rounded bg-surface text-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary flex-shrink-0"
                           />
                         ) : cs.type !== 'none' ? (
                           <span className="w-14 flex-shrink-0" />
@@ -362,7 +343,7 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
           <div className="px-3 py-1 text-[10px] font-semibold text-muted-fg uppercase tracking-wider">Fundamentals</div>
           <FilterInput label="Market Cap" minValue={currentFilters.min_market_cap} maxValue={currentFilters.max_market_cap}
             onMinChange={v => update('min_market_cap', v)} onMaxChange={v => update('max_market_cap', v)}
-            unitOpts={['K', 'M', 'B']} defaultUnit="M" phMin="50" phMax="10" />
+            unitOpts={['K', 'M', 'B']} defaultUnit="M" phMin="50" phMax="10000" />
           <FilterInput label="Float" minValue={currentFilters.min_float_shares} maxValue={currentFilters.max_float_shares}
             onMinChange={v => update('min_float_shares', v)} onMaxChange={v => update('max_float_shares', v)}
             unitOpts={['K', 'M', 'B']} defaultUnit="M" phMin="1" phMax="100" />

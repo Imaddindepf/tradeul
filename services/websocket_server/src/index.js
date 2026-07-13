@@ -187,13 +187,31 @@ pgPool.query("SELECT 1").then(() => {
  * @param {string} [opts.session_end] - ISO timestamp for session upper bound
  * @returns {Promise<Array>} Array of event objects (oldest→newest, capped by limit+1 to detect has_more)
  */
-// Walk backwards from a date string ("YYYY-MM-DD") to find the last weekday.
-// Does not check market holidays — a full holiday calendar would require an
-// external data source.  For the purpose of showing "last session's events"
-// on weekends this is sufficient (holidays are rare edge cases).
-function lastWeekday(dateStr) {
+// Check if a date is a full market holiday using the market:holiday:* keys
+// written by market_session (sourced from Polygon, TTL 30 days). Same source
+// of truth that data_maintenance uses to decide whether to run the cache cleanup.
+async function isMarketHoliday(dateStr) {
+  try {
+    const raw = await redisCommands.get(`market:holiday:${dateStr}:NYSE`);
+    if (!raw) return false;
+    const h = JSON.parse(raw);
+    return h && h.status === "closed";
+  } catch (_) {
+    return false;
+  }
+}
+
+// Walk backwards from a date string ("YYYY-MM-DD") to find the last actual
+// trading day: skips weekends AND full market holidays (Redis calendar).
+async function lastTradingDay(dateStr) {
   const d = new Date(dateStr + "T12:00:00");
-  do { d.setDate(d.getDate() - 1); } while (d.getDay() === 0 || d.getDay() === 6);
+  for (let i = 0; i < 10; i++) {
+    d.setDate(d.getDate() - 1);
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+    const iso = d.toISOString().slice(0, 10);
+    if (await isMarketHoliday(iso)) continue;
+    return iso;
+  }
   return d.toISOString().slice(0, 10);
 }
 
@@ -202,21 +220,30 @@ function lastWeekday(dateStr) {
 // which are not valid SQL timestamps. We combine them with trading_date and extract
 // the UTC offset from the session's own timestamp field (handles EST/EDT automatically).
 //
-// On non-trading days (weekends/holidays) we fall back to the last weekday so that
-// the snapshot query returns events from the most recent trading session.
-function buildSessionOpts(sess) {
+// While the market is fully closed the snapshot must keep showing the LAST
+// operative session (mirroring the scanner top lists, which freeze their Redis
+// snapshots through weekends/holidays until the maintenance cleanup):
+//  - Weekends/holidays → walk back to the last real trading day.
+//  - Trading day but before pre-market (00:00–04:00 ET) → previous trading day,
+//    since the new session hasn't produced any events yet.
+async function buildSessionOpts(sess) {
   const opts = {};
   let date = sess.trading_date; // "2026-03-07"
   if (!date) return opts;
-
-  if (sess.is_trading_day === false) {
-    date = lastWeekday(date);
-  }
 
   let offset = "-05:00";
   if (sess.timestamp) {
     const m = sess.timestamp.match(/([+-]\d{2}:\d{2})$/);
     if (m) offset = m[1];
+  }
+
+  if (sess.is_trading_day === false) {
+    date = await lastTradingDay(date);
+  } else if (sess.current_session === "CLOSED" && sess.pre_market_start) {
+    const preStart = new Date(`${date}T${sess.pre_market_start}${offset}`);
+    if (!isNaN(preStart.getTime()) && Date.now() < preStart.getTime()) {
+      date = await lastTradingDay(date);
+    }
   }
 
   if (sess.pre_market_start) {
@@ -553,6 +580,9 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['premarketChangePctMin','premarketChangePctMax',null,'premarket_change_percent'],
     ['postmarketChangePctMin','postmarketChangePctMax',null,'postmarket_change_percent'],
     ['postmarketVolumeMin','postmarketVolumeMax',null,'postmarket_volume'],
+    ['premarketVolumeMin','premarketVolumeMax',null,'premarket_volume'],
+    ['premarketDollarVolumeMin','premarketDollarVolumeMax',null,'premarket_dollar_volume'],
+    ['premarketRvolMin','premarketRvolMax',null,'premarket_rvol'],
     ['avgVolume3mMin',    'avgVolume3mMax',    null, 'avg_volume_3m'],
     ['atrMin',            'atrMax',            null, 'atr'],
     ['distPivotMin',      'distPivotMax',      null, 'dist_pivot'],
@@ -1467,6 +1497,9 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.premarket_change_percent, 'premarketChangePctMin', 'premarketChangePctMax')) return false;
   if (!chkEvt(enriched.postmarket_change_percent, 'postmarketChangePctMin', 'postmarketChangePctMax')) return false;
   if (!chkEvt(enriched.postmarket_volume, 'postmarketVolumeMin', 'postmarketVolumeMax')) return false;
+  if (!chkEvt(enriched.premarket_volume, 'premarketVolumeMin', 'premarketVolumeMax')) return false;
+  if (!chkEvt(enriched.premarket_dollar_volume, 'premarketDollarVolumeMin', 'premarketDollarVolumeMax')) return false;
+  if (!chkEvt(enriched.premarket_rvol, 'premarketRvolMin', 'premarketRvolMax')) return false;
   if (!chkEvt(enriched.avg_volume_3m, 'avgVolume3mMin', 'avgVolume3mMax')) return false;
   if (!chkEvt(enriched.atr, 'atrMin', 'atrMax')) return false;
 
@@ -1701,6 +1734,28 @@ function applyNumericFilterUpdates(sub, data) {
 // Mapeo ticker → Set<connectionId> (quién tiene un chart abierto de este ticker)
 const chartSubscribers = new Map();
 const tradeSubscribedSymbols = new Set();
+
+// Dedup del doble feed de chart, decidido AQUÍ (server-side, un solo punto)
+// en vez de en cada cliente. Los mismos trades llegan por dos rutas:
+//   - chart:trades:{SYMBOL} (micro-velas de chart_aggregator, ~150ms) — canónico
+//   - stream:realtime:aggregates (A.* de Polygon, ~1s) — fallback
+// Mientras el feed de trades esté vivo para un símbolo, NO reenviamos su A.*
+// al chart (duplicaría volumen en la vela en curso). Si chart_aggregator cae,
+// A.* retoma el relevo automáticamente al expirar la ventana.
+const CHART_TRADES_FEED_ALIVE_MS = 10000;
+const chartTradesFeedLastSeen = new Map(); // symbol → epoch ms
+
+// Secuencia monótona por símbolo para TODOS los mensajes de chart
+// (chart_aggregate y chart_bar_sealed). El cliente detecta huecos
+// (seq saltó más de +1 → mensajes perdidos por backpressure/red) y
+// dispara un backfill REST en vez de quedarse con velas incompletas.
+const chartSeqCounters = new Map(); // symbol → int
+
+function nextChartSeq(symbol) {
+  const next = (chartSeqCounters.get(symbol) || 0) + 1;
+  chartSeqCounters.set(symbol, next);
+  return next;
+}
 
 // Contador de referencias por ticker para charts
 const chartRefCount = new Map();
@@ -2810,6 +2865,8 @@ async function unsubscribeClientFromChart(connectionId, symbol) {
   if (newCount === 0) {
     chartSubscribers.delete(symbolUpper);
     chartRefCount.delete(symbolUpper);
+    chartTradesFeedLastSeen.delete(symbolUpper);
+    chartSeqCounters.delete(symbolUpper);
     
     if (!symbolToLists.has(symbolUpper)) {
       try {
@@ -2871,6 +2928,7 @@ function broadcastChartAggregate(symbol, aggregateData) {
     type: "chart_aggregate",
     symbol: symbol,
     data: aggregateData,
+    seq: nextChartSeq(symbol),
     timestamp: new Date().toISOString()
   };
   
@@ -3193,20 +3251,28 @@ async function processAggregatesStream() {
                 bufferAggregate(symbolUpper, data);
               }
               
-              // Chart subscribers
+              // Chart subscribers — solo si el feed de trades (canónico) no
+              // está vivo para este símbolo (ver chartTradesFeedLastSeen).
               const chartSubs = chartSubscribers.get(symbolUpper);
 
               if (chartSubs && chartSubs.size > 0) {
-                const chartData = {
-                  o: parseFloat(data.open || 0),
-                  h: parseFloat(data.high || 0),
-                  l: parseFloat(data.low || 0),
-                  c: parseFloat(data.close || 0),
-                  v: parseInt(data.volume || 0, 10),
-                  av: parseInt(data.volume_accumulated || 0, 10),
-                  t: parseInt(data.timestamp_end || data.timestamp_start || Date.now(), 10)
-                };
-                broadcastChartAggregate(symbolUpper, chartData);
+                const tradesLastSeen = chartTradesFeedLastSeen.get(symbolUpper) || 0;
+                if (Date.now() - tradesLastSeen >= CHART_TRADES_FEED_ALIVE_MS) {
+                  // Contrato: stream:realtime:aggregates usa nombres largos
+                  // (shared/contracts/realtime.py). Validamos antes de emitir.
+                  const chartData = {
+                    o: parseFloat(data.open || 0),
+                    h: parseFloat(data.high || 0),
+                    l: parseFloat(data.low || 0),
+                    c: parseFloat(data.close || 0),
+                    v: parseInt(data.volume || 0, 10),
+                    av: parseInt(data.volume_accumulated || 0, 10),
+                    t: parseInt(data.timestamp_end || data.timestamp_start || Date.now(), 10)
+                  };
+                  if (isValidChartTick(chartData)) {
+                    broadcastChartAggregate(symbolUpper, chartData);
+                  }
+                }
               }
             }
 
@@ -4372,7 +4438,7 @@ wss.on("connection", async (ws, req) => {
             const sessRaw = await redis.get("market:session:status");
             if (sessRaw) {
               const sess = JSON.parse(sessRaw);
-              sessionOpts = buildSessionOpts(sess);
+              sessionOpts = await buildSessionOpts(sess);
             }
           } catch (_) { /* use fallback 16h window */ }
 
@@ -4513,7 +4579,7 @@ wss.on("connection", async (ws, req) => {
                 const sessRaw = await redis.get("market:session:status");
                 if (sessRaw) {
                   const sess = JSON.parse(sessRaw);
-                  const bounds = buildSessionOpts(sess);
+                  const bounds = await buildSessionOpts(sess);
                   if (bounds.session_start) sessionOpts.session_start = bounds.session_start;
                   if (bounds.session_end) sessionOpts.session_end = bounds.session_end;
                 }
@@ -4990,49 +5056,120 @@ async function broadcastPolygonSubscriptionStatus() {
 // 🔥 Suscribirse a eventos de nuevo día y cambio de sesión (después de que Redis conecte)
 // ── Chart Trades Pub/Sub (tick-by-tick micro-aggregates from chart_aggregator) ──
 redisChartTrades.on("connect", () => {
-  logger.info("Redis Chart Trades PubSub connected — subscribing to chart:trades:*");
+  logger.info("Redis Chart Trades PubSub connected — subscribing to chart:trades:* + chart:sealed:*");
   redisChartTrades.psubscribe("chart:trades:*", (err) => {
     if (err) logger.error({ err }, "Failed to psubscribe chart:trades:*");
     else logger.info("✅ Subscribed to chart:trades:* pattern");
   });
+  // Velas SELLADAS de bar_builder (autoritativas al cierre de cada bucket).
+  redisChartTrades.psubscribe("chart:sealed:*", (err) => {
+    if (err) logger.error({ err }, "Failed to psubscribe chart:sealed:*");
+    else logger.info("✅ Subscribed to chart:sealed:* pattern");
+  });
 });
+
+// ── Validación de contrato en el borde ──────────────────────────────────────
+// Espejo de frontend/lib/wsContracts.ts: un payload malformado se descarta y
+// se cuenta aquí, en vez de propagarse a todos los clientes conectados.
+const contractRejects = new Map(); // kind → count
+
+function rejectContract(kind, sample) {
+  const count = (contractRejects.get(kind) || 0) + 1;
+  contractRejects.set(kind, count);
+  if (count === 1 || count % 1000 === 0) {
+    logger.warn({ kind, count, sample }, "Chart contract violation — message dropped");
+  }
+  return false;
+}
+
+const isFiniteNum = (x) => typeof x === "number" && Number.isFinite(x);
+
+/** Contrato de chart:trades:{SYM} (chart_aggregator): { o,h,l,c,v,t }. */
+function isValidChartTick(d) {
+  return (
+    d != null &&
+    isFiniteNum(d.o) && isFiniteNum(d.h) && isFiniteNum(d.l) && isFiniteNum(d.c) &&
+    isFiniteNum(d.v) && isFiniteNum(d.t) && d.t > 0 && d.c > 0
+  ) || rejectContract("chart_tick", d);
+}
+
+/** Contrato de chart:sealed:{SYM} (bar_builder): vela completa con nombres largos. */
+function isValidSealedBar(d) {
+  return (
+    d != null &&
+    isFiniteNum(d.timeframe) && d.timeframe > 0 &&
+    isFiniteNum(d.bar_start) && d.bar_start > 0 &&
+    isFiniteNum(d.open) && isFiniteNum(d.high) && isFiniteNum(d.low) && isFiniteNum(d.close) &&
+    isFiniteNum(d.volume) && d.open > 0
+  ) || rejectContract("sealed_bar", d);
+}
+
+/** Envía un payload ya serializado a los suscriptores de chart de un símbolo. */
+function sendToChartSubscribers(symbol, payload) {
+  const subscribers = chartSubscribers.get(symbol);
+  if (!subscribers || subscribers.size === 0) return;
+
+  const disconnected = [];
+  subscribers.forEach((connectionId) => {
+    const conn = connections.get(connectionId);
+    if (!conn || conn.ws.readyState !== 1) { // WebSocket.OPEN = 1
+      disconnected.push(connectionId);
+      return;
+    }
+    try {
+      conn.ws.send(payload);
+    } catch (err) {
+      disconnected.push(connectionId);
+    }
+  });
+
+  for (const connId of disconnected) {
+    subscribers.delete(connId);
+  }
+}
 
 redisChartTrades.on("pmessage", (pattern, channel, message) => {
   try {
-    // channel = "chart:trades:AAPL" → extract symbol
-    const symbol = channel.slice(14); // "chart:trades:".length = 14
-    const subscribers = chartSubscribers.get(symbol);
-    if (!subscribers || subscribers.size === 0) return;
+    if (pattern === "chart:trades:*") {
+      const symbol = channel.slice(14); // "chart:trades:".length = 14
 
-    const data = JSON.parse(message);
-    const payload = JSON.stringify({
-      type: "chart_aggregate",
-      symbol: symbol,
-      data: data,
-      timestamp: new Date().toISOString(),
-      source: "trades"
-    });
+      // Marcar el feed de trades como vivo ANTES del filtro de suscriptores:
+      // gobierna el dedup contra los A.* (ver processAggregatesStream).
+      chartTradesFeedLastSeen.set(symbol, Date.now());
 
-    const disconnected = [];
-    subscribers.forEach((connectionId) => {
-      const conn = connections.get(connectionId);
-      if (!conn || conn.ws.readyState !== 1) { // WebSocket.OPEN = 1
-        disconnected.push(connectionId);
-        return;
-      }
-      try {
-        conn.ws.send(payload);
-      } catch (err) {
-        disconnected.push(connectionId);
-      }
-    });
+      const subscribers = chartSubscribers.get(symbol);
+      if (!subscribers || subscribers.size === 0) return;
 
-    // Cleanup disconnected
-    for (const connId of disconnected) {
-      subscribers.delete(connId);
+      const data = JSON.parse(message);
+      if (!isValidChartTick(data)) return;
+      sendToChartSubscribers(symbol, JSON.stringify({
+        type: "chart_aggregate",
+        symbol: symbol,
+        data: data,
+        seq: nextChartSeq(symbol),
+        timestamp: new Date().toISOString(),
+        source: "trades"
+      }));
+    } else if (pattern === "chart:sealed:*") {
+      const symbol = channel.slice(13); // "chart:sealed:".length = 13
+      const subscribers = chartSubscribers.get(symbol);
+      if (!subscribers || subscribers.size === 0) return;
+
+      // Vela cerrada de bar_builder: { symbol, timeframe, bar_start, bar_end,
+      // open, high, low, close, volume, ... }. El frontend reemplaza su vela
+      // provisional del mismo bucket por esta versión autoritativa.
+      const bar = JSON.parse(message);
+      if (!isValidSealedBar(bar)) return;
+      sendToChartSubscribers(symbol, JSON.stringify({
+        type: "chart_bar_sealed",
+        symbol: symbol,
+        data: bar,
+        seq: nextChartSeq(symbol),
+        timestamp: new Date().toISOString()
+      }));
     }
   } catch (err) {
-    logger.error({ err, channel }, "Error processing chart trade message");
+    logger.error({ err, channel }, "Error processing chart pubsub message");
   }
 });
 

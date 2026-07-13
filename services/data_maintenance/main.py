@@ -500,6 +500,8 @@ async def flat_files_backfill(request: FlatFilesBackfillRequest):
       no se considera fallo (los días posteriores no se procesan).
     """
     try:
+        from zoneinfo import ZoneInfo
+
         start = date.fromisoformat(request.start_date)
         end = date.fromisoformat(request.end_date)
         if end < start:
@@ -541,9 +543,12 @@ async def flat_files_backfill(request: FlatFilesBackfillRequest):
                     "flat_files:last_synced_at",
                     datetime.now(_Z("America/New_York")).isoformat(),
                 )
-            elif r.get("message") == "minute_aggs not available in Polygon yet":
-                # No martilleamos los días posteriores
-                break
+            elif r.get("availability_pending"):
+                # Un día reciente puede estar aún pendiente de publicación.
+                # Los huecos antiguos no deben impedir recuperar fechas
+                # posteriores que ya estén disponibles.
+                if (datetime.now(ZoneInfo("America/New_York")).date() - day).days <= 3:
+                    break
 
         return {
             "status": "ok",
@@ -660,10 +665,20 @@ async def sync_flat_files(request: Optional[FlatFilesSyncRequest] = None):
         
         result = await sync_task.sync_for_date(target)
         
-        # Si fue exitoso, marcar como sincronizado
+        # Si fue exitoso, marcar como sincronizado con las mismas métricas
+        # que publica el watcher (si no, /flat-files/health queda "stale"
+        # aunque el sync manual haya funcionado).
         if result.get("success"):
             sync_key = f"flat_files:synced:{target.isoformat()}"
-            await redis_client.set(sync_key, "1", ttl=86400 * 7)
+            await redis_client.set(sync_key, "1", ttl=86400 * 30)
+            await redis_client.set(
+                FlatFilesWatcher.REDIS_LAST_SYNCED_DATE, target.isoformat()
+            )
+            await redis_client.set(
+                FlatFilesWatcher.REDIS_LAST_SYNCED_AT,
+                datetime.now(ZoneInfo("America/New_York")).isoformat(),
+            )
+            await redis_client.set(FlatFilesWatcher.REDIS_LAST_ERROR, "")
         
         return result
         

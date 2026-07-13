@@ -496,12 +496,48 @@ export const FILTER_GROUPS: readonly FilterGroup[] = [
         "phMax": "10"
       },
       {
+        "label": "Pre-Market Volume",
+        "minK": "min_premarket_volume",
+        "maxK": "max_premarket_volume",
+        "suf": "",
+        "units": [
+          "",
+          "K",
+          "M"
+        ],
+        "defU": "K",
+        "phMin": "50",
+        "phMax": "5000"
+      },
+      {
+        "label": "Pre-Market Dollar Volume",
+        "minK": "min_premarket_dollar_volume",
+        "maxK": "max_premarket_dollar_volume",
+        "suf": "$",
+        "units": [
+          "K",
+          "M",
+          "B"
+        ],
+        "defU": "M",
+        "phMin": "100",
+        "phMax": "10000"
+      },
+      {
         "label": "Change Post-Market $",
         "minK": "min_postmarket_change_dollars",
         "maxK": "max_postmarket_change_dollars",
         "suf": "$",
         "phMin": "-5",
         "phMax": "5"
+      },
+      {
+        "label": "Pre-Market RVOL",
+        "minK": "min_premarket_rvol",
+        "maxK": "max_premarket_rvol",
+        "suf": "x",
+        "phMin": "1",
+        "phMax": "10"
       }
     ]
   },
@@ -3321,6 +3357,30 @@ export const FILTER_LABELS: Record<string, { label: string; suf: string }> = {
     "label": "Post-Market Volume <",
     "suf": ""
   },
+  "min_premarket_volume": {
+    "label": "Pre-Market Volume >",
+    "suf": ""
+  },
+  "max_premarket_volume": {
+    "label": "Pre-Market Volume <",
+    "suf": ""
+  },
+  "min_premarket_dollar_volume": {
+    "label": "Pre-Market Dollar Volume >",
+    "suf": "$"
+  },
+  "max_premarket_dollar_volume": {
+    "label": "Pre-Market Dollar Volume <",
+    "suf": "$"
+  },
+  "min_premarket_rvol": {
+    "label": "Pre-Market RVOL >",
+    "suf": "x"
+  },
+  "max_premarket_rvol": {
+    "label": "Pre-Market RVOL <",
+    "suf": "x"
+  },
   "min_avg_volume_3m": {
     "label": "Average Daily Volume (3M) >",
     "suf": ""
@@ -5142,6 +5202,24 @@ export const EVENT_WIRE_PAIRS: readonly (readonly [string, string, string, strin
 "max_postmarket_volume",
 "postmarket_volume_min",
 "postmarket_volume_max"
+],
+[
+"min_premarket_volume",
+"max_premarket_volume",
+"premarket_volume_min",
+"premarket_volume_max"
+],
+[
+"min_premarket_dollar_volume",
+"max_premarket_dollar_volume",
+"premarket_dollar_volume_min",
+"premarket_dollar_volume_max"
+],
+[
+"min_premarket_rvol",
+"max_premarket_rvol",
+"premarket_rvol_min",
+"premarket_rvol_max"
 ],
 [
 "min_avg_volume_3m",

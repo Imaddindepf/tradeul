@@ -37,47 +37,30 @@ export async function getMarketSession() {
   }
 }
 
-export interface PolygonMarketStatus {
-  market: 'open' | 'closed' | 'extended-hours';
-  serverTime: string;
-  earlyHours: boolean;
-  afterHours: boolean;
-  exchanges: {
-    nasdaq?: string;
-    nyse?: string;
-    otc?: string;
-  };
-  currencies?: {
-    crypto?: string;
-    fx?: string;
-  };
-  indicesGroups?: {
-    s_and_p?: string;
-    societe_generale?: string;
-    msci?: string;
-    ftse_russell?: string;
-    mstar?: string;
-    mstarc?: string;
-    nasdaq?: string;
-    dow_jones?: string;
-    cccy?: string;
-    cgi?: string;
-  };
+export interface MarketHoliday {
+  date: string;              // YYYY-MM-DD
+  name: string;
+  exchange: string;
+  is_early_close: boolean;
+  early_close_time: string | null; // "13:00:00"
 }
 
-export async function getMarketStatus(): Promise<PolygonMarketStatus | null> {
+/**
+ * Festivos y half-days próximos (fuente: market_session → Polygon).
+ * Alimenta el calendario de lib/marketTime para que sesiones y velas
+ * diarias respeten cierres anticipados (13:00 ET) y días de cierre total.
+ */
+export async function getMarketHolidays(daysAhead = 60): Promise<MarketHoliday[]> {
   try {
-    // Endpoint para status detallado del mercado (Polygon)
-    const response = await fetch(`${MARKET_SESSION_URL}/api/session/market-status`);
-    
+    const response = await fetch(`${MARKET_SESSION_URL}/api/holidays?days_ahead=${daysAhead}`);
     if (!response.ok) {
-      throw new Error('Failed to fetch market status');
+      throw new Error('Failed to fetch market holidays');
     }
-    
-    return await response.json();
+    const data = await response.json();
+    return Array.isArray(data?.holidays) ? data.holidays : [];
   } catch (error) {
-    console.error('Error fetching market status:', error);
-    return null;
+    console.error('Error fetching market holidays:', error);
+    return [];
   }
 }
 

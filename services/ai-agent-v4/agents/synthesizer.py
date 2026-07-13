@@ -281,6 +281,8 @@ async def _synthesize_structured(
     market_session: dict,
     ticker_info: dict,
     chart_context: dict | None,
+    conversation: list[dict] | None = None,
+    mode: str = "auto",
 ) -> SynthesizerResponse:
     """Primary path: Gemini 2.5 Flash with constrained decoding."""
     from google.genai import types
@@ -294,6 +296,21 @@ async def _synthesize_structured(
         "market_session": market_session,
         "agent_results": results_payload,
     }
+    if conversation:
+        # Prior turns of this thread — answer follow-ups coherently
+        # ("y su caja?" must read as a continuation, not a fresh report).
+        user_payload["conversation_so_far"] = [
+            {
+                "query": (c.get("query") or "")[:200],
+                "tickers": c.get("tickers") or [],
+                "response_snippet": (c.get("response_snippet") or "")[:300],
+            }
+            for c in conversation[-4:]
+        ]
+    if mode == "quick":
+        user_payload["style_hint"] = (
+            "QUICK MODE: be brief. Max 2 sections, no filler, lead with the answer."
+        )
     if ticker_info:
         user_payload["ticker_info"] = {
             t: {
@@ -314,7 +331,7 @@ async def _synthesize_structured(
         response_mime_type="application/json",
         system_instruction=system_prompt,
         temperature=0.3,
-        max_output_tokens=8192,
+        max_output_tokens=4096 if mode == "quick" else 8192,
     )
 
     response = await client.aio.models.generate_content(
@@ -495,9 +512,15 @@ async def synthesizer_node(state: dict) -> dict:
     structured_response: SynthesizerResponse | None = None
     used_fallback = False
 
+    thread_conversation = [
+        e for e in (state.get("memory_context") or []) if e.get("source") == "thread"
+    ]
+    mode = state.get("mode", "auto")
+
     try:
         structured_response = await _synthesize_structured(
             query, language, results_payload, market_session, ticker_info, chart_context,
+            conversation=thread_conversation, mode=mode,
         )
         logger.info(
             "Synthesizer: structured output OK — %d sections, metrics=%s",

@@ -28,12 +28,17 @@ class VolumeAlertDetector(BaseAlertDetector):
     COOLDOWN_HRV = 300
     COOLDOWN_VS1 = 120
     COOLDOWN_BP = 60
+    COOLDOWN_HPMV = 300
 
     HRV_MIN_RATIO = 1.5
     HRV_MIN_VOLUME = 20_000
     VS1_MIN_1MIN_VOL = 5_000
     UNOP_MIN_RATIO = 5.0
     BP_MIN_SHARES = 5_000
+    # Pre-market volume spike: relative volume vs historical pre-market average
+    HPMV_MIN_RATIO = 2.0
+    HPMV_MIN_VOLUME = 10_000
+    _PRE_MARKET_SESSIONS = ("PRE_MARKET", "PREMARKET", "PRE")
 
     def __init__(self):
         super().__init__()
@@ -50,8 +55,42 @@ class VolumeAlertDetector(BaseAlertDetector):
         self._detect_vs1(current, previous, alerts)
         self._detect_unop(current, previous, alerts)
         self._detect_block_trade(current, previous, alerts)
+        self._detect_premarket_volume_spike(current, previous, alerts)
 
         return alerts
+
+    def _detect_premarket_volume_spike(self, current, previous, alerts):
+        """[HPMV] Pre-market volume spike: pre-market accumulated volume running at
+        >= HPMV_MIN_RATIO times the historical pre-market average. Only during the
+        pre-market session. Quality = pre-market relative volume."""
+        if current.market_session not in self._PRE_MARKET_SESSIONS:
+            return
+
+        sym = current.symbol
+        pm_rvol = current.premarket_rvol
+        pm_vol = current.premarket_volume
+        if pm_rvol is None or pm_vol is None:
+            return
+        if pm_rvol < self.HPMV_MIN_RATIO or pm_vol < self.HPMV_MIN_VOLUME:
+            return
+
+        prev_rvol = previous.premarket_rvol if previous else None
+        # Only fire on the upward crossing of the threshold (edge-triggered).
+        if prev_rvol is not None and prev_rvol >= self.HPMV_MIN_RATIO:
+            return
+
+        if not self._can_fire(AlertType.PRE_MARKET_VOLUME_SPIKE, sym, self.COOLDOWN_HPMV):
+            return
+
+        self._record_fire(AlertType.PRE_MARKET_VOLUME_SPIKE, sym)
+        desc = f"Pre-market volume spike {pm_rvol:.1f}x ({pm_vol:,} shares)"
+        if pm_rvol >= 5.0:
+            desc = f"Massive pre-market volume {pm_rvol:.1f}x ({pm_vol:,} shares)"
+        alerts.append(self._make_alert(
+            AlertType.PRE_MARKET_VOLUME_SPIKE, current, quality=round(pm_rvol, 2),
+            description=desc, prev_value=prev_rvol, new_value=pm_rvol,
+            details={"premarket_rvol": round(pm_rvol, 2), "premarket_volume": pm_vol},
+        ))
 
     def _detect_hrv(self, current, previous, alerts):
         sym = current.symbol

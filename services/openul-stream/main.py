@@ -89,6 +89,9 @@ app = FastAPI(
     description="Ultra-low-latency breaking news stream",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 

@@ -290,6 +290,22 @@ _a("LPRE", AlertType.PRE_MARKET_LOW,
    q_desc="Lookback period: trading days this is a new pre-market low for",
    q_desc_es="Período lookback: días de trading para los que este es un nuevo mínimo pre-market")
 
+_a("HPMV", AlertType.PRE_MARKET_VOLUME_SPIKE,
+   "Pre-market Volume Spike", "Pico Volumen Pre-Market", "session", "", 1, True, 300,
+   "Pre-market accumulated volume (4:00-9:30 ET) running far above its historical "
+   "pre-market average. Min 2x by default. Only fires during the pre-market session. "
+   "Great for spotting catalysts and gappers building volume before the open.",
+   "Volumen acumulado pre-market (4:00-9:30 ET) muy por encima de su promedio "
+   "histórico pre-market. Mínimo 2x por defecto. Solo dispara en sesión pre-market. "
+   "Ideal para detectar catalizadores y gappers acumulando volumen antes de la apertura.",
+   keywords=["volume confirmed", "premarket"],
+   cs_type=CustomSettingType.VOLUME_RATIO,
+   cs_label="Min pre-market RVOL", cs_label_es="Min RVOL pre-market",
+   cs_hint="2.0 = default (2x normal pre-market volume). 5.0 = massive pre-market volume.",
+   cs_default=None, cs_unit="x",
+   q_desc="Times more than average pre-market volume for this time",
+   q_desc_es="Veces más que el volumen pre-market promedio para esta hora")
+
 _a("HPOST", AlertType.POST_MARKET_HIGH,
    "Post-market Highs", "Máximos Post-Market", "session", "+", 1, True, 30,
    "Post-market high: only post-market prints. Lookback counts from today's close (1=above today's high)",

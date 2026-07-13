@@ -16,27 +16,29 @@ mcp = FastMCP(
 @mcp.tool()
 async def find_similar_patterns(
     symbol: str,
-    lookback_days: int = 20,
-    top_k: int = 10,
+    top_k: int = 50,
+    cross_asset: bool = True,
 ) -> dict:
-    """Find historical chart patterns similar to a ticker's recent price action.
+    """FAISS pattern-similarity forecast for a ticker's recent intraday action.
+
+    Matches the ticker's last ~45 minutes of price action against millions of
+    historical windows and returns a statistical forecast of the next 15 min.
 
     Args:
         symbol: Ticker to analyze
-        lookback_days: Number of recent days to use as the pattern (default 20)
-        top_k: Number of similar patterns to return (default 10)
+        top_k: Number of nearest historical neighbors to use (1-200, default 50)
+        cross_asset: Match against ALL tickers' history, not just this symbol
 
-    Returns: list of similar patterns with: matched_ticker, matched_date,
-    similarity_score, subsequent_return (what happened after the pattern).
+    Returns: forecast with mean_return, prob_up/prob_down, best/worst case,
+    confidence, mean/std trajectories, and the matched historical neighbors.
     """
     try:
         return await service_get(
             config.pattern_matching_url,
-            "/api/v1/patterns/similar",
+            f"/api/search/{symbol.upper()}",
             params={
-                "symbol": symbol.upper(),
-                "lookback_days": lookback_days,
-                "top_k": top_k,
+                "k": max(1, min(int(top_k), 200)),
+                "cross_asset": cross_asset,
             },
         )
     except Exception as e:

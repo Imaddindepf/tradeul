@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useAuth } from '@clerk/nextjs';
+import { authFetchStandalone } from '@/hooks/useAuthFetch';
 import type { SessionSummary, SessionMessage } from './types';
 
 const AGENT_BASE = process.env.NEXT_PUBLIC_AI_AGENT_V4_API_URL || 'https://agent.tradeul.com/v4';
 
 export function useConversationHistory() {
+  const { getToken } = useAuth();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -18,7 +21,7 @@ export function useConversationHistory() {
 
     setIsLoading(true);
     try {
-      const res = await fetch(`${AGENT_BASE}/api/sessions?limit=30`, {
+      const res = await authFetchStandalone(`${AGENT_BASE}/api/sessions?limit=30`, getToken, {
         signal: ctrl.signal,
       });
       if (!res.ok) throw new Error(`${res.status}`);
@@ -31,11 +34,11 @@ export function useConversationHistory() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [getToken]);
 
   const loadSessionMessages = useCallback(async (sessionId: string): Promise<SessionMessage[]> => {
     try {
-      const res = await fetch(`${AGENT_BASE}/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=100`);
+      const res = await authFetchStandalone(`${AGENT_BASE}/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=100`, getToken);
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
       return data.messages || [];
@@ -43,11 +46,11 @@ export function useConversationHistory() {
       console.error('Failed to load session messages:', e);
       return [];
     }
-  }, []);
+  }, [getToken]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
     try {
-      const res = await fetch(`${AGENT_BASE}/api/sessions/${encodeURIComponent(sessionId)}`, {
+      const res = await authFetchStandalone(`${AGENT_BASE}/api/sessions/${encodeURIComponent(sessionId)}`, getToken, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error(`${res.status}`);
@@ -55,7 +58,7 @@ export function useConversationHistory() {
     } catch (e) {
       console.error('Failed to delete session:', e);
     }
-  }, []);
+  }, [getToken]);
 
   const toggle = useCallback(() => setIsOpen(p => !p), []);
   const close = useCallback(() => setIsOpen(false), []);

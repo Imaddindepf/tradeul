@@ -27,6 +27,10 @@ class BenzingaArticle(BaseModel):
     channels: Optional[List[str]] = Field(default_factory=list, description="Categorías/canales")
     tags: Optional[List[str]] = Field(default_factory=list, description="Tags del artículo")
     images: Optional[List[str]] = Field(default_factory=list, description="URLs de imágenes")
+
+    # Cursor propio de OpenOutcrier (snowflake id). Sirve para paginar el feed.
+    # exclude=True => no se serializa en model_dump_json (no llega al frontend ni al cache).
+    benzinga_id_cursor: int = Field(default=0, exclude=True, description="ID snowflake de OpenOutcrier (cursor de polling)")
     
     class Config:
         json_encoders = {
@@ -61,6 +65,85 @@ class BenzingaArticle(BaseModel):
             channels=data.get("channels") or [],
             tags=data.get("tags") or [],
             images=data.get("images") or [],
+        )
+
+    @classmethod
+    def from_ooc_response(cls, data: dict) -> "BenzingaArticle":
+        """
+        Crea un artículo desde la respuesta del canal `bz` de OpenOutcrier.
+
+        Mapeo de campos OOC -> BenzingaArticle:
+            bz_id       -> benzinga_id       (dedup, ID nativo de Benzinga)
+            id          -> benzinga_id_cursor (snowflake, cursor de polling)
+            title       -> title
+            description -> teaser
+            link        -> url
+            date        -> published (RFC 2822, se normaliza a ISO 8601)
+            tickers     -> tickers ("$SURG, $T" -> ["SURG", "T"])
+        """
+        from datetime import datetime, timezone
+        from email.utils import parsedate_to_datetime
+
+        title = data.get("title", "") or ""
+        if title:
+            title = html.unescape(title)
+
+        teaser = data.get("description")
+        if teaser:
+            teaser = html.unescape(teaser)
+
+        # Normalizar fecha RFC 2822 ("Thu, 02 Jul 2026 16:25:10 -0400") a ISO 8601.
+        published_iso = ""
+        raw_date = data.get("date")
+        if raw_date:
+            try:
+                published_iso = parsedate_to_datetime(raw_date).astimezone(timezone.utc).isoformat()
+            except (TypeError, ValueError):
+                published_iso = ""
+        if not published_iso:
+            ts = data.get("timestamp")
+            if ts:
+                try:
+                    published_iso = datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
+                except (TypeError, ValueError, OSError):
+                    published_iso = ""
+        if not published_iso:
+            published_iso = datetime.now(timezone.utc).isoformat()
+
+        # Tickers: string "$SURG, $T" -> ["SURG", "T"]
+        tickers: List[str] = []
+        raw_tickers = data.get("tickers")
+        if isinstance(raw_tickers, str) and raw_tickers.strip():
+            for tok in raw_tickers.split(","):
+                sym = tok.strip().lstrip("$").upper()
+                if sym:
+                    tickers.append(sym)
+        elif isinstance(raw_tickers, list):
+            for tok in raw_tickers:
+                sym = str(tok).strip().lstrip("$").upper()
+                if sym:
+                    tickers.append(sym)
+
+        def _to_int(v) -> int:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return 0
+
+        return cls(
+            benzinga_id=_to_int(data.get("bz_id")),
+            benzinga_id_cursor=_to_int(data.get("id")),
+            title=title,
+            author=data.get("author", "Benzinga"),
+            published=published_iso,
+            last_updated=published_iso,
+            url=data.get("link", "") or "",
+            teaser=teaser,
+            body=None,
+            tickers=tickers,
+            channels=[],
+            tags=[],
+            images=[],
         )
 
 

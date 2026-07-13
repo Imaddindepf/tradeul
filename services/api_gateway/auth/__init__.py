@@ -4,6 +4,7 @@ from .clerk_jwt import ClerkJWTVerifier, clerk_jwt_verifier
 from .dependencies import (
     get_current_user_optional,
     get_current_user,
+    current_user_id,
     require_admin,
 )
 from .middleware import PassiveAuthMiddleware, get_user_from_request
@@ -15,6 +16,7 @@ __all__ = [
     "clerk_jwt_verifier",
     "get_current_user_optional",
     "get_current_user",
+    "current_user_id",
     "require_admin",
     "PassiveAuthMiddleware",
     "get_user_from_request",

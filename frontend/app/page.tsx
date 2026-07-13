@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation';
 import { SignIn, SignUp, SignedIn, SignedOut, useAuth } from '@clerk/nextjs';
 import { ArrowRight, X, Zap, Newspaper, BarChart3, Shield, SlidersHorizontal, LineChart, Bell, Target, Layers, ExternalLink, Link2 } from 'lucide-react';
 import { useAppTranslation } from '@/hooks/useAppTranslation';
+import GmailAutoGoogle from '@/components/auth/GmailAutoGoogle';
 import { motion, useScroll, useTransform, useSpring, MotionValue, AnimatePresence } from 'framer-motion';
 import { DashboardHero } from '@/components/landing/DashboardHero';
-import { useTopMovers, type TopMover } from '@/hooks/useTopMovers';
+import { type TopMover } from '@/hooks/useTopMovers';
 
 type AuthPanel = 'closed' | 'signin' | 'signup';
 
@@ -256,14 +257,11 @@ function formatPrice(price: number | null): string {
 }
 
 function TickerMarquee() {
-  const { tickers, loading, error } = useTopMovers({
-    limit: 24,
-    mix: 'balanced',
-    refreshMs: 5000,
-  });
-
-  const showing = tickers.length > 0 ? tickers : MARQUEE_FALLBACK;
-  const isLive = !loading && !error && tickers.length > 0;
+  // El landing es una página pública (sin sesión). Ya no existe ningún endpoint
+  // público en el API gateway, así que la cinta muestra un set estático marcado
+  // como "Delayed". Los datos en vivo solo se sirven dentro de la app autenticada.
+  const showing = MARQUEE_FALLBACK;
+  const isLive = false;
   // Duplicamos para que el loop visual sea perfecto
   const doubled = [...showing, ...showing];
 
@@ -1511,6 +1509,7 @@ export default function Home() {
             */}
             <div className={`transition-all duration-300 ${authPanel === 'signin' ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'}`}>
               {authPanel === 'signin' && (
+                <GmailAutoGoogle>
                 <SignIn
                   signUpUrl="/sign-up"
                   fallbackRedirectUrl="/workspace"
@@ -1532,6 +1531,7 @@ export default function Home() {
                     },
                   }}
                 />
+                </GmailAutoGoogle>
               )}
             </div>
             <div className={`transition-all duration-300 ${authPanel === 'signup' ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'}`}>

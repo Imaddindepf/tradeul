@@ -2725,6 +2725,84 @@
    "uiOrder": 15
   },
   {
+   "base": "premarket_volume",
+   "field": "premarket_volume",
+   "source": "row",
+   "parser": "pi",
+   "label": "Pre-Market Volume",
+   "group": "Pre-Market / Post-Market",
+   "suf": "",
+   "scopes": [
+    "events",
+    "scanner"
+   ],
+   "paramMin": "min_premarket_volume",
+   "paramMax": "max_premarket_volume",
+   "dataKeyMin": "premarket_volume_min",
+   "dataKeyMax": "premarket_volume_max",
+   "subKeyMin": "premarketVolumeMin",
+   "subKeyMax": "premarketVolumeMax",
+   "units": [
+    "",
+    "K",
+    "M"
+   ],
+   "defU": "K",
+   "phMin": "50",
+   "phMax": "5000",
+   "uiOrder": 42
+  },
+  {
+   "base": "premarket_dollar_volume",
+   "field": "premarket_dollar_volume",
+   "source": "row",
+   "parser": "pf",
+   "label": "Pre-Market Dollar Volume",
+   "group": "Pre-Market / Post-Market",
+   "suf": "$",
+   "scopes": [
+    "events",
+    "scanner"
+   ],
+   "paramMin": "min_premarket_dollar_volume",
+   "paramMax": "max_premarket_dollar_volume",
+   "dataKeyMin": "premarket_dollar_volume_min",
+   "dataKeyMax": "premarket_dollar_volume_max",
+   "subKeyMin": "premarketDollarVolumeMin",
+   "subKeyMax": "premarketDollarVolumeMax",
+   "units": [
+    "K",
+    "M",
+    "B"
+   ],
+   "defU": "M",
+   "phMin": "100",
+   "phMax": "10000",
+   "uiOrder": 43
+  },
+  {
+   "base": "premarket_rvol",
+   "field": "premarket_rvol",
+   "source": "row",
+   "parser": "pf",
+   "label": "Pre-Market RVOL",
+   "group": "Pre-Market / Post-Market",
+   "suf": "x",
+   "scopes": [
+    "events",
+    "scanner"
+   ],
+   "paramMin": "min_premarket_rvol",
+   "paramMax": "max_premarket_rvol",
+   "dataKeyMin": "premarket_rvol_min",
+   "dataKeyMax": "premarket_rvol_max",
+   "subKeyMin": "premarketRvolMin",
+   "subKeyMax": "premarketRvolMax",
+   "phMin": "1",
+   "phMax": "10",
+   "uiOrder": 44
+  },
+  {
    "base": "avg_volume_3m",
    "field": "avg_volume_3m",
    "source": "row",

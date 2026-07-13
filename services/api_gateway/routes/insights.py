@@ -14,9 +14,10 @@ from datetime import date, datetime, timedelta
 from typing import List, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from auth import require_admin, AuthenticatedUser
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
 
@@ -308,7 +309,8 @@ async def get_insight_by_date(
 @router.post("/generate/{insight_type}")
 async def generate_insight_now(
     insight_type: InsightType,
-    force: bool = Query(default=False, description="Forzar regeneración")
+    force: bool = Query(default=False, description="Forzar regeneración"),
+    admin: AuthenticatedUser = Depends(require_admin),
 ):
     """
     Generar un insight manualmente (para testing/admin).

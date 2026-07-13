@@ -138,6 +138,7 @@ class AutoRecoverMissingTickersTask:
                 "success": True,
                 "missing_detected": len(missing),
                 "valid_found": len(valid_tickers),
+                "symbols": symbols,
                 "tickers_recovered": recovered,
                 "data_loaded": {
                     "volume_slots": slots_loaded,
@@ -402,11 +403,11 @@ class AutoRecoverMissingTickersTask:
                                 )
                                 VALUES ($1, $2, $3, $4, $5, $6)
                                 ON CONFLICT (symbol) DO UPDATE SET
-                                    market_cap = COALESCE(EXCLUDED.market_cap, ticker_metadata.market_cap),
-                                    free_float = COALESCE(EXCLUDED.free_float, ticker_metadata.free_float),
-                                    shares_outstanding = COALESCE(EXCLUDED.shares_outstanding, ticker_metadata.shares_outstanding),
-                                    sector = COALESCE(EXCLUDED.sector, ticker_metadata.sector),
-                                    industry = COALESCE(EXCLUDED.industry, ticker_metadata.industry)
+                                    market_cap = COALESCE(EXCLUDED.market_cap, tickers_unified.market_cap),
+                                    free_float = COALESCE(EXCLUDED.free_float, tickers_unified.free_float),
+                                    shares_outstanding = COALESCE(EXCLUDED.shares_outstanding, tickers_unified.shares_outstanding),
+                                    sector = COALESCE(EXCLUDED.sector, tickers_unified.sector),
+                                    industry = COALESCE(EXCLUDED.industry, tickers_unified.industry)
                             """, symbol, market_cap, free_float, shares_outstanding, sector, industry)
                             
                             # Guardar en Redis también

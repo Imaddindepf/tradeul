@@ -918,6 +918,11 @@ class ScannerEngine:
                 below_premarket_high=atr_data.get('below_premarket_high') if atr_data else None,
                 above_premarket_low=atr_data.get('above_premarket_low') if atr_data else None,
                 pos_in_premarket_range=atr_data.get('pos_in_premarket_range') if atr_data else None,
+                # Pre-market volume metrics
+                premarket_volume=int(atr_data.get('premarket_volume')) if atr_data and atr_data.get('premarket_volume') is not None else None,
+                premarket_volume_live=int(atr_data.get('premarket_volume_live')) if atr_data and atr_data.get('premarket_volume_live') is not None else None,
+                premarket_dollar_volume=atr_data.get('premarket_dollar_volume') if atr_data else None,
+                premarket_rvol=atr_data.get('premarket_rvol') if atr_data else None,
                 # Multi-TF SMA distances
                 dist_sma_5_2m=atr_data.get('dist_sma_5_2m') if atr_data else None,
                 dist_sma_5_5m=atr_data.get('dist_sma_5_5m') if atr_data else None,

@@ -16,7 +16,7 @@ import re
 import time
 from typing import Any
 
-from agents._mcp_tools import call_mcp_tool
+from agents.mcp_catalog import MCP
 
 
 # ── Historical data detection ────────────────────────────────────
@@ -38,6 +38,70 @@ def _wants_historical_daily(q: str) -> bool:
 
 def _wants_historical_minute(q: str) -> bool:
     return any(kw in q.lower() for kw in _HISTORICAL_MINUTE_KW)
+
+
+# ── Pattern forecast / deep technicals detection ─────────────────
+_PATTERN_KW = [
+    "patrón", "patron", "pattern", "similar", "forecast", "pronóstico",
+    "pronostico", "probabilidad", "probability", "prediccion", "predicción",
+    "se parece", "parecido", "históricamente similar", "next 15", "próximos minutos",
+]
+
+_TECHNICALS_KW = [
+    "rsi", "macd", "bollinger", "adx", "estocástico", "stochastic", "sma",
+    "ema", "vwap", "atr", "técnico", "tecnico", "technical", "indicadores",
+    "indicators", "sobrecompra", "sobreventa", "overbought", "oversold",
+]
+
+
+def _wants_pattern_forecast(q: str) -> bool:
+    return any(kw in q.lower() for kw in _PATTERN_KW)
+
+
+def _wants_deep_technicals(q: str) -> bool:
+    return any(kw in q.lower() for kw in _TECHNICALS_KW)
+
+
+async def _fetch_pattern_forecasts(tickers: list[str]) -> dict[str, Any]:
+    """FAISS pattern-similarity forecast (next 15 min) for up to 2 tickers."""
+    async def _one(t: str):
+        try:
+            raw = await MCP.patterns.find_similar_patterns({"symbol": t, "top_k": 50})
+            if isinstance(raw, dict) and not raw.get("error"):
+                forecast = raw.get("forecast", {})
+                # Keep the statistical summary; drop bulky trajectories/neighbors
+                return t, {
+                    "prob_up": forecast.get("prob_up"),
+                    "prob_down": forecast.get("prob_down"),
+                    "mean_return_pct": forecast.get("mean_return"),
+                    "median_return_pct": forecast.get("median_return"),
+                    "best_case_pct": forecast.get("best_case"),
+                    "worst_case_pct": forecast.get("worst_case"),
+                    "confidence": forecast.get("confidence"),
+                    "horizon_minutes": forecast.get("horizon_minutes"),
+                    "n_similar_patterns": forecast.get("n_neighbors"),
+                }
+        except Exception:
+            pass
+        return t, None
+
+    out = await asyncio.gather(*[_one(t) for t in tickers[:2]])
+    return {t: f for t, f in out if f}
+
+
+async def _fetch_technical_snapshots(tickers: list[str]) -> dict[str, Any]:
+    """Full indicator set (RSI, MACD, BB, ADX, stoch, SMAs...) per ticker."""
+    async def _one(t: str):
+        try:
+            raw = await MCP.analytics.get_technical_snapshot({"symbol": t})
+            if isinstance(raw, dict) and not raw.get("error"):
+                return t, raw
+        except Exception:
+            pass
+        return t, None
+
+    out = await asyncio.gather(*[_one(t) for t in tickers[:3]])
+    return {t: s for t, s in out if s}
 
 
 # ── Category mapping ─────────────────────────────────────────────
@@ -381,7 +445,7 @@ async def market_data_node(state: dict) -> dict:
         # For historical charts, only get current price for reference (not as primary data)
         if is_hist and tickers:
             try:
-                raw = await call_mcp_tool("scanner", "get_enriched_batch", {"symbols": tickers})
+                raw = await MCP.scanner.get_enriched_batch({"symbols": tickers})
                 enriched = _clean_enriched(raw)
                 ref = {
                     t: {"current_price": d.get("current_price"), "todaysChangePerc": d.get("todaysChangePerc")}
@@ -415,10 +479,15 @@ async def market_data_node(state: dict) -> dict:
         # For current-view charts, also fetch enriched to complement the snapshot
         if not is_hist and tickers:
             try:
-                raw = await call_mcp_tool("scanner", "get_enriched_batch", {"symbols": tickers})
+                raw = await MCP.scanner.get_enriched_batch({"symbols": tickers})
                 results["enriched"] = _clean_enriched(raw)
             except Exception as exc:
                 errors.append(f"enriched_batch: {exc}")
+
+            # FAISS pattern forecast on the live chart ticker (realtime-only signal)
+            forecasts = await _fetch_pattern_forecasts(tickers)
+            if forecasts:
+                results["pattern_forecast"] = forecasts
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         if errors:
@@ -455,7 +524,7 @@ async def market_data_node(state: dict) -> dict:
             if pulse_drilldown:
                 pulse_args["drilldown"] = pulse_drilldown
 
-            pulse_data = await call_mcp_tool("market_pulse", "analyze_market", pulse_args)
+            pulse_data = await MCP.market_pulse.analyze_market(pulse_args)
             if pulse_data and not pulse_data.get("error"):
                 results["market_pulse"] = pulse_data
         except Exception as exc:
@@ -485,7 +554,7 @@ async def market_data_node(state: dict) -> dict:
     theme_tags = state.get("theme_tags", [])
     if theme_tags:
         try:
-            theme_data = await call_mcp_tool("screener", "search_by_theme", {
+            theme_data = await MCP.screener.search_by_theme({
                 "themes": theme_tags,
                 "limit": limit,
                 "min_relevance": 0.5,
@@ -507,7 +576,7 @@ async def market_data_node(state: dict) -> dict:
         results["market_session"] = mc
     else:
         try:
-            session = await call_mcp_tool("scanner", "get_market_session", {})
+            session = await MCP.scanner.get_market_session({})
             results["market_session"] = session
         except Exception as exc:
             errors.append(f"market_session: {exc}")
@@ -515,10 +584,22 @@ async def market_data_node(state: dict) -> dict:
     # 2. Enriched data for specific tickers — CLEANED
     if tickers:
         try:
-            raw = await call_mcp_tool("scanner", "get_enriched_batch", {"symbols": tickers})
+            raw = await MCP.scanner.get_enriched_batch({"symbols": tickers})
             results["enriched"] = _clean_enriched(raw)
         except Exception as exc:
             errors.append(f"enriched_batch: {exc}")
+
+    # 2b. FAISS pattern forecast — statistical outlook from similar history
+    if tickers and _wants_pattern_forecast(query):
+        forecasts = await _fetch_pattern_forecasts(tickers)
+        if forecasts:
+            results["pattern_forecast"] = forecasts
+
+    # 2c. Deep technical snapshot — full indicator set beyond enriched fields
+    if tickers and _wants_deep_technicals(query):
+        snapshots = await _fetch_technical_snapshots(tickers)
+        if snapshots:
+            results["technical_snapshot"] = snapshots
 
     # 3. Historical data — daily or minute bars (parallelized)
     if tickers and _wants_historical_daily(query):
@@ -534,7 +615,7 @@ async def market_data_node(state: dict) -> dict:
 
         async def _fetch_day_bars(date_str: str):
             try:
-                raw = await call_mcp_tool("historical", "get_day_bars", {
+                raw = await MCP.historical.get_day_bars({
                     "date": date_str, "symbols": tickers[:3],
                 })
                 if raw and not raw.get("error"):
@@ -550,7 +631,7 @@ async def market_data_node(state: dict) -> dict:
 
     if tickers and _wants_historical_minute(query):
         try:
-            raw = await call_mcp_tool("historical", "get_minute_bars", {
+            raw = await MCP.historical.get_minute_bars({
                 "date": "yesterday", "symbols": tickers[:2],
             })
             if raw and not raw.get("error"):
@@ -565,8 +646,7 @@ async def market_data_node(state: dict) -> dict:
 
     async def _fetch_snapshot(cat: str):
         try:
-            raw = await call_mcp_tool(
-                "scanner", "get_scanner_snapshot",
+            raw = await MCP.scanner.get_scanner_snapshot(
                 {"category": cat, "limit": limit},
             )
             return (cat, _clean_scanner(raw, limit=limit), None)
@@ -592,8 +672,7 @@ async def market_data_node(state: dict) -> dict:
 
     if all_symbols:
         try:
-            gics = await call_mcp_tool(
-                "screener", "enrich_with_classification",
+            gics = await MCP.screener.enrich_with_classification(
                 {"symbols": list(all_symbols)},
             )
             if isinstance(gics, dict) and gics:

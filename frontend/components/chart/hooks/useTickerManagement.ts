@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { MutableRefObject } from 'react';
-import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useFloatingWindowActions, useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { useLinkGroupSubscription } from '@/hooks/useLinkGroup';
-import { getMarketSession } from '@/lib/api';
-import type { MarketSession } from '@/lib/types';
+import { useMarketSessionStore, selectSession, selectIsTrading } from '@/stores/useMarketSessionStore';
 import type { TickerSearchRef } from '@/components/common/TickerSearch';
 import type { ChartWindowState, Interval, TimeRange } from '../constants';
 import type { IndicatorInstance } from '../constants';
@@ -25,7 +23,6 @@ export function useTickerManagement(
     const { state: windowState, updateState: updateWindowState } = useWindowState<ChartWindowState>();
     const windowId = useCurrentWindowId?.();
     const { openWindow, updateWindow } = useFloatingWindowActions();
-    const ws = useWebSocket();
     const linkBroadcast = useLinkGroupSubscription();
 
     // In layout mode the parent (ChartCell) owns the ticker. We always seed
@@ -34,27 +31,15 @@ export function useTickerManagement(
     const seedTicker = inLayoutMode ? initialTicker : (windowState.ticker || initialTicker);
     const [currentTicker, setCurrentTicker] = useState(seedTicker);
     const [inputValue, setInputValue] = useState(seedTicker);
-    const [marketSession, setMarketSession] = useState<MarketSession | null>(null);
     const [tickerMeta, setTickerMeta] = useState<TickerMeta | null>(null);
 
-    // Fetch market session and subscribe to updates
-    useEffect(() => {
-        getMarketSession().then(setMarketSession).catch(() => { });
-        const subscription = ws.messages$.subscribe((message: any) => {
-            if (message.type === 'market_session_change' && message.data) {
-                setMarketSession({
-                    current_session: message.data.current_session,
-                    trading_date: message.data.trading_date,
-                    timestamp: message.data.timestamp,
-                } as MarketSession);
-            }
-        });
-        return () => subscription.unsubscribe();
-    }, [ws.messages$]);
-
-    const isMarketOpen = marketSession?.current_session === 'MARKET_OPEN' ||
-        marketSession?.current_session === 'PRE_MARKET' ||
-        marketSession?.current_session === 'POST_MARKET';
+    // Sesión de mercado desde el store global único (sincronizado por
+    // useMarketClockSync: eventos WS + snapshot 'connected' + refetch en
+    // visibility/reconexión). Antes cada chart mantenía su propia copia que
+    // quedaba obsoleta si la pestaña dormía durante una transición de sesión
+    // (la línea de pre-market no aparecía hasta el siguiente evento).
+    const marketSession = useMarketSessionStore(selectSession);
+    const isMarketOpen = useMarketSessionStore(selectIsTrading);
 
     // Fetch ticker metadata
     useEffect(() => {

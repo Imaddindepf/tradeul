@@ -55,6 +55,8 @@ class MemoryManager:
         response: str,
         agent_results_summary: Optional[dict[str, Any]] = None,
         structured_response: Optional[dict[str, Any]] = None,
+        tickers: Optional[list[str]] = None,
+        intent: Optional[str] = None,
     ) -> None:
         """Append a query/response pair to a conversation thread.
 
@@ -68,6 +70,9 @@ class MemoryManager:
             response:              The agent's response text.
             agent_results_summary: Optional summary of agent results.
             structured_response:   Optional structured response data for rich rendering.
+            tickers:               Tickers the planner resolved for this turn
+                                   (enables follow-up context resolution).
+            intent:                Classified intent for this turn.
         """
         r = await self._get_redis()
         now = time.time()
@@ -78,6 +83,10 @@ class MemoryManager:
             "agent_results_summary": agent_results_summary or {},
             "timestamp": now,
         }
+        if tickers:
+            entry_data["tickers"] = tickers
+        if intent:
+            entry_data["intent"] = intent
         if structured_response:
             entry_data["structured_response"] = structured_response
 
@@ -167,6 +176,58 @@ class MemoryManager:
             except Exception:
                 logger.warning("Skipping malformed thread index entry")
         return results
+
+    async def build_memory_context(
+        self,
+        user_id: str,
+        thread_id: str,
+        query: str,
+        thread_turns: int = 6,
+        cross_thread_hits: int = 3,
+    ) -> list[dict[str, Any]]:
+        """Assemble the `memory_context` payload injected into the graph.
+
+        Two layers:
+          1. Recent turns of THIS thread (query, tickers, intent, response
+             snippet) — lets the planner resolve elliptical follow-ups
+             ("y su caja?" after "analiza NVDA").
+          2. Cross-thread keyword hits — surfaces relevant prior analysis
+             from other conversations.
+
+        Fast path: both layers come from Redis; failures degrade to [].
+        """
+        context: list[dict[str, Any]] = []
+
+        try:
+            history = await self.get_conversation_history(user_id, thread_id, limit=thread_turns)
+        except Exception as exc:
+            logger.warning("memory_context: thread history failed: %s", exc)
+            history = []
+
+        for entry in history:
+            context.append({
+                "source": "thread",
+                "query": (entry.get("query") or "")[:300],
+                "response_snippet": (entry.get("response") or "")[:400],
+                "tickers": entry.get("tickers") or [],
+                "intent": entry.get("intent") or "",
+                "timestamp": entry.get("timestamp", 0),
+            })
+
+        # Cross-thread recall only when the thread itself has no history yet
+        # or the query looks like it references past work ("como te dije", etc.)
+        if cross_thread_hits > 0:
+            try:
+                hits = await self.search_memory(user_id, query, limit=cross_thread_hits)
+                for h in hits:
+                    if h.get("thread_id") == thread_id:
+                        continue  # already covered by the thread layer
+                    h["source"] = f"memory:{h.get('source', 'conversation')}"
+                    context.append(h)
+            except Exception as exc:
+                logger.warning("memory_context: cross-thread search failed: %s", exc)
+
+        return context
 
     # ══════════════════════════════════════════════════════════════
     # Market Insight Memory

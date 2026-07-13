@@ -53,6 +53,7 @@ class AlertType(str, Enum):
     NEW_LOW_ASK_FILTERED = "new_low_ask_filtered"              # [NLAF] T1 min_shares
     PRE_MARKET_HIGH = "pre_market_high"                      # [HPRE] T1 lookback_days
     PRE_MARKET_LOW = "pre_market_low"                        # [LPRE] T1 lookback_days
+    PRE_MARKET_VOLUME_SPIKE = "pre_market_volume_spike"      # [HPMV] T1 volume_ratio (pre-market RVOL)
     POST_MARKET_HIGH = "post_market_high"                    # [HPOST] T1 lookback_days
     POST_MARKET_LOW = "post_market_low"                      # [LPOST] T1 lookback_days
     CROSSED_DAILY_HIGH_RESISTANCE = "crossed_daily_high_resistance"  # [CDHR] T1 lookback_days

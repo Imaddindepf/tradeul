@@ -15,8 +15,75 @@ import traceback
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 logger = logging.getLogger(__name__)
+
+# Heartbeat cadence while a long node (research/synthesizer) runs with no
+# streamed events. Must stay well under the proxy read/write timeout so the
+# connection is never seen as idle. Caddy/LB timeouts are 120s → 15s is safe.
+_HEARTBEAT_INTERVAL_S = 15.0
+
+
+def _ws_alive(websocket: WebSocket) -> bool:
+    """True only when the socket can still accept sends."""
+    return (
+        websocket.application_state == WebSocketState.CONNECTED
+        and websocket.client_state == WebSocketState.CONNECTED
+    )
+
+
+async def _safe_send(websocket: WebSocket, payload: dict) -> bool:
+    """Send JSON only if the connection is still open.
+
+    Returns False when the peer/proxy already closed the socket, so callers can
+    stop streaming instead of raising 'websocket.send after close'.
+    """
+    if not _ws_alive(websocket):
+        return False
+    try:
+        await websocket.send_json(payload)
+        return True
+    except (WebSocketDisconnect, RuntimeError) as exc:
+        logger.info("WS send skipped (connection closed): %s", exc)
+        return False
+
+
+async def _heartbeat(websocket: WebSocket, interval: float = _HEARTBEAT_INTERVAL_S) -> None:
+    """Keepalive frames so long silent nodes don't trip proxy idle timeouts."""
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            if not await _safe_send(websocket, {"type": "keepalive", "timestamp": time.time()}):
+                return
+    except asyncio.CancelledError:
+        return
+    except Exception:  # noqa: BLE001
+        return
+
+
+# Latest live socket per client_id. The frontend keeps its client_id across
+# reconnects, so when a background tab drops the socket mid-run we can still
+# deliver the finished result to the client's NEW socket.
+_ACTIVE_SOCKETS: dict[str, WebSocket] = {}
+
+
+async def _deliver(websocket: WebSocket, client_id: str, payload: dict) -> bool:
+    """Send to the original socket, falling back to the client's newest one.
+
+    Covers the background-tab scenario: browser drops the socket while the
+    agent works, the tab reconnects with the same client_id, and the result
+    arrives on the fresh connection instead of being lost.
+    """
+    if await _safe_send(websocket, payload):
+        return True
+    current = _ACTIVE_SOCKETS.get(client_id)
+    if current is not None and current is not websocket:
+        if await _safe_send(current, payload):
+            logger.info("Delivered %s to reconnected socket (client_id=%s)",
+                        payload.get("type"), client_id)
+            return True
+    return False
 
 
 # ── Language detection ──────────────────────────────────────────────
@@ -60,12 +127,13 @@ async def _progress_pump(websocket: WebSocket, stages: list[str], interval: floa
     try:
         while True:
             msg = stages[min(i, len(stages) - 1)]
-            await websocket.send_json({
+            if not await _safe_send(websocket, {
                 "type": "agent_progress",
                 "node": "context_brief",
                 "message": msg,
                 "timestamp": time.time(),
-            })
+            }):
+                return
             i += 1
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
@@ -119,7 +187,7 @@ async def _handle_context_brief(
     is_followup = len(history) > 0
 
     # Abre un "step" visible para que el usuario vea el progreso en vivo.
-    await websocket.send_json({
+    await _safe_send(websocket, {
         "type": "node_started",
         "node": "context_brief",
         "timestamp": time.time(),
@@ -138,12 +206,12 @@ async def _handle_context_brief(
         logger.error("context_brief failed client=%s: %s", client_id, exc)
         pump.cancel()
         await asyncio.gather(pump, return_exceptions=True)
-        await websocket.send_json({
+        await _safe_send(websocket, {
             "type": "node_error",
             "node": "context_brief",
             "error": str(exc),
         })
-        await websocket.send_json({
+        await _safe_send(websocket, {
             "type": "error",
             "message": f"El brief de contexto falló: {exc}",
         })
@@ -154,6 +222,27 @@ async def _handle_context_brief(
 
     brief_md = result.get("brief_markdown") or "(sin contenido)"
     total_ms = int((time.time() - start_time) * 1000)
+
+    # Persistir ANTES de intentar entregar: si el cliente se fue (pestaña en
+    # segundo plano, red móvil), el brief no se pierde — al reconectar y
+    # repreguntar en el mismo hilo se responde como follow-up con este contexto.
+    if memory:
+        try:
+            await memory.store_conversation(
+                user_id="default",
+                thread_id=thread_id,
+                query=(clean_q or query)[:500],
+                response=brief_md[:6000],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("context_brief persist failed: %s", exc)
+
+    if not _ws_alive(websocket):
+        logger.info(
+            "context_brief: client %s socket died mid-run (thread=%s); "
+            "brief persisted (%d chars), trying reconnected socket",
+            client_id, thread_id, len(brief_md),
+        )
 
     # Resumen legible de lo que se usó (sin revelar proveedores).
     tools_used = result.get("tools_used", []) or []
@@ -170,14 +259,14 @@ async def _handle_context_brief(
     summary_parts.append(f"{len(sources)} fuente(s) web")
     completion_preview = " · ".join(summary_parts)
 
-    await websocket.send_json({
+    await _deliver(websocket, client_id, {
         "type": "node_completed",
         "node": "context_brief",
         "elapsed_ms": total_ms,
         "preview": completion_preview,
     })
 
-    await websocket.send_json({
+    delivered = await _deliver(websocket, client_id, {
         "type": "final_response",
         "response": brief_md,
         "thread_id": thread_id,
@@ -189,17 +278,11 @@ async def _handle_context_brief(
             "tools_used": tools_used,
         },
     })
-
-    if memory:
-        try:
-            await memory.store_conversation(
-                user_id="default",
-                thread_id=thread_id,
-                query=(clean_q or query)[:500],
-                response=brief_md[:6000],
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("context_brief persist failed: %s", exc)
+    if not delivered:
+        logger.info(
+            "context_brief: no live socket for client %s (thread=%s); "
+            "brief remains in thread memory", client_id, thread_id,
+        )
 
 
 async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
@@ -222,18 +305,23 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
     """
     await websocket.accept()
     logger.info("WebSocket connected: client_id=%s", client_id)
+    # Register as the latest live socket for this client (reconnect delivery).
+    _ACTIVE_SOCKETS[client_id] = websocket
 
     # Lazy import to avoid circular dependency at module level
     from graph.orchestrator import get_graph
 
     try:
         while True:
+            if not _ws_alive(websocket):
+                logger.info("WebSocket no longer connected: client_id=%s", client_id)
+                break
             raw = await websocket.receive_text()
 
             try:
                 message = json.loads(raw)
             except json.JSONDecodeError:
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type": "error",
                     "message": "Invalid JSON payload.",
                 })
@@ -254,10 +342,11 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             language = _detect_language(query)
 
             # Acknowledge receipt
-            await websocket.send_json({
+            if not await _safe_send(websocket, {
                 "type": "ack",
                 "thread_id": thread_id,
-            })
+            }):
+                continue
 
             # ── Context Brief mode: route to ai-news-brief (Opus), bypass graph ──
             if mode == "context_brief" or query.startswith("/contexto"):
@@ -269,6 +358,17 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             effective_query = query
             if clarification_hint:
                 effective_query = f"{query}\n[User clarified: {clarification_hint}]"
+
+            # ── Conversational memory: recent turns + cross-thread recall ──
+            memory_context: list[dict[str, Any]] = []
+            memory = getattr(websocket.app.state, "memory", None)
+            if memory:
+                try:
+                    memory_context = await memory.build_memory_context(
+                        user_id="default", thread_id=thread_id, query=query,
+                    )
+                except Exception as mem_exc:
+                    logger.warning("memory_context load failed: %s", mem_exc)
 
             initial_state: dict[str, Any] = {
                 "messages": [{"role": "user", "content": effective_query}],
@@ -284,7 +384,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "charts": [],
                 "tables": [],
                 "market_context": market_context,
-                "memory_context": [],
+                "memory_context": memory_context,
                 "workflow_id": None,
                 "trigger_context": None,
                 "node_config": None,
@@ -312,8 +412,19 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "dilution", "context_enricher",
             }
 
+            # Keepalive runs alongside the stream so long silent nodes
+            # (research/synthesizer can be 30-90s) never trip the proxy idle
+            # timeout and drop the socket mid-answer.
+            heartbeat_task = asyncio.create_task(_heartbeat(websocket))
+            # When the socket drops mid-run (background tab), we keep the graph
+            # running: stop streaming events, finish the work, then deliver the
+            # final response to the client's reconnected socket via _deliver().
+            client_gone = False
             try:
                 async for event in graph.astream_events(initial_state, config=config, version="v2"):
+                    if client_gone:
+                        continue  # let the graph finish; skip event streaming
+
                     kind = event.get("event", "")
                     node_name = event.get("name", "")
 
@@ -321,12 +432,13 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                     if kind == "on_custom_event":
                         evt_data = event.get("data", {})
                         if isinstance(evt_data, dict) and "message" in evt_data:
-                            await websocket.send_json({
+                            if not await _safe_send(websocket, {
                                 "type": "agent_progress",
                                 "node": event.get("name", ""),
                                 "message": evt_data["message"],
                                 "timestamp": time.time(),
-                            })
+                            }):
+                                client_gone = True
                         continue
 
                     # Only process events for our actual graph nodes
@@ -335,11 +447,12 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
 
                     if kind == "on_chain_start":
                         node_start_times[node_name] = time.time()
-                        await websocket.send_json({
+                        if not await _safe_send(websocket, {
                             "type": "node_started",
                             "node": node_name,
                             "timestamp": time.time(),
-                        })
+                        }):
+                            client_gone = True
 
                     elif kind == "on_chain_end":
                         node_start = node_start_times.pop(node_name, start_time)
@@ -360,17 +473,33 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                                     else:
                                         preview = str(result)[:200]
 
-                        await websocket.send_json({
+                        if not await _safe_send(websocket, {
                             "type": "node_completed",
                             "node": node_name,
                             "elapsed_ms": node_elapsed_ms,
                             "preview": preview[:300],
-                        })
+                        }):
+                            client_gone = True
+            finally:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
 
+            if client_gone:
+                logger.info(
+                    "WS client gone during graph exec (client_id=%s, thread=%s); "
+                    "will deliver final response to reconnected socket if any.",
+                    client_id, thread_id,
+                )
+
+            try:
                 total_ms = int((time.time() - start_time) * 1000)
 
                 # Get the final state to extract the response
-                final_state = graph.get_state(config)
+                # (aget_state: required with the async Postgres checkpointer)
+                final_state = await graph.aget_state(config)
                 clarification_data = None
                 final_response = ""
                 if hasattr(final_state, "values"):
@@ -379,7 +508,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
 
                 # If the planner requested clarification, send it instead
                 if clarification_data and isinstance(clarification_data, dict):
-                    await websocket.send_json({
+                    await _deliver(websocket, client_id, {
                         "type": "clarification",
                         "message": clarification_data.get("message", ""),
                         "options": clarification_data.get("options", []),
@@ -389,6 +518,8 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                             "total_elapsed_ms": total_ms,
                         },
                     })
+                    if client_gone:
+                        break  # this handler's socket is dead; its loop is done
                     continue
 
                 # Check for structured outputs (backtest results, etc.)
@@ -424,7 +555,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 if structured_outputs:
                     response_payload["outputs"] = structured_outputs
 
-                await websocket.send_json(response_payload)
+                await _deliver(websocket, client_id, response_payload)
 
                 # ── Persist conversation to memory ──
                 try:
@@ -438,6 +569,12 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                                 if k in ("status", "error", "tickers_found", "total_results")
                             }
 
+                    turn_tickers: list[str] = []
+                    turn_intent = ""
+                    if hasattr(final_state, "values"):
+                        turn_tickers = final_state.values.get("tickers", []) or []
+                        turn_intent = final_state.values.get("intent", "") or ""
+
                     await memory.store_conversation(
                         user_id="default",
                         thread_id=thread_id,
@@ -445,6 +582,8 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                         response=final_response[:2000],
                         agent_results_summary=results_summary or None,
                         structured_response=structured_response,
+                        tickers=turn_tickers,
+                        intent=turn_intent,
                     )
                 except Exception as mem_exc:
                     logger.warning(
@@ -457,7 +596,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                     "Graph execution error for client %s: %s\n%s",
                     client_id, exc, traceback.format_exc(),
                 )
-                await websocket.send_json({
+                await _safe_send(websocket, {
                     "type": "error",
                     "message": f"Graph execution failed: {exc}",
                 })
@@ -469,3 +608,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             "WebSocket error for client %s: %s\n%s",
             client_id, exc, traceback.format_exc(),
         )
+    finally:
+        # Deregister only if a newer connection hasn't replaced this one.
+        if _ACTIVE_SOCKETS.get(client_id) is websocket:
+            _ACTIVE_SOCKETS.pop(client_id, None)
