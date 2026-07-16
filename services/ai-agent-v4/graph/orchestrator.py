@@ -29,9 +29,10 @@ from agents.screener import screener_node
 from agents.backtest import backtest_node
 from agents.dilution import dilution_node
 from agents.strategy_scanner import strategy_scanner_node
+from agents.alert_compiler import alert_compiler_node
 from agents.context_enricher import context_enricher_node
 
-ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener", "backtest", "dilution", "strategy_scanner"]
+ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener", "backtest", "dilution", "strategy_scanner", "alert_compiler"]
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ def build_graph(checkpointer=None) -> StateGraph:
     graph.add_node("backtest", backtest_node)
     graph.add_node("dilution", dilution_node)
     graph.add_node("strategy_scanner", strategy_scanner_node)
+    graph.add_node("alert_compiler", alert_compiler_node)
     graph.add_node("context_enricher", context_enricher_node)
     graph.add_node("synthesizer", synthesizer_node)
 

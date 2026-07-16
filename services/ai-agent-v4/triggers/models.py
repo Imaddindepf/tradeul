@@ -109,6 +109,11 @@ class TriggerConfig(BaseModel):
         None,
         description="Unix timestamp of the last time this trigger fired.",
     )
+    spec_id: Optional[str] = Field(
+        None,
+        description="AlertSpec id when this trigger was compiled from an LLM alert "
+                    "(links fires to the spec's history).",
+    )
 
     class Config:
         use_enum_values = True

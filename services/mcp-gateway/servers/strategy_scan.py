@@ -100,6 +100,7 @@ async def scan_day_setups(
     max_market_cap: Optional[float] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
+    min_rvol: Optional[float] = None,
     sector: Optional[str] = None,
     sort_by: str = "close_vs_open_pct",
     sort_order: str = "desc",
@@ -129,6 +130,8 @@ async def scan_day_setups(
         opening_minutes: Window defining the "opening" (default 60 min after session start)
         min_market_cap / max_market_cap: Market cap bounds in USD (e.g. 1e9)
         min_price / max_price: Price bounds at event time
+        min_rvol: Minimum relative volume AT THE MOMENT each step event fired
+            (applied per step, not to day aggregates)
         sector: Sector filter (partial match)
         sort_by: Any day metric (default close_vs_open_pct)
         sort_order: 'desc' | 'asc'
@@ -165,6 +168,13 @@ async def scan_day_setups(
         params.append(f"%{sector}%")
         ev_conds.append(f"sector ILIKE ${len(params)}")
 
+    # RVOL floor is a step condition (state at the moment the event fired),
+    # not an ev-level filter: filtering ev would distort the day OHLC proxy.
+    rvol_param = None
+    if min_rvol is not None:
+        params.append(float(min_rvol))
+        rvol_param = f"${len(params)}"
+
     # ── Step CTEs (sequence matching) ──
     step_ctes = []
     step_joins = []
@@ -191,6 +201,8 @@ async def scan_day_setups(
             anchor_ts = None
 
         conds = [f"e.event_type = ANY({etypes_param})"]
+        if rvol_param:
+            conds.append(f"e.rvol >= {rvol_param}")
         if anchor_ts:
             conds.append(f"e.ts > {anchor_ts}")
         within = step.get("within_minutes")

@@ -367,6 +367,29 @@ class TriggerEngine:
         else:
             logger.warning("Unknown action type '%s' for trigger %s", trigger.action.type, trigger.id)
 
+        # LLM-compiled alerts keep a durable fire history with evidence
+        if trigger.spec_id:
+            await self._record_spec_fire(trigger, event)
+
+    async def _record_spec_fire(self, trigger: TriggerConfig, event: TriggerEvent) -> None:
+        try:
+            from alerts.store import get_store
+
+            store = get_store()
+            if not store.available:
+                return
+            await store.record_fire(
+                spec_id=trigger.spec_id,
+                user_id=trigger.user_id,
+                symbol=event.symbol,
+                event_type=event.event_type,
+                price=event.price,
+                evidence={"rvol": event.rvol, "volume": event.volume,
+                          "timestamp": event.timestamp},
+            )
+        except Exception:
+            logger.exception("Failed to record spec fire for trigger %s", trigger.id)
+
     async def _invoke_workflow(self, trigger: TriggerConfig, event: TriggerEvent) -> None:
         """Invoke the LangGraph orchestrator with trigger context."""
         try:

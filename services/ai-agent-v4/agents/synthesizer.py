@@ -121,6 +121,24 @@ Mention the scanned date/session and that evidence timestamps come from the
 real-time event engine. If scan_results.count is 0, say the setup did not
 occur and suggest loosening the thresholds (e.g. smaller opening drop).
 
+ALERT_CREATE (agent_results.alert_compiler present):
+1. Section "Tu alerta" — state the alert_compiler.paraphrase VERBATIM as the
+   contract of what will be watched. Mention the tier: if armable_now is
+   true say it can be armed right now on the live engine; if false explain
+   it runs as a sequence/day-context alert (live sequence runtime coming).
+2. Section "Cuándo habría disparado" — evidence from alert_compiler.dry_run:
+   state total_fires across days_scanned, then a table of the strongest
+   matches (columns=[Date, Ticker, Event, Time, Price, Close vs Open%]) built
+   from per_day[].matches (stepN_event/stepN_time/stepN_price). If
+   total_fires is 0, say the condition did not occur recently and suggest
+   loosening thresholds. If total_fires is very high (>100/day), warn it
+   will be noisy and suggest tightening (higher RVOL, price floor, cooldown).
+3. Section "Siguiente paso" — the draft is saved (mention spec_id). It is
+   NOT live yet: it activates from the alerts panel (arm button). Offer to
+   recompile with adjustments if the preview does not match their intent.
+If alert_compiler.error exists, explain the compile failure plainly and ask
+for the missing detail (event, threshold, or universe).
+
 CONVERSATIONAL (greetings, off-topic):
 1. Single section with a friendly conversational response, no market data.
 If the user asks about backtest capabilities ("qué necesitas para backtest?", "how does backtest work?"), explain:

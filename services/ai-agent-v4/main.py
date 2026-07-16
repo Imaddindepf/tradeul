@@ -24,6 +24,7 @@ from auth import (
 )
 from handlers.rest_handler import router as rest_router
 from handlers.trigger_handler import router as trigger_router
+from handlers.alerts_handler import router as alerts_router
 from handlers.websocket_handler import handle_websocket
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,11 @@ async def lifespan(app: FastAPI):
     app.state.memory = memory_mgr
     logger.info("Memory Manager initialized")
 
+    # Initialize the alert spec store (Postgres; non-fatal if unavailable)
+    from alerts.store import get_store
+    alert_store = get_store()
+    await alert_store.init()
+
     # Validate the MCP tool catalog against the live gateway (non-fatal)
     from agents.mcp_catalog import validate_catalog
     await validate_catalog()
@@ -79,6 +85,12 @@ async def lifespan(app: FastAPI):
     # Stop trigger engine
     try:
         await trigger_engine.stop()
+    except Exception:
+        pass
+
+    # Close the alert spec store pool
+    try:
+        await alert_store.close()
     except Exception:
         pass
 
@@ -175,6 +187,7 @@ app.add_middleware(
 
 app.include_router(rest_router)
 app.include_router(trigger_router)
+app.include_router(alerts_router)
 
 # ── WebSocket endpoint ───────────────────────────────────────────
 

@@ -115,6 +115,19 @@ AVAILABLE_AGENTS = {
         "CRITICAL: this is for FINDING PAST OCCURRENCES of a setup across the universe, "
         "NOT for P&L simulation (backtest) and NOT for current-state filtering (screener/screen)."
     ),
+    "alert_compiler": (
+        "LLM alert compiler — creates PERSISTENT, FORWARD-LOOKING market alerts from natural "
+        "language. The user wants to BE NOTIFIED IN THE FUTURE when a condition happens: "
+        "'avísame cuando...', 'alert me when...', 'quiero una alerta de...', 'notify me if...', "
+        "'crea una alerta...'. Compiles the sentence into a validated alert spec, replays it "
+        "against recent market history (dry-run with evidence: 'this would have fired N times "
+        "this week'), and saves it as a DRAFT the user can confirm/arm. "
+        "Supports: event conditions (VWAP crosses, ORB breakouts, halts, volume/RVOL spikes, "
+        "MA/MACD/stoch crosses, 240+ event types), universe filters (price, RVOL, market cap, "
+        "specific tickers, session), and intraday sequences (A then B). "
+        "CRITICAL: use when the user wants FUTURE notifications (standing alert). "
+        "If they ask what happened in the PAST, use strategy_scanner instead."
+    ),
 }
 
 SCANNER_CATEGORIES = [
@@ -192,6 +205,7 @@ EARNINGS_HISTORY — Past EPS, revenue, quarterly results for a ticker → finan
 FUNDAMENTALS — Financial statements, balance sheets, ratios → financial
 SEC_FILINGS — SEC documents: 10-K, 10-Q, 8-K, S-1 → financial
 SCREENING — Filter stocks by specific numeric criteria (without ranking) → screener
+ALERT_CREATE — The user wants a STANDING ALERT: to be notified in the FUTURE when a market condition occurs → alert_compiler. Keywords: "avísame cuando", "alerta cuando", "crea una alerta", "quiero que me avises", "alert me when", "notify me when/if", "create an alert", "watch for". The condition may reference events (VWAP cross, halt, breakout, volume spike), filters (RVOL, price, market cap, tickers) or sequences. Distinct from STRATEGY_SCAN (which looks BACKWARD at what already happened). If the message ONLY asks to manage existing alerts (list/pause/delete), it is GREETING — alert management happens via the alerts panel, not the compiler.
 STRATEGY_SCAN — Find stocks whose INTRADAY PRICE ACTION matched a described setup/sequence on a specific day → strategy_scanner. The user describes a temporal pattern of events ("crossed VWAP up AFTER an opening decline", "halted then broke out", "volume spike in the first 30 min and closed green vs open") and wants the LIST of stocks where it HAPPENED (today, yesterday, or a past date). Keywords: "cruzaron", "hicieron", "tras", "después de", "that did", "which stocks crossed/reclaimed/broke... and then...". Distinct from SCREENING (current-state filters, no temporal sequence), RANKING (top lists), BACKTEST (P&L simulation with entry/exit rules) and CODE (statistical frequencies).
 THEMATIC — Find stocks by investment theme, sector vertical, or industry category. The user is explicitly looking for a LIST of companies in a specific theme. Examples: "robotics stocks", "empresas de memoria", "quantum computing companies", "acciones de energía nuclear", "cybersecurity zero trust", "EV charging", "GLP-1 weight loss drugs", "chip foundry stocks", "defense tech", "lithium miners" → market_data. IMPORTANT: Broad market questions like "what theme is driving the market today?", "que tema mueve el mercado?", "what sectors are hot?" are NOT THEMATIC — they are RANKING queries because the user wants to see current market movers, not a static list of themed companies.
 DEEP_RESEARCH — Comprehensive analysis, business model, competitive positioning, sentiment, analyst opinions → research + financial (when tickers are present). Use for: "how does X make money?", "compare X vs Y", "what's X's competitive moat?", "diferencias entre X e Y", "modelo de negocio de X"
@@ -366,6 +380,15 @@ User: "dame las acciones con minimo market cap 1b que cruzaran el vwap al alza t
 
 User: "which stocks got halted and then broke the opening range high yesterday?"
 {{"intent": "STRATEGY_SCAN", "tickers": [], "agents": ["strategy_scanner"], "theme_tags": [], "plan": "Scan yesterday's event stream: halt followed by ORB breakout up", "confidence": 1.0, "reasoning": "Event sequence query (halt then breakout) on a past day — strategy_scanner", "clarification": null}}
+
+User: "avísame cuando cualquier acción con rvol por encima de 1.5 cruce el vwap al alza"
+{{"intent": "ALERT_CREATE", "tickers": [], "agents": ["alert_compiler"], "theme_tags": [], "plan": "Crear alerta permanente: cruce de VWAP al alza con RVOL > 1.5, compilar spec + dry-run", "confidence": 1.0, "reasoning": "User wants a standing future notification — alert_compiler builds and previews the alert", "clarification": null}}
+
+User: "alert me when TSLA gets halted"
+{{"intent": "ALERT_CREATE", "tickers": ["TSLA"], "agents": ["alert_compiler"], "theme_tags": [], "plan": "Create standing alert: TSLA halt detection with instant notification", "confidence": 1.0, "reasoning": "Forward-looking notification request for a specific ticker event — alert_compiler", "clarification": null}}
+
+User: "quiero una alerta para acciones de más de 1B que caigan en el opening y luego reclamen el vwap"
+{{"intent": "ALERT_CREATE", "tickers": [], "agents": ["alert_compiler"], "theme_tags": [], "plan": "Crear alerta de secuencia: caída en opening + reclaim de VWAP en acciones >1B, con dry-run de evidencia", "confidence": 1.0, "reasoning": "Standing sequence alert with universe filter — alert_compiler compiles and previews it", "clarification": null}}
 
 User: "top 10 robotics stocks"
 {{"intent": "THEMATIC", "tickers": [], "agents": ["market_data"], "theme_tags": ["robotics"], "plan": "Find top 10 robotics companies by theme classification and enrich with live market data", "confidence": 1.0, "reasoning": "Thematic query — resolve via classification database then enrich with market data", "clarification": null}}
