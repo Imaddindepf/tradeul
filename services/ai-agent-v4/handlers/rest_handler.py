@@ -137,7 +137,7 @@ async def run_query(request: QueryRequest, http_request: Request) -> QueryRespon
                 user_id="default",
                 thread_id=thread_id,
                 query=request.query,
-                response=(final_state.get("final_response") or "")[:2000],
+                response=(final_state.get("final_response") or "")[:15000],
                 tickers=final_state.get("tickers", []) or [],
                 intent=final_state.get("intent", "") or "",
             )

@@ -102,6 +102,19 @@ AVAILABLE_AGENTS = {
         "Translates natural language criteria into database filters. "
         "Capabilities: find stocks matching specific numeric criteria (RSI, volume, market cap, sector)."
     ),
+    "strategy_scanner": (
+        "Event-sequence strategy scanner over the real-time alert-engine store "
+        "(240+ intraday event types, 12M events/day, 60-day history — works for TODAY in real time). "
+        "Finds ALL stocks whose intraday event stream matched a described SETUP: "
+        "sequences like 'crossed VWAP up after the opening low', 'halted then broke the opening range', "
+        "'volume surge in the first 30 min', combined with day-level price conditions "
+        "(closed above open, declined X% in the opening, market cap / price bounds). "
+        "Returns matched tickers WITH EVIDENCE: exact timestamps and prices of each event step. "
+        "Use for: '¿qué acciones hicieron X y luego Y hoy?', 'stocks that did <setup> today/yesterday/on DATE', "
+        "'¿se dio mi estrategia en el mercado?'. "
+        "CRITICAL: this is for FINDING PAST OCCURRENCES of a setup across the universe, "
+        "NOT for P&L simulation (backtest) and NOT for current-state filtering (screener/screen)."
+    ),
 }
 
 SCANNER_CATEGORIES = [
@@ -169,7 +182,7 @@ Classify the query into one or more of these intent types, then route to the cor
 
 GREETING — Non-financial message (hello, thanks, who are you, ok, ninguna) → no agents
 DATA_LOOKUP — Current price, volume, technicals for specific tickers → market_data
-RANKING — Top/bottom lists: gainers, losers, gappers, halts, volume leaders → market_data
+RANKING — Top/bottom lists: gainers, losers, gappers, halts, volume leaders → market_data. When the query has numeric constraints (market cap, price, volume, float...) OR a custom sort metric (RVOL, gap %, 5-min change...), you MUST also emit a "screen" spec (see universe_screen section) so the ranking runs on the FULL 12K-ticker universe instead of a pre-cut category.
 MARKET_PULSE — Broad market analysis: "what sectors are leading?", "que temas dominan en big caps?", "compare sectors", "market regime", "risk-on or risk-off?", "que industria tiene mejor breadth?", "temas oversold con momentum", "rotacion sectorial". Any question about SECTOR/INDUSTRY/THEME PERFORMANCE as aggregated groups (not individual stocks). → market_data. You MUST populate "pulse_queries" with a structured analytical spec (see pulse_query_format below).
 CAUSAL — WHY something is happening: "why is X up/down/moving?", "por qué sube/baja X?", "what's driving X?", "what caused X to spike?" → research + news_events + market_data
 NEWS — Recent news, headlines, "what happened with X" → news_events
@@ -179,6 +192,7 @@ EARNINGS_HISTORY — Past EPS, revenue, quarterly results for a ticker → finan
 FUNDAMENTALS — Financial statements, balance sheets, ratios → financial
 SEC_FILINGS — SEC documents: 10-K, 10-Q, 8-K, S-1 → financial
 SCREENING — Filter stocks by specific numeric criteria (without ranking) → screener
+STRATEGY_SCAN — Find stocks whose INTRADAY PRICE ACTION matched a described setup/sequence on a specific day → strategy_scanner. The user describes a temporal pattern of events ("crossed VWAP up AFTER an opening decline", "halted then broke out", "volume spike in the first 30 min and closed green vs open") and wants the LIST of stocks where it HAPPENED (today, yesterday, or a past date). Keywords: "cruzaron", "hicieron", "tras", "después de", "that did", "which stocks crossed/reclaimed/broke... and then...". Distinct from SCREENING (current-state filters, no temporal sequence), RANKING (top lists), BACKTEST (P&L simulation with entry/exit rules) and CODE (statistical frequencies).
 THEMATIC — Find stocks by investment theme, sector vertical, or industry category. The user is explicitly looking for a LIST of companies in a specific theme. Examples: "robotics stocks", "empresas de memoria", "quantum computing companies", "acciones de energía nuclear", "cybersecurity zero trust", "EV charging", "GLP-1 weight loss drugs", "chip foundry stocks", "defense tech", "lithium miners" → market_data. IMPORTANT: Broad market questions like "what theme is driving the market today?", "que tema mueve el mercado?", "what sectors are hot?" are NOT THEMATIC — they are RANKING queries because the user wants to see current market movers, not a static list of themed companies.
 DEEP_RESEARCH — Comprehensive analysis, business model, competitive positioning, sentiment, analyst opinions → research + financial (when tickers are present). Use for: "how does X make money?", "compare X vs Y", "what's X's competitive moat?", "diferencias entre X e Y", "modelo de negocio de X"
 COMPLETE_ANALYSIS — Full picture: "análisis completo", "deep dive", "full breakdown" → market_data + news_events + financial (add research if sentiment/opinions requested)
@@ -213,6 +227,41 @@ Example: "What's NVAX's dilution risk and cash runway?" = DILUTION_ANALYSIS → 
 
 11. MARKET_PULSE queries analyze aggregated sector/industry/theme performance. You MUST generate "pulse_queries" — an array of structured query objects. Each query: {{"group": "sectors"|"industries"|"themes", "sort_by": metric, "limit": int, "cap_size": "mega"|"large"|"mid"|"small"|null, "min_market_cap": int|null, "sector": str|null, "include_movers": bool, "metric_filters": [{{"metric":str,"op":"gt|gte|lt|lte","value":float}}], "label": str}}. Set "pulse_compare": true when comparing segments. Set "pulse_drilldown": {{"from_query":0,"rank":1,"sort_by":"change_percent","limit":10}} to drill into a result. Sortable metrics: weighted_change, avg_change, breadth, avg_rvol, avg_rsi, avg_daily_rsi, avg_atr_pct, avg_change_5d, avg_change_10d, avg_change_20d, avg_from_52w_high, avg_from_52w_low, avg_pos_in_range, avg_bb_position, avg_dist_vwap, avg_dist_sma20, avg_dist_sma50, total_dollar_volume, count. Cap sizes: mega(>200B), large(>10B), mid(>2B), small(>300M), micro(>50M).
 </routing_principles>
+
+<universe_screen>
+The platform maintains a real-time enriched snapshot of ~12,000 tickers x 395 fields.
+When a RANKING or SCREENING query includes numeric constraints or a custom sort metric,
+emit a "screen" object so market_data runs it on the FULL universe:
+
+"screen": {{
+  "filters": [{{"field": str, "op": "gt|gte|lt|lte|eq|neq|contains", "value": number|string}}],
+  "sort_by": str,          // field to rank by
+  "sort_order": "desc"|"asc",
+  "limit": int,            // default 25
+  "snapshot": "live"|"close"  // "close" = universe frozen at last regular-session close
+}}
+
+Field vocabulary (use EXACTLY these names):
+- Identity/size: price, volume, market_cap, float_shares, shares_outstanding, dollar_volume, sector, industry, security_type
+- Day performance: change_pct (% today), gap_percent, change_from_open, todays_range_pct, pos_in_range
+- Relative volume: rvol (day RVOL), vol_1min, vol_5min, vol_10min, vol_30min, vol_60min, minute_volume, trades_today, trades_z_score
+- Momentum windows (%): chg_1min, chg_2min, chg_5min, chg_10min, chg_15min, chg_30min, chg_60min, chg_120min
+- Sessions: premarket_change_percent, premarket_volume, premarket_rvol, postmarket_change_percent
+- Intraday technicals: rsi_14, macd_line, macd_hist, adx_14, stoch_k, stoch_d, vwap, dist_from_vwap, atr_percent, bb_position_5m, ema_9, ema_20, sma_20, sma_200
+- Daily technicals: daily_rsi, daily_adx_14, daily_atr_percent, daily_gap_percent, daily_bb_position, dist_daily_sma_20, dist_daily_sma_50, dist_daily_sma_200
+- Multi-day performance: change_1d, change_3d, change_5d, change_10d, change_20d, change_ytd, change_1y, consecutive_days_up
+- Range position: from_52w_high, from_52w_low, pos_in_52w_range, pos_in_5d_range, pos_in_20d_range, price_from_intraday_high, price_from_intraday_low
+- Liquidity averages: avg_volume_5d, avg_volume_10d, avg_volume_20d, avg_volume_3m, float_turnover
+- Dilution risk (1-10): dilution_overall_risk_score, dilution_cash_need_score, dilution_overhead_supply_score
+
+Rules:
+1. Use "close" snapshot when the user says "at the close", "before the close", "al cierre", "antes del cierre" AND the current session is POST_MARKET or CLOSED. Otherwise "live".
+2. Session-change rankings (after-hours/premarket movers) sort by postmarket_change_percent / premarket_change_percent.
+3. Add a liquidity floor {{"field":"volume","op":"gt","value":100000}} unless the user constrained volume themselves.
+4. Numeric suffixes: 500m = 500000000, 1.5b = 1500000000, 300k = 300000.
+5. Percent fields are plain numbers: "gap over 5%" → {{"field":"gap_percent","op":"gte","value":5}}.
+6. Set "screen" to null when the query is a plain category ranking with no constraints and no custom sort.
+</universe_screen>
 
 <thematic_catalog>
 When intent is THEMATIC, you MUST set "theme_tags" to one or more of these canonical tags:
@@ -262,6 +311,7 @@ Respond with ONLY a JSON object containing these exact fields:
   "tickers": ["TICKER1", "TICKER2"],
   "agents": ["agent1", "agent2"],
   "theme_tags": [],
+  "screen": null,
   "pulse_queries": null,
   "pulse_compare": false,
   "pulse_metrics": null,
@@ -294,10 +344,28 @@ User: "why is LFS moving?"
 {{"intent": "CAUSAL", "tickers": ["LFS"], "agents": ["research", "news_events", "market_data"], "theme_tags": [], "agent_tasks": {{"research": "Why is LFS stock moving right now? Find the specific catalyst: earnings, analyst action, news, partnership, or breaking event.", "news_events": "Latest Benzinga news and real-time market events for LFS", "market_data": "Current price, volume, RVOL, and technicals for LFS"}}, "plan": "Investigar por qué se mueve LFS: buscar catalizador en web/X.com, noticias, datos de precio", "confidence": 0.95, "reasoning": "Causal query — research searches real-time sources for catalysts", "clarification": null}}
 
 User: "top 20 gappers"
-{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "plan": "Fetch top 20 gappers from scanner", "confidence": 1.0, "reasoning": "Ranking query for gappers_up scanner category", "clarification": null}}
+{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "screen": null, "plan": "Fetch top 20 gappers from scanner", "confidence": 1.0, "reasoning": "Ranking query for gappers_up scanner category — no constraints, category is enough", "clarification": null}}
+
+User: "dame las acciones por encima de 500m de market cap ordenadas por volumen relativo antes del cierre de la sesión regular"
+{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "screen": {{"filters": [{{"field": "market_cap", "op": "gte", "value": 500000000}}, {{"field": "volume", "op": "gt", "value": 100000}}], "sort_by": "rvol", "sort_order": "desc", "limit": 25, "snapshot": "close"}}, "plan": "Screen del universo completo al cierre: market cap > $500M ordenado por RVOL", "confidence": 1.0, "reasoning": "Ranking with market cap constraint and custom sort (RVOL) referenced at the regular-session close — full-universe screen on the close snapshot", "clarification": null}}
+
+User: "top after hours stocks with market cap above 300m"
+{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "screen": {{"filters": [{{"field": "market_cap", "op": "gte", "value": 300000000}}, {{"field": "volume", "op": "gt", "value": 100000}}], "sort_by": "postmarket_change_percent", "sort_order": "desc", "limit": 25, "snapshot": "live"}}, "plan": "Screen full universe: after-hours movers with market cap > $300M ranked by AH change", "confidence": 1.0, "reasoning": "After-hours ranking with market cap constraint — universe screen sorted by postmarket change", "clarification": null}}
+
+User: "small caps entre 1 y 10 dolares con gap de mas de 5%, RVOL sobre 3 y float bajo 20 millones"
+{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "screen": {{"filters": [{{"field": "price", "op": "gte", "value": 1}}, {{"field": "price", "op": "lte", "value": 10}}, {{"field": "gap_percent", "op": "gte", "value": 5}}, {{"field": "rvol", "op": "gte", "value": 3}}, {{"field": "float_shares", "op": "lte", "value": 20000000}}], "sort_by": "gap_percent", "sort_order": "desc", "limit": 25, "snapshot": "live"}}, "plan": "Screen: small caps $1-$10, gap >5%, RVOL >3, float <20M ordenado por gap", "confidence": 1.0, "reasoning": "Multi-constraint day-trader screen — full-universe filter with 5 conditions", "clarification": null}}
+
+User: "acciones sobre VWAP con RSI diario menor a 40 haciendo maximos, ordenadas por volumen en dolares"
+{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "screen": {{"filters": [{{"field": "dist_from_vwap", "op": "gt", "value": 0}}, {{"field": "daily_rsi", "op": "lt", "value": 40}}, {{"field": "price_from_intraday_high", "op": "gte", "value": -1}}, {{"field": "volume", "op": "gt", "value": 100000}}], "sort_by": "dollar_volume", "sort_order": "desc", "limit": 25, "snapshot": "live"}}, "plan": "Screen: sobre VWAP, RSI diario <40, cerca del máximo intradía, ordenado por dollar volume", "confidence": 0.95, "reasoning": "Technical multi-condition screen with custom sort — full-universe filter", "clarification": null}}
 
 User: "stocks con RSI menor a 30 y volumen mayor a 1M"
 {{"intent": "SCREENING", "tickers": [], "agents": ["screener"], "theme_tags": [], "plan": "Screener: filtrar acciones con RSI < 30 y volumen > 1M", "confidence": 1.0, "reasoning": "Numeric criteria screening without ranking implied", "clarification": null}}
+
+User: "dame las acciones con minimo market cap 1b que cruzaran el vwap al alza tras una larga caida en el opening y que cerraran por encima del opening"
+{{"intent": "STRATEGY_SCAN", "tickers": [], "agents": ["strategy_scanner"], "theme_tags": [], "plan": "Escanear el universo: mcap > $1B, caída fuerte en el opening, cruce de VWAP al alza tras el mínimo, cierre sobre la apertura", "confidence": 1.0, "reasoning": "Temporal setup sequence (decline → VWAP reclaim → close above open) — strategy_scanner matches it against the intraday event stream", "clarification": null}}
+
+User: "which stocks got halted and then broke the opening range high yesterday?"
+{{"intent": "STRATEGY_SCAN", "tickers": [], "agents": ["strategy_scanner"], "theme_tags": [], "plan": "Scan yesterday's event stream: halt followed by ORB breakout up", "confidence": 1.0, "reasoning": "Event sequence query (halt then breakout) on a past day — strategy_scanner", "clarification": null}}
 
 User: "top 10 robotics stocks"
 {{"intent": "THEMATIC", "tickers": [], "agents": ["market_data"], "theme_tags": ["robotics"], "plan": "Find top 10 robotics companies by theme classification and enrich with live market data", "confidence": 1.0, "reasoning": "Thematic query — resolve via classification database then enrich with market data", "clarification": null}}
@@ -683,7 +751,7 @@ async def query_planner_node(state: dict) -> dict:
     if mode == "quick" and len(requested_agents) > 1:
         _quick_priority = [
             "market_data", "news_events", "dilution", "screener",
-            "financial", "backtest", "code_exec", "research",
+            "strategy_scanner", "financial", "backtest", "code_exec", "research",
         ]
         requested_agents = sorted(
             [a for a in requested_agents if a != "research"],
@@ -701,6 +769,11 @@ async def query_planner_node(state: dict) -> dict:
     if theme_tags:
         theme_tags = [t.strip() for t in theme_tags if isinstance(t, str) and t.strip()]
 
+    # Universe screen spec (full-universe structured ranking)
+    screen = decision.get("screen")
+    if screen is not None and not (isinstance(screen, dict) and isinstance(screen.get("filters"), list)):
+        screen = None
+
     # Market Pulse structured queries
     pulse_queries = decision.get("pulse_queries")
     pulse_compare = decision.get("pulse_compare", False)
@@ -713,10 +786,10 @@ async def query_planner_node(state: dict) -> dict:
         agent_tasks = None
 
     logger.info(
-        "Query planner: intent=%s confidence=%.2f mode=%s tickers=%s agents=%s themes=%s pulse=%s tasks=%s ctx_turns=%d plan=%s",
+        "Query planner: intent=%s confidence=%.2f mode=%s tickers=%s agents=%s themes=%s screen=%s pulse=%s tasks=%s ctx_turns=%d plan=%s",
         decision.get("intent", "?"), confidence, mode, llm_tickers,
         requested_agents, theme_tags,
-        bool(pulse_queries), bool(agent_tasks),
+        bool(screen), bool(pulse_queries), bool(agent_tasks),
         len([e for e in (state.get("memory_context") or []) if e.get("source") == "thread"]),
         decision.get("plan", "")[:120],
     )
@@ -729,6 +802,7 @@ async def query_planner_node(state: dict) -> dict:
         "active_agents": requested_agents,
         "theme_tags": theme_tags,
         "agent_tasks": agent_tasks,
+        "screen": screen,
         "plan": decision.get("plan", ""),
         "clarification": None,
         "market_context": state.get("market_context", {}),

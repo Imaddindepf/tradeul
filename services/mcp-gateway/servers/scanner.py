@@ -31,29 +31,6 @@ CATEGORIES = [
     "new_highs", "new_lows", "post_market", "halts",
 ]
 
-FILTERABLE_FIELDS = {
-    "price": float, "volume": int, "rvol": float, "market_cap": float,
-    "change_pct": float, "gap_pct": float, "float_shares": float,
-    "rsi_14": float, "atr_percent": float, "adx_14": float,
-    "vwap": float, "daily_rsi": float, "daily_adx_14": float,
-    "from_52w_high": float, "from_52w_low": float,
-    "change_1d": float, "change_5d": float, "change_20d": float,
-    "avg_volume_5d": float, "avg_volume_20d": float,
-    "bb_upper": float, "bb_lower": float, "bb_mid": float,
-    "stoch_k": float, "stoch_d": float,
-    "macd_line": float, "macd_signal": float, "macd_hist": float,
-    "ema_9": float, "ema_20": float, "ema_50": float,
-    "sma_20": float, "sma_50": float, "sma_200": float,
-    "daily_sma_20": float, "daily_sma_50": float, "daily_sma_200": float,
-    "dist_daily_sma_20": float, "dist_daily_sma_50": float,
-    "daily_gap_percent": float, "daily_bb_position": float,
-    "vol_1min": int, "vol_5min": int, "vol_10min": int,
-    "chg_1min": float, "chg_5min": float, "chg_10min": float,
-    "chg_15min": float, "chg_30min": float, "chg_60min": float,
-    "trades_today": int, "trades_z_score": float,
-}
-
-
 @mcp.tool()
 async def get_scanner_snapshot(
     category: str = "gappers_up",
@@ -183,21 +160,54 @@ async def get_market_session() -> dict:
     return data
 
 
+# The enriched snapshot uses internal field names; accept the friendly
+# aliases the LLM naturally produces so filters don't silently match nothing.
+_FIELD_ALIASES = {
+    "price": "current_price",
+    "volume": "current_volume",
+    "change_pct": "todaysChangePerc",
+    "change_percent": "todaysChangePerc",
+    "gap_pct": "gap_percent",
+    "premarket_change_pct": "premarket_change_percent",
+    "postmarket_change_pct": "postmarket_change_percent",
+    "afterhours_change_percent": "postmarket_change_percent",
+}
+
+
+def _resolve_field(field: str) -> str:
+    return _FIELD_ALIASES.get(field, field)
+
+
+# Resolved field names already present in every output row under a friendly
+# name (price/change_pct/volume/...). Skipped when echoing filter/sort fields
+# to avoid duplicated values under two names.
+_OUTPUT_BASE_FIELDS = {
+    "current_price", "todaysChangePerc", "current_volume",
+    "rvol", "market_cap", "sector",
+}
+
+
 @mcp.tool()
 async def apply_dynamic_filter(
     filters: list[dict],
     sort_by: str = "volume",
     sort_order: str = "desc",
     limit: int = 50,
+    snapshot: str = "live",
 ) -> dict:
-    """Filter the entire enriched snapshot universe using structured filters.
+    """Filter the entire enriched snapshot universe (~11K tickers) using structured filters.
 
     Each filter is a dict with: {"field": str, "op": str, "value": number|string}
     Operators: gt, gte, lt, lte, eq, neq, contains (for string fields like sector)
 
+    snapshot: "live" (real-time data, default) or "close" (universe frozen at
+    the last regular-session close — use for "at/before the close" questions
+    asked during post-market or overnight).
+
     Available numeric fields: price, volume, rvol, market_cap, change_pct, gap_pct,
     float_shares, rsi_14, atr_percent, adx_14, vwap, daily_rsi, daily_adx_14,
     from_52w_high, from_52w_low, change_1d, change_5d, change_20d,
+    premarket_change_percent, premarket_volume, postmarket_change_percent,
     avg_volume_5d, avg_volume_20d, bb_upper, bb_lower, stoch_k, stoch_d,
     macd_line, macd_signal, macd_hist, ema_9, ema_20, ema_50,
     sma_20, sma_50, sma_200, daily_sma_20, daily_sma_50, daily_sma_200,
@@ -208,10 +218,19 @@ async def apply_dynamic_filter(
 
     Example: [{"field":"rsi_14","op":"lt","value":30},{"field":"volume","op":"gt","value":1000000}]
     """
+    sort_by = _resolve_field(sort_by)
+    filters = [
+        {**f, "field": _resolve_field(f.get("field", ""))}
+        for f in filters
+        if isinstance(f, dict)
+    ]
     r = await get_redis()
-    raw_all = await r.hgetall("snapshot:enriched:latest")
+    keys = ["snapshot:enriched:latest", "snapshot:enriched:last_close"]
+    if snapshot == "close":
+        keys.reverse()
+    raw_all = await r.hgetall(keys[0])
     if not raw_all:
-        raw_all = await r.hgetall("snapshot:enriched:last_close")
+        raw_all = await r.hgetall(keys[1])
     if not raw_all:
         return {"error": "No enriched snapshot available", "tickers": [], "count": 0}
 
@@ -259,24 +278,35 @@ async def apply_dynamic_filter(
                 break
 
         if passes:
-            matched.append({
+            row = {
                 "symbol": sym,
-                "price": ticker.get("price"),
-                "change_pct": ticker.get("change_pct"),
-                "volume": ticker.get("volume"),
+                "price": ticker.get("current_price"),
+                "change_pct": ticker.get("todaysChangePerc"),
+                "volume": ticker.get("current_volume"),
                 "rvol": ticker.get("rvol"),
                 "market_cap": ticker.get("market_cap"),
                 "sector": ticker.get("sector"),
-                **{f["field"]: ticker.get(f["field"]) for f in filters if f.get("field")},
-                sort_by: ticker.get(sort_by),
-            })
+            }
+            # Add filter/sort fields not already covered by the base row,
+            # so rows never carry the same value under two names.
+            for extra in [f.get("field") for f in filters] + [sort_by]:
+                if extra and extra not in _OUTPUT_BASE_FIELDS and extra not in row:
+                    row[extra] = ticker.get(extra)
+            matched.append((ticker.get(sort_by), row))
+
+    def _sort_key(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
 
     reverse = sort_order == "desc"
-    matched.sort(key=lambda t: t.get(sort_by) or 0, reverse=reverse)
+    matched.sort(key=lambda pair: _sort_key(pair[0]), reverse=reverse)
+    rows = [row for _, row in matched]
 
     return {
-        "tickers": matched[:limit],
-        "count": len(matched),
+        "tickers": rows[:limit],
+        "count": len(rows),
         "total_scanned": len(raw_all),
         "filters_applied": filters,
         "sort": {"by": sort_by, "order": sort_order},

@@ -140,6 +140,11 @@ class _MarketPulse:
     get_market_regime = MCPTool("market_pulse", "get_market_regime")
 
 
+class _Strategy:
+    scan_day_setups = MCPTool("strategy", "scan_day_setups")
+    get_event_catalog = MCPTool("strategy", "get_event_catalog")
+
+
 class MCP:
     """Namespace with every MCP Gateway tool, grouped by domain server."""
     scanner = _Scanner
@@ -155,6 +160,7 @@ class MCP:
     patterns = _Patterns
     predictions = _Predictions
     market_pulse = _MarketPulse
+    strategy = _Strategy
 
 
 def all_catalog_tools() -> list[MCPTool]:

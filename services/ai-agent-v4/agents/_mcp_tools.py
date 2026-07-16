@@ -45,6 +45,7 @@ async def call_mcp_tool(
     arguments: dict | None = None,
     *,
     retries: int = 1,
+    timeout: float | None = None,
     **kwargs,
 ) -> Any:
     """Call an MCP tool via the gateway's REST API.
@@ -70,7 +71,13 @@ async def call_mcp_tool(
     last_error: Exception | None = None
     for attempt in range(1 + retries):
         try:
-            resp = await client.post(f"/api/tool/{full_tool_name}", json=arguments)
+            resp = await client.post(
+                f"/api/tool/{full_tool_name}",
+                json=arguments,
+                # Per-call override for slow tools (e.g. full-universe strategy
+                # scans); falls back to the client default (30s).
+                timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
+            )
 
             if resp.status_code == 404:
                 raise MCPToolError(f"Tool not found: {full_tool_name}")

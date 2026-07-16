@@ -232,7 +232,7 @@ async def _handle_context_brief(
                 user_id="default",
                 thread_id=thread_id,
                 query=(clean_q or query)[:500],
-                response=brief_md[:6000],
+                response=brief_md[:15000],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("context_brief persist failed: %s", exc)
@@ -409,7 +409,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "query_planner", "market_data",
                 "news_events", "financial", "research", "code_exec",
                 "screener", "backtest", "synthesizer",
-                "dilution", "context_enricher",
+                "dilution", "strategy_scanner", "context_enricher",
             }
 
             # Keepalive runs alongside the stream so long silent nodes
@@ -579,7 +579,10 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                         user_id="default",
                         thread_id=thread_id,
                         query=query,
-                        response=final_response[:2000],
+                        # Full response (final_response is already capped at
+                        # ~15k). Truncating shorter broke tables/rows when the
+                        # session history was reloaded in the UI.
+                        response=final_response[:15000],
                         agent_results_summary=results_summary or None,
                         structured_response=structured_response,
                         tickers=turn_tickers,

@@ -111,6 +111,16 @@ CHART_ANALYSIS:
 Follow chart analysis format — focus on price action, trend, volume, indicators, key levels.
 If target_candle exists, lead with the catalyst.
 
+STRATEGY_SCAN (agent_results.strategy_scanner present):
+1. Section: matched setups table from strategy_scanner.scan_results.matches
+   (columns=[#, Ticker, Open, Low Opening, Drop%, VWAP Cross, Close, Close vs Open%, MCap]).
+   Use opening_low_time / stepN_time for the event timestamps (already in ET).
+2. Section: brief commentary on the strongest matches (2-3) citing the exact
+   times: when the opening low happened and when the setup event fired.
+Mention the scanned date/session and that evidence timestamps come from the
+real-time event engine. If scan_results.count is 0, say the setup did not
+occur and suggest loosening the thresholds (e.g. smaller opening drop).
+
 CONVERSATIONAL (greetings, off-topic):
 1. Single section with a friendly conversational response, no market data.
 If the user asks about backtest capabilities ("qué necesitas para backtest?", "how does backtest work?"), explain:

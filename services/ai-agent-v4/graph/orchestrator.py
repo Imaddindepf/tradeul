@@ -28,9 +28,10 @@ from agents.code_exec import code_exec_node
 from agents.screener import screener_node
 from agents.backtest import backtest_node
 from agents.dilution import dilution_node
+from agents.strategy_scanner import strategy_scanner_node
 from agents.context_enricher import context_enricher_node
 
-ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener", "backtest", "dilution"]
+ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener", "backtest", "dilution", "strategy_scanner"]
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ def build_graph(checkpointer=None) -> StateGraph:
     graph.add_node("screener", screener_node)
     graph.add_node("backtest", backtest_node)
     graph.add_node("dilution", dilution_node)
+    graph.add_node("strategy_scanner", strategy_scanner_node)
     graph.add_node("context_enricher", context_enricher_node)
     graph.add_node("synthesizer", synthesizer_node)
 
@@ -70,17 +72,22 @@ def build_graph(checkpointer=None) -> StateGraph:
 
 
 _graph = None
-_checkpointer_ctx = None
+_checkpointer_pool = None
 
 
 async def init_graph():
     """Build the graph with a durable Postgres checkpointer when available.
 
+    Uses a psycopg connection pool with health checks so that a database
+    restart doesn't leave the checkpointer holding a dead connection
+    (a single from_conn_string() connection never reconnects, which used
+    to crash every request with "the connection is closed").
+
     Falls back to in-memory checkpoints (single process, lost on restart)
     if CHECKPOINT_DB_URL is unset or the database is unreachable.
     Called once from the FastAPI lifespan.
     """
-    global _graph, _checkpointer_ctx
+    global _graph, _checkpointer_pool
     if _graph is not None:
         return _graph
 
@@ -89,13 +96,29 @@ async def init_graph():
     if db_url:
         try:
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-            _checkpointer_ctx = AsyncPostgresSaver.from_conn_string(db_url)
-            checkpointer = await _checkpointer_ctx.__aenter__()
+            from psycopg_pool import AsyncConnectionPool
+
+            _checkpointer_pool = AsyncConnectionPool(
+                db_url,
+                min_size=1,
+                max_size=4,
+                open=False,
+                check=AsyncConnectionPool.check_connection,
+                # autocommit + prepare_threshold=0 are required by AsyncPostgresSaver
+                kwargs={"autocommit": True, "prepare_threshold": 0},
+            )
+            await _checkpointer_pool.open(wait=True, timeout=15)
+            checkpointer = AsyncPostgresSaver(_checkpointer_pool)
             await checkpointer.setup()
-            logger.info("Using Postgres checkpointer (durable, multi-replica safe)")
+            logger.info("Using Postgres checkpointer with connection pool (durable, auto-reconnect)")
         except Exception as exc:
             logger.warning("Postgres checkpointer unavailable (%s); falling back to MemorySaver", exc)
-            _checkpointer_ctx = None
+            if _checkpointer_pool is not None:
+                try:
+                    await _checkpointer_pool.close()
+                except Exception:
+                    pass
+                _checkpointer_pool = None
             checkpointer = None
 
     if checkpointer is None:
@@ -106,14 +129,14 @@ async def init_graph():
 
 
 async def close_graph():
-    """Release the checkpointer connection on shutdown."""
-    global _checkpointer_ctx
-    if _checkpointer_ctx is not None:
+    """Release the checkpointer connection pool on shutdown."""
+    global _checkpointer_pool
+    if _checkpointer_pool is not None:
         try:
-            await _checkpointer_ctx.__aexit__(None, None, None)
+            await _checkpointer_pool.close()
         except Exception:
             pass
-        _checkpointer_ctx = None
+        _checkpointer_pool = None
 
 
 def get_graph():

@@ -143,6 +143,132 @@ def _detect_categories(query: str) -> list[str]:
     return categories
 
 
+_SESSION_MOVERS_MIN_VOLUME = 100_000
+_SESSION_MOVERS_MIN_CHANGE = 0.5  # percent, either direction
+
+# ── Numeric constraints extracted from the query ─────────────────
+# "market cap above 300m", "price under $5", "volumen mayor a 1M"...
+# These MUST be applied inside the universe screen: filtering the
+# truncated top-N afterwards silently drops qualifying tickers.
+
+_AMOUNT_SUFFIX = {
+    "k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12,
+    "thousand": 1e3, "million": 1e6, "billion": 1e9, "trillion": 1e12,
+}
+_GT_WORDS = r"(?:above|over|greater\s+than|more\s+than|at\s+least|mayor(?:es)?\s+(?:a|de|que)|m[aá]s\s+de|encima\s+de|superior(?:es)?\s+a|>=?)"
+_LT_WORDS = r"(?:below|under|less\s+than|at\s+most|menor(?:es)?\s+(?:a|de|que)|menos\s+de|debajo\s+de|inferior(?:es)?\s+a|<=?)"
+_AMOUNT_RE = r"\$?\s*([\d][\d.,]*)\s*(k|m|b|t|thousand|million|billion|trillion)?\b"
+
+_CONSTRAINT_FIELDS = [
+    (r"(?:market\s*cap|mcap|capitalizaci[oó]n(?:\s+de\s+mercado)?)", "market_cap"),
+    (r"(?:price|precio)", "current_price"),
+    (r"(?:volume|volumen)", "current_volume"),
+    (r"(?:float)", "float_shares"),
+]
+
+
+def _extract_query_filters(query: str) -> list[dict[str, Any]]:
+    """Parse numeric constraints from the query into dynamic-filter dicts."""
+    ql = query.lower()
+    filters: list[dict[str, Any]] = []
+    for field_words, field in _CONSTRAINT_FIELDS:
+        for op_words, op in ((_GT_WORDS, "gte"), (_LT_WORDS, "lte")):
+            m = re.search(field_words + r"\s*(?:of\s+)?" + op_words + r"\s*" + _AMOUNT_RE, ql)
+            if not m:
+                continue
+            try:
+                value = float(m.group(1).rstrip(".,").replace(",", ""))
+            except ValueError:
+                continue
+            if m.group(2):
+                value *= _AMOUNT_SUFFIX[m.group(2)]
+            filters.append({"field": field, "op": op, "value": value})
+    return filters
+
+
+async def _run_universe_screen(screen: dict) -> tuple[dict[str, Any], list[str]]:
+    """Execute a planner-emitted screen spec against the full enriched universe.
+
+    The planner translates arbitrary trader queries ("mcap > 500M sorted by
+    RVOL at the close") into {filters, sort_by, sort_order, limit, snapshot};
+    this just forwards it to apply_dynamic_filter and normalizes the output.
+    """
+    args: dict[str, Any] = {
+        "filters": screen.get("filters") or [],
+        "sort_by": screen.get("sort_by") or "volume",
+        "sort_order": screen.get("sort_order") or "desc",
+        "limit": min(int(screen.get("limit") or 25), 100),
+    }
+    if screen.get("snapshot") in ("live", "close"):
+        args["snapshot"] = screen["snapshot"]
+
+    try:
+        raw = await MCP.scanner.apply_dynamic_filter(args)
+    except Exception as exc:
+        return {}, [f"universe_screen: {exc}"]
+
+    if not isinstance(raw, dict) or raw.get("error"):
+        err = raw.get("error") if isinstance(raw, dict) else "invalid response"
+        return {}, [f"universe_screen: {err}"]
+
+    return {
+        "universe_screen": {
+            "spec": args,
+            "matched_total": raw.get("count", 0),
+            "universe_size": raw.get("total_scanned", 0),
+            "tickers": raw.get("tickers", []),
+        },
+    }, []
+
+
+async def _fetch_session_movers(query: str, limit: int) -> tuple[dict[str, Any], list[str]]:
+    """Rank after-hours / premarket movers by screening the FULL enriched
+    universe (~11K tickers) with apply_dynamic_filter.
+
+    The scanner's post_market category is not emitted by the RETE system
+    rules (always empty), and categories only cover a top-N subset anyway —
+    the dynamic filter is the authoritative path for session-based rankings.
+    """
+    ql = query.lower()
+    if any(k in ql for k in ("after hours", "after-hours", "afterhours", "post market", "post-market", "postmarket")):
+        field, prefix = "postmarket_change_percent", "afterhours"
+    elif any(k in ql for k in ("premarket", "pre market", "pre-market")):
+        field, prefix = "premarket_change_percent", "premarket"
+    else:
+        return {}, []
+
+    # User constraints (market cap, price, volume, float) go INSIDE the
+    # screen; a default liquidity floor applies only if the user didn't
+    # constrain volume themselves.
+    extra_filters = _extract_query_filters(query)
+    if not any(f["field"] == "current_volume" for f in extra_filters):
+        extra_filters.append({"field": "current_volume", "op": "gt", "value": _SESSION_MOVERS_MIN_VOLUME})
+
+    async def _screen(op: str, value: float, order: str) -> list[dict]:
+        raw = await MCP.scanner.apply_dynamic_filter({
+            "filters": [{"field": field, "op": op, "value": value}, *extra_filters],
+            "sort_by": field,
+            "sort_order": order,
+            "limit": limit,
+        })
+        return raw.get("tickers", []) if isinstance(raw, dict) else []
+
+    out: dict[str, Any] = {}
+    errors: list[str] = []
+    try:
+        gainers, losers = await asyncio.gather(
+            _screen("gte", _SESSION_MOVERS_MIN_CHANGE, "desc"),
+            _screen("lte", -_SESSION_MOVERS_MIN_CHANGE, "asc"),
+        )
+        if gainers:
+            out[f"{prefix}_gainers"] = gainers
+        if losers:
+            out[f"{prefix}_losers"] = losers
+    except Exception as exc:
+        errors.append(f"session_movers: {exc}")
+    return out, errors
+
+
 def _extract_limit(query: str) -> int:
     """Extract a result-count limit from the query.
     Only matches patterns like 'top 20', 'show 50', 'dame 10', 'primeros 30'.
@@ -644,10 +770,43 @@ async def market_data_node(state: dict) -> dict:
     if not categories and not tickers:
         categories = ["winners"]
 
+    # 4a. Planner-emitted universe screen — the authoritative path for
+    # rankings with constraints or custom sort. Runs on the full ~12K
+    # universe; categories are skipped since the screen IS the ranking.
+    screen = state.get("screen")
+    if isinstance(screen, dict) and screen.get("filters") is not None:
+        screen_results, screen_errors = await _run_universe_screen(screen)
+        errors.extend(screen_errors)
+        if screen_results:
+            results.update(screen_results)
+            categories = []
+
+    # 4b. After-hours / premarket movers — keyword fallback when the planner
+    # didn't emit a screen. Replaces the dead post_market category.
+    if "universe_screen" not in results:
+        session_movers, session_errors = await _fetch_session_movers(query, limit)
+        if session_movers:
+            results.update(session_movers)
+            categories = [c for c in categories if c != "post_market"]
+        errors.extend(session_errors)
+
+    # Minimum-threshold constraints also apply to category snapshots
+    # (get_scanner_snapshot only supports min_* filters).
+    snapshot_args: dict[str, Any] = {}
+    _MIN_ARG_BY_FIELD = {
+        "current_price": "min_price",
+        "current_volume": "min_volume",
+        "market_cap": "min_market_cap",
+    }
+    for f in _extract_query_filters(query):
+        arg = _MIN_ARG_BY_FIELD.get(f["field"])
+        if arg and f["op"] == "gte":
+            snapshot_args[arg] = f["value"]
+
     async def _fetch_snapshot(cat: str):
         try:
             raw = await MCP.scanner.get_scanner_snapshot(
-                {"category": cat, "limit": limit},
+                {"category": cat, "limit": limit, **snapshot_args},
             )
             return (cat, _clean_scanner(raw, limit=limit), None)
         except Exception as exc:
@@ -667,6 +826,10 @@ async def market_data_node(state: dict) -> dict:
             for item in val:
                 if isinstance(item, dict) and "symbol" in item:
                     all_symbols.add(item["symbol"])
+    screen_rows = results.get("universe_screen", {}).get("tickers", [])
+    for item in screen_rows:
+        if isinstance(item, dict) and "symbol" in item:
+            all_symbols.add(item["symbol"])
     if isinstance(results.get("enriched"), dict):
         all_symbols.update(results["enriched"].keys())
 
@@ -684,6 +847,12 @@ async def market_data_node(state: dict) -> dict:
                                 item["sector"] = gics[sym]["sector"]
                                 item["industry"] = gics[sym]["industry"]
                                 item["company_name"] = gics[sym].get("company_name", "")
+                for item in screen_rows:
+                    sym = item.get("symbol", "") if isinstance(item, dict) else ""
+                    if sym in gics:
+                        item["sector"] = gics[sym]["sector"]
+                        item["industry"] = gics[sym]["industry"]
+                        item["company_name"] = gics[sym].get("company_name", "")
                 if isinstance(results.get("enriched"), dict):
                     for sym, data in results["enriched"].items():
                         if sym in gics:

@@ -70,6 +70,7 @@ from servers.analytics import mcp as analytics_mcp
 from servers.patterns import mcp as patterns_mcp
 from servers.predictions import mcp as predictions_mcp
 from servers.market_pulse import mcp as market_pulse_mcp
+from servers.strategy_scan import mcp as strategy_scan_mcp
 
 # Mount each domain server with a prefix for namespacing
 # FastMCP mount signature: mount(server, prefix=)
@@ -86,6 +87,7 @@ gateway.mount(analytics_mcp, prefix="analytics")
 gateway.mount(patterns_mcp, prefix="patterns")
 gateway.mount(predictions_mcp, prefix="predictions")
 gateway.mount(market_pulse_mcp, prefix="market_pulse")
+gateway.mount(strategy_scan_mcp, prefix="strategy")
 
 
 # ──────────────────────────────────────────────────────────────────────

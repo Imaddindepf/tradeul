@@ -556,15 +556,27 @@ async def build_event_detail(symbol: str, event_id: int, tz: str) -> Optional[Di
 
     match = match or {}
     dt_utc = _parse_utc(match.get("date") or (transcript or {}).get("date"))
+    report_date = _local_date(dt_utc, tz)
     actual_eps = match.get("actualEps")
     actual_rev = match.get("actualRevenue")
     est_eps = match.get("estimatedEps")
     est_rev = match.get("estimatedRevenue")
 
+    # AI summary bullets live on the *day* feed, not the per-symbol history feed.
+    summary: Optional[str] = None
+    highlights: List[str] = []
+    if report_date:
+        day_rows = await fetch_day_raw(report_date, tz)
+        for row in day_rows:
+            if row.get("id") == event_id and (row.get("symbol") or "").upper() == symbol:
+                summary = row.get("summary")
+                highlights = _summary_bullets(summary)
+                break
+
     return {
         "symbol": symbol,
         "event_id": event_id,
-        "report_date": _local_date(dt_utc, tz),
+        "report_date": report_date,
         "report_time": _local_clock(dt_utc, tz),
         "utc_time": match.get("date"),
         "time_slot": _derive_time_slot(dt_utc),
@@ -582,6 +594,8 @@ async def build_event_detail(symbol: str, event_id: int, tz: str) -> Optional[Di
         "expected_move_pct": match.get("expectedMovePerc"),
         "post_earnings_move_1d": match.get("postEarningsMove1D"),
         "avg_post_earnings_move_1d": match.get("averagePostEarningsMove1D"),
+        "summary": summary,
+        "key_highlights": highlights,
         "has_transcript": transcript is not None,
         "transcript_status": (transcript or {}).get("status"),
         "source": "tradeul",
