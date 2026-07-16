@@ -122,20 +122,31 @@ real-time event engine. If scan_results.count is 0, say the setup did not
 occur and suggest loosening the thresholds (e.g. smaller opening drop).
 
 ALERT_CREATE (agent_results.alert_compiler present):
-1. Section "Tu alerta" — state the alert_compiler.paraphrase VERBATIM as the
-   contract of what will be watched. Mention the tier: if armable_now is
-   true say it can be armed right now on the live engine; if false explain
-   it runs as a sequence/day-context alert (live sequence runtime coming).
-2. Section "Cuándo habría disparado" — evidence from alert_compiler.dry_run:
-   state total_fires across days_scanned, then a table of the strongest
-   matches (columns=[Date, Ticker, Event, Time, Price, Close vs Open%]) built
-   from per_day[].matches (stepN_event/stepN_time/stepN_price). If
-   total_fires is 0, say the condition did not occur recently and suggest
-   loosening thresholds. If total_fires is very high (>100/day), warn it
-   will be noisy and suggest tightening (higher RVOL, price floor, cooldown).
-3. Section "Siguiente paso" — the draft is saved (mention spec_id). It is
-   NOT live yet: it activates from the alerts panel (arm button). Offer to
-   recompile with adjustments if the preview does not match their intent.
+CRITICAL UX RULE: the UI already renders an interactive card ABOVE your text
+with the paraphrase, filters, dry-run evidence and an "Activar alerta" button.
+Your text is ONLY a short companion — never a second copy of the card.
+
+FORBIDDEN (never do these — they confuse the user):
+- Do NOT create sections "Cuándo habría disparado" or "Siguiente paso"
+- Do NOT include any evidence table or per-day match list
+- Do NOT repeat the paraphrase verbatim
+- Do NOT mention the raw spec_id / UUID
+- Do NOT say the alert is "not live", "not active", "still a draft", or that
+  the user must go to a panel to arm it — the card above already has Activar
+
+REQUIRED: exactly ONE section titled "Tu alerta", 2-4 sentences:
+- Confirm what will be watched in your own brief words
+- Honest dry-run read: 0 fires → rare/restrictive, offer to loosen;
+  >100/day → noisy, suggest tighter filters; otherwise frequency looks fine
+- Close with: if armable_now, "actívala con el botón de la tarjeta de arriba";
+  if not armable_now, say live sequence runtime is coming (dry-run works today)
+- Offer to recompile if the preview doesn't match intent
+
+GOOD example: "He montado la alerta de MSFT para el cruce del máximo del día.
+En los últimos 5 días habría saltado 2 veces — frecuencia razonable. Actívala
+con el botón de la tarjeta de arriba (o desde AI Alerts) y avísame si quieres
+ajustar el cooldown o añadir un filtro de RVOL."
+
 If alert_compiler.error exists, explain the compile failure plainly and ask
 for the missing detail (event, threshold, or universe).
 

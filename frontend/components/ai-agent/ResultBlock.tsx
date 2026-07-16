@@ -453,6 +453,13 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
   }
 
   const outputs = result?.outputs || [];
+  // The alert_draft card IS the answer (contract + evidence + arm button).
+  // Drop the synthesizer narrative so it can't contradict "Alerta activada"
+  // or re-print the dry-run table / spec_id underneath.
+  const hasAlertDraft = outputs.some((o) => o.type === 'alert_draft' && o.alert);
+  const visibleOutputs = hasAlertDraft
+    ? outputs.filter((o) => o.type === 'alert_draft')
+    : outputs;
 
   return (
     <div className="space-y-3">
@@ -464,7 +471,7 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
           onToggle={onToggleCode}
         />
       )}
-      {outputs.map((output, idx) => (
+      {visibleOutputs.map((output, idx) => (
         <div key={idx}>
           {output.title && output.type !== 'research' && output.type !== 'text' && output.type !== 'markdown' && output.type !== 'alert_draft' && (
             <div className="text-[11px] font-semibold text-muted-fg uppercase tracking-wide mb-1.5">
