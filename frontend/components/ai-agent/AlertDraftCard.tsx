@@ -10,7 +10,7 @@ import { useAuth } from '@clerk/nextjs';
 import dynamic from 'next/dynamic';
 import {
   ArrowRight, BellRing, CheckCircle2, ChevronDown, ChevronRight,
-  Clock, Copy, Globe, Loader2, ShieldCheck, Timer, Zap,
+  Clock, Copy, Globe, Loader2, ShieldCheck, SlidersHorizontal, Timer, Zap,
 } from 'lucide-react';
 import {
   AlertDraftPayload, armAlert, formatPriceLevel, formatUniverse, fmtCooldown, matchSteps,
@@ -141,6 +141,162 @@ function SpecPipeline({ alert }: { alert: AlertDraftPayload }) {
   );
 }
 
+/* ── AdjustPanel — tweak the compiled spec and recompile via chat ──
+   The card is the contract; this lets the user renegotiate it without
+   retyping the whole request. Changes go through the same
+   compile → validate → dry-run loop, so evidence stays honest. */
+
+const COOLDOWN_PRESETS = [60, 300, 900, 1800, 3600];
+
+function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () => void }) {
+  const [cooldown, setCooldown] = useState<number>(alert.lifecycle?.cooldown_seconds ?? 900);
+  const [minRvol, setMinRvol] = useState(
+    alert.universe?.min_rvol != null ? String(alert.universe.min_rvol) : '',
+  );
+  const [minPrice, setMinPrice] = useState(
+    alert.universe?.min_price != null ? String(alert.universe.min_price) : '',
+  );
+  const [levels, setLevels] = useState(
+    (alert.price_levels || []).map(p => ({ direction: p.direction, value: String(p.value) })),
+  );
+  const [extra, setExtra] = useState('');
+
+  const buildChanges = (): string[] => {
+    const changes: string[] = [];
+    if (cooldown !== (alert.lifecycle?.cooldown_seconds ?? 900)) {
+      changes.push(`cooldown de ${fmtCooldown(cooldown)}`);
+    }
+    const origRvol = alert.universe?.min_rvol != null ? String(alert.universe.min_rvol) : '';
+    if (minRvol !== origRvol && minRvol.trim()) changes.push(`RVOL mínimo ${minRvol.trim()}`);
+    const origPrice = alert.universe?.min_price != null ? String(alert.universe.min_price) : '';
+    if (minPrice !== origPrice && minPrice.trim()) changes.push(`precio mínimo $${minPrice.trim()}`);
+    levels.forEach((l, i) => {
+      const orig = alert.price_levels?.[i];
+      if (orig && String(orig.value) !== l.value && l.value.trim()) {
+        changes.push(
+          `${l.direction === 'above' ? 'nivel superior (reclaim)' : 'nivel inferior (pérdida)'} en $${l.value.trim()}`,
+        );
+      }
+    });
+    if (extra.trim()) changes.push(extra.trim());
+    return changes;
+  };
+
+  const changes = buildChanges();
+
+  const handleApply = () => {
+    if (!changes.length) return;
+    const message =
+      `Recompila esta alerta con ajustes. Alerta original: «${alert.paraphrase}» ` +
+      `Cambios que quiero: ${changes.join('; ')}.`;
+    window.dispatchEvent(new CustomEvent('agent:send', { detail: { message } }));
+    onSent();
+  };
+
+  const inputCls =
+    'w-full px-1.5 py-1 rounded border border-border bg-surface text-[10px] text-foreground ' +
+    'placeholder-muted-fg focus:outline-none focus:border-primary';
+
+  return (
+    <div className="rounded-lg border border-border bg-surface-inset/40 p-2 space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-fg mb-1">
+            Cooldown
+          </div>
+          <div className="flex flex-wrap gap-0.5">
+            {COOLDOWN_PRESETS.map(s => (
+              <button
+                key={s}
+                onClick={() => setCooldown(s)}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                  cooldown === s
+                    ? 'bg-primary/15 text-primary font-semibold'
+                    : 'bg-surface-hover text-muted-fg hover:text-foreground'
+                }`}
+              >
+                {fmtCooldown(s)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <div>
+            <div className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-fg mb-1">
+              RVOL mín
+            </div>
+            <input value={minRvol} onChange={e => setMinRvol(e.target.value)}
+              placeholder="—" inputMode="decimal" className={inputCls} />
+          </div>
+          <div>
+            <div className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-fg mb-1">
+              Precio mín
+            </div>
+            <input value={minPrice} onChange={e => setMinPrice(e.target.value)}
+              placeholder="—" inputMode="decimal" className={inputCls} />
+          </div>
+        </div>
+      </div>
+
+      {levels.length > 0 && (
+        <div>
+          <div className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-fg mb-1">
+            Niveles de precio
+          </div>
+          <div className="flex gap-1.5">
+            {levels.map((l, i) => (
+              <div key={i} className="flex items-center gap-1 flex-1">
+                <span className={`text-[10px] font-mono ${
+                  l.direction === 'above' ? 'text-emerald-500' : 'text-rose-500'
+                }`}>
+                  {l.direction === 'above' ? '↑' : '↓'}
+                </span>
+                <input
+                  value={l.value}
+                  onChange={e =>
+                    setLevels(prev => prev.map((p, j) => (j === i ? { ...p, value: e.target.value } : p)))
+                  }
+                  inputMode="decimal"
+                  className={inputCls}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-fg mb-1">
+          Otros cambios (lenguaje natural)
+        </div>
+        <input
+          value={extra}
+          onChange={e => setExtra(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleApply()}
+          placeholder="p. ej. solo premarket, añade NVDA, máximo 5 avisos al día…"
+          className={inputCls}
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] text-muted-fg">
+          {changes.length
+            ? `${changes.length} cambio${changes.length > 1 ? 's' : ''}: ${changes.join(' · ')}`
+            : 'Modifica algo para recompilar'}
+        </span>
+        <button
+          onClick={handleApply}
+          disabled={!changes.length}
+          className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-primary text-white
+                     hover:bg-primary/90 disabled:opacity-40 transition-colors flex-shrink-0"
+        >
+          Recompilar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: AlertDraftPayload }) {
   const { getToken } = useAuth();
   const [armState, setArmState] = useState<'idle' | 'arming' | 'armed' | 'error'>(
@@ -148,6 +304,7 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
   );
   const [armNote, setArmNote] = useState('');
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [adjusting, setAdjusting] = useState(false);
 
   const dry = alert.dry_run;
   const daysWithFires = useMemo(
@@ -344,6 +501,18 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
                   {isDuplicate ? 'Reactivar alerta' : 'Activar alerta'}</>}
             </button>
           )}
+          {!isDuplicate && (
+            <button
+              onClick={() => setAdjusting(a => !a)}
+              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10.5px] font-medium
+                         transition-colors ${adjusting
+                  ? 'text-primary bg-primary/10'
+                  : 'text-foreground/70 hover:text-foreground hover:bg-surface-hover'}`}
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              Ajustar
+            </button>
+          )}
           <button
             onClick={() => window.dispatchEvent(new CustomEvent('tradeul:open-ai-alerts'))}
             className="px-2.5 py-1.5 rounded-lg text-[10.5px] font-medium text-foreground/70
@@ -352,6 +521,8 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
             Ver mis alertas
           </button>
         </div>
+
+        {adjusting && <AdjustPanel alert={alert} onSent={() => setAdjusting(false)} />}
         {armNote && (
           <p className={`text-[9.5px] ${armState === 'error' ? 'text-rose-500' : 'text-muted-fg'}`}>
             {armNote}

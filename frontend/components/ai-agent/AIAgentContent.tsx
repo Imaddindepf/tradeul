@@ -2,7 +2,13 @@
 
 import { memo, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { History } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { BellRing, History, Sparkles } from 'lucide-react';
+
+const LazyExecutionGraph = dynamic(
+  () => import('./ExecutionGraph').then(m => m.ExecutionGraph),
+  { ssr: false, loading: () => <div className="h-[260px] bg-surface-hover rounded-lg animate-pulse" /> },
+);
 import { useAIAgent } from './useAIAgent';
 import { ResultBlock } from './ResultBlock';
 import { SlashCommandMenu, useSlashCommands } from './SlashCommandMenu';
@@ -18,6 +24,31 @@ const QUICK_ACTIONS = [
   { label: 'Most Active', query: 'most active stocks by volume today' },
   { label: 'Gap Analysis', query: 'stocks gapping up more than 5% today' },
   { label: 'Unusual Volume', query: 'stocks with unusual volume today' },
+];
+
+// Alert recipes — one click compiles them through the full
+// compile → dry-run → arm loop, so the empty state teaches the killer feature.
+const ALERT_TEMPLATES = [
+  {
+    label: 'Cruce de VWAP con volumen',
+    query: 'Avísame cuando cualquier acción con RVOL mayor a 2 cruce el VWAP al alza',
+    hint: 'evento en vivo · todo el mercado',
+  },
+  {
+    label: 'Niveles de precio',
+    query: 'Avísame cuando NVDA reclame 190 o pierda 180',
+    hint: 'niveles absolutos · 1 ticker',
+  },
+  {
+    label: 'Secuencia intradía',
+    query: 'Acciones de más de 1B que caigan fuerte en el opening y luego crucen el VWAP al alza tras el mínimo',
+    hint: 'secuencia A→B · CEP',
+  },
+  {
+    label: 'Entra en ranking',
+    query: 'Avísame cuando una acción entre en el top 10 de gappers',
+    hint: 'membership · scanner',
+  },
 ];
 
 interface TimelineEntry {
@@ -446,27 +477,59 @@ const EmptyState = memo(function EmptyState({
       className="flex flex-col items-center justify-center min-h-[40vh] text-center"
     >
       <h2 className={`font-semibold text-foreground mb-1.5 ${isNarrow ? 'text-[14px]' : 'text-[16px]'}`}>¿Qué quieres analizar?</h2>
-      <p className="text-[11px] text-muted-fg max-w-[340px] mb-6 leading-relaxed">
+      <p className="text-[11px] text-muted-fg max-w-[340px] mb-5 leading-relaxed">
         Sistema multi-agente: mercados, screeners, financials y noticias en tiempo real.
       </p>
-      <div className={`grid gap-2 w-full ${isNarrow ? 'grid-cols-1 max-w-[240px]' : 'grid-cols-2 max-w-[380px]'}`}>
-        {QUICK_ACTIONS.map((action) => (
-          <motion.button
-            key={action.query}
-            onClick={() => onQuickAction(action.query)}
-            disabled={!isConnected}
-            whileHover={{ y: -1 }}
-            whileTap={{ scale: 0.98 }}
-            className="px-3 py-2.5 bg-surface border border-border rounded-lg text-left hover:border-border hover:shadow-sm transition-all disabled:opacity-40"
-          >
-            <span className="text-[11px] font-medium text-foreground block">{action.label}</span>
-            <span className="text-[9px] text-muted-fg block mt-0.5 truncate">{action.query}</span>
-          </motion.button>
-        ))}
+
+      <div className={`w-full ${isNarrow ? 'max-w-[260px]' : 'max-w-[520px]'}`}>
+        <div className="flex items-center gap-1.5 mb-2">
+          <Sparkles className="w-3 h-3 text-muted-fg" />
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-fg">Analiza</span>
+        </div>
+        <div className={`grid gap-2 ${isNarrow ? 'grid-cols-1' : 'grid-cols-2'}`}>
+          {QUICK_ACTIONS.slice(0, 4).map((action) => (
+            <motion.button
+              key={action.query}
+              onClick={() => onQuickAction(action.query)}
+              disabled={!isConnected}
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.98 }}
+              className="px-3 py-2.5 bg-surface border border-border rounded-lg text-left hover:border-border hover:shadow-sm transition-all disabled:opacity-40"
+            >
+              <span className="text-[11px] font-medium text-foreground block">{action.label}</span>
+              <span className="text-[9px] text-muted-fg block mt-0.5 truncate">{action.query}</span>
+            </motion.button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1.5 mt-4 mb-2">
+          <BellRing className="w-3 h-3 text-primary" />
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-fg">
+            Crea alertas con lenguaje natural
+          </span>
+        </div>
+        <div className={`grid gap-2 ${isNarrow ? 'grid-cols-1' : 'grid-cols-2'}`}>
+          {ALERT_TEMPLATES.map((t) => (
+            <motion.button
+              key={t.query}
+              onClick={() => onQuickAction(t.query)}
+              disabled={!isConnected}
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.98 }}
+              className="px-3 py-2.5 bg-primary/[0.03] border border-primary/20 rounded-lg text-left
+                         hover:border-primary/40 hover:shadow-sm transition-all disabled:opacity-40"
+            >
+              <span className="text-[11px] font-medium text-foreground block">{t.label}</span>
+              <span className="text-[9px] text-muted-fg block mt-0.5 truncate">&ldquo;{t.query}&rdquo;</span>
+              <span className="text-[8px] text-primary/70 font-mono block mt-1">{t.hint}</span>
+            </motion.button>
+          ))}
+        </div>
       </div>
+
       <button
         onClick={onOpenHistory}
-        className="mt-4 flex items-center gap-1.5 text-[10px] text-muted-fg hover:text-primary transition-colors"
+        className="mt-5 flex items-center gap-1.5 text-[10px] text-muted-fg hover:text-primary transition-colors"
       >
         <History className="w-3 h-3" />
         <span>Ver conversaciones anteriores</span>
@@ -872,12 +935,12 @@ const PipelineSidebar = memo(function PipelineSidebar({ steps }: { steps: AgentS
   return (
     <motion.div
       initial={{ width: 0, opacity: 0 }}
-      animate={{ width: 200, opacity: 1 }}
+      animate={{ width: 252, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
       className="flex-shrink-0 border-l border-border bg-surface overflow-hidden"
     >
-      <div className="w-[200px] h-full flex flex-col">
+      <div className="w-[252px] h-full flex flex-col">
         <div className="flex-shrink-0 px-3 py-2 border-b border-border-subtle">
           <span className="text-[10px] font-semibold text-foreground">Pipeline</span>
         </div>
@@ -891,6 +954,11 @@ const PipelineSidebar = memo(function PipelineSidebar({ steps }: { steps: AgentS
             </div>
           ) : (
             <div>
+              {/* Live execution graph — the multi-agent run as a dataflow */}
+              <div className="mb-2">
+                <LazyExecutionGraph steps={steps} height={230} />
+              </div>
+
               <div className="mb-2">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[9px] text-muted-fg font-medium uppercase tracking-wider">

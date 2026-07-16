@@ -58,6 +58,101 @@ function pct(v: number | undefined | null): string {
   return `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
 }
 
+// ── Fire performance mini-dashboard ───────────────────────────────
+// Answers "¿esta alerta me sirve?" at a glance: cadence over the last
+// 7 days, which tickers dominate, and how fresh the last fire is.
+
+function FireDashboard({ fires }: { fires: AlertFire[] }) {
+  const stats = useMemo(() => {
+    const now = Date.now() / 1000;
+    const dayKey = (epoch: number) => {
+      const d = new Date(epoch * 1000);
+      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    };
+    const days: Array<{ key: string; label: string; count: number }> = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400_000);
+      days.push({
+        key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`,
+        label: d.toLocaleDateString('es-ES', { weekday: 'short' }).slice(0, 2),
+        count: 0,
+      });
+    }
+    const byDay = new Map(days.map(d => [d.key, d]));
+    const bySymbol = new Map<string, number>();
+    let today = 0;
+    let last7 = 0;
+    for (const f of fires) {
+      const slot = byDay.get(dayKey(f.fired_at));
+      if (slot) slot.count++;
+      if (now - f.fired_at < 7 * 86400) {
+        last7++;
+        bySymbol.set(f.symbol, (bySymbol.get(f.symbol) || 0) + 1);
+      }
+      if (dayKey(f.fired_at) === dayKey(now)) today++;
+    }
+    const topSymbols = [...bySymbol.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const lastFire = fires.length ? Math.max(...fires.map(f => f.fired_at)) : null;
+    return { days, today, last7, topSymbols, lastFire };
+  }, [fires]);
+
+  if (!fires.length) return null;
+  const maxCount = Math.max(1, ...stats.days.map(d => d.count));
+
+  return (
+    <div className="rounded-lg border border-border-subtle bg-surface-inset/40 p-2">
+      <div className="flex items-center gap-3">
+        {/* Stat row */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <div>
+            <div className="text-[13px] font-bold tabular-nums text-foreground leading-none">{stats.today}</div>
+            <div className="text-[7.5px] uppercase tracking-wider text-muted-fg mt-0.5">hoy</div>
+          </div>
+          <div>
+            <div className="text-[13px] font-bold tabular-nums text-foreground leading-none">{stats.last7}</div>
+            <div className="text-[7.5px] uppercase tracking-wider text-muted-fg mt-0.5">7 días</div>
+          </div>
+          <div>
+            <div className="text-[13px] font-bold tabular-nums text-foreground leading-none">
+              {(stats.last7 / 7).toFixed(1)}
+            </div>
+            <div className="text-[7.5px] uppercase tracking-wider text-muted-fg mt-0.5">media/día</div>
+          </div>
+        </div>
+
+        {/* 7-day histogram */}
+        <div className="flex-1 flex items-end gap-[3px] h-8 min-w-0">
+          {stats.days.map((d, i) => (
+            <div key={i} className="flex-1 flex flex-col items-center gap-0.5 min-w-0">
+              <div
+                className={`w-full rounded-sm ${d.count > 0 ? 'bg-primary/70' : 'bg-surface-hover'}`}
+                style={{ height: `${Math.max(8, (d.count / maxCount) * 100)}%` }}
+                title={`${d.count} disparos`}
+              />
+              <span className="text-[6.5px] text-muted-fg leading-none">{d.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {(stats.topSymbols.length > 0 || stats.lastFire) && (
+        <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-border-subtle">
+          <div className="flex items-center gap-1">
+            {stats.topSymbols.map(([sym, n]) => (
+              <span key={sym} className="px-1 py-px rounded bg-surface-hover text-[8px] font-mono text-foreground/70">
+                {sym}·{n}
+              </span>
+            ))}
+          </div>
+          {stats.lastFire && (
+            <span className="text-[8px] text-muted-fg">último {timeAgo(stats.lastFire)}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Per-alert expanded detail ─────────────────────────────────────
 
 function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void }) {
@@ -74,7 +169,7 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
 
   useEffect(() => {
     let cancelled = false;
-    listFires(getToken, spec.id, 25)
+    listFires(getToken, spec.id, 200)
       .then(r => { if (!cancelled) setFires(r.fires); })
       .catch(() => { if (!cancelled) setFires([]); });
     return () => { cancelled = true; };
@@ -105,6 +200,9 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
         </div>
       )}
 
+      {/* Fire performance at a glance */}
+      {fires && fires.length > 0 && <FireDashboard fires={fires} />}
+
       {/* Fire history */}
       <div>
         <div className="text-[9px] font-semibold text-muted-fg uppercase tracking-wide mb-1">
@@ -131,7 +229,7 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-subtle">
-                {fires.map((f, i) => (
+                {fires.slice(0, 25).map((f, i) => (
                   <tr key={i} className="hover:bg-surface-hover/50">
                     <td className="px-1.5 py-1 font-semibold text-foreground">{f.symbol}</td>
                     <td className="px-1.5 py-1 font-mono text-foreground/70">{f.event_type || '—'}</td>
@@ -146,6 +244,11 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
                 ))}
               </tbody>
             </table>
+            {fires.length > 25 && (
+              <div className="px-1.5 py-1 text-[8.5px] text-muted-fg border-t border-border-subtle">
+                Mostrando los 25 más recientes de {fires.length}.
+              </div>
+            )}
           </div>
         )}
       </div>
