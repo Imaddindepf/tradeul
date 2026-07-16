@@ -113,8 +113,9 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
             <div className="flex items-baseline gap-2">
               <span className="text-[16px] font-bold tabular-nums text-foreground">{dry.total_fires}</span>
               <span className="text-[10px] text-muted-fg">
-                disparos en los últimos {dry.days_scanned.length} días de mercado
-                {dry.unique_symbols.length > 0 && ` · ${dry.unique_symbols.length}+ símbolos`}
+                {dry.total_fires === 1 ? 'disparo' : 'disparos'} en los últimos {dry.days_scanned.length} días de mercado
+                {dry.unique_symbols.length > 1 &&
+                  ` · ${dry.unique_symbols.length}${dry.unique_symbols.length >= 30 ? '+' : ''} símbolos`}
               </span>
             </div>
             {noisy && (

@@ -14,8 +14,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 import uuid
+from datetime import datetime
 from typing import Any, Optional
 
 import orjson
@@ -35,12 +37,28 @@ BATCH_SIZE = 50          # max events per read
 ACTIVE_KEY_PREFIX = "triggers:active"  # triggers:active:{user_id}
 
 
+def _market_stream_url(base_url: str) -> str:
+    """URL of the Redis DB where the alert_engine publishes the market firehose.
+
+    The agent keeps its own state (triggers, user streams, memory) in the DB
+    from REDIS_URL (…/5), but stream:alerts:market lives in DB 0 — the
+    alert workers publish there (REDIS_DB=0). Override with
+    MARKET_STREAM_REDIS_URL if that ever changes.
+    """
+    override = os.getenv("MARKET_STREAM_REDIS_URL", "").strip()
+    if override:
+        return override
+    return re.sub(r"/\d+$", "/0", base_url)
+
+
 class TriggerEngine:
     """Reactive trigger evaluation engine backed by Redis Streams."""
 
     def __init__(self, redis_url: Optional[str] = None) -> None:
         self._redis_url = redis_url or os.getenv("REDIS_URL", "redis://redis:6379/5")
+        self._market_redis_url = _market_stream_url(self._redis_url)
         self._redis: Optional[aioredis.Redis] = None
+        self._market_redis: Optional[aioredis.Redis] = None
         self._running = False
         self._task: Optional[asyncio.Task] = None
 
@@ -57,18 +75,30 @@ class TriggerEngine:
             )
         return self._redis
 
+    async def _get_market_redis(self) -> aioredis.Redis:
+        """Connection to the DB where the market firehose stream lives."""
+        if self._market_redis is None:
+            self._market_redis = aioredis.from_url(
+                self._market_redis_url,
+                decode_responses=False,
+            )
+        return self._market_redis
+
     async def start(self) -> None:
         """Start consuming market events from the Redis stream."""
         if self._running:
             logger.warning("TriggerEngine is already running")
             return
 
-        r = await self._get_redis()
+        mr = await self._get_market_redis()
 
-        # Ensure the consumer group exists (MKSTREAM creates the stream if needed)
+        # Ensure the consumer group exists (MKSTREAM creates the stream if
+        # needed). Start at "$": only events from now on — replaying a day of
+        # firehose backlog on boot would fire stale alerts.
         try:
-            await r.xgroup_create(STREAM_KEY, CONSUMER_GROUP, id="0", mkstream=True)
-            logger.info("Created consumer group '%s' on '%s'", CONSUMER_GROUP, STREAM_KEY)
+            await mr.xgroup_create(STREAM_KEY, CONSUMER_GROUP, id="$", mkstream=True)
+            logger.info("Created consumer group '%s' on '%s' (db=%s)",
+                        CONSUMER_GROUP, STREAM_KEY, self._market_redis_url.rsplit("/", 1)[-1])
         except aioredis.ResponseError as exc:
             if "BUSYGROUP" not in str(exc):
                 raise
@@ -99,6 +129,9 @@ class TriggerEngine:
         if self._redis is not None:
             await self._redis.aclose()
             self._redis = None
+        if self._market_redis is not None:
+            await self._market_redis.aclose()
+            self._market_redis = None
 
         logger.info("TriggerEngine stopped")
 
@@ -198,7 +231,7 @@ class TriggerEngine:
 
     async def _consume_loop(self) -> None:
         """Main loop: read from the stream and evaluate triggers."""
-        r = await self._get_redis()
+        r = await self._get_market_redis()
 
         while self._running:
             try:
@@ -211,6 +244,10 @@ class TriggerEngine:
                 )
             except asyncio.CancelledError:
                 break
+            except aioredis.TimeoutError:
+                # redis-py 8.x: blocking XREADGROUP raises on expiry instead
+                # of returning empty — normal when the market is quiet.
+                continue
             except Exception:
                 logger.exception("Error reading from stream, retrying in 2s")
                 await asyncio.sleep(2)
@@ -284,7 +321,17 @@ class TriggerEngine:
                 except (ValueError, TypeError):
                     pass
 
-            ts = float(decoded.get("timestamp", time.time()))
+            # Firehose publishes ISO timestamps ('2026-07-16T15:45:18');
+            # synthetic/test events may use epoch floats. Accept both.
+            raw_ts = decoded.get("timestamp", "")
+            ts: float
+            try:
+                ts = float(raw_ts)
+            except (ValueError, TypeError):
+                try:
+                    ts = datetime.fromisoformat(raw_ts).timestamp()
+                except (ValueError, TypeError):
+                    ts = time.time()
             msg_id_str = msg_id.decode() if isinstance(msg_id, bytes) else msg_id
 
             return TriggerEvent(

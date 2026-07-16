@@ -142,6 +142,10 @@ async def handle_alerts_websocket(websocket: WebSocket, user_id: str) -> None:
                 results = await r.xread({stream_key: last_id}, count=50, block=BLOCK_MS)
             except asyncio.CancelledError:
                 break
+            except aioredis.TimeoutError:
+                # redis-py 8.x: blocking XREAD raises on expiry instead of
+                # returning empty — it just means "no new fires yet".
+                results = None
             except Exception:
                 logger.exception("Alerts WS xread failed (user=%s), retrying", user_id)
                 await asyncio.sleep(2)
