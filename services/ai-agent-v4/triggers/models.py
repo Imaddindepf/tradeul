@@ -114,6 +114,20 @@ class TriggerConfig(BaseModel):
         description="AlertSpec id when this trigger was compiled from an LLM alert "
                     "(links fires to the spec's history).",
     )
+    # Multi-step CEP (sequence tier). When non-empty the engine advances an
+    # NFA per symbol instead of firing on the first matching event.
+    sequence_steps: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ordered AlertSpec steps for live sequence evaluation.",
+    )
+    kind: str = Field(
+        "event_match",
+        description="event_match | sequence | membership — routing hint for the engine.",
+    )
+    membership: Optional[dict[str, Any]] = Field(
+        None,
+        description="MembershipWatch payload when kind=membership.",
+    )
 
     class Config:
         use_enum_values = True

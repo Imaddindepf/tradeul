@@ -409,7 +409,8 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "query_planner", "market_data",
                 "news_events", "financial", "research", "code_exec",
                 "screener", "backtest", "synthesizer",
-                "dilution", "strategy_scanner", "alert_compiler", "context_enricher",
+                "dilution", "strategy_scanner", "alert_compiler", "alert_manager",
+                "context_enricher",
             }
 
             # Keepalive runs alongside the stream so long silent nodes
@@ -544,20 +545,32 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 if isinstance(ac_result, dict) and ac_result.get("spec_id"):
                     spec = ac_result.get("spec", {}) or {}
                     dry = ac_result.get("dry_run", {}) or {}
+                    similar = ac_result.get("similar") or {}
                     structured_outputs.append({
                         "type": "alert_draft",
                         "title": "Borrador de alerta",
                         "alert": {
                             "spec_id": ac_result["spec_id"],
-                            "name": spec.get("name", ""),
-                            "status": spec.get("status", "draft"),
+                            "name": spec.get("name", "") or (similar.get("exact") or [{}])[0].get("name", ""),
+                            "status": (
+                                (similar.get("exact") or [{}])[0].get("status", "draft")
+                                if ac_result.get("duplicate")
+                                else spec.get("status", "draft")
+                            ),
                             "tier": spec.get("tier", ""),
                             "paraphrase": ac_result.get("paraphrase", ""),
                             "armable_now": bool(ac_result.get("armable_now")),
                             "persisted": bool(ac_result.get("persisted")),
+                            "duplicate": bool(ac_result.get("duplicate")),
+                            "similar": {
+                                "recommendation": similar.get("recommendation", "create"),
+                                "exact": similar.get("exact") or [],
+                                "near": similar.get("near") or [],
+                            },
                             "universe": spec.get("universe", {}),
                             "steps": spec.get("steps", []),
                             "day_conditions": spec.get("day_conditions", []),
+                            "membership": spec.get("membership"),
                             "lifecycle": spec.get("lifecycle", {}),
                             "dry_run": {
                                 "total_fires": dry.get("total_fires", 0),
@@ -572,6 +585,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                                     for d in (dry.get("per_day") or [])
                                 ],
                                 "errors": dry.get("errors", []),
+                                "note": dry.get("note"),
                             },
                         },
                     })

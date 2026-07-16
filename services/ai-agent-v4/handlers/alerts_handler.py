@@ -81,14 +81,21 @@ async def arm_alert(
     spec = await _spec_or_404(spec_id, user_id)
 
     live = False
+    kind = "preview_only"
     trigger_id: Optional[str] = spec.trigger_id
-    if spec.is_t0_armable():
+    if spec.is_live_armable():
         engine = _trigger_engine(request)
-        trigger_cfg = spec.to_trigger_config()
         try:
+            trigger_cfg = spec.to_trigger_config()
             config = await engine.register_trigger(user_id, trigger_cfg)
             trigger_id = config.id
             live = True
+            if spec.is_t0_armable():
+                kind = "event_match"
+            elif spec.is_sequence_armable():
+                kind = "sequence"
+            elif spec.is_membership_armable():
+                kind = "membership"
         except Exception as exc:
             logger.error("arm_alert: trigger registration failed for %s: %s", spec_id, exc)
             raise HTTPException(status_code=500, detail=f"Trigger registration failed: {exc}")
@@ -97,17 +104,23 @@ async def arm_alert(
     if updated is None:
         raise HTTPException(status_code=500, detail="Failed to persist armed status")
 
+    notes = {
+        "event_match": "Live on the reactive engine — fires stream to your alert feed.",
+        "sequence": "Live CEP sequence armed — fires when the full A→B path completes.",
+        "membership": "Live membership watch armed — fires on scanner enter/exit.",
+        "preview_only": (
+            "Armed for bookkeeping only: this spec needs day-level context that "
+            "isn't known until the session ends. Use dry-run for evidence; live "
+            "evaluation for day_conditions lands later."
+        ),
+    }
     return {
         "spec_id": spec_id,
         "status": "armed",
         "live": live,
+        "kind": kind,
         "trigger_id": trigger_id,
-        "note": (
-            "Live on the reactive engine — fires stream to your alert feed."
-            if live else
-            "Armed as a sequence/day-context spec: live continuous evaluation "
-            "arrives with the CEP runtime; use dry-run to review occurrences."
-        ),
+        "note": notes[kind],
     }
 
 

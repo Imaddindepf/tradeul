@@ -101,6 +101,17 @@ export interface AlertFire {
   fired_at: number;
 }
 
+export interface SimilarAlertSummary {
+  spec_id: string;
+  name: string;
+  status: AlertStatus;
+  tier: AlertTier;
+  paraphrase: string;
+  symbols: string[];
+  event_types: string[];
+  membership?: { category?: string; on?: string; rank_lte?: number } | null;
+}
+
 /** Payload of the `alert_draft` structured output emitted by the chat WS. */
 export interface AlertDraftPayload {
   spec_id: string;
@@ -110,9 +121,16 @@ export interface AlertDraftPayload {
   paraphrase: string;
   armable_now: boolean;
   persisted: boolean;
+  duplicate?: boolean;
+  similar?: {
+    recommendation: 'create' | 'reuse' | 'review';
+    exact: SimilarAlertSummary[];
+    near: SimilarAlertSummary[];
+  };
   universe: Partial<AlertUniverse>;
   steps: AlertSequenceStep[];
   day_conditions: AlertDayCondition[];
+  membership?: { category: string; on: 'enter' | 'exit'; rank_lte?: number | null } | null;
   lifecycle: Partial<AlertLifecycle>;
   dry_run: {
     total_fires: number;
@@ -120,6 +138,7 @@ export interface AlertDraftPayload {
     unique_symbols: string[];
     per_day: DryRunDay[];
     errors: string[];
+    note?: string;
   };
 }
 
@@ -149,7 +168,7 @@ export function getAlert(getToken: GetTokenFn, specId: string) {
 }
 
 export function armAlert(getToken: GetTokenFn, specId: string) {
-  return call<{ spec_id: string; status: string; live: boolean; note: string }>(
+  return call<{ spec_id: string; status: string; live: boolean; kind?: string; note: string }>(
     getToken, `/api/alerts/${specId}/arm`, { method: 'POST' },
   );
 }

@@ -149,6 +149,14 @@ ajustar el cooldown o añadir un filtro de RVOL."
 
 If alert_compiler.error exists, explain the compile failure plainly and ask
 for the missing detail (event, threshold, or universe).
+If alert_compiler.duplicate is true: say they already have an equivalent alert
+(name + status from similar.exact[0]) and point them to reuse/activate it —
+do NOT claim a new draft was saved.
+
+ALERT_MANAGE (agent_results.alert_manager present):
+ONE short section. If action=list, summarise the alerts (name, status, symbols)
+in a compact table or bullets and mention the AIA panel. If pause/arm/archive,
+confirm the result from alert_manager.message. If error, ask for the ticker/name.
 
 CONVERSATIONAL (greetings, off-topic):
 1. Single section with a friendly conversational response, no market data.

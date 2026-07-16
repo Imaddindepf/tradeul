@@ -27,6 +27,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from agents._llm_retry import llm_invoke_with_retry
 from agents.mcp_catalog import MCP
 from alerts.dryrun import run_dry_run
+from alerts.similarity import find_similar
 from alerts.spec import AlertSpec, validate_event_types
 from alerts.store import get_store
 
@@ -90,7 +91,7 @@ OUTPUT: ONLY a JSON object (no markdown fences) with these keys:
   "name": "short human name for the alert (user's language, <=60 chars)",
   "paraphrase": "1-2 sentences in the USER'S LANGUAGE restating EXACTLY what \
 will be watched and when it fires. The user will confirm this text.",
-  "tier": "event_match" | "sequence",
+  "tier": "event_match" | "sequence" | "membership",
   "universe": {
     "symbols_include": [],          // uppercase tickers, [] = all stocks
     "symbols_exclude": [],
@@ -103,7 +104,7 @@ will be watched and when it fires. The user will confirm this text.",
     "sector": null | "string",
     "session": "regular" | "premarket" | "afterhours" | "all"
   },
-  "steps": [                        // 1 step = event_match, 2-3 = sequence
+  "steps": [                        // 1 step = event_match, 2-3 = sequence; [] for membership
     {
       "event_types": ["vwap_cross_up"],   // ONLY from EVENT TYPES below
       "after": "session_open" | "opening_low" | "prev_step",
@@ -113,6 +114,11 @@ will be watched and when it fires. The user will confirm this text.",
   "day_conditions": [               // OPTIONAL day-level context conditions
     {"metric": "opening_drop_pct", "op": "lte", "value": -2}
   ],
+  "membership": null | {            // ONLY when tier = "membership"
+    "category": "gappers_up",       // scanner category
+    "on": "enter" | "exit",
+    "rank_lte": null | int          // e.g. 10 = top 10 only
+  },
   "lifecycle": {
     "cooldown_seconds": 900,        // min seconds between fires per symbol
     "max_fires_per_day": 20
@@ -127,12 +133,17 @@ market_cap, n_events.
 
 RULES:
 1. tier "event_match" = ONE step, fires live the moment the event happens.
-   tier "sequence" = 2-3 ordered steps (A then B). Prefer event_match when
-   one event type captures the intent — it arms immediately on the live engine.
+   tier "sequence" = 2-3 ordered steps (A then B) with within_minutes windows.
+   Prefer event_match when one event type captures the intent.
+   tier "membership" = symbol ENTERS/EXITS a scanner ranking (gappers_up,
+   winners, momentum_up, high_volume, new_highs, losers…). Use when the user
+   says "cuando entre en top gappers", "entra en winners", "sale de losers".
+   For membership: steps=[], membership={category,on,rank_lte}, dry_run_days=0.
 2. day_conditions describe how the DAY looked (close vs open, opening drop).
    They only make sense for reviewing PAST days — a live alert cannot know
    the close in advance. Use them ONLY when the user describes day-level
-   context; leave [] for pure live alerts.
+   context; leave [] for pure live alerts. Sequences WITHOUT day_conditions
+   ARE live-armable on the CEP runtime.
 3. Momentum/strategy vocabulary mapping:
    - "cruce del VWAP al alza" / "crosses above VWAP" -> vwap_cross_up
    - "9 EMA cruza VWAP" (Fashionably Late style) -> closest available:
@@ -143,6 +154,8 @@ RULES:
    - "ruptura del rango de apertura" / "ORB" -> orb_breakout_up/_down
    - "halt" / "parada" -> halt; "reanuda" -> resume
    - "volumen inusual" / "volume spike" -> volume_surge, volume_spike_1min, rvol_spike
+   - "top gappers" / "gap up" ranking -> membership gappers_up enter
+   - "top losers" -> membership losers enter
 4. Numbers: "1B" = 1000000000, "500M" = 500000000, "$5" -> min/max_price 5.
 5. cooldown: scalping alerts 300-900s; slower setups 1800-3600s. Default 900.
 6. paraphrase MUST be faithful and in the user's language — it is the
@@ -151,6 +164,8 @@ RULES:
 7. Direction matters: "cruce a la baja"/"short" versions use the _down /
    bearish event variants. Invert every condition, not just the first.
 8. If the user mentions specific tickers, put them in symbols_include.
+9. For live sequences prefer two real event steps (e.g. pullback then
+   vwap_cross_up) with within_minutes, NOT day_conditions.
 
 EVENT TYPES (core vocabulary):
 """ + _CORE_EVENTS + """
@@ -165,7 +180,10 @@ User: "alert me when TSLA gets halted"
 {"name": "TSLA halt", "paraphrase": "I will watch TSLA during all sessions and notify you the moment a trading halt is detected (at most one alert every 5 minutes).", "tier": "event_match", "universe": {"symbols_include": ["TSLA"], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": null, "max_market_cap": null, "sector": null, "session": "all"}, "steps": [{"event_types": ["halt"], "after": "session_open", "within_minutes": null}], "day_conditions": [], "lifecycle": {"cooldown_seconds": 300, "max_fires_per_day": 20}, "message_template": "{symbol} HALTED at {price}", "dry_run_days": 5}
 
 User: "acciones de más de 1B que caigan fuerte en el opening y luego crucen el vwap al alza tras el mínimo"
-{"name": "Reclaim de VWAP tras caída en el opening (>1B)", "paraphrase": "Vigilaré acciones con capitalización superior a 1B: cuando caigan al menos un 2% en la primera hora y después crucen el VWAP al alza tras marcar el mínimo del opening, te avisaré. Nota: la condición de caída se evalúa sobre el día en curso, por lo que esta alerta funciona mejor como secuencia intradía.", "tier": "sequence", "universe": {"symbols_include": [], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": 1000000000, "max_market_cap": null, "sector": null, "session": "regular"}, "steps": [{"event_types": ["vwap_cross_up"], "after": "opening_low", "within_minutes": null}], "day_conditions": [{"metric": "opening_drop_pct", "op": "lte", "value": -2}], "lifecycle": {"cooldown_seconds": 1800, "max_fires_per_day": 10}, "message_template": "{symbol}: reclaim de VWAP tras caída en el opening", "dry_run_days": 5}
+{"name": "Reclaim de VWAP tras caída en el opening (>1B)", "paraphrase": "Vigilaré acciones con capitalización superior a 1B: cuando caigan al menos un 2% en la primera hora y después crucen el VWAP al alza tras marcar el mínimo del opening, te avisaré. Nota: la condición de caída se evalúa sobre el día en curso, por lo que esta alerta funciona mejor como secuencia intradía.", "tier": "sequence", "universe": {"symbols_include": [], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": 1000000000, "max_market_cap": null, "sector": null, "session": "regular"}, "steps": [{"event_types": ["vwap_cross_up"], "after": "opening_low", "within_minutes": null}], "day_conditions": [{"metric": "opening_drop_pct", "op": "lte", "value": -2}], "membership": null, "lifecycle": {"cooldown_seconds": 1800, "max_fires_per_day": 10}, "message_template": "{symbol}: reclaim de VWAP tras caída en el opening", "dry_run_days": 5}
+
+User: "avísame cuando una acción entre en el top 10 de gappers"
+{"name": "Entra en top 10 gappers", "paraphrase": "Te avisaré en el momento en que cualquier acción entre en el top 10 del scanner de gappers al alza durante la sesión regular (máximo un aviso cada 15 minutos por símbolo).", "tier": "membership", "universe": {"symbols_include": [], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": null, "max_market_cap": null, "sector": null, "session": "regular"}, "steps": [], "day_conditions": [], "membership": {"category": "gappers_up", "on": "enter", "rank_lte": 10}, "lifecycle": {"cooldown_seconds": 900, "max_fires_per_day": 30}, "message_template": "{symbol}: entra en top gappers (#{rank})", "dry_run_days": 0}
 """
 
 _REPAIR_PROMPT = """\
@@ -233,6 +251,7 @@ def _build_spec(payload: dict[str, Any], query: str, user_id: str) -> AlertSpec:
         universe=payload.get("universe") or {},
         steps=payload.get("steps") or [],
         day_conditions=payload.get("day_conditions") or [],
+        membership=payload.get("membership"),
         lifecycle=payload.get("lifecycle") or {},
         actions=actions,
     )
@@ -313,35 +332,91 @@ async def alert_compiler_node(state: dict) -> dict:
 
     results["spec"] = spec.model_dump(mode="json")
     results["paraphrase"] = spec.paraphrase
-    results["armable_now"] = spec.is_t0_armable()
+    results["armable_now"] = spec.is_live_armable()
 
-    # ── 4: dry-run with evidence ──
-    dry_days = int((meta or {}).get("dry_run_days", 5))
-    await _progress(
-        f"Spec validada ({spec.tier}). Comprobando cuándo habría disparado "
-        f"en los últimos {dry_days} días de mercado..."
-    )
-    try:
-        dry = await run_dry_run(spec, days=dry_days)
-        spec.dry_run = {
-            "total_fires": dry["total_fires"],
-            "days_scanned": dry["days_scanned"],
-            "unique_symbols": dry["unique_symbols"][:30],
-            "ran_at": time.time(),
-        }
-        results["dry_run"] = dry
+    # ── 3b: duplicate / near-duplicate check against user's existing specs ──
+    store = get_store()
+    existing = await store.list_specs(user_id, include_archived=False)
+    similar = find_similar(spec, existing)
+    results["similar"] = similar
+    if similar["recommendation"] == "reuse":
+        # Exact duplicate already exists — do NOT create another draft.
+        # Surface the existing one so the UI can reuse/arm it.
+        match = similar["exact"][0]
         await _progress(
-            f"Dry-run completado: {dry['total_fires']} disparos en "
-            f"{len(dry['days_scanned'])} días ({len(dry['unique_symbols'])} símbolos)."
+            f"Ya tienes una alerta equivalente («{match['name']}», "
+            f"estado: {match['status']}). No creo un borrador duplicado."
         )
-    except Exception as exc:
-        errors.append(f"dry_run: {exc}")
+        results["duplicate"] = True
+        results["existing_spec_id"] = match["spec_id"]
+        results["spec_id"] = match["spec_id"]
+        results["persisted"] = False
+        # Still attach a dry-run preview of the NEW draft so the user sees
+        # evidence, but reuse the existing id for arming.
+        dry_days = int((meta or {}).get("dry_run_days", 5))
+        if dry_days > 0 and spec.steps:
+            try:
+                results["dry_run"] = await run_dry_run(spec, days=dry_days)
+            except Exception as exc:
+                errors.append(f"dry_run: {exc}")
+        elapsed_ms = int((time.time() - start) * 1000)
+        return {
+            "agent_results": {
+                "alert_compiler": {
+                    "query_interpreted": query,
+                    **results,
+                },
+            },
+            "execution_metadata": {
+                **(state.get("execution_metadata", {})),
+                "alert_compiler": {
+                    "elapsed_ms": elapsed_ms,
+                    "tier": str(spec.tier),
+                    "duplicate": True,
+                    "error_count": len(errors),
+                },
+            },
+        }
+
+    if similar["recommendation"] == "review":
+        await _progress(
+            f"Encontré {len(similar['near'])} alerta(s) parecida(s). "
+            "Creo el borrador nuevo; revisa si prefieres reutilizar una existente."
+        )
+
+    # ── 4: dry-run with evidence (skip for membership — no historical events) ──
+    dry_days = int((meta or {}).get("dry_run_days", 5))
+    if dry_days > 0 and spec.steps:
+        await _progress(
+            f"Spec validada ({spec.tier}). Comprobando cuándo habría disparado "
+            f"en los últimos {dry_days} días de mercado..."
+        )
+        try:
+            dry = await run_dry_run(spec, days=dry_days)
+            spec.dry_run = {
+                "total_fires": dry["total_fires"],
+                "days_scanned": dry["days_scanned"],
+                "unique_symbols": dry["unique_symbols"][:30],
+                "ran_at": time.time(),
+            }
+            results["dry_run"] = dry
+            await _progress(
+                f"Dry-run completado: {dry['total_fires']} disparos en "
+                f"{len(dry['days_scanned'])} días ({len(dry['unique_symbols'])} símbolos)."
+            )
+        except Exception as exc:
+            errors.append(f"dry_run: {exc}")
+    elif not spec.steps:
+        results["dry_run"] = {
+            "total_fires": 0, "days_scanned": [], "unique_symbols": [],
+            "per_day": [], "errors": [], "note": "membership alerts have no historical dry-run",
+        }
 
     # ── 5: persist as DRAFT (user confirms via REST /api/alerts/{id}/arm) ──
-    store = get_store()
     persisted = await store.save_spec(spec)
     results["persisted"] = persisted
     results["spec_id"] = spec.id
+    results["duplicate"] = False
     if not persisted:
         errors.append("persistence unavailable — spec draft was not saved")
 

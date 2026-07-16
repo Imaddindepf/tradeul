@@ -124,9 +124,17 @@ AVAILABLE_AGENTS = {
         "this week'), and saves it as a DRAFT the user can confirm/arm. "
         "Supports: event conditions (VWAP crosses, ORB breakouts, halts, volume/RVOL spikes, "
         "MA/MACD/stoch crosses, 240+ event types), universe filters (price, RVOL, market cap, "
-        "specific tickers, session), and intraday sequences (A then B). "
+        "specific tickers, session), intraday sequences (A then B), and membership "
+        "(enter/exit scanner rankings like top gappers). "
         "CRITICAL: use when the user wants FUTURE notifications (standing alert). "
-        "If they ask what happened in the PAST, use strategy_scanner instead."
+        "If they ask what happened in the PAST, use strategy_scanner instead. "
+        "If they want to LIST/PAUSE/ARM existing alerts, use alert_manager instead."
+    ),
+    "alert_manager": (
+        "Manage EXISTING LLM alerts: list them, pause, arm, or archive. Keywords: "
+        "'mis alertas', 'lista mis alertas', 'pausa la alerta de MSFT', 'arma la de VWAP', "
+        "'borra/archiva la alerta…', 'my alerts', 'pause alert', 'activate alert'. "
+        "Does NOT create new alerts — that is alert_compiler."
     ),
 }
 
@@ -205,7 +213,8 @@ EARNINGS_HISTORY — Past EPS, revenue, quarterly results for a ticker → finan
 FUNDAMENTALS — Financial statements, balance sheets, ratios → financial
 SEC_FILINGS — SEC documents: 10-K, 10-Q, 8-K, S-1 → financial
 SCREENING — Filter stocks by specific numeric criteria (without ranking) → screener
-ALERT_CREATE — The user wants a STANDING ALERT: to be notified in the FUTURE when a market condition occurs → alert_compiler. Keywords: "avísame cuando", "alerta cuando", "crea una alerta", "quiero que me avises", "alert me when", "notify me when/if", "create an alert", "watch for". The condition may reference events (VWAP cross, halt, breakout, volume spike), filters (RVOL, price, market cap, tickers) or sequences. Distinct from STRATEGY_SCAN (which looks BACKWARD at what already happened). If the message ONLY asks to manage existing alerts (list/pause/delete), it is GREETING — alert management happens via the alerts panel, not the compiler.
+ALERT_CREATE — The user wants a STANDING ALERT: to be notified in the FUTURE when a market condition occurs → alert_compiler. Keywords: "avísame cuando", "alerta cuando", "crea una alerta", "quiero que me avises", "alert me when", "notify me when/if", "create an alert", "watch for", "cuando entre en top gappers". The condition may reference events, filters, sequences or scanner membership. Distinct from STRATEGY_SCAN (looks BACKWARD) and from ALERT_MANAGE.
+ALERT_MANAGE — List / pause / arm / archive EXISTING alerts → alert_manager. Keywords: "mis alertas", "lista mis alertas", "pausa la alerta", "arma la alerta de…", "borra la alerta", "my alerts", "pause/activate/delete alert". Does NOT create.
 STRATEGY_SCAN — Find stocks whose INTRADAY PRICE ACTION matched a described setup/sequence on a specific day → strategy_scanner. The user describes a temporal pattern of events ("crossed VWAP up AFTER an opening decline", "halted then broke out", "volume spike in the first 30 min and closed green vs open") and wants the LIST of stocks where it HAPPENED (today, yesterday, or a past date). Keywords: "cruzaron", "hicieron", "tras", "después de", "that did", "which stocks crossed/reclaimed/broke... and then...". Distinct from SCREENING (current-state filters, no temporal sequence), RANKING (top lists), BACKTEST (P&L simulation with entry/exit rules) and CODE (statistical frequencies).
 THEMATIC — Find stocks by investment theme, sector vertical, or industry category. The user is explicitly looking for a LIST of companies in a specific theme. Examples: "robotics stocks", "empresas de memoria", "quantum computing companies", "acciones de energía nuclear", "cybersecurity zero trust", "EV charging", "GLP-1 weight loss drugs", "chip foundry stocks", "defense tech", "lithium miners" → market_data. IMPORTANT: Broad market questions like "what theme is driving the market today?", "que tema mueve el mercado?", "what sectors are hot?" are NOT THEMATIC — they are RANKING queries because the user wants to see current market movers, not a static list of themed companies.
 DEEP_RESEARCH — Comprehensive analysis, business model, competitive positioning, sentiment, analyst opinions → research + financial (when tickers are present). Use for: "how does X make money?", "compare X vs Y", "what's X's competitive moat?", "diferencias entre X e Y", "modelo de negocio de X"
@@ -389,6 +398,15 @@ User: "alert me when TSLA gets halted"
 
 User: "quiero una alerta para acciones de más de 1B que caigan en el opening y luego reclamen el vwap"
 {{"intent": "ALERT_CREATE", "tickers": [], "agents": ["alert_compiler"], "theme_tags": [], "plan": "Crear alerta de secuencia: caída en opening + reclaim de VWAP en acciones >1B, con dry-run de evidencia", "confidence": 1.0, "reasoning": "Standing sequence alert with universe filter — alert_compiler compiles and previews it", "clarification": null}}
+
+User: "avísame cuando una acción entre en el top 10 de gappers"
+{{"intent": "ALERT_CREATE", "tickers": [], "agents": ["alert_compiler"], "theme_tags": [], "plan": "Crear alerta membership: enter top 10 gappers_up", "confidence": 1.0, "reasoning": "Scanner ranking enter watch — alert_compiler membership tier", "clarification": null}}
+
+User: "mis alertas"
+{{"intent": "ALERT_MANAGE", "tickers": [], "agents": ["alert_manager"], "theme_tags": [], "plan": "Listar alertas IA existentes del usuario", "confidence": 1.0, "reasoning": "Manage existing alerts — alert_manager", "clarification": null}}
+
+User: "pausa la alerta de MSFT"
+{{"intent": "ALERT_MANAGE", "tickers": ["MSFT"], "agents": ["alert_manager"], "theme_tags": [], "plan": "Pausar la alerta existente de MSFT", "confidence": 1.0, "reasoning": "Pause existing alert by ticker — alert_manager", "clarification": null}}
 
 User: "top 10 robotics stocks"
 {{"intent": "THEMATIC", "tickers": [], "agents": ["market_data"], "theme_tags": ["robotics"], "plan": "Find top 10 robotics companies by theme classification and enrich with live market data", "confidence": 1.0, "reasoning": "Thematic query — resolve via classification database then enrich with market data", "clarification": null}}

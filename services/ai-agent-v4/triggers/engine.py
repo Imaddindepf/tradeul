@@ -27,6 +27,8 @@ from triggers.models import TriggerConfig, TriggerEvent
 
 logger = logging.getLogger(__name__)
 
+# Lazy imports inside methods avoid circular deps with alerts package.
+
 # ── Constants ────────────────────────────────────────────────────
 
 STREAM_KEY = "stream:alerts:market"
@@ -61,6 +63,7 @@ class TriggerEngine:
         self._market_redis: Optional[aioredis.Redis] = None
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._membership = None  # MembershipWatcher | None
 
         # In-memory cache: user_id -> {trigger_id -> TriggerConfig}
         self._triggers: dict[str, dict[str, TriggerConfig]] = {}
@@ -109,6 +112,16 @@ class TriggerEngine:
 
         self._running = True
         self._task = asyncio.create_task(self._consume_loop(), name="trigger-engine")
+
+        # Membership (scanner enter/exit) runs on its own poll loop
+        from alerts.membership import MembershipWatcher
+        self._membership = MembershipWatcher(
+            redis_url=self._redis_url,
+            on_transition=self._on_membership_transition,
+        )
+        self._sync_membership_watches()
+        await self._membership.start()
+
         logger.info(
             "TriggerEngine started (consumer=%s, triggers_loaded=%d)",
             CONSUMER_NAME,
@@ -118,6 +131,12 @@ class TriggerEngine:
     async def stop(self) -> None:
         """Gracefully stop the consumer loop."""
         self._running = False
+        if self._membership is not None:
+            try:
+                await self._membership.stop()
+            except Exception:
+                pass
+            self._membership = None
         if self._task is not None:
             self._task.cancel()
             try:
@@ -159,7 +178,11 @@ class TriggerEngine:
             user_triggers.pop(config.id, None)
             if not user_triggers and user_id in self._triggers:
                 del self._triggers[user_id]
-        logger.info("Registered trigger %s for user %s (enabled=%s)", config.id, user_id, config.enabled)
+        self._sync_membership_watches()
+        logger.info(
+            "Registered trigger %s for user %s (enabled=%s, kind=%s)",
+            config.id, user_id, config.enabled, config.kind,
+        )
         return config
 
     async def unregister_trigger(self, user_id: str, trigger_id: str) -> bool:
@@ -173,10 +196,22 @@ class TriggerEngine:
         removed = await r.hdel(key, trigger_id)
 
         user_triggers = self._triggers.get(user_id, {})
-        user_triggers.pop(trigger_id, None)
+        gone = user_triggers.pop(trigger_id, None)
         if not user_triggers:
             self._triggers.pop(user_id, None)
 
+        # Clear in-flight CEP state for sequence specs
+        if gone and gone.sequence_steps and gone.spec_id:
+            try:
+                from alerts.cep import SequenceRuntime
+                r = await self._get_redis()
+                n = await SequenceRuntime(r).clear_spec(user_id, gone.spec_id)
+                if n:
+                    logger.info("Cleared %d CEP states for spec %s", n, gone.spec_id)
+            except Exception:
+                logger.exception("CEP clear failed for %s", trigger_id)
+
+        self._sync_membership_watches()
         logger.info("Unregistered trigger %s for user %s (existed=%s)", trigger_id, user_id, bool(removed))
         return bool(removed)
 
@@ -268,13 +303,12 @@ class TriggerEngine:
                     # Evaluate against all triggers concurrently
                     for user_id, user_triggers in self._triggers.items():
                         for trigger in user_triggers.values():
-                            if self._evaluate_trigger(trigger, event):
-                                tasks.append(
-                                    asyncio.create_task(
-                                        self._dispatch_workflow(trigger, event),
-                                        name=f"dispatch-{trigger.id[:8]}",
-                                    )
+                            tasks.append(
+                                asyncio.create_task(
+                                    self._handle_event(trigger, event),
+                                    name=f"eval-{trigger.id[:8]}",
                                 )
+                            )
 
                     # ACK the message regardless of dispatch outcome
                     await r.xack(STREAM_KEY, CONSUMER_GROUP, msg_id)
@@ -350,50 +384,128 @@ class TriggerEngine:
 
     # ── internal: evaluation ─────────────────────────────────────
 
-    @staticmethod
-    def _evaluate_trigger(trigger: TriggerConfig, event: TriggerEvent) -> bool:
-        """Check whether *event* satisfies *trigger* conditions.
+    def _sync_membership_watches(self) -> None:
+        if self._membership is None:
+            return
+        watches: dict[str, dict[str, Any]] = {}
+        for user_triggers in self._triggers.values():
+            for tid, cfg in user_triggers.items():
+                if cfg.kind == "membership" and cfg.enabled:
+                    watches[tid] = cfg.model_dump()
+        self._membership.set_watches(watches)
 
-        All conditions are ANDed.  Returns True if the trigger should fire.
-        """
+    async def _on_membership_transition(self, payload: dict[str, Any]) -> None:
+        """Callback from MembershipWatcher → reuse alert publish path."""
+        raw = payload.get("trigger") or {}
+        try:
+            trigger = TriggerConfig(**raw)
+        except Exception:
+            logger.exception("Bad membership trigger payload")
+            return
+        event = TriggerEvent(
+            event_id=f"mem-{int(time.time()*1000)}",
+            event_type=payload.get("event_type") or "membership",
+            symbol=payload.get("symbol") or "",
+            price=payload.get("price"),
+            volume=None,
+            rvol=payload.get("rvol"),
+            timestamp=float(payload.get("timestamp") or time.time()),
+            raw={"rank": payload.get("rank")},
+        )
+        if not self._passes_cooldown(trigger):
+            return
+        await self._dispatch_workflow(trigger, event)
+
+    async def _handle_event(self, trigger: TriggerConfig, event: TriggerEvent) -> None:
+        """Route a market event through the right evaluator for this trigger."""
         if not trigger.enabled:
-            return False
+            return
+        if trigger.kind == "membership":
+            return  # handled by MembershipWatcher poll loop
+        if not self._passes_universe(trigger, event):
+            return
+        if not self._passes_cooldown(trigger):
+            return
 
-        # Cooldown check
-        if trigger.last_triggered is not None:
-            elapsed = time.time() - trigger.last_triggered
-            if elapsed < trigger.cooldown_seconds:
-                return False
+        if trigger.sequence_steps:
+            await self._handle_sequence(trigger, event)
+            return
 
+        # T0 single-event match
+        if self._matches_event_types(trigger, event):
+            await self._dispatch_workflow(trigger, event)
+
+    async def _handle_sequence(self, trigger: TriggerConfig, event: TriggerEvent) -> None:
+        from alerts.cep import SequenceRuntime
+
+        # Fast reject: event type must appear in SOME step
+        all_types = {
+            e.lower()
+            for s in trigger.sequence_steps
+            for e in (s.get("event_types") or [])
+        }
+        if event.event_type.lower() not in all_types:
+            return
+
+        r = await self._get_redis()
+        runtime = SequenceRuntime(r)
+        result = await runtime.evaluate(
+            user_id=trigger.user_id,
+            spec_id=trigger.spec_id or trigger.id,
+            steps=trigger.sequence_steps,
+            symbol=event.symbol,
+            event_type=event.event_type,
+            now=event.timestamp,
+        )
+        if result and result.get("completed"):
+            # Attach path evidence onto the event raw payload
+            event.raw = {**(event.raw or {}), "sequence_path": result.get("path")}
+            await self._dispatch_workflow(trigger, event)
+
+    @staticmethod
+    def _passes_cooldown(trigger: TriggerConfig) -> bool:
+        if trigger.last_triggered is None:
+            return True
+        return (time.time() - trigger.last_triggered) >= trigger.cooldown_seconds
+
+    @staticmethod
+    def _matches_event_types(trigger: TriggerConfig, event: TriggerEvent) -> bool:
         cond = trigger.conditions
+        if not cond.event_types:
+            return True
+        return event.event_type in cond.event_types
 
-        # Event type filter
-        if cond.event_types and event.event_type not in cond.event_types:
+    @staticmethod
+    def _passes_universe(trigger: TriggerConfig, event: TriggerEvent) -> bool:
+        cond = trigger.conditions
+        sym = (event.symbol or "").upper()
+        include = {s.upper() for s in (cond.symbols_include or [])}
+        exclude = {s.upper() for s in (cond.symbols_exclude or [])}
+        if include and sym not in include:
             return False
-
-        # Symbol include filter
-        if cond.symbols_include and event.symbol not in cond.symbols_include:
+        if exclude and sym in exclude:
             return False
-
-        # Symbol exclude filter
-        if cond.symbols_exclude and event.symbol in cond.symbols_exclude:
-            return False
-
-        # Price filters
         if cond.min_price is not None and (event.price is None or event.price < cond.min_price):
             return False
         if cond.max_price is not None and (event.price is None or event.price > cond.max_price):
             return False
-
-        # Relative volume filter
         if cond.min_rvol is not None and (event.rvol is None or event.rvol < cond.min_rvol):
             return False
-
-        # Absolute volume filter
         if cond.min_volume is not None and (event.volume is None or event.volume < cond.min_volume):
             return False
-
         return True
+
+    @staticmethod
+    def _evaluate_trigger(trigger: TriggerConfig, event: TriggerEvent) -> bool:
+        """Legacy helper kept for tests: T0 single-event AND of all conditions."""
+        if not trigger.enabled or trigger.kind == "membership" or trigger.sequence_steps:
+            return False
+        eng = TriggerEngine
+        return (
+            eng._passes_cooldown(trigger)
+            and eng._passes_universe(trigger, event)
+            and eng._matches_event_types(trigger, event)
+        )
 
     # ── internal: dispatch ───────────────────────────────────────
 
@@ -512,6 +624,7 @@ class TriggerEngine:
                 event_type=event.event_type,
                 trigger_name=trigger.name,
                 rvol=event.rvol or "N/A",
+                rank=(event.raw or {}).get("rank", "N/A"),
             )
 
             alert_payload = {

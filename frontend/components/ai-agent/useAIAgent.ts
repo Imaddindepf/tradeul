@@ -48,6 +48,7 @@ const NODE_LABELS: Record<string, string> = {
   dilution: 'Dilution Tracker',
   strategy_scanner: 'Strategy Scanner',
   alert_compiler: 'Alert Compiler',
+  alert_manager: 'Alert Manager',
   context_enricher: 'Context',
   context_brief: 'Contexto Fundamental',
 };

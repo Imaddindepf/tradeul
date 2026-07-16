@@ -177,13 +177,7 @@ class AlertSpec(BaseModel):
     # ── Derived helpers ──
 
     def is_t0_armable(self) -> bool:
-        """True when this spec can run TODAY on the reactive TriggerEngine.
-
-        T0 = single step, no ordering anchors beyond session_open, and only
-        conditions the TriggerEngine evaluates (event_types, price, rvol,
-        volume, symbol lists). Day conditions need the day to be over, so
-        they exclude live arming.
-        """
+        """Single-event specs that the TriggerEngine can evaluate live."""
         tier = self.tier if isinstance(self.tier, str) else self.tier.value
         return (
             tier == AlertTier.EVENT_MATCH.value
@@ -191,16 +185,43 @@ class AlertSpec(BaseModel):
             and not self.day_conditions
         )
 
-    def to_trigger_config(self) -> dict[str, Any]:
-        """Compile a T0 spec into the existing TriggerEngine config shape."""
-        if not self.is_t0_armable():
-            raise ValueError("spec is not T0-armable; live sequence runtime lands in phase 3")
+    def is_sequence_armable(self) -> bool:
+        """Multi-step specs without day_conditions — live CEP runtime."""
+        tier = self.tier if isinstance(self.tier, str) else self.tier.value
+        return (
+            tier == AlertTier.SEQUENCE.value
+            and len(self.steps) >= 2
+            and not self.day_conditions
+        )
 
-        step = self.steps[0]
+    def is_membership_armable(self) -> bool:
+        tier = self.tier if isinstance(self.tier, str) else self.tier.value
+        return tier == AlertTier.MEMBERSHIP.value and self.membership is not None
+
+    def is_live_armable(self) -> bool:
+        """Anything we can evaluate continuously (not just dry-run)."""
+        return self.is_t0_armable() or self.is_sequence_armable() or self.is_membership_armable()
+
+    def to_trigger_config(self) -> dict[str, Any]:
+        """Compile a live-armable spec into TriggerEngine config shape."""
+        if not self.is_live_armable():
+            raise ValueError(
+                "spec is not live-armable (needs day_conditions end-of-day context "
+                "or an unsupported tier)"
+            )
+
         workflow = next(
             (a for a in self.actions if a.channel == "workflow" and a.workflow_id), None,
         )
         alert_action = next((a for a in self.actions if a.channel == "in_app"), None)
+        tier = self.tier if isinstance(self.tier, str) else self.tier.value
+
+        # For sequences, subscribe to the UNION of all step event types so the
+        # engine receives every relevant firehose event for the NFA.
+        if self.steps:
+            event_types = sorted({e for s in self.steps for e in s.event_types})
+        else:
+            event_types = []
 
         return {
             "id": self.trigger_id or uuid.uuid4().hex,
@@ -208,8 +229,16 @@ class AlertSpec(BaseModel):
             "name": self.name,
             "spec_id": self.id,
             "enabled": True,
+            "kind": tier,
+            "sequence_steps": (
+                [s.model_dump(exclude_none=True) for s in self.steps]
+                if self.is_sequence_armable() else []
+            ),
+            "membership": (
+                self.membership.model_dump() if self.is_membership_armable() else None
+            ),
             "conditions": {
-                "event_types": step.event_types,
+                "event_types": event_types,
                 "min_price": self.universe.min_price,
                 "max_price": self.universe.max_price,
                 "min_rvol": self.universe.min_rvol,
