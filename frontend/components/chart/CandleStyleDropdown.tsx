@@ -24,14 +24,15 @@ export function CandleStyleDropdown({ value, onChange }: Props) {
 
     useEffect(() => {
         if (!open) return;
-        const handler = (e: MouseEvent) => {
+        // pointerdown en captura — cierre garantizado al clicar fuera (canvas incluido).
+        const handler = (e: PointerEvent) => {
             if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
         };
         const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-        document.addEventListener('mousedown', handler);
+        document.addEventListener('pointerdown', handler, true);
         document.addEventListener('keydown', esc);
         return () => {
-            document.removeEventListener('mousedown', handler);
+            document.removeEventListener('pointerdown', handler, true);
             document.removeEventListener('keydown', esc);
         };
     }, [open]);

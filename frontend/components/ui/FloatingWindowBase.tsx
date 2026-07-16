@@ -32,8 +32,10 @@ export interface FloatingWindowBaseProps {
 /**
  * Ventana flotante optimizada con drag & resize nativos
  * - Position fixed sin transform
- * - Callbacks memoizados para evitar re-renders
- * - Performance optimizada para drag fluido
+ * - Durante drag/resize solo se actualiza estado LOCAL; el contexto padre
+ *   (updateWindow) se notifica al soltar. Así evitamos un storm de
+ *   re-renders que en ERN y otras ventanas pesadas llegaba a React #185
+ *   (maximum update depth) al agrandar/achicar varias veces.
  */
 function FloatingWindowBaseComponent({
   children,
@@ -47,7 +49,6 @@ function FloatingWindowBaseComponent({
   maxHeight = 1000,
   enableResizing = true,
   className = '',
-  focusedBorderColor = 'border-primary',
   initialZIndex,
   stackOffset = 0,
   lockMovement = false,
@@ -62,7 +63,6 @@ function FloatingWindowBaseComponent({
     const minX = 10; // Margen desde el borde izquierdo
 
     if (initialPosition) {
-      // Asegurar que la posición inicial respete los límites
       return {
         x: Math.max(minX, initialPosition.x),
         y: Math.max(minY, initialPosition.y),
@@ -78,23 +78,36 @@ function FloatingWindowBaseComponent({
   const [position, setPosition] = useState(getInitialPosition);
   const [size, setSize] = useState(initialSize);
   const [zIndex, setZIndex] = useState(initialZIndex ?? Z_INDEX.FLOATING_TABLES_BASE);
-  // El foco inicial lo decide el gestor global: una ventana recién abierta
-  // (p. ej. un chart al pulsar un ticker) ya fue marcada como enfocada por
-  // openWindow antes de montarse, así que nace con el borde de foco activo.
   const [isFocused, setIsFocused] = useState(
     () => windowId !== undefined && floatingFocusManager.getCurrent() === windowId,
   );
 
-  // Sincronizar zIndex cuando cambia desde el contexto (ej: al llamar openWindow de nuevo)
+  const isDraggingRef = useRef(false);
+  const isResizingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sizeRef = useRef(size);
+  const positionRef = useRef(position);
+  const zIndexRef = useRef(zIndex);
+  sizeRef.current = size;
+  positionRef.current = position;
+  zIndexRef.current = zIndex;
+
+  // Callbacks estables vía ref — evita que bringToFront cambie de identidad
+  // en cada render del padre (onSizeChange/onZIndexChange no memoizados) y
+  // re-enganche el listener de captura en mitad de un resize.
+  const onZIndexChangeRef = useRef(onZIndexChange);
+  const onSizeChangeRef = useRef(onSizeChange);
+  const onPositionChangeRef = useRef(onPositionChange);
+  onZIndexChangeRef.current = onZIndexChange;
+  onSizeChangeRef.current = onSizeChange;
+  onPositionChangeRef.current = onPositionChange;
+
+  // Sincronizar zIndex desde el contexto (p. ej. openWindow vuelve a subir la ventana).
+  // NO llamar a focus() aquí: eso re-notificaba a todas las ventanas y, combinado
+  // con updateWindow en cada mousemove de resize, podía encadenar updates hasta #185.
   useEffect(() => {
-    if (initialZIndex !== undefined && initialZIndex !== zIndex) {
+    if (initialZIndex !== undefined && initialZIndex !== zIndexRef.current) {
       setZIndex(initialZIndex);
-      // Activar foco visual y notificar globalmente para que las demás lo suelten
-      if (windowId !== undefined) {
-        floatingFocusManager.focus(windowId);
-      } else {
-        setIsFocused(true);
-      }
     }
   }, [initialZIndex]);
 
@@ -110,33 +123,32 @@ function FloatingWindowBaseComponent({
 
   // Establecer z-index solo en el cliente para evitar mismatch SSR (primera vez)
   useEffect(() => {
-    if (initialZIndex === undefined && zIndex === Z_INDEX.FLOATING_TABLES_BASE) {
+    if (initialZIndex === undefined && zIndexRef.current === Z_INDEX.FLOATING_TABLES_BASE) {
       const newZ = floatingZIndexManager.getNext();
       setZIndex(newZ);
-      onZIndexChange?.(newZ);
+      onZIndexChangeRef.current?.(newZ);
     }
   }, []); // Solo ejecutar una vez al montar
 
-  const isDraggingRef = useRef(false);
-  const isResizingRef = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Traer al frente - SIEMPRE actualiza z-index cuando se hace click
+  // Traer al frente — no-op si ya somos la ventana top + enfocada.
   const bringToFront = useCallback(() => {
-      const newZ = floatingZIndexManager.getNext();
-      setZIndex(newZ);
-      onZIndexChange?.(newZ);
-    // Tomar el foco global: las demás ventanas lo soltarán vía la suscripción.
+    const alreadyFocused = windowId !== undefined && floatingFocusManager.getCurrent() === windowId;
+    const alreadyTop = zIndexRef.current === floatingZIndexManager.getCurrent();
+    if (alreadyFocused && alreadyTop) return;
+
+    const newZ = floatingZIndexManager.getNext();
+    setZIndex(newZ);
+    onZIndexChangeRef.current?.(newZ);
     if (windowId !== undefined) {
       floatingFocusManager.focus(windowId);
     } else {
       setIsFocused(true);
     }
-  }, [onZIndexChange, windowId]);
+  }, [windowId]);
 
-  // Drag handler optimizado con bounds checking
+  // Drag: estado local en mousemove; persistir posición al soltar.
   const handleDragStart = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    if (lockMovement) return; // Movement locked from dashboard toolbar
+    if (lockMovement) return;
     const target = e.target as HTMLElement;
     if (!target.closest(`.${dragHandleClassName}`)) return;
 
@@ -148,8 +160,10 @@ function FloatingWindowBaseComponent({
 
     const startX = e.clientX;
     const startY = e.clientY;
-    const startPosX = position.x;
-    const startPosY = position.y;
+    const startPosX = positionRef.current.x;
+    const startPosY = positionRef.current.y;
+    const dragWidth = sizeRef.current.width;
+    let latestPos = positionRef.current;
 
     const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
       if (!isDraggingRef.current) return;
@@ -157,51 +171,47 @@ function FloatingWindowBaseComponent({
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
 
-      // Calcular nueva posición
       let newX = startPosX + deltaX;
       let newY = startPosY + deltaY;
 
-      // Límites de la pantalla (sin sidebar ahora)
-      const navbarHeight = 44; // h-11 = 44px (navbar compacto)
-      const minX = 10; // Margen desde borde izquierdo
-      const minY = navbarHeight + 6; // LÍMITE: Navbar + margen
-      const maxX = window.innerWidth - size.width - 10;
-      const maxY = window.innerHeight - 100; // Dejar espacio para ver el header
+      const navbarHeight = 44;
+      const minX = 10;
+      const minY = navbarHeight + 6;
+      const maxX = window.innerWidth - dragWidth - 10;
+      const maxY = window.innerHeight - 100;
 
-      // Aplicar restricciones
       newX = Math.max(minX, Math.min(maxX, newX));
       newY = Math.max(minY, Math.min(maxY, newY));
 
-      const newPos = { x: newX, y: newY };
-
-      setPosition(newPos);
-      onPositionChange?.(newPos);
+      latestPos = { x: newX, y: newY };
+      setPosition(latestPos);
     };
 
     const handleMouseUp = () => {
       isDraggingRef.current = false;
-      // No quitar el foco al soltar el drag
+      onPositionChangeRef.current?.(latestPos);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [dragHandleClassName, position.x, position.y, size.width, bringToFront, onPositionChange, lockMovement]);
+  }, [dragHandleClassName, bringToFront, lockMovement]);
 
-  // Resize handler optimizado
+  // Resize: estado local en mousemove; persistir tamaño al soltar.
   const handleResizeStart = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    if (lockMovement) return; // Resize also locked when movement is locked
+    if (lockMovement) return;
     e.preventDefault();
     e.stopPropagation();
 
-    bringToFront();
+    // bringToFront ya lo hace el listener de captura del contenedor.
     isResizingRef.current = true;
 
     const startX = e.clientX;
     const startY = e.clientY;
-    const startWidth = size.width;
-    const startHeight = size.height;
+    const startWidth = sizeRef.current.width;
+    const startHeight = sizeRef.current.height;
+    let latestSize = sizeRef.current;
 
     const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
       if (!isResizingRef.current) return;
@@ -209,36 +219,34 @@ function FloatingWindowBaseComponent({
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
 
-      const newSize = {
+      latestSize = {
         width: Math.max(minWidth, Math.min(maxWidth, startWidth + deltaX)),
         height: Math.max(minHeight, Math.min(maxHeight, startHeight + deltaY)),
       };
 
-      setSize(newSize);
-      onSizeChange?.(newSize);
+      setSize(latestSize);
     };
 
     const handleMouseUp = () => {
       isResizingRef.current = false;
-      // No quitar el foco al soltar el resize
+      onSizeChangeRef.current?.(latestSize);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [size.width, size.height, minWidth, minHeight, maxWidth, maxHeight, bringToFront, onSizeChange, lockMovement]);
+  }, [minWidth, minHeight, maxWidth, maxHeight, lockMovement]);
 
   // Capturar click en fase de captura para traer al frente SIEMPRE
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    
+
     const handleCapture = () => {
       bringToFront();
     };
-    
-    // Usar capture: true para ejecutar ANTES que cualquier hijo
+
     container.addEventListener('mousedown', handleCapture, { capture: true });
     return () => container.removeEventListener('mousedown', handleCapture, { capture: true });
   }, [bringToFront]);
@@ -258,16 +266,14 @@ function FloatingWindowBaseComponent({
         } ${className}`}
       onMouseDown={handleDragStart}
     >
-      {/* Contenido */}
       <div className="h-full w-full overflow-hidden flex flex-col">
         {children}
       </div>
 
-      {/* Resize handle (hidden when movement is locked) */}
       {enableResizing && !lockMovement && (
         <div
           onMouseDown={handleResizeStart}
-          className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize hover:bg-primary/20 transition-colors"
+          className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize hover:bg-primary/20 transition-colors z-[100]"
           style={{
             borderRight: '5px solid transparent',
             borderBottom: '5px solid transparent',

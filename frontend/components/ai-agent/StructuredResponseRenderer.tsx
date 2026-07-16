@@ -7,10 +7,19 @@ import {
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
-const LazyAutoChart = dynamic(() => import('./AutoChart').then(m => m.AutoBarChart), {
-  ssr: false,
-  loading: () => <div className="h-[240px] bg-surface-hover rounded-xl animate-pulse" />,
-});
+const ChartLoadError = () => (
+  <div className="h-[80px] flex items-center justify-center rounded-xl border border-border bg-surface text-[11px] text-muted-fg">
+    No se pudo cargar el gráfico — recarga la página (hay una versión nueva de la app).
+  </div>
+);
+
+const LazyAutoChart = dynamic(
+  () => import('./AutoChart').then(m => m.AutoBarChart).catch(() => ChartLoadError),
+  {
+    ssr: false,
+    loading: () => <div className="h-[240px] bg-surface-hover rounded-xl animate-pulse" />,
+  }
+);
 
 interface MetricsCard {
   ticker: string;

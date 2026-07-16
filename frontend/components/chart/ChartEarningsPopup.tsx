@@ -35,18 +35,19 @@ export function ChartEarningsPopup({
 
     // Click outside / Escape closes.
     useEffect(() => {
-        const onClick = (e: MouseEvent) => {
+        // pointerdown en captura — cierre garantizado al clicar fuera (canvas incluido).
+        const onClick = (e: PointerEvent) => {
             if (ref.current && !ref.current.contains(e.target as Node)) onClose();
         };
         const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
         // Defer so the click that opened us doesn't also close us.
         const t = setTimeout(() => {
-            document.addEventListener('mousedown', onClick);
+            document.addEventListener('pointerdown', onClick, true);
             document.addEventListener('keydown', onKey);
         }, 0);
         return () => {
             clearTimeout(t);
-            document.removeEventListener('mousedown', onClick);
+            document.removeEventListener('pointerdown', onClick, true);
             document.removeEventListener('keydown', onKey);
         };
     }, [onClose]);

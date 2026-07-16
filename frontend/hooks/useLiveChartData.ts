@@ -246,6 +246,13 @@ export function useLiveChartData(
   // portátil) NUNCA debe dejar el chart vacío ni muerto.
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryAttemptRef = useRef(0);
+  // Época de datos: se incrementa al cambiar (ticker, interval, replayTo).
+  // Toda petición REST captura la época al arrancar y su respuesta se
+  // DESCARTA si al llegar ya no coincide. Sin esto, una respuesta lenta del
+  // ticker anterior puede pisar las velas del ticker nuevo (header/precio
+  // correctos, histórico de otro símbolo).
+  const fetchEpochRef = useRef(0);
+  const fetchAbortRef = useRef<AbortController | null>(null);
   // Última clave (ticker:interval[:replay]) cargada con éxito — distingue
   // cold load (cambio de ticker/interval) de revalidación en background.
   // Si montamos con caché de módulo, esa clave ya está "cargada".
@@ -273,17 +280,27 @@ export function useLiveChartData(
       setError(null);
     }
 
+    // Solo puede haber UN fetchHistorical vigente: abortar el anterior y
+    // capturar la época actual para descartar esta respuesta si (ticker,
+    // interval, replay) cambia mientras está en vuelo.
+    fetchAbortRef.current?.abort();
+    const abort = new AbortController();
+    fetchAbortRef.current = abort;
+    const epoch = fetchEpochRef.current;
+
     try {
       let url = `${API_URL}/api/v1/chart/${ticker}?interval=${interval}`;
       if (replayTo) url += `&to=${replayTo}`;
 
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: abort.signal });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
 
       const result = await response.json();
+      if (epoch !== fetchEpochRef.current) return; // respuesta obsoleta: el chart ya es de otro símbolo
+
       const bars: ChartBar[] = result.data || [];
 
       bars.sort((a, b) => a.time - b.time);
@@ -301,6 +318,9 @@ export function useLiveChartData(
       }
 
     } catch (err) {
+      if ((err as Error)?.name === 'AbortError' || epoch !== fetchEpochRef.current) {
+        return; // cancelado o superado por un cambio de símbolo: ni error ni retry
+      }
       console.error('[LiveChart] Fetch error:', err);
       // NUNCA borrar datos existentes por un error de red: quedarse con las
       // velas (marginalmente stale) es estrictamente mejor que un chart vacío.
@@ -315,7 +335,8 @@ export function useLiveChartData(
         void fetchHistoricalRef.current();
       }, delay);
     } finally {
-      if (isColdLoad) setLoading(false);
+      // Si nos abortó un fetch más nuevo, ese fetch es el dueño de `loading`.
+      if (isColdLoad && !abort.signal.aborted) setLoading(false);
     }
   }, [ticker, interval, replayTo, clearRetryTimer]);
 
@@ -323,9 +344,25 @@ export function useLiveChartData(
   const fetchHistoricalRef = useRef(fetchHistorical);
   useEffect(() => { fetchHistoricalRef.current = fetchHistorical; }, [fetchHistorical]);
 
-  // Cancelar retries pendientes al cambiar ticker/interval o desmontar.
+  // Cambio de (ticker, interval, replay): nueva época de datos. Cancelar
+  // retries y abortar el fetch en vuelo — su respuesta ya no es aplicable.
+  // Además, sincronizar el estado con la caché de la NUEVA clave (o vaciarlo):
+  // las velas del símbolo anterior no deben renderizarse ni un frame bajo el
+  // ticker nuevo, ni contaminar los refs que consume el flujo realtime.
   useEffect(() => {
+    fetchEpochRef.current += 1;
     retryAttemptRef.current = 0;
+    fetchAbortRef.current?.abort();
+
+    const key = barCacheKey(ticker, interval, replayTo);
+    const entry = getBarCache(key);
+    const bars = entry?.bars ?? [];
+    setData(bars);
+    setOldestTime(entry?.oldestTime ?? null);
+    setHasMore(entry?.hasMore ?? false);
+    setError(null);
+    lastBarRef.current = bars.length > 0 ? bars[bars.length - 1] : null;
+
     return clearRetryTimer;
   }, [ticker, interval, replayTo, clearRetryTimer]);
 
@@ -346,6 +383,7 @@ export function useLiveChartData(
 
     isLoadingMoreRef.current = true;
     setLoadingMore(true);
+    const epoch = fetchEpochRef.current;
 
     try {
       const response = await fetch(
@@ -355,6 +393,7 @@ export function useLiveChartData(
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const result = await response.json();
+      if (epoch !== fetchEpochRef.current) return false; // símbolo/interval cambió en vuelo
       const newBars: ChartBar[] = result.data || [];
 
       if (newBars.length > 0) {
@@ -392,6 +431,7 @@ export function useLiveChartData(
     if (newestTime >= nowSec - 60) return false;
 
     isLoadingForwardRef.current = true;
+    const epoch = fetchEpochRef.current;
     try {
       const response = await fetch(
         `${API_URL}/api/v1/chart/${tickerRef.current}?interval=${intervalRef.current}&after=${newestTime}`
@@ -399,6 +439,7 @@ export function useLiveChartData(
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const result = await response.json();
+      if (epoch !== fetchEpochRef.current) return false; // símbolo/interval cambió en vuelo
       const newBars: ChartBar[] = result.data || [];
 
       if (newBars.length > 0) {
@@ -424,12 +465,14 @@ export function useLiveChartData(
   // to the chart imperatively (no full re-render).
   const fetchGapBars = useCallback(async (sinceTime: number) => {
     if (!tickerRef.current) return;
+    const epoch = fetchEpochRef.current;
     try {
       const response = await fetch(
         `${API_URL}/api/v1/chart/${tickerRef.current}?interval=${intervalRef.current}&after=${sinceTime}`
       );
       if (!response.ok) return;
       const result = await response.json();
+      if (epoch !== fetchEpochRef.current) return; // símbolo/interval cambió en vuelo
       const bars: ChartBar[] = (result.data || []).sort(
         (a: ChartBar, b: ChartBar) => a.time - b.time
       );

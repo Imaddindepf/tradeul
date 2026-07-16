@@ -61,7 +61,7 @@ export function HeaderLayoutControls() {
                     type="button"
                     title={`Layout · ${tpl.label}`}
                     aria-label="Choose chart layout and sync"
-                    onClick={() => setShowLayout((v) => !v)}
+                    onClick={() => { setShowLayout((v) => !v); setShowSaved(false); }}
                     className={`inline-flex items-center justify-center h-[22px] w-[26px] rounded-[3px] transition-colors ${
                         showLayout
                             ? 'text-[color:var(--color-primary)] bg-[color:var(--color-primary)]/10'
@@ -76,7 +76,7 @@ export function HeaderLayoutControls() {
                     type="button"
                     title="Saved layouts"
                     aria-label="Saved layouts"
-                    onClick={() => setShowSaved((v) => !v)}
+                    onClick={() => { setShowSaved((v) => !v); setShowLayout(false); }}
                     className={`inline-flex items-center gap-0.5 h-[22px] px-1.5 rounded-[3px] transition-colors ${
                         showSaved
                             ? 'text-[color:var(--color-primary)] bg-[color:var(--color-primary)]/10'

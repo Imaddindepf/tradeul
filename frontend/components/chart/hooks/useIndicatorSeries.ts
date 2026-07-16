@@ -33,10 +33,22 @@ export function useIndicatorSeries(
     chartVersion: number,
     isReplayActive: boolean,
 ) {
+    // Chart instance al que están ligadas las series del ref. Si el chart se
+    // recrea (ticker/interval), beforeDestroy limpia el ref — pero si algo
+    // falla o el orden de effects deja handles viejos, `has(id)` saltaba la
+    // recreación y el indicador quedaba en la leyenda sin panel visible.
+    const boundChartRef = useRef<IChartApi | null>(null);
+
     // Dynamic indicator series creation/destruction
     useEffect(() => {
         const chart = chartRef.current;
         if (!chart) return;
+
+        if (boundChartRef.current !== chart) {
+            indicatorSeriesRef.current.clear();
+            panelPaneIndexRef.current.clear();
+            boundChartRef.current = chart;
+        }
 
         const activeIds = new Set(indicators.filter(i => i.visible).map(i => i.id));
 
@@ -58,6 +70,16 @@ export function useIndicatorSeries(
         const usedPanes = new Set(panelPaneIndexRef.current.values());
         while (usedPanes.has(nextPaneIndex)) nextPaneIndex++;
 
+        /*
+          Las series de indicador NUNCA pintan el punto del crosshair por
+          defecto: lightweight-charts trae crosshairMarkerVisible=true y eso
+          hacía que cada línea (bandas, medias, RSI…) mostrara un círculo
+          siguiendo al cursor como si tuviera el foco permanentemente.
+          useIndicatorHover lo enciende SOLO para el estudio hovered/
+          seleccionado, como refuerzo visual del foco.
+        */
+        const noMarker = { crosshairMarkerVisible: false, crosshairMarkerRadius: 3 } as const;
+
         for (const inst of indicators) {
             if (!inst.visible) continue;
             if (indicatorSeriesRef.current.has(inst.id)) continue;
@@ -73,7 +95,7 @@ export function useIndicatorSeries(
                             color: (inst.styles.color as string) || config.defaultStyles.color as string,
                             lineWidth: ((inst.styles.lineWidth as number) || config.defaultStyles.lineWidth as number) as 1 | 2 | 3 | 4,
                             priceLineVisible: false, lastValueVisible: true,
-                            crosshairMarkerVisible: true, crosshairMarkerRadius: 3,
+                            ...noMarker,
                         });
                         seriesMap.set('main', s);
                     } else if (inst.type === 'bb' || inst.type === 'keltner') {
@@ -81,15 +103,15 @@ export function useIndicatorSeries(
                         const mc = (inst.styles.middleColor as string) || config.defaultStyles.middleColor as string;
                         const lc = (inst.styles.lowerColor as string) || config.defaultStyles.lowerColor as string;
                         const lw = ((inst.styles.lineWidth as number) || config.defaultStyles.lineWidth as number) as 1 | 2 | 3 | 4;
-                        seriesMap.set('upper', chart.addSeries(LineSeries, { color: uc, lineWidth: lw, priceLineVisible: false, lastValueVisible: false }));
-                        seriesMap.set('middle', chart.addSeries(LineSeries, { color: mc, lineWidth: lw, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: true }));
-                        seriesMap.set('lower', chart.addSeries(LineSeries, { color: lc, lineWidth: lw, priceLineVisible: false, lastValueVisible: false }));
+                        seriesMap.set('upper', chart.addSeries(LineSeries, { color: uc, lineWidth: lw, priceLineVisible: false, lastValueVisible: false, ...noMarker }));
+                        seriesMap.set('middle', chart.addSeries(LineSeries, { color: mc, lineWidth: lw, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: true, ...noMarker }));
+                        seriesMap.set('lower', chart.addSeries(LineSeries, { color: lc, lineWidth: lw, priceLineVisible: false, lastValueVisible: false, ...noMarker }));
                     }
                 } else {
                     while (usedPanes.has(nextPaneIndex)) nextPaneIndex++;
                     switch (inst.type) {
                         case 'rsi': {
-                            const s = chart.addSeries(LineSeries, { color: (inst.styles.color as string) || '#8b5cf6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true }, nextPaneIndex);
+                            const s = chart.addSeries(LineSeries, { color: (inst.styles.color as string) || '#8b5cf6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true, ...noMarker }, nextPaneIndex);
                             s.createPriceLine({ price: 70, color: 'rgba(239,68,68,0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
                             s.createPriceLine({ price: 30, color: 'rgba(16,185,129,0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
                             seriesMap.set('main', s);
@@ -98,31 +120,36 @@ export function useIndicatorSeries(
                         case 'macd': {
                             const psId = `macd_${nextPaneIndex}`;
                             seriesMap.set('histogram', chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, priceScaleId: psId }, nextPaneIndex));
-                            seriesMap.set('macd', chart.addSeries(LineSeries, { color: (inst.styles.macdColor as string) || '#3b82f6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true, priceScaleId: psId }, nextPaneIndex));
-                            seriesMap.set('signal', chart.addSeries(LineSeries, { color: (inst.styles.signalColor as string) || '#f97316', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false, priceScaleId: psId }, nextPaneIndex));
+                            seriesMap.set('macd', chart.addSeries(LineSeries, { color: (inst.styles.macdColor as string) || '#3b82f6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true, priceScaleId: psId, ...noMarker }, nextPaneIndex));
+                            seriesMap.set('signal', chart.addSeries(LineSeries, { color: (inst.styles.signalColor as string) || '#f97316', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false, priceScaleId: psId, ...noMarker }, nextPaneIndex));
                             break;
                         }
                         case 'stoch': {
-                            const kS = chart.addSeries(LineSeries, { color: (inst.styles.kColor as string) || '#3b82f6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true }, nextPaneIndex);
-                            const dS = chart.addSeries(LineSeries, { color: (inst.styles.dColor as string) || '#f97316', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false }, nextPaneIndex);
+                            const kS = chart.addSeries(LineSeries, { color: (inst.styles.kColor as string) || '#3b82f6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true, ...noMarker }, nextPaneIndex);
+                            const dS = chart.addSeries(LineSeries, { color: (inst.styles.dColor as string) || '#f97316', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false, ...noMarker }, nextPaneIndex);
                             kS.createPriceLine({ price: 80, color: 'rgba(239,68,68,0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
                             kS.createPriceLine({ price: 20, color: 'rgba(16,185,129,0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
                             seriesMap.set('k', kS); seriesMap.set('d', dS); seriesMap.set('main', kS);
                             break;
                         }
                         case 'adx': {
-                            seriesMap.set('adx', chart.addSeries(LineSeries, { color: (inst.styles.adxColor as string) || '#8b5cf6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true }, nextPaneIndex));
-                            seriesMap.set('pdi', chart.addSeries(LineSeries, { color: (inst.styles.pdiColor as string) || '#10b981', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false }, nextPaneIndex));
-                            seriesMap.set('mdi', chart.addSeries(LineSeries, { color: (inst.styles.mdiColor as string) || '#ef4444', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false }, nextPaneIndex));
+                            seriesMap.set('adx', chart.addSeries(LineSeries, { color: (inst.styles.adxColor as string) || '#8b5cf6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true, ...noMarker }, nextPaneIndex));
+                            seriesMap.set('pdi', chart.addSeries(LineSeries, { color: (inst.styles.pdiColor as string) || '#10b981', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false, ...noMarker }, nextPaneIndex));
+                            seriesMap.set('mdi', chart.addSeries(LineSeries, { color: (inst.styles.mdiColor as string) || '#ef4444', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false, ...noMarker }, nextPaneIndex));
                             seriesMap.set('main', seriesMap.get('adx')!);
                             break;
                         }
                         case 'atr': case 'obv': {
-                            seriesMap.set('main', chart.addSeries(LineSeries, { color: (inst.styles.color as string) || config.defaultStyles.color as string, lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true }, nextPaneIndex));
+                            seriesMap.set('main', chart.addSeries(LineSeries, { color: (inst.styles.color as string) || config.defaultStyles.color as string, lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true, ...noMarker }, nextPaneIndex));
                             break;
                         }
                         case 'squeeze': case 'rvol': {
-                            seriesMap.set('main', chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: true }, nextPaneIndex));
+                            const hist = chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: true }, nextPaneIndex);
+                            if (inst.type === 'rvol') {
+                                hist.createPriceLine({ price: 1.0, color: 'rgba(148,163,184,0.55)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '1x' });
+                                hist.createPriceLine({ price: 2.0, color: 'rgba(16,185,129,0.45)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '2x' });
+                            }
+                            seriesMap.set('main', hist);
                             break;
                         }
                     }

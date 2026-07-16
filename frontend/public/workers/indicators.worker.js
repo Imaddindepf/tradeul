@@ -406,7 +406,9 @@ var ET_TIME_FMT = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/New_York',
   hour: '2-digit',
   minute: '2-digit',
-  hour12: false,
+  // hourCycle h23 evita "24:xx" que algunos motores emiten con hour12:false
+  // y rompía el matching de slots de RVOL a medianoche.
+  hourCycle: 'h23',
 });
 
 // Slot "HH:MM" en hora ET — los slots de RVOL deben compararse en la hora
@@ -442,29 +444,49 @@ function calculateVWAP(bars, times) {
   return result;
 }
 
+function resolveIntervalMinutes(interval, bars) {
+  // Debe cubrir TODOS los intervalos intraday del frontend (incl. 2min).
+  // Antes faltaba '2min' → RVOL devolvía [] en gráficos de 2 minutos.
+  var map = {
+    '1min': 1, '2min': 2, '5min': 5, '15min': 15, '30min': 30,
+    '1hour': 60, '4hour': 240, '12hour': 720, '1day': 1440,
+  };
+  if (map[interval]) return map[interval];
+
+  // Fallback: mediana del gap entre velas (por si llega un alias desconocido).
+  if (bars && bars.length >= 3) {
+    var gaps = [];
+    var limit = Math.min(bars.length, 60);
+    for (var i = 1; i < limit; i++) {
+      var g = bars[i].time - bars[i - 1].time;
+      if (g > 0 && g < 86400) gaps.push(g);
+    }
+    if (gaps.length > 0) {
+      gaps.sort(function (a, b) { return a - b; });
+      return Math.max(1, Math.round(gaps[Math.floor(gaps.length / 2)] / 60));
+    }
+  }
+  return 0;
+}
+
 function calculateRVOL(bars, times, lookbackDays, interval) {
   if (bars.length < 10) return [];
 
-  var intervalToMinutes = {
-    '1min': 1, '5min': 5, '15min': 15, '30min': 30,
-    '1hour': 60, '4hour': 240, '1day': 1440,
-  };
-
-  var intervalMinutes = intervalToMinutes[interval] || 0;
+  var intervalMinutes = resolveIntervalMinutes(interval, bars);
+  // RVOL por slot horaria solo tiene sentido en intraday sub-hora.
   if (!intervalMinutes || intervalMinutes >= 60) return [];
 
   var dayBars = new Map();
 
   for (var i = 0; i < bars.length; i++) {
     var bar = bars[i];
-    // Día y slot en hora ET (exchange). Antes: día por fecha UTC (las velas
-    // de post-market >20:00 ET caían en el día siguiente) y slot por hora
-    // local del navegador (dependía del timezone del usuario).
+    // Día y slot en hora ET (exchange). Clave ISO (YYYY-MM-DD) para que
+    // el sort lexicográfico coincida con el orden cronológico.
     var dateStr = etDateString(bar.time);
     var slotKey = etSlotKey(bar.time);
 
     if (!dayBars.has(dateStr)) dayBars.set(dateStr, []);
-    dayBars.get(dateStr).push({ time: bar.time, volume: bar.volume, slotKey: slotKey, originalIndex: i });
+    dayBars.get(dateStr).push({ time: bar.time, volume: bar.volume || 0, slotKey: slotKey, originalIndex: i });
   }
 
   var daysCumulative = new Map();
@@ -522,13 +544,13 @@ function calculateRVOL(bars, times, lookbackDays, interval) {
     }
 
     var isGreen = bar2.close >= bar2.open;
-    var intensity = Math.min(Math.max(rvol * 130, 130), 255);
-    var color;
-    if (isGreen) {
-      color = 'rgba(0, ' + Math.round(intensity) + ', 0, ' + Math.min(0.4 + rvol * 0.2, 1.0) + ')';
-    } else {
-      color = 'rgba(' + Math.round(intensity) + ', 0, 0, ' + Math.min(0.4 + rvol * 0.2, 1.0) + ')';
-    }
+    // Colores más visibles en tema oscuro (antes quedaban demasiado oscuros
+    // con intensidad mínima 130 y alpha baja).
+    var intensity = Math.min(Math.max(Math.round(140 + rvol * 50), 160), 255);
+    var alpha = Math.min(0.55 + rvol * 0.15, 0.95);
+    var color = isGreen
+      ? 'rgba(16, ' + intensity + ', 129, ' + alpha + ')'
+      : 'rgba(' + intensity + ', 68, 68, ' + alpha + ')';
 
     result.push({ time: times[i2], value: Math.round(rvol * 100) / 100, color: color });
   }

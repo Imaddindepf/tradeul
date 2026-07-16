@@ -12,8 +12,8 @@
 
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { TickerSearch } from '@/components/common/TickerSearch';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { TickerSearch, type TickerSearchRef } from '@/components/common/TickerSearch';
 import { useChartLayoutStore } from './useChartLayoutStore';
 import type { WindowLayoutState } from './useChartLayoutStore';
 
@@ -25,6 +25,7 @@ interface ChartWindowHeaderProps {
 export function ChartWindowHeader({ windowId, win }: ChartWindowHeaderProps) {
     const setCellTicker = useChartLayoutStore((s) => s.setCellTicker);
     const broadcastTicker = useChartLayoutStore((s) => s.broadcastTicker);
+    const searchRef = useRef<TickerSearchRef>(null);
 
     const activeCell = win.cells[win.activeCellId];
 
@@ -33,7 +34,12 @@ export function ChartWindowHeader({ windowId, win }: ChartWindowHeaderProps) {
     // freely; we only commit on submit / suggestion select.
     const [tickerInput, setTickerInput] = useState(activeCell?.ticker ?? '');
     useEffect(() => {
-        if (activeCell) setTickerInput(activeCell.ticker);
+        if (!activeCell) return;
+        // Sync programático al cambiar de celda: mostrar el ticker, sin abrir
+        // el dropdown de búsqueda.
+        searchRef.current?.suppressSearch();
+        searchRef.current?.close();
+        setTickerInput(activeCell.ticker);
     }, [activeCell?.id, activeCell?.ticker]);
 
     const applyTicker = useCallback(
@@ -69,6 +75,7 @@ export function ChartWindowHeader({ windowId, win }: ChartWindowHeaderProps) {
             className="flex items-center"
         >
             <TickerSearch
+                ref={searchRef}
                 value={tickerInput}
                 onChange={setTickerInput}
                 onSelect={handleTickerSelect}

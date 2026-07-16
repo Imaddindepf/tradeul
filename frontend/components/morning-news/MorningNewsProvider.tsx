@@ -39,6 +39,8 @@ export function MorningNewsProvider({ children }: MorningNewsProviderProps) {
     const ws = useWebSocket();
     const { openWindow } = useFloatingWindowActions();
     const windows = useFloatingWindowsList();
+    const windowsRef = useRef(windows);
+    windowsRef.current = windows;
     const hasOpenedTodayRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -57,7 +59,7 @@ export function MorningNewsProvider({ children }: MorningNewsProviderProps) {
                 }
 
                 // Verificar si ya hay una ventana de Morning News abierta
-                const existingWindow = windows.find(w => w.title === 'Morning News Call');
+                const existingWindow = windowsRef.current.find(w => w.title === 'Morning News Call');
                 if (existingWindow) {
                     return;
                 }
@@ -85,7 +87,7 @@ export function MorningNewsProvider({ children }: MorningNewsProviderProps) {
         return () => {
             subscription.unsubscribe();
         };
-    }, [ws.isConnected, ws.messages$, openWindow, windows]);
+    }, [ws.isConnected, ws.messages$, openWindow]);
 
     return <>{children}</>;
 }

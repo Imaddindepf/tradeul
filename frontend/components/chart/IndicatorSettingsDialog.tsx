@@ -113,14 +113,15 @@ export function IndicatorSettingsDialog({ indicatorId, instanceData, onClose, on
 
     // Close on click outside
     useEffect(() => {
-        const onClick = (e: MouseEvent) => {
+        // pointerdown en captura — cierre garantizado al clicar fuera (canvas incluido).
+        const onClick = (e: PointerEvent) => {
             if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
                 onClose();
             }
         };
         // Delay to avoid immediate close from the double-click that opened this
-        const timer = setTimeout(() => document.addEventListener('mousedown', onClick), 100);
-        return () => { clearTimeout(timer); document.removeEventListener('mousedown', onClick); };
+        const timer = setTimeout(() => document.addEventListener('pointerdown', onClick, true), 100);
+        return () => { clearTimeout(timer); document.removeEventListener('pointerdown', onClick, true); };
     }, [onClose]);
 
     if (!config) return null;

@@ -176,12 +176,9 @@ class FloatingFocusManager {
 
   /** Marca una ventana como la enfocada y notifica a todas las demás */
   focus(id: string | null): void {
-    if (this.currentFocusedId === id) {
-      // Reemitimos igualmente para asegurar que la ventana destino se marque
-      // como enfocada incluso si otra cambió el estado local.
-      this.listeners.forEach((l) => l(id));
-      return;
-    }
+    // No re-emitir si no cambió: cada listener hace setState y, en resize/
+    // drag con muchos updates encadenados, eso empujaba a React #185.
+    if (this.currentFocusedId === id) return;
     this.currentFocusedId = id;
     this.listeners.forEach((l) => l(id));
   }

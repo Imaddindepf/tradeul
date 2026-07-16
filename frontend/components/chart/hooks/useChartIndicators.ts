@@ -57,13 +57,14 @@ export function useChartIndicators(
 
     useEffect(() => {
         if (!showIndicatorDropdown) return;
-        const handleClick = (e: MouseEvent) => {
+        // pointerdown en captura — cierre garantizado al clicar fuera (canvas incluido).
+        const handleClick = (e: PointerEvent) => {
             if (indicatorDropdownRef.current && !indicatorDropdownRef.current.contains(e.target as Node)) {
                 setShowIndicatorDropdown(false);
             }
         };
-        document.addEventListener('mousedown', handleClick);
-        return () => document.removeEventListener('mousedown', handleClick);
+        document.addEventListener('pointerdown', handleClick, true);
+        return () => document.removeEventListener('pointerdown', handleClick, true);
     }, [showIndicatorDropdown]);
 
     const addIndicator = useCallback((type: string) => {

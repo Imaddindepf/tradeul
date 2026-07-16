@@ -54,6 +54,14 @@ export abstract class BaseDrawingPrimitive<TDrawing> implements ISeriesPrimitive
     return this._isSelected || this._isHovered;
   }
 
+  /**
+   * Drawing type ("trendline", "rectangle", …) exposed for the interaction
+   * layer's hit-test prioritisation (lines must win over filled areas).
+   */
+  get drawingType(): string {
+    return ((this._drawing as { type?: string })?.type) ?? '';
+  }
+
   attached(param: SeriesAttachedParameter<Time>): void {
     this._chart = param.chart;
     this._series = param.series;

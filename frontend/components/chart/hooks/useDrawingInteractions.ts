@@ -24,7 +24,7 @@ import type { ChartBar } from '../constants';
 import type { EarningsRecord } from './useEarningsMarkers';
 import type { EventMarkerPrimitive } from '../primitives/EventMarkerPrimitive';
 import { findBarIndexByTime } from '../hoveredBarStore';
-import { timeToPixelX } from '../primitives/coordinateUtils';
+import { pixelXToTime, timeToPixelX } from '../primitives/coordinateUtils';
 import { TrendlinePrimitive } from '../primitives/TrendlinePrimitive';
 import { HorizontalLinePrimitive } from '../primitives/HorizontalLinePrimitive';
 import { VerticalLinePrimitive } from '../primitives/VerticalLinePrimitive';
@@ -66,6 +66,43 @@ const IDLE_DRAG: DrawingDragState = {
 /** Strip an anchor/midpoint suffix (":p1".. ":m2") from a hit externalId. */
 function baseDrawingId(externalId: string): string {
     return /:(p[1-4]|m[12])$/.test(externalId) ? externalId.slice(0, -3) : externalId;
+}
+
+/** Drawing types whose body is a thin line — they must win the hit-test
+ *  over filled areas (rectangle, channel, triangle…) that overlap them. */
+const LINE_BODY_TYPES = new Set([
+    'trendline', 'ray', 'extended_line', 'horizontal_line', 'vertical_line', 'arrow',
+]);
+
+/**
+ * Hit-test every drawing primitive at (x, y) with focus prioritisation:
+ *   1. any reshape handle (":p1".. ":m2") — immediate win, it's the most
+ *      precise target the user can aim at;
+ *   2. line bodies — a trendline crossing a rectangle must be pickable;
+ *   3. filled areas / zones — lowest priority.
+ * Iteration order (insertion order of the Map) only breaks ties inside the
+ * same tier.
+ */
+function hitTestPrimitives(
+    primitives: Map<string, ISeriesPrimitive<Time>>,
+    x: number,
+    y: number,
+): { externalId: string } | null {
+    let lineHit: { externalId: string } | null = null;
+    let areaHit: { externalId: string } | null = null;
+    for (const [, primitive] of primitives) {
+        const hit = (primitive as any).hitTest?.(x, y);
+        if (!hit) continue;
+        const externalId = (hit.externalId ?? '') as string;
+        if (/:(p[1-4]|m[12])$/.test(externalId)) return { externalId };
+        const type = (primitive as any).drawingType ?? '';
+        if (LINE_BODY_TYPES.has(type)) {
+            if (!lineHit) lineHit = { externalId };
+        } else if (!areaHit) {
+            areaHit = { externalId };
+        }
+    }
+    return lineHit ?? areaHit;
 }
 
 function createPrimitiveFor(drawing: Drawing): ISeriesPrimitive<Time> | null {
@@ -118,6 +155,10 @@ export interface UseDrawingInteractionsParams {
     handleNewsMarkerClickRef: MutableRefObject<(time: number) => void>;
     openEditPopup: (drawingId: string, x: number, y: number) => void;
     editDialogOpen: boolean;
+    /** Hit-test de indicadores overlay (useIndicatorHover). Los dibujos ganan. */
+    indicatorHitTest: (param: { point?: { x: number; y: number }; time?: unknown; paneIndex?: number }) => { id: string } | null;
+    setHoveredIndicator: (id: string | null) => void;
+    setSelectedIndicator: (id: string | null) => void;
 }
 
 export function useDrawingInteractions({
@@ -143,6 +184,9 @@ export function useDrawingInteractions({
     handleNewsMarkerClickRef,
     openEditPopup,
     editDialogOpen,
+    indicatorHitTest,
+    setHoveredIndicator,
+    setSelectedIndicator,
 }: UseDrawingInteractionsParams) {
     const {
         drawings, activeTool, isDrawing, selectedDrawingId, hoveredDrawingId,
@@ -176,6 +220,9 @@ export function useDrawingInteractions({
     const replayModeRef = useRef(replay.replayState.mode); replayModeRef.current = replay.replayState.mode;
     const selectStartPointRef = useRef(replay.selectStartPoint); selectStartPointRef.current = replay.selectStartPoint;
     const openEarningsPopupRef = useRef(openEarningsPopup); openEarningsPopupRef.current = openEarningsPopup;
+    const indicatorHitTestRef = useRef(indicatorHitTest); indicatorHitTestRef.current = indicatorHitTest;
+    const setHoveredIndicatorRef = useRef(setHoveredIndicator); setHoveredIndicatorRef.current = setHoveredIndicator;
+    const setSelectedIndicatorRef = useRef(setSelectedIndicator); setSelectedIndicatorRef.current = setSelectedIndicator;
 
     // ── Ctrl key tracking for magnet snap ───────────────────────────────
     const ctrlPressedRef = useRef(false);
@@ -329,18 +376,20 @@ export function useDrawingInteractions({
     const getTimeAtX = useCallback((x: number): { time: number; logical?: number } | null => {
         if (!chartRef.current) return null;
         const ts = chartRef.current.timeScale();
-        const time = ts.coordinateToTime(x);
-        if (time != null) return { time: time as number };
-        const dt = dataTimesRef.current;
+        /*
+          pixelXToTime es la INVERSA EXACTA de timeToPixelX (la función con la
+          que los primitives pintan): un punto colocado en el hueco a la
+          derecha de la última vela debe volver a renderizarse en ese mismo
+          píxel. Antes esta función extrapolaba con el ÚLTIMO gap (que en
+          intradía suele ser el salto overnight/finde, p.ej. 19h en un 4H) y
+          el render extrapolaba con el gap MEDIANO (4h): el punto se guardaba
+          ~5× más lejos de lo clicado y la línea/círculo aparecía disparada o
+          directamente fuera de pantalla.
+        */
+        const time = pixelXToTime(x, dataTimesRef.current, ts);
+        if (time == null) return null;
         const logical = ts.coordinateToLogical(x);
-        if (logical == null || dt.length < 2) return null;
-        const n = dt.length;
-        const lastGap = dt[n - 1] - dt[n - 2];
-        if (lastGap <= 0) return null;
-        const offset = logical - (n - 1);
-        const extrapolatedTime = Math.round(dt[n - 1] + offset * lastGap);
-        if (!isFinite(extrapolatedTime)) return null;
-        return { time: extrapolatedTime, logical };
+        return { time, logical: logical == null ? undefined : (logical as number) };
     }, [chartRef]);
 
     // ── Click handler: selection / news / event markers ────────────────
@@ -370,15 +419,18 @@ export function useDrawingInteractions({
                 handleNewsMarkerClickRef.current(param.time as number);
                 return;
             }
-            let hitId: string | null = null;
-            for (const [, primitive] of drawingPrimitivesRef.current) {
-                const hit = (primitive as any).hitTest?.(param.point.x, param.point.y);
-                if (hit) {
-                    hitId = baseDrawingId((hit.externalId ?? '') as string);
-                    break;
-                }
-            }
+            const hit = hitTestPrimitives(drawingPrimitivesRef.current, param.point.x, param.point.y);
+            const hitId = hit ? baseDrawingId(hit.externalId) : null;
             selectDrawingRef.current(hitId);
+            // Un click en vacío (o sobre un dibujo) también resuelve el foco
+            // de indicadores: si no hay dibujo, el indicador bajo el cursor
+            // queda seleccionado; si no hay nada, se limpia la selección.
+            if (hitId) {
+                setSelectedIndicatorRef.current?.(null);
+            } else {
+                const indHit = indicatorHitTestRef.current?.(param);
+                setSelectedIndicatorRef.current?.(indHit ? indHit.id : null);
+            }
         };
         const handleDoubleClick = (param: any) => {
             if (!param.point || !candleSeriesRef.current || activeToolRef.current !== 'none') return;
@@ -405,9 +457,7 @@ export function useDrawingInteractions({
             const rawPrice = candleSeriesRef.current.coordinateToPrice(y);
             if (rawPrice === null) return;
             const price = snapPriceRef.current(rawPrice, x);
-            const ts = chartRef.current.timeScale();
-            const time = ts.coordinateToTime(x);
-            const resolved = time != null ? { time: time as number, logical: undefined } : getTimeAtX(x);
+            const resolved = getTimeAtX(x);
             if (!resolved) return;
             handleChartClickRef.current(resolved.time, price, resolved.logical);
         };
@@ -421,34 +471,51 @@ export function useDrawingInteractions({
         const chart = chartRef.current;
         const handleCrosshairMove = (param: any) => {
             if (dragState.active || activeToolRef.current !== 'none') return;
-            if (!param.point) { setHoveredDrawing(null); return; }
-            let hitId: string | null = null;
-            for (const [, primitive] of drawingPrimitivesRef.current) {
-                const hit = (primitive as any).hitTest?.(param.point.x, param.point.y);
-                if (hit) {
-                    hitId = baseDrawingId((hit.externalId ?? '') as string);
-                    break;
-                }
+            if (!param.point) {
+                setHoveredDrawing(null);
+                setHoveredIndicatorRef.current?.(null);
+                return;
             }
+            const hit = hitTestPrimitives(drawingPrimitivesRef.current, param.point.x, param.point.y);
+            const hitId = hit ? baseDrawingId(hit.externalId) : null;
             setHoveredDrawing(hitId);
+            // Los dibujos del usuario ganan el foco a los indicadores; solo
+            // si el cursor no toca ningún dibujo se evalúan las líneas de
+            // los estudios (BB, medias, VWAP…).
+            const indHit = hitId ? null : indicatorHitTestRef.current?.(param) ?? null;
+            setHoveredIndicatorRef.current?.(indHit ? indHit.id : null);
         };
         chart.subscribeCrosshairMove(handleCrosshairMove);
         return () => { chart.unsubscribeCrosshairMove(handleCrosshairMove); };
     }, [dragState.active, setHoveredDrawing, chartVersion]);
 
     // ── Mouse tracking for tentative drawing endpoint ───────────────────
+    /*
+      mousemove DOM sobre el CONTENEDOR, no subscribeCrosshairMove: el evento
+      de crosshair de lightweight-charts solo se emite mientras el puntero
+      está sobre el pane de velas. Al cruzar a la franja del eje de precios o
+      al hueco a la derecha de la última vela, deja de disparar y la vista
+      previa del dibujo se congelaba en la última posición del pane — el
+      usuario "perdía" el dibujo mientras lo formaba, aunque el click final
+      (que ya usa un listener DOM idéntico a este) sí lo colocaba bien. El
+      contenedor comparte sistema de coordenadas con el pane (mismo origen),
+      igual que en handleDrawingClick y el handler del imán.
+    */
     useEffect(() => {
-        if (!chartRef.current || !candleSeriesRef.current) return;
-        const chart = chartRef.current;
-        const handleMove = (param: any) => {
-            if (!param.point || !pendingDrawingRef.current || !candleSeriesRef.current) return;
-            const rawPrice = candleSeriesRef.current.coordinateToPrice(param.point.y);
+        const container = containerRef.current;
+        if (!container) return;
+        const handleMove = (e: MouseEvent) => {
+            if (!pendingDrawingRef.current || !candleSeriesRef.current) return;
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const rawPrice = candleSeriesRef.current.coordinateToPrice(y);
             if (rawPrice === null) return;
-            const price = snapPriceRef.current(rawPrice, param.point.x);
-            updateTentativeEndpointRef.current(param.point.x, param.point.y, price);
+            const price = snapPriceRef.current(rawPrice, x);
+            updateTentativeEndpointRef.current(x, y, price);
         };
-        chart.subscribeCrosshairMove(handleMove);
-        return () => { chart.unsubscribeCrosshairMove(handleMove); };
+        container.addEventListener('mousemove', handleMove);
+        return () => container.removeEventListener('mousemove', handleMove);
     }, [chartVersion]);
 
     // ── Magnet: snap crosshair to nearest OHLC on mouse move ────────────
@@ -487,19 +554,16 @@ export function useDrawingInteractions({
         const mouseY = e.clientY - rect.top;
         let hitId: string | null = null;
         let dragMode: DragMode = 'translate';
-        for (const [, primitive] of drawingPrimitivesRef.current) {
-            const hit = (primitive as any).hitTest?.(mouseX, mouseY);
-            if (hit) {
-                const eid = (hit.externalId ?? '') as string;
-                if (eid.endsWith(':p1')) { hitId = eid.slice(0, -3); dragMode = 'anchor1'; }
-                else if (eid.endsWith(':p2')) { hitId = eid.slice(0, -3); dragMode = 'anchor2'; }
-                else if (eid.endsWith(':p3')) { hitId = eid.slice(0, -3); dragMode = 'anchor3'; }
-                else if (eid.endsWith(':p4')) { hitId = eid.slice(0, -3); dragMode = 'anchor4'; }
-                else if (eid.endsWith(':m1')) { hitId = eid.slice(0, -3); dragMode = 'mid1'; }
-                else if (eid.endsWith(':m2')) { hitId = eid.slice(0, -3); dragMode = 'mid2'; }
-                else { hitId = eid; dragMode = 'translate'; }
-                break;
-            }
+        const hit = hitTestPrimitives(drawingPrimitivesRef.current, mouseX, mouseY);
+        if (hit) {
+            const eid = hit.externalId;
+            if (eid.endsWith(':p1')) { hitId = eid.slice(0, -3); dragMode = 'anchor1'; }
+            else if (eid.endsWith(':p2')) { hitId = eid.slice(0, -3); dragMode = 'anchor2'; }
+            else if (eid.endsWith(':p3')) { hitId = eid.slice(0, -3); dragMode = 'anchor3'; }
+            else if (eid.endsWith(':p4')) { hitId = eid.slice(0, -3); dragMode = 'anchor4'; }
+            else if (eid.endsWith(':m1')) { hitId = eid.slice(0, -3); dragMode = 'mid1'; }
+            else if (eid.endsWith(':m2')) { hitId = eid.slice(0, -3); dragMode = 'mid2'; }
+            else { hitId = eid; dragMode = 'translate'; }
         }
         if (!hitId) return;
         const drawing = drawings.find(d => d.id === hitId);
@@ -688,7 +752,7 @@ export function useDrawingInteractions({
             }
 
             switch (e.key) {
-                case 'Escape': cancelDrawing(); selectDrawing(null); break;
+                case 'Escape': cancelDrawing(); selectDrawing(null); setSelectedIndicatorRef.current(null); break;
                 case 'Delete': case 'Backspace': if (selectedDrawingId) removeDrawing(selectedDrawingId); break;
             }
 

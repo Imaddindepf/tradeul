@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, ExternalLink } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
@@ -60,17 +60,17 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
     }
   }, [window.isPoppedOut, window.poppedOutWindow, window.id, updateWindow]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     closeWindow(window.id);
-  };
+  }, [closeWindow, window.id]);
 
-  const handlePositionChange = (position: { x: number; y: number }) => {
+  const handlePositionChange = useCallback((position: { x: number; y: number }) => {
     updateWindow(window.id, position);
-  };
+  }, [updateWindow, window.id]);
 
-  const handleSizeChange = (size: { width: number; height: number }) => {
+  const handleSizeChange = useCallback((size: { width: number; height: number }) => {
     updateWindow(window.id, size);
-  };
+  }, [updateWindow, window.id]);
 
   const handleOpenNewWindow = async () => {
     let popOutWindow: Window | null = null;
@@ -108,11 +108,11 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
       const wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
       const workerUrl = `${globalThis.location.origin}/workers/websocket-shared.js`;
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      
+
       // Obtener token JWT para autenticación del WebSocket
       const token = await getToken({ skipCache: true });
       const wsUrl = token ? `${wsBaseUrl}${wsBaseUrl.includes('?') ? '&' : '?'}token=${token}` : wsBaseUrl;
-      
+
       // Get existing articles from the store
       const existingArticles = useNewsStore.getState().articles || [];
 
@@ -366,9 +366,9 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
     );
   }
 
-  const handleZIndexChange = (zIndex: number) => {
+  const handleZIndexChange = useCallback((zIndex: number) => {
     updateWindow(window.id, { zIndex });
-  };
+  }, [updateWindow, window.id]);
 
   // Para contenido con cabecera propia, usar su clase de drag handle
   const dragHandleClassName = window.hideHeader ? 'table-drag-handle' : 'window-title-bar';
@@ -400,7 +400,7 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
 
               <div id={`window-header-extra-${window.id}`} className="flex items-center" />
               <h3 className="text-xs font-medium text-foreground truncate"
-                  id={`window-title-text-${window.id}`}>{window.title}</h3>
+                id={`window-title-text-${window.id}`}>{window.title}</h3>
             </div>
 
             <div className="flex items-center gap-0.5 ml-2">
@@ -412,8 +412,8 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
                 window.title === 'News' ||
                 window.title === 'Market Heatmap' ||
                 window.title.startsWith('Events:')) && (
-                <LinkGroupSelector windowId={window.id} currentLinkGroup={window.linkGroup ?? null} />
-              )}
+                  <LinkGroupSelector windowId={window.id} currentLinkGroup={window.linkGroup ?? null} />
+                )}
               {/* Open in New Window Button */}
               <button
                 onMouseDown={(e) => {

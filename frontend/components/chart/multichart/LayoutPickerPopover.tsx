@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Z_INDEX } from '@/lib/z-index';
+import { getOverlayRoot } from '@/lib/overlayRoot';
 import { LayoutIcon } from './LayoutIcon';
 import {
     LAYOUT_TEMPLATES,
@@ -81,7 +82,14 @@ export function LayoutPickerPopover({
 
     useEffect(() => {
         if (!isOpen) return;
-        const onMouseDown = (e: MouseEvent) => {
+        /*
+          pointerdown en fase de CAPTURA: el mousedown en burbujeo podía no
+          llegar a document (cualquier stopPropagation/preventDefault en la
+          ruta del canvas lo cortaba) y el popover quedaba abierto al clicar
+          el chart. La captura en document se ejecuta antes que cualquier
+          handler de la app — nadie puede interceptarla.
+        */
+        const onPointerDown = (e: PointerEvent) => {
             if (popoverRef.current?.contains(e.target as Node)) return;
             if (anchorEl?.contains(e.target as Node)) return;
             onClose();
@@ -89,11 +97,20 @@ export function LayoutPickerPopover({
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose();
         };
-        document.addEventListener('mousedown', onMouseDown);
+        /*
+          Entrar/salir de pantalla completa invalida el portal y el anchor
+          (posición y raíz de render cambian): cerrar siempre. Sin esto, al
+          salir de fullscreen el popover quedaba colgado con coordenadas
+          obsoletas desbordando la ventana.
+        */
+        const onFullscreenChange = () => onClose();
+        document.addEventListener('pointerdown', onPointerDown, true);
         document.addEventListener('keydown', onKey);
+        document.addEventListener('fullscreenchange', onFullscreenChange);
         return () => {
-            document.removeEventListener('mousedown', onMouseDown);
+            document.removeEventListener('pointerdown', onPointerDown, true);
             document.removeEventListener('keydown', onKey);
+            document.removeEventListener('fullscreenchange', onFullscreenChange);
         };
     }, [isOpen, anchorEl, onClose]);
 
@@ -203,7 +220,7 @@ export function LayoutPickerPopover({
                 </div>
             </div>
         </div>,
-        document.body,
+        getOverlayRoot(),
     );
 }
 

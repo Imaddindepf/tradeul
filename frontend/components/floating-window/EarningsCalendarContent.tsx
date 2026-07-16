@@ -416,6 +416,8 @@ function EventDetailModal({
   const [tab, setTab] = useState<DetailTab>('highlights');
   const [history, setHistory] = useState<EventRow[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(report.event_id);
+  const [eventHighlights, setEventHighlights] = useState<string[]>(report.key_highlights || []);
+  const [highlightsLoading, setHighlightsLoading] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptResponse | null>(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [documents, setDocuments] = useState<DocumentItem[] | null>(null);
@@ -439,10 +441,9 @@ function EventDetailModal({
   );
 
   // Merge: prefer live per-symbol row (has estimates) but fall back to the
-  // clicked day report (has the AI summary bullets).
+  // clicked day report for fields missing from history.
   const merged = useMemo(() => {
     const e = selectedEvent;
-    const isSameEvent = selectedEventId === report.event_id;
     return {
       symbol: report.symbol,
       company_name: report.company_name,
@@ -460,9 +461,22 @@ function EventDetailModal({
       beat_revenue: e?.beat_revenue ?? report.beat_revenue,
       expected_move_pct: e?.expected_move_pct ?? report.expected_move_pct,
       post_earnings_move_1d: e?.post_earnings_move_1d ?? report.post_earnings_move_1d,
-      highlights: isSameEvent ? report.key_highlights || [] : [],
+      highlights: eventHighlights,
     };
-  }, [selectedEvent, selectedEventId, report]);
+  }, [selectedEvent, report, eventHighlights]);
+
+  // Fetch AI summary bullets whenever the selected quarter changes.
+  useEffect(() => {
+    if (selectedEventId == null) return;
+    setHighlightsLoading(true);
+    const c = new AbortController();
+    fetch(`${apiUrl}/api/v1/earnings/event/${report.symbol}/${selectedEventId}?timezone=${tzq}`, { signal: c.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setEventHighlights(Array.isArray(d?.key_highlights) ? d.key_highlights : []))
+      .catch(() => setEventHighlights([]))
+      .finally(() => setHighlightsLoading(false));
+    return () => c.abort();
+  }, [selectedEventId, apiUrl, report.symbol, tzq]);
 
   // Lazy-load transcript when the tab is opened.
   useEffect(() => {
@@ -495,23 +509,32 @@ function EventDetailModal({
   const surpTone = (beat: boolean | null) => (beat === true ? up : beat === false ? down : undefined);
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+    // pointer-events-none on the shell lets clicks reach the floating-window
+    // resize handle (z-[100] on FloatingWindowBase). Only the card captures input.
+    <div className="absolute inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+      <button
+        type="button"
+        aria-label="Cerrar detalle"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto cursor-default"
+        onClick={onClose}
+      />
       <div
-        className="relative w-full max-w-3xl max-h-full flex flex-col rounded-xl shadow-2xl overflow-hidden"
+        className="relative w-full max-w-3xl max-h-full flex flex-col rounded-xl shadow-2xl overflow-hidden pointer-events-auto"
         style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border, rgba(127,127,127,0.2))' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.15))' }}>
+        <div className="flex items-center gap-3 px-4 py-3 border-b shrink-0" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.15))' }}>
           <TickerLogo symbol={report.symbol} size={36} />
           <div className="flex-1 min-w-0">
             <div className="text-[15px] font-semibold truncate">{report.company_name || report.symbol}</div>
             <div className="text-[11px] text-foreground/50">{report.symbol}</div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="w-7 h-7 rounded-md text-foreground/60 hover:text-foreground hover:bg-foreground/10 transition-colors text-[16px] leading-none"
+            aria-label="Cerrar"
           >
             ×
           </button>
@@ -519,7 +542,7 @@ function EventDetailModal({
 
         {/* Quarter strip */}
         {history.length > 0 && (
-          <div className="flex gap-1.5 overflow-x-auto px-4 py-2 border-b" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.10))' }}>
+          <div className="flex gap-1.5 overflow-x-auto px-4 py-2 border-b shrink-0" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.10))' }}>
             {history.map((e) => {
               const isSel = e.event_id === selectedEventId;
               const reported = e.eps_actual !== null;
@@ -544,8 +567,8 @@ function EventDetailModal({
           </div>
         )}
 
-        {/* Selected event summary line */}
-        <div className="px-4 py-2.5 border-b" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.10))' }}>
+        {/* Selected event summary */}
+        <div className="px-4 py-2.5 border-b shrink-0" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.10))' }}>
           <div className="text-[13px] font-semibold">
             Llamada de resultados de {report.symbol} {merged.fiscal_year} {merged.fiscal_period}
           </div>
@@ -570,7 +593,7 @@ function EventDetailModal({
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 px-4 py-1.5 border-b" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.10))' }}>
+        <div className="flex items-center gap-1 px-4 py-1.5 border-b shrink-0" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.10))' }}>
           {([
             ['highlights', 'Momentos destacados'],
             ['transcript', 'Transcripción'],
@@ -590,9 +613,11 @@ function EventDetailModal({
         </div>
 
         {/* Tab content */}
-        <div className="flex-1 overflow-auto px-4 py-3 min-h-[160px]">
+        <div className="flex-1 min-h-0 overflow-auto px-4 py-3 min-h-[160px]">
           {tab === 'highlights' && (
-            merged.highlights.length > 0 ? (
+            highlightsLoading ? (
+              <div className="text-[12px] text-foreground/45 pt-6 text-center">Cargando resumen…</div>
+            ) : merged.highlights.length > 0 ? (
               <ul className="space-y-2">
                 {merged.highlights.map((h, i) => (
                   <li key={i} className="flex gap-2 text-[13px] leading-relaxed text-foreground/85">
@@ -603,9 +628,7 @@ function EventDetailModal({
               </ul>
             ) : (
               <div className="text-[12px] text-foreground/45 pt-6 text-center">
-                {selectedEventId === report.event_id
-                  ? 'Sin resumen disponible para esta llamada.'
-                  : 'Selecciona la llamada actual para ver el resumen.'}
+                Sin resumen disponible para esta llamada.
               </div>
             )
           )}

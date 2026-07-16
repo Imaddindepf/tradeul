@@ -32,7 +32,10 @@ export function ChartTimeframeTabs({ selectedInterval, onSelect }: Props) {
 
     useEffect(() => {
         if (!open) return;
-        const onMouseDown = (e: MouseEvent) => {
+        // pointerdown en CAPTURA: el mousedown en burbujeo puede no llegar a
+        // document desde el canvas (stopPropagation en la ruta) y el dropdown
+        // quedaba abierto al clicar el chart.
+        const onPointerDown = (e: PointerEvent) => {
             if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
                 setOpen(false);
             }
@@ -40,10 +43,10 @@ export function ChartTimeframeTabs({ selectedInterval, onSelect }: Props) {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') setOpen(false);
         };
-        document.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('pointerdown', onPointerDown, true);
         document.addEventListener('keydown', onKey);
         return () => {
-            document.removeEventListener('mousedown', onMouseDown);
+            document.removeEventListener('pointerdown', onPointerDown, true);
             document.removeEventListener('keydown', onKey);
         };
     }, [open]);

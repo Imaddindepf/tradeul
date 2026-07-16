@@ -1,5 +1,17 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * Los tokens del tema viven en variables CSS (--color-*) con valores hex
+ * opacos. Tailwind v3 no puede inyectar opacidad en `var(...)` a secas, así
+ * que los modificadores como `bg-primary/10` no generaban NINGUNA regla CSS
+ * (clases muertas: resaltados de selección invisibles en toda la app).
+ * La sintaxis de color relativo `rgb(from <color> r g b / alpha)` permite
+ * derivar la opacidad de la variable en runtime manteniendo una única fuente
+ * de verdad en globals.css / ThemeProvider.
+ */
+const withAlpha = (variable: string) =>
+  `rgb(from var(${variable}) r g b / <alpha-value>)`;
+
 const config: Config = {
   darkMode: 'class',
   content: [
@@ -12,18 +24,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "var(--color-bg)",
-        foreground: "var(--color-fg)",
-        surface: "var(--color-surface)",
-        "surface-hover": "var(--color-surface-hover)",
-        "surface-inset": "var(--color-surface-inset)",
-        border: "var(--color-border)",
-        "border-subtle": "var(--color-border-subtle)",
-        muted: "var(--color-muted)",
-        "muted-fg": "var(--color-muted-fg)",
+        background: withAlpha("--color-bg"),
+        foreground: withAlpha("--color-fg"),
+        surface: withAlpha("--color-surface"),
+        "surface-hover": withAlpha("--color-surface-hover"),
+        "surface-inset": withAlpha("--color-surface-inset"),
+        border: withAlpha("--color-border"),
+        "border-subtle": withAlpha("--color-border-subtle"),
+        muted: withAlpha("--color-muted"),
+        "muted-fg": withAlpha("--color-muted-fg"),
         primary: {
-          DEFAULT: "var(--color-primary)",
-          hover: "var(--color-primary-hover)",
+          DEFAULT: withAlpha("--color-primary"),
+          hover: withAlpha("--color-primary-hover"),
         },
         success: "#10B981",
         danger: "#EF4444",

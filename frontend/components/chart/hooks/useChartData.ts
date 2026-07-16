@@ -79,6 +79,11 @@ export function useChartData(
     // change as append / prepend / reset without diffing the whole array.
     const prevFirstTimeRef = useRef(0);
     const prevLastTimeRef = useRef(0);
+    // OHLCV signature of the first bar. Timestamps alone can't identify the
+    // dataset: all daily charts share the same calendar window (same first/last
+    // time and bar count), so a ticker swap would be misclassified as an
+    // append and only the last candle would repaint.
+    const prevFirstBarSigRef = useRef('');
     const prevStyleRef = useRef(candleStyle);
     const prevChartVersionRef = useRef(chartVersion);
     const [isScrolledAway, setIsScrolledAway] = useState(false);
@@ -99,8 +104,11 @@ export function useChartData(
         prevChartVersionRef.current = chartVersion;
 
         const prevLen = prevDataLengthRef.current;
-        const firstTime = data[0].time;
+        const firstBar = data[0];
+        const firstTime = firstBar.time;
         const lastTime = data[data.length - 1].time;
+        const firstBarSig =
+            `${firstBar.time}:${firstBar.open}:${firstBar.high}:${firstBar.low}:${firstBar.close}:${firstBar.volume}`;
 
         const volumeBar = (bar: ChartBar): HistogramData => ({
             time: bar.time as UTCTimestamp,
@@ -119,6 +127,7 @@ export function useChartData(
             prevDataLengthRef.current = data.length;
             prevFirstTimeRef.current = firstTime;
             prevLastTimeRef.current = lastTime;
+            prevFirstBarSigRef.current = firstBarSig;
         };
 
         const sameEpoch = !tickerChanged && !styleChanged && !chartChanged && prevLen > 0;
@@ -126,8 +135,12 @@ export function useChartData(
         // ── Append (loadForward / live bar promotion): update() per new bar.
         // setData() re-layouts every bar; with 10k+ candles that's a visible
         // hitch — update() touches only the right edge.
+        // The first bar must be identical in VALUES, not just in time: every
+        // daily chart shares the same calendar window (same first/last time,
+        // same bar count), so after a ticker swap the new dataset would pass a
+        // time-only check and only the last candle would repaint.
         if (
-            sameEpoch && firstTime === prevFirstTimeRef.current &&
+            sameEpoch && firstBarSig === prevFirstBarSigRef.current &&
             data.length >= prevLen && lastTime >= prevLastTimeRef.current
         ) {
             // Re-emit from the bar that was previously last (its values may

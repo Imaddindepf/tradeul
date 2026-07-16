@@ -312,13 +312,14 @@ function ChartToolbarComponent({
   // Close flyout on click outside / Escape
   useEffect(() => {
     if (!openFlyout) return;
-    const onClickOut = (e: MouseEvent) => {
+    // pointerdown en captura — cierre garantizado al clicar fuera (canvas incluido).
+    const onClickOut = (e: PointerEvent) => {
       if (flyoutRef.current && !flyoutRef.current.contains(e.target as Node)) setOpenFlyout(null);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenFlyout(null); };
-    document.addEventListener('mousedown', onClickOut);
+    document.addEventListener('pointerdown', onClickOut, true);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onClickOut); document.removeEventListener('keydown', onKey); };
+    return () => { document.removeEventListener('pointerdown', onClickOut, true); document.removeEventListener('keydown', onKey); };
   }, [openFlyout]);
 
   const selectTool = useCallback((catId: string, toolId: string) => {
@@ -356,8 +357,12 @@ function ChartToolbarComponent({
   const btnActive = 'text-primary bg-primary/10';
   const btnDisabled = 'text-muted-fg/50 cursor-default';
 
+  // z-40 — capa TOOLBAR de la escala del chart (ver ChartContent.tsx).
+  // Debe quedar POR ENCIMA del canvas y sus overlays (z-10/20/30) pero POR
+  // DEBAJO de los dropdowns del header y del buscador de tickers (z-50):
+  // con z-50 empataba con ellos y, al ir después en el DOM, los tapaba.
   return (
-    <div className="relative w-[38px] flex-shrink-0 bg-surface-hover border-r border-border flex flex-col items-center pt-1.5 pb-1 select-none z-50">
+    <div className="relative w-[38px] flex-shrink-0 bg-surface-hover border-r border-border flex flex-col items-center pt-1.5 pb-1 select-none z-40">
 
       {SIDEBAR_CATEGORIES.map((cat, idx) => {
         const isActive = activeCatId === cat.id;

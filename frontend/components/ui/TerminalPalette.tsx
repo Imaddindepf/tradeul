@@ -76,13 +76,17 @@ export function TerminalPalette({
     // User alert strategies
     const { strategies: userStrategies, loading: userStrategiesLoading, listStrategies: refreshStrategies } = useAlertStrategies();
 
-    // Refrescar filtros y estrategias cuando se abre el palette
+    // Refrescar filtros y estrategias cuando se abre el palette. Solo depende
+    // de `open`: si dependiera de las identidades de los callbacks (que cambian
+    // con cada render por sus deps internas), cada refetch produciría un nuevo
+    // array -> nuevos items -> reset de la selección mientras el usuario navega.
+    const refreshRef = useRef({ refreshFilters, refreshStrategies });
+    refreshRef.current = { refreshFilters, refreshStrategies };
     useEffect(() => {
-        if (open) {
-            refreshFilters();
-            refreshStrategies();
-        }
-    }, [open, refreshFilters, refreshStrategies]);
+        if (!open) return;
+        refreshRef.current.refreshFilters();
+        refreshRef.current.refreshStrategies();
+    }, [open]);
 
     const search = searchValue.trim();
     const searchUpper = search.toUpperCase();
@@ -168,20 +172,72 @@ export function TerminalPalette({
         [search, hasScPrefix, hasEvnPrefix, tickerResults, selectedTicker, t, userScans, userStrategies],
     );
 
-    // Autoseleccionar: si lo último que se teclea coincide exactamente con el
-    // código de un comando (p.ej. "AAPL FA" -> "FA", o "DESC"), resaltar ese
-    // comando para que Enter lo ejecute. Si no, resaltar el primero.
+    // ── Selección estable ──────────────────────────────────────────────
+    // La lista se reconstruye en background (llegan tickers, se refrescan
+    // scans/estrategias...). La selección del usuario NO debe resetearse por
+    // eso: se preserva por id de item. Solo se recalcula la autoselección
+    // cuando cambia el TEXTO buscado o cuando el item resaltado desaparece.
+    const itemsSig = useMemo(() => items.map(i => i.id).join('|'), [items]);
+    const itemsRef = useRef(items);
+    itemsRef.current = items;
+    const selectedIdRef = useRef<string | null>(null);
+    const userNavigatedRef = useRef(false);
+
+    // Al teclear, la navegación manual previa deja de aplicar.
+    useEffect(() => { userNavigatedRef.current = false; }, [searchUpper]);
+
+    // Al abrir, empezar limpio.
     useEffect(() => {
-        if (items.length === 0) { setSelectedIndex(0); return; }
+        if (open) {
+            userNavigatedRef.current = false;
+            selectedIdRef.current = null;
+            setSelectedIndex(0);
+        }
+    }, [open]);
+
+    useEffect(() => {
+        const list = itemsRef.current;
+        if (list.length === 0) {
+            setSelectedIndex(0);
+            selectedIdRef.current = null;
+            return;
+        }
+
+        // Si el usuario ya navegó con flechas/ratón, mantener SU selección
+        // aunque la lista se haya regenerado.
+        if (userNavigatedRef.current && selectedIdRef.current) {
+            const keep = list.findIndex(it => it.id === selectedIdRef.current);
+            if (keep >= 0) {
+                setSelectedIndex(keep);
+                return;
+            }
+        }
+
+        // Autoseleccionar: si lo último tecleado coincide exactamente con el
+        // código de un comando (p.ej. "AAPL FA" -> "FA", o "DESC"), resaltar
+        // ese comando para que Enter lo ejecute. Si no, el primero.
         const tokens = searchUpper.split(/\s+/).filter(Boolean);
         const last = tokens[tokens.length - 1] || '';
         let idx = -1;
         if (last) {
-            idx = items.findIndex(it =>
+            idx = list.findIndex(it =>
                 (it.type === 'ticker-command' || it.type === 'global-command') && it.label === last);
         }
-        setSelectedIndex(idx >= 0 ? idx : 0);
-    }, [searchUpper, items]);
+        const next = idx >= 0 ? idx : 0;
+        setSelectedIndex(next);
+        selectedIdRef.current = list[next]?.id ?? null;
+    }, [searchUpper, itemsSig]);
+
+    // Mover la selección desde teclado o ratón: registra la intención del
+    // usuario y el id para preservarla ante regeneraciones de la lista.
+    const moveSelection = useCallback((index: number) => {
+        const list = itemsRef.current;
+        if (list.length === 0) return;
+        const clamped = ((index % list.length) + list.length) % list.length; // circular
+        userNavigatedRef.current = true;
+        selectedIdRef.current = list[clamped]?.id ?? null;
+        setSelectedIndex(clamped);
+    }, []);
 
     // Scroll to selected
     useEffect(() => {
@@ -191,49 +247,73 @@ export function TerminalPalette({
         }
     }, [selectedIndex, items.length]);
 
-    // Keyboard navigation
+    // Keyboard navigation. Lee el estado vivo desde refs: el listener se
+    // registra una sola vez por apertura y nunca pierde pulsaciones por
+    // re-suscripciones entre renders.
+    const keyStateRef = useRef({ selectedIndex, search, selectedTicker });
+    keyStateRef.current = { selectedIndex, search, selectedTicker };
+    const handleSelectRef = useRef<(item: DisplayItem) => void>(() => { });
+
     useEffect(() => {
         if (!open) return;
 
         const handleKeyDown = (e: KeyboardEvent) => {
+            const { selectedIndex: idx, search: q, selectedTicker: tk } = keyStateRef.current;
+            const list = itemsRef.current;
+
             switch (e.key) {
                 case 'ArrowDown':
                     e.preventDefault();
-                    setSelectedIndex(prev => Math.min(prev + 1, items.length - 1));
+                    moveSelection(idx + 1);
                     break;
                 case 'ArrowUp':
                     e.preventDefault();
-                    setSelectedIndex(prev => Math.max(prev - 1, 0));
+                    moveSelection(idx - 1);
+                    break;
+                case 'PageDown':
+                    e.preventDefault();
+                    moveSelection(Math.min(idx + 8, list.length - 1));
+                    break;
+                case 'PageUp':
+                    e.preventDefault();
+                    moveSelection(Math.max(idx - 8, 0));
                     break;
                 case 'Enter':
                     e.preventDefault();
-                    if (items[selectedIndex]) {
-                        handleSelect(items[selectedIndex]);
-                    }
+                    if (list[idx]) handleSelectRef.current(list[idx]);
                     break;
                 case 'Tab':
                     e.preventDefault();
-                    if (items[selectedIndex]?.autocomplete) {
-                        setSearch(items[selectedIndex].autocomplete);
+                    if (list[idx]?.autocomplete) {
+                        setSearch(list[idx].autocomplete!);
                     }
                     break;
                 case 'Escape':
                     e.preventDefault();
-                    setSearch('');
-                    setSelectedTicker(null);
-                    onOpenChange(false);
+                    // Escape por niveles: primero sale del contexto de ticker,
+                    // luego limpia lo escrito, y con el prompt vacío cierra.
+                    if (tk) {
+                        setSelectedTicker(null);
+                        setSearch('');
+                    } else if (q) {
+                        setSearch('');
+                    } else {
+                        onOpenChange(false);
+                    }
                     break;
                 case 'Backspace':
-                    if (search === '' && selectedTicker) {
+                    if (q === '' && tk) {
                         setSelectedTicker(null);
                     }
                     break;
             }
         };
 
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [open, items, selectedIndex, onOpenChange, setSearch, search, selectedTicker]);
+        // Fase de captura: garantiza recibir las teclas aunque algún componente
+        // intermedio haga stopPropagation en el camino input -> document.
+        document.addEventListener('keydown', handleKeyDown, true);
+        return () => document.removeEventListener('keydown', handleKeyDown, true);
+    }, [open, onOpenChange, setSearch, moveSelection]);
 
     // Cerrar al hacer click fuera (manejado por overlay en el render)
 
@@ -313,6 +393,7 @@ export function TerminalPalette({
                 break;
         }
     }, [executeCommand, openScannerTable, openUserScanTable, openEventTable, openUserStrategyTable, onOpenChange, onOpenHelp, onExecuteTickerCommand, setSearch, selectedTicker]);
+    handleSelectRef.current = handleSelect;
 
     if (!open) return null;
 
@@ -389,8 +470,12 @@ export function TerminalPalette({
                                         key={item.id}
                                         data-index={index}
                                         onClick={() => handleSelect(item)}
+                                        // onMouseMove (no onMouseEnter): si el scroll por
+                                        // teclado desplaza filas bajo un cursor quieto, el
+                                        // ratón no roba la selección.
+                                        onMouseMove={() => { if (selectedIndex !== index) moveSelection(index); }}
                                         className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors
-                                        ${index === selectedIndex ? 'bg-primary/10' : 'hover:bg-surface-hover'}`}
+                                        ${index === selectedIndex ? 'bg-primary/10' : ''}`}
                                     >
                                         {/* Instrument row */}
                                         {item.type === 'instrument' && item.tickerData && (
@@ -448,6 +533,7 @@ export function TerminalPalette({
                             <span>↑↓ nav</span>
                             <span>Tab complete</span>
                             <span>Enter select</span>
+                            <span>Esc back</span>
                         </div>
                         <button
                             onClick={onOpenHelp}

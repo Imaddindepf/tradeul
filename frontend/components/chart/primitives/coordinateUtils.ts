@@ -142,3 +142,58 @@ export function timeToPixelX(
   // Normal spacing: proportional interpolation (unchanged behavior)
   return xLo + timeFraction * (xHi - xLo);
 }
+
+// ── Inverse conversion ──────────────────────────────────────────────────────
+
+/**
+ * Convert a pixel X coordinate to a Unix timestamp (seconds).
+ *
+ * EXACT INVERSE of `timeToPixelX` — any point the user places on screen must
+ * round-trip to the same pixel when the drawing is rendered. In particular,
+ * beyond the last bar both directions use the MEDIAN gap. (The old capture
+ * path extrapolated with the *last* gap — on intraday timeframes that gap is
+ * often an overnight/weekend session jump, so a click 3 bars past the edge
+ * produced a timestamp ~5× further out and the drawing rendered far away
+ * from the cursor, or off-screen entirely.)
+ */
+export function pixelXToTime(
+  x: number,
+  dataTimes: number[],
+  timeScale: ITimeScaleApi<Time>,
+): number | null {
+  const n = dataTimes.length;
+  if (n === 0 || !isFinite(x)) return null;
+
+  // Fast path: coordinate maps to a real bar (mirror of the exact-match path)
+  const t = timeScale.coordinateToTime(x as never);
+  if (t != null) return t as unknown as number;
+
+  const pxAt = (i: number): number | null =>
+    timeScale.timeToCoordinate(dataTimes[i] as unknown as Time) as number | null;
+
+  const medianGap = getMedianGap(dataTimes);
+
+  // ── After last bar ─────────────────────────────────────────────────────
+  const xLast = pxAt(n - 1);
+  if (xLast !== null && x >= xLast) {
+    if (n < 2) return dataTimes[n - 1];
+    const xPrev = pxAt(n - 2);
+    if (xPrev === null) return null;
+    const barPx = xLast - xPrev;
+    if (barPx <= 0 || medianGap <= 0) return dataTimes[n - 1];
+    return Math.round(dataTimes[n - 1] + ((x - xLast) / barPx) * medianGap);
+  }
+
+  // ── Before first bar ───────────────────────────────────────────────────
+  const x0 = pxAt(0);
+  if (x0 !== null && x <= x0) {
+    if (n < 2) return dataTimes[0];
+    const x1 = pxAt(1);
+    if (x1 === null) return null;
+    const barPx = x1 - x0;
+    if (barPx <= 0 || medianGap <= 0) return dataTimes[0];
+    return Math.round(dataTimes[0] - ((x0 - x) / barPx) * medianGap);
+  }
+
+  return null;
+}

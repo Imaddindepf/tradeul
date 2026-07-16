@@ -8,8 +8,8 @@ import { BaseDrawingPrimitive, type DrawingPaneView } from './BaseDrawingPrimiti
 import type { DateRangeDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import {
+  BODY_HIT_TOLERANCE,
   HANDLE_RENDER_RADIUS,
-  ZONE_HIT_PADDING,
   bodyHit,
   firstHandleHit,
 } from './hitTesting';
@@ -118,9 +118,16 @@ class DateRangePaneView implements IPrimitivePaneView {
       [this._x2, this._midY, ':p2'],
     ]);
     if (handle) return handle;
-    const left = Math.min(this._x1, this._x2);
-    const right = Math.max(this._x1, this._x2);
-    if (x >= left - ZONE_HIT_PADDING && x <= right + ZONE_HIT_PADDING) return bodyHit(this._id);
+    // Only the two dashed boundary lines are grabbable — the translucent
+    // band spans the full pane height, so treating the whole strip as the
+    // body made every hover between the two dates focus this drawing
+    // instead of the canvas/crosshair.
+    if (
+      Math.abs(x - this._x1) < BODY_HIT_TOLERANCE ||
+      Math.abs(x - this._x2) < BODY_HIT_TOLERANCE
+    ) {
+      return bodyHit(this._id);
+    }
     return null;
   }
 }

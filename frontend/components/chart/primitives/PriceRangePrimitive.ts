@@ -7,11 +7,10 @@ import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import { BaseDrawingPrimitive, type DrawingPaneView } from './BaseDrawingPrimitive';
 import type { PriceRangeDrawing } from './types';
 import {
+  BODY_HIT_TOLERANCE,
   HANDLE_RENDER_RADIUS,
-  ZONE_HIT_PADDING,
   bodyHit,
   firstHandleHit,
-  inBox,
 } from './hitTesting';
 
 /**
@@ -128,9 +127,15 @@ class PriceRangePaneView implements IPrimitivePaneView {
       [this._midX, this._y2, ':p2'],
     ]);
     if (handle) return handle;
-    const top = Math.min(this._y1, this._y2);
-    const bot = Math.max(this._y1, this._y2);
-    if (y >= top - ZONE_HIT_PADDING && y <= bot + ZONE_HIT_PADDING) return bodyHit(this._id);
+    // Only the two dashed boundary lines are grabbable — the translucent
+    // band spans the full pane width, so treating the whole strip as the
+    // body made every hover between the two prices focus this drawing.
+    if (
+      Math.abs(y - this._y1) < BODY_HIT_TOLERANCE ||
+      Math.abs(y - this._y2) < BODY_HIT_TOLERANCE
+    ) {
+      return bodyHit(this._id);
+    }
     return null;
   }
 }

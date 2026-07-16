@@ -39,6 +39,8 @@ export function InsightsProvider({ children }: InsightsProviderProps) {
     const ws = useWebSocket();
     const { openWindow } = useFloatingWindowActions();
     const windows = useFloatingWindowsList();
+    const windowsRef = useRef(windows);
+    windowsRef.current = windows;
     const hasOpenedTodayRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -58,8 +60,8 @@ export function InsightsProvider({ children }: InsightsProviderProps) {
                 }
 
                 // Verificar si ya hay una ventana de Insights abierta
-                const existingWindow = windows.find(w => 
-                    w.title === 'Insights' || 
+                const existingWindow = windowsRef.current.find(w =>
+                    w.title === 'Insights' ||
                     w.title === 'Morning News Call'
                 );
                 if (existingWindow) {
@@ -88,7 +90,7 @@ export function InsightsProvider({ children }: InsightsProviderProps) {
         return () => {
             subscription.unsubscribe();
         };
-    }, [ws.isConnected, ws.messages$, openWindow, windows]);
+    }, [ws.isConnected, ws.messages$, openWindow]);
 
     return <>{children}</>;
 }

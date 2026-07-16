@@ -9,10 +9,11 @@ import type { ParallelChannelDrawing } from './types';
 import { timeToPixelX } from './coordinateUtils';
 import { applyLineStyle, resetLineStyle, type LineStyle } from './canvasStyles';
 import {
-  ZONE_HIT_PADDING,
+  BODY_HIT_TOLERANCE,
   bodyHit,
+  distToSegment,
   firstHandleHit,
-  inBox,
+  inPolygon,
 } from './hitTesting';
 
 class ChannelRenderer implements IPrimitivePaneRenderer {
@@ -138,11 +139,23 @@ class ChannelPaneView implements IPrimitivePaneView {
       [m2x, m2y, ':m2'],
     ]);
     if (handle) return handle;
-    const minX = Math.min(this._x1, this._x2, this._x3, this._x4);
-    const maxX = Math.max(this._x1, this._x2, this._x3, this._x4);
-    const minY = Math.min(this._y1, this._y2, this._y3, this._y4);
-    const maxY = Math.max(this._y1, this._y2, this._y3, this._y4);
-    if (inBox(x, y, minX, minY, maxX, maxY, ZONE_HIT_PADDING)) return bodyHit(this._id);
+    // Boundary lines (top A→B, bottom C→D, dashed middle) hit within the
+    // standard line tolerance; otherwise only the REAL channel polygon —
+    // not its bounding box, which for sloped channels captured huge empty
+    // corners and stole the hover from the canvas / nearby drawings.
+    if (
+      distToSegment(x, y, this._x1, this._y1, this._x2, this._y2) < BODY_HIT_TOLERANCE ||
+      distToSegment(x, y, this._x3, this._y3, this._x4, this._y4) < BODY_HIT_TOLERANCE ||
+      distToSegment(x, y, m1x, m1y, m2x, m2y) < BODY_HIT_TOLERANCE
+    ) {
+      return bodyHit(this._id);
+    }
+    if (inPolygon(x, y, [
+      [this._x1, this._y1], [this._x2, this._y2],
+      [this._x4, this._y4], [this._x3, this._y3],
+    ])) {
+      return bodyHit(this._id);
+    }
     return null;
   }
 }

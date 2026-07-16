@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { getOverlayRoot } from '@/lib/overlayRoot';
 import { useFloatingWindowActions, type LinkGroup } from '@/contexts/FloatingWindowContext';
 
 const LINK_GROUPS: { value: LinkGroup; color: string; label: string }[] = [
@@ -61,7 +62,8 @@ export function LinkGroupSelector({ windowId, currentLinkGroup }: LinkGroupSelec
   // Close on click outside
   useEffect(() => {
     if (!isOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
+    // pointerdown en captura — cierre garantizado aunque el click caiga en el canvas.
+    const handleClickOutside = (e: PointerEvent) => {
       if (
         buttonRef.current && !buttonRef.current.contains(e.target as Node) &&
         dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
@@ -69,8 +71,8 @@ export function LinkGroupSelector({ windowId, currentLinkGroup }: LinkGroupSelec
         setIsOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handleClickOutside, true);
+    return () => document.removeEventListener('pointerdown', handleClickOutside, true);
   }, [isOpen]);
 
   const dropdown = isOpen
@@ -98,7 +100,8 @@ export function LinkGroupSelector({ windowId, currentLinkGroup }: LinkGroupSelec
             </button>
           ))}
         </div>,
-        document.body
+        // En fullscreen el body no se pinta: anclar al fullscreenElement.
+        getOverlayRoot()
       )
     : null;
 

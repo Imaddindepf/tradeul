@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { getOverlayRoot } from '@/lib/overlayRoot';
 
 export type TooltipPlacement = 'top' | 'bottom' | 'left' | 'right';
 
@@ -170,7 +171,7 @@ export function Tooltip({
                         <span className="ml-2 opacity-60 font-mono text-[9.5px]">{shortcut}</span>
                     )}
                 </div>,
-                document.body,
+                getOverlayRoot(),
             )}
         </>
     );

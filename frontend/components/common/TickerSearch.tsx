@@ -41,7 +41,9 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
     const defaultPlaceholder = placeholder || t('news.ticker');
     const [results, setResults] = useState<TickerResult[]>([]);
     const [isOpen, setIsOpen] = useState(false);
-    const [selectedIndex, setSelectedIndex] = useState(-1);
+    // Siempre hay un resultado resaltado (0 por defecto): Enter confirma el
+    // resaltado y la primera flecha ↓ se mueve visiblemente al segundo.
+    const [selectedIndex, setSelectedIndex] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -118,7 +120,11 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
             }
 
             setResults(data.results);
-            setIsOpen(data.results.length > 0);
+            // Solo abrir el dropdown si el usuario está escribiendo en el input.
+            // Un cambio programático del value (sync de celda, link group, select)
+            // no debe desplegar la lista como si hubiera una búsqueda activa.
+            setIsOpen(data.results.length > 0 && document.activeElement === inputRef.current);
+            setSelectedIndex(0);
 
         } catch (error: any) {
             // Ignorar errores de abort (cuando el usuario sigue escribiendo)
@@ -161,9 +167,11 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
         return () => clearTimeout(timer);
     }, [value, fetchResults]);
 
-    // Close dropdown when clicking outside
+    // Close dropdown when clicking outside — pointerdown en CAPTURA para que
+    // ningún stopPropagation intermedio (canvas del chart, ventanas flotantes)
+    // impida que el cierre llegue a document.
     useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
+        const handleClickOutside = (e: PointerEvent) => {
             if (
                 dropdownRef.current &&
                 !dropdownRef.current.contains(e.target as Node) &&
@@ -173,39 +181,61 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
             }
         };
 
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
+        document.addEventListener('pointerdown', handleClickOutside, true);
+        return () => document.removeEventListener('pointerdown', handleClickOutside, true);
     }, []);
+
+    // Mantener el resultado resaltado siempre visible al navegar con teclado.
+    useEffect(() => {
+        if (!isOpen || !dropdownRef.current) return;
+        const el = dropdownRef.current.querySelector(`[data-index="${selectedIndex}"]`);
+        el?.scrollIntoView?.({ block: 'nearest' });
+    }, [selectedIndex, isOpen]);
 
     // Keyboard navigation
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (!isOpen) return;
+        if (!isOpen) {
+            // Con el dropdown cerrado, ↓ lo reabre si hay resultados previos.
+            if (e.key === 'ArrowDown' && results.length > 0 && value) {
+                e.preventDefault();
+                setSelectedIndex(0);
+                setIsOpen(true);
+            }
+            return;
+        }
 
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault();
-                setSelectedIndex(prev =>
-                    prev < results.length - 1 ? prev + 1 : prev
-                );
+                // Navegación circular: desde el último vuelve al primero.
+                setSelectedIndex(prev => (prev + 1) % Math.max(results.length, 1));
                 break;
             case 'ArrowUp':
                 e.preventDefault();
-                setSelectedIndex(prev => prev > 0 ? prev - 1 : 0);
+                setSelectedIndex(prev => (prev - 1 + results.length) % Math.max(results.length, 1));
                 break;
-            case 'Enter':
+            case 'Enter': {
                 e.preventDefault();
-                if (selectedIndex >= 0 && selectedIndex < results.length) {
-                    handleSelect(results[selectedIndex]);
-                }
+                const pick = selectedIndex >= 0 && selectedIndex < results.length
+                    ? results[selectedIndex]
+                    : results[0];
+                if (pick) handleSelect(pick);
                 break;
+            }
             case 'Escape':
+                // Solo cerrar el dropdown; no propagar a handlers globales
+                // (cerrar ventanas, cancelar dibujos, etc.).
+                e.stopPropagation();
                 setIsOpen(false);
                 break;
         }
     };
 
     const handleSelect = (ticker: TickerResult) => {
+        // Evitar que el onChange del símbolo vuelva a disparar fetch+open.
+        skipNextSearchRef.current = true;
         onChange(ticker.symbol);
+        setResults([]);
         setIsOpen(false);
         onSelect?.(ticker);
     };
@@ -228,6 +258,7 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
                     onKeyDown={handleKeyDown}
                     onFocus={() => {
                         if (value && results.length > 0) {
+                            setSelectedIndex(0);
                             setIsOpen(true);
                         }
                     }}
@@ -268,9 +299,13 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
                         <button
                             key={ticker.symbol}
                             type="button"
+                            data-index={index}
                             onClick={() => handleSelect(ticker)}
-                            onMouseEnter={() => setSelectedIndex(index)}
-                            className={`w-full px-2 py-1.5 text-left text-xs hover:bg-primary/10 transition-colors border-b border-border-subtle last:border-0 ${index === selectedIndex ? 'bg-primary/10' : ''
+                            // onMouseMove (no onMouseEnter): si el scroll por teclado
+                            // desplaza filas bajo un cursor quieto, el ratón no roba
+                            // la selección; solo manda cuando realmente se mueve.
+                            onMouseMove={() => { if (selectedIndex !== index) setSelectedIndex(index); }}
+                            className={`w-full px-2 py-1.5 text-left text-xs transition-colors border-b border-border-subtle last:border-0 ${index === selectedIndex ? 'bg-primary/10' : ''
                                 }`}
                         >
                             <div className="flex items-center gap-2">

@@ -41,6 +41,7 @@ import {
     useExtendedHoursPrice,
 } from './hooks';
 import { useDrawingInteractions } from './hooks/useDrawingInteractions';
+import { useIndicatorHover } from './hooks/useIndicatorHover';
 
 // New UI sub-components
 import { ChartProvider, type ChartContextValue, type CandleStyle, type MagnetMode } from './ChartContext';
@@ -356,6 +357,14 @@ function TradingChartComponent({
     dataRef.current = liveBarsRef.current;
     dataRefForChart.current = liveBarsRef.current;
 
+    // ── Indicator hover (hit-test milimétrico de estudios overlay) ──────
+    const {
+        hoveredIndicatorId, setHoveredIndicator, indicatorHitTest,
+    } = useIndicatorHover(
+        chartRef, candleSeriesRef, indicatorSeriesRef,
+        indicators, indicatorResults, selectedIndicator, chartVersion,
+    );
+
     // ── Drawing interactions (primitives, drag, magnet, shortcuts) ──────
     const {
         drawingPrimitivesRef, tentativePrimitiveRef,
@@ -369,6 +378,7 @@ function TradingChartComponent({
         eventPrimitiveRef, openEarningsPopup,
         showNewsMarkersRef, newsTimeMapRef, handleNewsMarkerClickRef,
         openEditPopup, editDialogOpen: editPopup.visible,
+        indicatorHitTest, setHoveredIndicator, setSelectedIndicator,
     });
 
     // ── Pre-destroy cleanup: detach all primitives before chart.remove() ─
@@ -414,11 +424,23 @@ function TradingChartComponent({
     // Fullscreen
     // ────────────────────────────────────────────────────────────────────
     const toggleFullscreen = useCallback(() => {
-        const container = containerRef.current?.parentElement?.parentElement;
-        if (!container) return;
-        if (!document.fullscreenElement) { container.requestFullscreen(); setIsFullscreen(true); }
+        /*
+          Pantalla completa de la VENTANA entera, no solo del canvas. En modo
+          ventana/layout el chrome (barra de título con el buscador de ticker,
+          header de timeframes/indicadores y toolbar vertical) vive FUERA del
+          árbol del chart, así que fullscreenear el pane dejaba al usuario sin
+          ningún control. `#floating-window-{id}` engloba todo eso.
+          Fallback (chart embebido sin ventana): el root del propio chart, que
+          sí incluye su header y toolbar internos.
+        */
+        const wid = explicitWindowId ?? windowId ?? null;
+        const target = (wid && document.getElementById(`floating-window-${wid}`))
+            || containerRef.current?.closest('[data-chart-root]')
+            || containerRef.current?.parentElement?.parentElement;
+        if (!target) return;
+        if (!document.fullscreenElement) { target.requestFullscreen(); setIsFullscreen(true); }
         else { document.exitFullscreen(); setIsFullscreen(false); }
-    }, []);
+    }, [explicitWindowId, windowId]);
 
     useEffect(() => {
         const forceChartResize = () => {
@@ -572,6 +594,7 @@ function TradingChartComponent({
               corners and let the grid handle the chrome.
             */}
             <div
+                data-chart-root
                 className={
                     inLayoutMode
                         ? 'h-full flex flex-col bg-[color:var(--color-surface)] overflow-hidden'
@@ -631,7 +654,7 @@ function TradingChartComponent({
 
                         {dragState.active && (
                             <div
-                                className="absolute inset-0 z-50"
+                                className="absolute inset-0 z-40"
                                 style={{
                                     cursor: dragState.dragMode === 'mid1' || dragState.dragMode === 'mid2'
                                         ? 'ns-resize'
@@ -737,9 +760,11 @@ function TradingChartComponent({
                                 cursor:
                                     hoveredDrawingId && activeTool === 'none'
                                         ? 'grab'
-                                        : isDrawing
-                                            ? 'crosshair'
-                                            : 'default',
+                                        : hoveredIndicatorId && activeTool === 'none'
+                                            ? 'pointer'
+                                            : isDrawing
+                                                ? 'crosshair'
+                                                : 'default',
                             }}
                         />
 

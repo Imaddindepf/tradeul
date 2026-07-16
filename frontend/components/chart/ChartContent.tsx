@@ -26,6 +26,27 @@
  * The TickerSearch portal in the FloatingWindow's title bar is owned by
  * `<ChartWindowHeader>` so the window title always reflects the active
  * cell's symbol, regardless of how many cells the layout has.
+ *
+ * ─── Escala de capas (z-index) DENTRO de la ventana del chart ────────────
+ *
+ * Todo el árbol vive en el stacking context de FloatingWindowBase (position:
+ * fixed + zIndex 100–8499), así que estos valores solo compiten entre sí:
+ *
+ *   z-0   canvas de lightweight-charts (base, sin z explícito)
+ *   z-10  overlays informativos pasivos: OHLC, leyenda de indicadores,
+ *         loading / error
+ *   z-20  badges y banners: price label, REPLAY, "saltar a live",
+ *         banner de dibujo en curso
+ *   z-30  overlay de celda (multichart)
+ *   z-40  TOOLBAR vertical (y sus flyouts) + overlay de drag de dibujos
+ *   z-50  dropdowns y popovers del header / title-bar: TickerSearch,
+ *         timeframes, estilo de vela, menú de indicadores, diálogos in-window
+ *   z-60  popups puntuales (earnings)
+ *
+ * Regla: nada dentro del área del canvas debe declarar más de z-40; nada del
+ * header/title-bar debe declarar menos de z-50. Los diálogos que necesiten
+ * salir de la ventana (context menu, settings de indicador, tooltips) usan
+ * position:fixed + z alto, que queda igualmente confinado al SC de la ventana.
  */
 
 'use client';

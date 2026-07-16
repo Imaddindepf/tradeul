@@ -94,6 +94,8 @@ export function useTickerManagement(
             hasAppliedWindowState.current = false;
             return;
         }
+        tickerSearchRef.current?.suppressSearch();
+        tickerSearchRef.current?.close();
         setCurrentTicker(initialTicker);
         setInputValue(initialTicker);
     }, [initialTicker, inLayoutMode]);

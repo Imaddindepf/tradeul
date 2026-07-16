@@ -281,31 +281,53 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           // Respuesta tardía: el socket se cayó (pestaña en background) y el
           // servidor la entrega en la reconexión. La petición ya fue cancelada
           // (msgId=null), así que reemplazamos el mensaje de error de conexión
-          // o añadimos uno nuevo, en vez de descartarla.
+          // o añadimos uno nuevo, en vez de descartarla. IMPORTANTE: hay que
+          // crear también el ResultBlock — la UI de mensajes completados solo
+          // renderiza bloques, no message.content.
           if (!msgId) {
             if (!response) break;
             if (data.thread_id && data.thread_id !== sessionId) break;
+            const lateId = `late-${Date.now()}`;
             setMessages(prev => {
               const revIdx = [...prev].reverse().findIndex(
-                m => m.role === 'assistant' && m.status === 'error'
+                m => m.role === 'assistant' && (m.status === 'error' || m.status === 'thinking')
               );
               if (revIdx !== -1) {
                 const realIdx = prev.length - 1 - revIdx;
                 return prev.map((m, i) =>
                   i === realIdx
-                    ? { ...m, content: response, status: 'complete' as const }
+                    ? { ...m, id: lateId, content: response, status: 'complete' as const }
                     : m
                 );
               }
               return [...prev, {
-                id: `late-${Date.now()}`,
+                id: lateId,
                 role: 'assistant' as const,
                 content: response,
                 timestamp: new Date(),
                 status: 'complete' as const,
               }];
             });
+            const lateStructured = data.structured_response as Record<string, unknown> | undefined;
+            setResultBlocks(prev => [...prev.slice(-(MAX_RESULT_BLOCKS - 1)), {
+              id: `${lateId}-response`,
+              messageId: lateId,
+              query: '',
+              title: 'Analysis',
+              status: 'success' as const,
+              code: '',
+              codeVisible: false,
+              result: {
+                success: true,
+                code: '',
+                outputs: [{ type: 'research', title: 'AI Analysis', content: response, structured_response: lateStructured }] as any,
+                execution_time_ms: data.metadata?.total_elapsed_ms || 0,
+                timestamp: new Date().toISOString(),
+              },
+              timestamp: new Date(),
+            }]);
             setIsLoading(false);
+            completeRequest();
             break;
           }
           const totalMs = data.metadata?.total_elapsed_ms;
@@ -462,10 +484,21 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
       setIsConnected(false);
       isConnectingRef.current = false;
       wsRef.current = null;
-      if (pendingRequestRef.current) cancelPendingRequest('disconnect');
+      // NO cancelamos la petición pendiente: el servidor sigue ejecutando el
+      // grafo y entregará el final_response al socket reconectado
+      // (_ACTIVE_SOCKETS en el backend). Cancelar aquí mostraba el error
+      // "Se perdió la conexión" aunque la respuesta llegaba segundos después.
+      // El activity-timeout (90s sin eventos) queda como fallback real.
+      if (pendingRequestRef.current) {
+        resetActivityTimeout();
+      }
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       const attempt = reconnectAttemptsRef.current;
-      const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 30000);
+      // Con petición en curso reconectamos casi al instante para recibir la
+      // entrega diferida; sin petición usamos backoff exponencial normal.
+      const delay = pendingRequestRef.current
+        ? Math.min(250 * Math.pow(2, attempt), 5000)
+        : Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 30000);
       reconnectAttemptsRef.current = attempt + 1;
       reconnectTimeoutRef.current = setTimeout(() => { connect(); }, delay);
     };
@@ -477,7 +510,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     };
 
     wsRef.current = ws;
-  }, [handleWSMessage, cancelPendingRequest, getToken]);
+  }, [handleWSMessage, resetActivityTimeout, getToken]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
