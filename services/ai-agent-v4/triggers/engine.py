@@ -211,6 +211,17 @@ class TriggerEngine:
             except Exception:
                 logger.exception("CEP clear failed for %s", trigger_id)
 
+        # Clear last-price state for price-level specs
+        if gone and gone.price_levels and gone.spec_id:
+            try:
+                from alerts.price_levels import PriceLevelRuntime
+                r = await self._get_redis()
+                n = await PriceLevelRuntime(r).clear_spec(user_id, gone.spec_id)
+                if n:
+                    logger.info("Cleared %d price-level states for spec %s", n, gone.spec_id)
+            except Exception:
+                logger.exception("Price-level clear failed for %s", trigger_id)
+
         self._sync_membership_watches()
         logger.info("Unregistered trigger %s for user %s (existed=%s)", trigger_id, user_id, bool(removed))
         return bool(removed)
@@ -422,6 +433,14 @@ class TriggerEngine:
             return
         if trigger.kind == "membership":
             return  # handled by MembershipWatcher poll loop
+
+        if trigger.kind == "price_level" or trigger.price_levels:
+            # Price levels update last-price state on EVERY event (even during
+            # cooldown) so oscillations around a level aren't re-detected as
+            # fresh crosses when the cooldown expires.
+            await self._handle_price_level(trigger, event)
+            return
+
         if not self._passes_universe(trigger, event):
             return
         if not self._passes_cooldown(trigger):
@@ -434,6 +453,43 @@ class TriggerEngine:
         # T0 single-event match
         if self._matches_event_types(trigger, event):
             await self._dispatch_workflow(trigger, event)
+
+    async def _handle_price_level(self, trigger: TriggerConfig, event: TriggerEvent) -> None:
+        """Absolute price-level crosses (reclaim/breakdown) via PriceLevelRuntime."""
+        from alerts.price_levels import PriceLevelRuntime
+
+        if event.price is None:
+            return
+        # Symbol scoping only — min/max_price universe filters would starve
+        # the runtime of the very prices it needs to detect a cross.
+        sym = (event.symbol or "").upper()
+        include = {s.upper() for s in (trigger.conditions.symbols_include or [])}
+        exclude = {s.upper() for s in (trigger.conditions.symbols_exclude or [])}
+        if include and sym not in include:
+            return
+        if exclude and sym in exclude:
+            return
+
+        r = await self._get_redis()
+        runtime = PriceLevelRuntime(r)
+        cross = await runtime.evaluate(
+            user_id=trigger.user_id,
+            spec_id=trigger.spec_id or trigger.id,
+            symbol=sym,
+            price=event.price,
+            levels=trigger.price_levels,
+        )
+        if cross is None:
+            return
+        if not self._passes_cooldown(trigger):
+            return
+        event.raw = {**(event.raw or {}), "level_cross": cross}
+        # Make the fire self-describing regardless of the carrier event type
+        event.event_type = (
+            f"price_{'reclaim' if cross['direction'] == 'above' else 'breakdown'}_"
+            f"{cross['value']:g}"
+        )
+        await self._dispatch_workflow(trigger, event)
 
     async def _handle_sequence(self, trigger: TriggerConfig, event: TriggerEvent) -> None:
         from alerts.cep import SequenceRuntime
@@ -498,7 +554,12 @@ class TriggerEngine:
     @staticmethod
     def _evaluate_trigger(trigger: TriggerConfig, event: TriggerEvent) -> bool:
         """Legacy helper kept for tests: T0 single-event AND of all conditions."""
-        if not trigger.enabled or trigger.kind == "membership" or trigger.sequence_steps:
+        if (
+            not trigger.enabled
+            or trigger.kind in ("membership", "price_level")
+            or trigger.sequence_steps
+            or trigger.price_levels
+        ):
             return False
         eng = TriggerEngine
         return (
@@ -537,14 +598,19 @@ class TriggerEngine:
             store = get_store()
             if not store.available:
                 return
+            evidence: dict[str, Any] = {
+                "rvol": event.rvol, "volume": event.volume,
+                "timestamp": event.timestamp,
+            }
+            if (event.raw or {}).get("level_cross"):
+                evidence["level_cross"] = event.raw["level_cross"]
             await store.record_fire(
                 spec_id=trigger.spec_id,
                 user_id=trigger.user_id,
                 symbol=event.symbol,
                 event_type=event.event_type,
                 price=event.price,
-                evidence={"rvol": event.rvol, "volume": event.volume,
-                          "timestamp": event.timestamp},
+                evidence=evidence,
             )
         except Exception:
             logger.exception("Failed to record spec fire for trigger %s", trigger.id)
@@ -617,6 +683,7 @@ class TriggerEngine:
                 "{symbol} triggered '{trigger_name}' ({event_type}) at ${price}"
             )
 
+            cross = (event.raw or {}).get("level_cross") or {}
             message = template.format(
                 symbol=event.symbol,
                 price=event.price or "N/A",
@@ -625,6 +692,8 @@ class TriggerEngine:
                 trigger_name=trigger.name,
                 rvol=event.rvol or "N/A",
                 rank=(event.raw or {}).get("rank", "N/A"),
+                level=cross.get("value", "N/A"),
+                direction=cross.get("direction", "N/A"),
             )
 
             alert_payload = {

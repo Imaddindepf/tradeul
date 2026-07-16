@@ -12,7 +12,7 @@ import {
   Clock, Copy, Loader2, ShieldCheck, Zap,
 } from 'lucide-react';
 import {
-  AlertDraftPayload, armAlert, formatUniverse, fmtCooldown, matchSteps,
+  AlertDraftPayload, armAlert, formatPriceLevel, formatUniverse, fmtCooldown, matchSteps,
 } from '@/lib/aiAlerts';
 
 const TIER_LABELS: Record<string, string> = {
@@ -72,13 +72,11 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
   };
 
   return (
-    <div className={`rounded-xl border bg-surface overflow-hidden ${
-      isDuplicate ? 'border-amber-500/40' : 'border-primary/30'
-    }`}>
-      {/* Header */}
-      <div className={`flex items-center justify-between gap-2 px-3 py-2 border-b border-border ${
-        isDuplicate ? 'bg-amber-500/5' : 'bg-primary/5'
+    <div className={`rounded-xl border bg-surface overflow-hidden ${isDuplicate ? 'border-amber-500/40' : 'border-primary/30'
       }`}>
+      {/* Header */}
+      <div className={`flex items-center justify-between gap-2 px-3 py-2 border-b border-border ${isDuplicate ? 'bg-amber-500/5' : 'bg-primary/5'
+        }`}>
         <div className="flex items-center gap-2 min-w-0">
           {isDuplicate
             ? <Copy className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
@@ -149,6 +147,18 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
               {alert.membership.rank_lte != null ? ` top${alert.membership.rank_lte}` : ''}
             </span>
           )}
+          {(alert.price_levels || []).map((p, i) => (
+            <span
+              key={`pl${i}`}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${
+                p.direction === 'above'
+                  ? 'bg-emerald-500/10 text-emerald-500'
+                  : 'bg-rose-500/10 text-rose-500'
+              }`}
+            >
+              {formatPriceLevel(p)}
+            </span>
+          ))}
           {alert.lifecycle?.cooldown_seconds != null && (
             <span className="px-1.5 py-0.5 rounded bg-surface-hover text-[9px] font-mono text-foreground/70">
               cooldown {fmtCooldown(alert.lifecycle.cooldown_seconds)}
@@ -215,9 +225,8 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
                               <td className="pr-2 py-0.5 text-right tabular-nums">
                                 {last?.price != null ? `$${last.price.toFixed(2)}` : '—'}
                               </td>
-                              <td className={`pr-2 py-0.5 text-right tabular-nums font-medium ${
-                                (m.close_vs_open_pct ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'
-                              }`}>
+                              <td className={`pr-2 py-0.5 text-right tabular-nums font-medium ${(m.close_vs_open_pct ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'
+                                }`}>
                                 {pct(m.close_vs_open_pct)}
                               </td>
                             </tr>
@@ -250,7 +259,7 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
               {armState === 'arming'
                 ? <><Loader2 className="w-3 h-3 animate-spin" /> Activando…</>
                 : <><CheckCircle2 className="w-3 h-3" />
-                    {isDuplicate ? 'Reactivar alerta' : 'Activar alerta'}</>}
+                  {isDuplicate ? 'Reactivar alerta' : 'Activar alerta'}</>}
             </button>
           )}
           <button

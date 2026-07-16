@@ -92,6 +92,8 @@ async def arm_alert(
             live = True
             if spec.is_t0_armable():
                 kind = "event_match"
+            elif spec.is_price_level_armable():
+                kind = "price_level"
             elif spec.is_sequence_armable():
                 kind = "sequence"
             elif spec.is_membership_armable():
@@ -106,6 +108,7 @@ async def arm_alert(
 
     notes = {
         "event_match": "Live on the reactive engine — fires stream to your alert feed.",
+        "price_level": "Live price-level watch armed — fires the moment the level is crossed.",
         "sequence": "Live CEP sequence armed — fires when the full A→B path completes.",
         "membership": "Live membership watch armed — fires on scanner enter/exit.",
         "preview_only": (

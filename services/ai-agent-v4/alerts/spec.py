@@ -101,6 +101,17 @@ class MembershipWatch(BaseModel):
     rank_lte: Optional[int] = Field(None, ge=1, le=100)
 
 
+class PriceLevel(BaseModel):
+    """Absolute price-level cross: 'reclaims 502' / 'loses 500'.
+
+    direction=above fires when price crosses UP through value;
+    direction=below fires when price crosses DOWN through value.
+    Multiple levels are OR'ed (any cross fires the alert).
+    """
+    direction: Literal["above", "below"]
+    value: float = Field(..., gt=0)
+
+
 class Lifecycle(BaseModel):
     """Anti-noise state machine parameters (Grafana/Prometheus model)."""
     cooldown_seconds: int = Field(900, ge=0, le=86400)
@@ -143,6 +154,7 @@ class AlertSpec(BaseModel):
     steps: list[SequenceStep] = Field(default_factory=list, max_length=5)
     day_conditions: list[DayCondition] = Field(default_factory=list, max_length=6)
     membership: Optional[MembershipWatch] = None
+    price_levels: list[PriceLevel] = Field(default_factory=list, max_length=4)
 
     # Behaviour
     lifecycle: Lifecycle = Field(default_factory=Lifecycle)
@@ -168,10 +180,17 @@ class AlertSpec(BaseModel):
             if not any(a.channel == "workflow" and a.workflow_id for a in self.actions):
                 raise ValueError("agentic tier requires a workflow action with workflow_id")
         else:
-            if not self.steps:
-                raise ValueError(f"{tier} tier requires at least one sequence step")
+            if not self.steps and not self.price_levels:
+                raise ValueError(
+                    f"{tier} tier requires at least one sequence step or price level"
+                )
             if tier == AlertTier.EVENT_MATCH.value and len(self.steps) > 1:
                 raise ValueError("event_match tier accepts exactly one step; use sequence tier")
+        if self.price_levels and not self.universe.symbols_include:
+            raise ValueError(
+                "price_levels require specific tickers in universe.symbols_include "
+                "(an absolute level only makes sense per symbol)"
+            )
         return self
 
     # ── Derived helpers ──
@@ -182,6 +201,17 @@ class AlertSpec(BaseModel):
         return (
             tier == AlertTier.EVENT_MATCH.value
             and len(self.steps) == 1
+            and not self.price_levels
+            and not self.day_conditions
+        )
+
+    def is_price_level_armable(self) -> bool:
+        """Absolute price-level crosses — live via PriceLevelRuntime."""
+        tier = self.tier if isinstance(self.tier, str) else self.tier.value
+        return (
+            tier == AlertTier.EVENT_MATCH.value
+            and bool(self.price_levels)
+            and not self.steps
             and not self.day_conditions
         )
 
@@ -200,7 +230,12 @@ class AlertSpec(BaseModel):
 
     def is_live_armable(self) -> bool:
         """Anything we can evaluate continuously (not just dry-run)."""
-        return self.is_t0_armable() or self.is_sequence_armable() or self.is_membership_armable()
+        return (
+            self.is_t0_armable()
+            or self.is_price_level_armable()
+            or self.is_sequence_armable()
+            or self.is_membership_armable()
+        )
 
     def to_trigger_config(self) -> dict[str, Any]:
         """Compile a live-armable spec into TriggerEngine config shape."""
@@ -229,7 +264,11 @@ class AlertSpec(BaseModel):
             "name": self.name,
             "spec_id": self.id,
             "enabled": True,
-            "kind": tier,
+            "kind": "price_level" if self.is_price_level_armable() else tier,
+            "price_levels": (
+                [p.model_dump() for p in self.price_levels]
+                if self.is_price_level_armable() else []
+            ),
             "sequence_steps": (
                 [s.model_dump(exclude_none=True) for s in self.steps]
                 if self.is_sequence_armable() else []

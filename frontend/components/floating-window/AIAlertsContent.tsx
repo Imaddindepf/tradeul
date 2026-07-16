@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import {
   AlertFire, AlertSpec, DryRunResult,
-  archiveAlert, armAlert, fmtCooldown, formatUniverse,
+  archiveAlert, armAlert, fmtCooldown, formatPriceLevel, formatUniverse,
   listAlerts, listFires, matchSteps, pauseAlert, rerunDryRun,
 } from '@/lib/aiAlerts';
 import { useAIAlertFiresStore } from '@/stores/useAIAlertFiresStore';
@@ -248,6 +248,16 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
         {(spec.steps || []).map((s, i) => (
           <span key={i} className="px-1.5 py-0.5 rounded bg-surface-hover text-[8.5px] font-mono text-foreground/60">
             {s.event_types.join('|')}
+          </span>
+        ))}
+        {(spec.price_levels || []).map((p, i) => (
+          <span
+            key={`pl${i}`}
+            className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono ${
+              p.direction === 'above' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
+            }`}
+          >
+            {formatPriceLevel(p)}
           </span>
         ))}
         {chips.map((c, i) => (

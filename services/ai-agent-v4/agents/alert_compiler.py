@@ -119,6 +119,10 @@ will be watched and when it fires. The user will confirm this text.",
     "on": "enter" | "exit",
     "rank_lte": null | int          // e.g. 10 = top 10 only
   },
+  "price_levels": [                 // ABSOLUTE price levels (needs symbols_include)
+    {"direction": "above", "value": 502},   // fires when price crosses UP through 502
+    {"direction": "below", "value": 500}    // fires when price crosses DOWN through 500
+  ],                                // multiple levels are OR'ed; [] when unused
   "lifecycle": {
     "cooldown_seconds": 900,        // min seconds between fires per symbol
     "max_fires_per_day": 20
@@ -166,6 +170,15 @@ RULES:
 8. If the user mentions specific tickers, put them in symbols_include.
 9. For live sequences prefer two real event steps (e.g. pullback then
    vwap_cross_up) with within_minutes, NOT day_conditions.
+10. ABSOLUTE PRICE LEVELS ("reclame 502", "pierda 500", "supere los 300",
+   "cruce por encima de 502", "break above 300", "toque 150"): use
+   tier="event_match" with steps=[] and price_levels=[...]. "reclamar" /
+   "superar" / "romper al alza" -> direction "above"; "perder" / "caer por
+   debajo" / "breakdown" -> direction "below". Several levels in one
+   sentence ("reclame 502 O pierda 500") go in the SAME price_levels array
+   (any cross fires). This REQUIRES specific tickers in symbols_include.
+   Do NOT confuse absolute levels with min_price/max_price universe filters
+   (those pre-filter the universe, they never fire an alert).
 
 EVENT TYPES (core vocabulary):
 """ + _CORE_EVENTS + """
@@ -181,6 +194,9 @@ User: "alert me when TSLA gets halted"
 
 User: "acciones de más de 1B que caigan fuerte en el opening y luego crucen el vwap al alza tras el mínimo"
 {"name": "Reclaim de VWAP tras caída en el opening (>1B)", "paraphrase": "Vigilaré acciones con capitalización superior a 1B: cuando caigan al menos un 2% en la primera hora y después crucen el VWAP al alza tras marcar el mínimo del opening, te avisaré. Nota: la condición de caída se evalúa sobre el día en curso, por lo que esta alerta funciona mejor como secuencia intradía.", "tier": "sequence", "universe": {"symbols_include": [], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": 1000000000, "max_market_cap": null, "sector": null, "session": "regular"}, "steps": [{"event_types": ["vwap_cross_up"], "after": "opening_low", "within_minutes": null}], "day_conditions": [{"metric": "opening_drop_pct", "op": "lte", "value": -2}], "membership": null, "lifecycle": {"cooldown_seconds": 1800, "max_fires_per_day": 10}, "message_template": "{symbol}: reclaim de VWAP tras caída en el opening", "dry_run_days": 5}
+
+User: "avísame cuando AMD reclame 502 o pierda 500"
+{"name": "AMD reclama 502 / pierde 500", "paraphrase": "Vigilaré AMD durante la sesión regular y te avisaré cuando el precio cruce al alza los $502 (reclaim) o cruce a la baja los $500 (pérdida del nivel), con un máximo de un aviso cada 5 minutos.", "tier": "event_match", "universe": {"symbols_include": ["AMD"], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": null, "max_market_cap": null, "sector": null, "session": "regular"}, "steps": [], "day_conditions": [], "membership": null, "price_levels": [{"direction": "above", "value": 502}, {"direction": "below", "value": 500}], "lifecycle": {"cooldown_seconds": 300, "max_fires_per_day": 20}, "message_template": "{symbol}: cruce del nivel {level} ({direction}) a {price}", "dry_run_days": 5}
 
 User: "avísame cuando una acción entre en el top 10 de gappers"
 {"name": "Entra en top 10 gappers", "paraphrase": "Te avisaré en el momento en que cualquier acción entre en el top 10 del scanner de gappers al alza durante la sesión regular (máximo un aviso cada 15 minutos por símbolo).", "tier": "membership", "universe": {"symbols_include": [], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": null, "max_market_cap": null, "sector": null, "session": "regular"}, "steps": [], "day_conditions": [], "membership": {"category": "gappers_up", "on": "enter", "rank_lte": 10}, "lifecycle": {"cooldown_seconds": 900, "max_fires_per_day": 30}, "message_template": "{symbol}: entra en top gappers (#{rank})", "dry_run_days": 0}
@@ -252,6 +268,7 @@ def _build_spec(payload: dict[str, Any], query: str, user_id: str) -> AlertSpec:
         steps=payload.get("steps") or [],
         day_conditions=payload.get("day_conditions") or [],
         membership=payload.get("membership"),
+        price_levels=payload.get("price_levels") or [],
         lifecycle=payload.get("lifecycle") or {},
         actions=actions,
     )
@@ -354,7 +371,7 @@ async def alert_compiler_node(state: dict) -> dict:
         # Still attach a dry-run preview of the NEW draft so the user sees
         # evidence, but reuse the existing id for arming.
         dry_days = int((meta or {}).get("dry_run_days", 5))
-        if dry_days > 0 and spec.steps:
+        if dry_days > 0 and (spec.steps or spec.price_levels):
             try:
                 results["dry_run"] = await run_dry_run(spec, days=dry_days)
             except Exception as exc:
@@ -386,7 +403,7 @@ async def alert_compiler_node(state: dict) -> dict:
 
     # ── 4: dry-run with evidence (skip for membership — no historical events) ──
     dry_days = int((meta or {}).get("dry_run_days", 5))
-    if dry_days > 0 and spec.steps:
+    if dry_days > 0 and (spec.steps or spec.price_levels):
         await _progress(
             f"Spec validada ({spec.tier}). Comprobando cuándo habría disparado "
             f"en los últimos {dry_days} días de mercado..."
@@ -406,7 +423,7 @@ async def alert_compiler_node(state: dict) -> dict:
             )
         except Exception as exc:
             errors.append(f"dry_run: {exc}")
-    elif not spec.steps:
+    elif not spec.steps and not spec.price_levels:
         results["dry_run"] = {
             "total_fires": 0, "days_scanned": [], "unique_symbols": [],
             "per_day": [], "errors": [], "note": "membership alerts have no historical dry-run",

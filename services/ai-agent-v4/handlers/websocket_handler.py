@@ -571,6 +571,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                             "steps": spec.get("steps", []),
                             "day_conditions": spec.get("day_conditions", []),
                             "membership": spec.get("membership"),
+                            "price_levels": spec.get("price_levels", []),
                             "lifecycle": spec.get("lifecycle", {}),
                             "dry_run": {
                                 "total_fires": dry.get("total_fires", 0),

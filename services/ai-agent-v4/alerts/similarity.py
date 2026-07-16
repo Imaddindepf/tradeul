@@ -40,6 +40,12 @@ def _membership_signature(spec: AlertSpec) -> tuple | None:
     return (m.category, m.on, m.rank_lte)
 
 
+def _levels_signature(spec: AlertSpec) -> tuple:
+    return tuple(
+        sorted((p.direction, float(p.value)) for p in (spec.price_levels or []))
+    )
+
+
 def fingerprint(spec: AlertSpec) -> tuple:
     """Stable identity of what the alert watches (ignores name/id/status)."""
     u = spec.universe
@@ -56,6 +62,7 @@ def fingerprint(spec: AlertSpec) -> tuple:
         _step_signature(spec),
         _day_signature(spec),
         _membership_signature(spec),
+        _levels_signature(spec),
     )
 
 
@@ -69,7 +76,8 @@ def _soft_key(spec: AlertSpec) -> tuple:
     mem = None
     if spec.membership:
         mem = (spec.membership.category, spec.membership.on)
-    return (tier, _norm_symbols(u.symbols_include), events, mem, u.session)
+    has_levels = bool(spec.price_levels)
+    return (tier, _norm_symbols(u.symbols_include), events, mem, has_levels, u.session)
 
 
 def _summarize(raw: dict[str, Any]) -> dict[str, Any]:
@@ -87,6 +95,7 @@ def _summarize(raw: dict[str, Any]) -> dict[str, Any]:
         "symbols": (raw.get("universe") or {}).get("symbols_include") or [],
         "event_types": events,
         "membership": mem or None,
+        "price_levels": raw.get("price_levels") or [],
         "updated_at": raw.get("updated_at"),
     }
 

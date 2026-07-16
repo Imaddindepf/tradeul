@@ -39,6 +39,11 @@ export interface AlertDayCondition {
   value: number;
 }
 
+export interface AlertPriceLevel {
+  direction: 'above' | 'below';
+  value: number;
+}
+
 export interface AlertLifecycle {
   cooldown_seconds: number;
   max_fires_per_day: number;
@@ -58,6 +63,7 @@ export interface AlertSpec {
   universe: AlertUniverse;
   steps: AlertSequenceStep[];
   day_conditions: AlertDayCondition[];
+  price_levels?: AlertPriceLevel[];
   lifecycle: AlertLifecycle;
   trigger_id: string | null;
   dry_run?: {
@@ -131,6 +137,7 @@ export interface AlertDraftPayload {
   steps: AlertSequenceStep[];
   day_conditions: AlertDayCondition[];
   membership?: { category: string; on: 'enter' | 'exit'; rank_lte?: number | null } | null;
+  price_levels?: AlertPriceLevel[];
   lifecycle: Partial<AlertLifecycle>;
   dry_run: {
     total_fires: number;
@@ -220,6 +227,10 @@ export function fmtCompact(n: number): string {
   if (n >= 1e6) return `${+(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `${+(n / 1e3).toFixed(0)}K`;
   return String(n);
+}
+
+export function formatPriceLevel(p: AlertPriceLevel): string {
+  return p.direction === 'above' ? `↑ $${p.value}` : `↓ $${p.value}`;
 }
 
 export function fmtCooldown(seconds: number): string {

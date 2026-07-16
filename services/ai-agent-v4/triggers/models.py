@@ -122,11 +122,16 @@ class TriggerConfig(BaseModel):
     )
     kind: str = Field(
         "event_match",
-        description="event_match | sequence | membership — routing hint for the engine.",
+        description="event_match | sequence | membership | price_level — routing hint.",
     )
     membership: Optional[dict[str, Any]] = Field(
         None,
         description="MembershipWatch payload when kind=membership.",
+    )
+    price_levels: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="[{direction: above|below, value: float}] when kind=price_level. "
+                    "OR'ed: the first level crossed fires the alert.",
     )
 
     class Config:
