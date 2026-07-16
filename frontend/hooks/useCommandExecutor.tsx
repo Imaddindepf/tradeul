@@ -13,6 +13,7 @@ import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsCont
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
 import { EarningsCalendarContent } from '@/components/floating-window/EarningsCalendarContent';
+import { AIAlertsContent } from '@/components/floating-window/AIAlertsContent';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 // DescriptionContent removed - now using FinancialAnalystContent
@@ -422,6 +423,19 @@ export function useCommandExecutor() {
                     y: 80,
                     minWidth: 380,
                     minHeight: 450,
+                });
+                return null;
+
+            case 'ai_alerts':
+                openWindow({
+                    title: 'AI Alerts',
+                    content: <AIAlertsContent />,
+                    width: 480,
+                    height: 560,
+                    x: screenWidth - 510,
+                    y: 90,
+                    minWidth: 400,
+                    minHeight: 420,
                 });
                 return null;
 

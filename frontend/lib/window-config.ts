@@ -19,6 +19,7 @@ export const WINDOW_TYPES: Record<string, string> = {
   'Stock Screener': 'screener',
   'Historical Multiple Security': 'mp',
   'Catalyst Alerts': 'alerts',
+  'AI Alerts': 'ai_alerts',
   'AI Agent': 'ai_agent',
   'Earnings Calendar': 'earnings',
   'Prediction Markets': 'predict',

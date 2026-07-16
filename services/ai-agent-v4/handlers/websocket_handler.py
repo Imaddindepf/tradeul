@@ -409,7 +409,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "query_planner", "market_data",
                 "news_events", "financial", "research", "code_exec",
                 "screener", "backtest", "synthesizer",
-                "dilution", "strategy_scanner", "context_enricher",
+                "dilution", "strategy_scanner", "alert_compiler", "context_enricher",
             }
 
             # Keepalive runs alongside the stream so long silent nodes
@@ -536,6 +536,44 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                         "type": "backtest",
                         "title": "Backtest Results",
                         "backtest_result": bt_result.get("backtest_result", {}),
+                    })
+
+                # Alert draft: typed payload so the UI renders an interactive
+                # card (paraphrase contract + dry-run evidence + arm button)
+                ac_result = agent_results.get("alert_compiler", {})
+                if isinstance(ac_result, dict) and ac_result.get("spec_id"):
+                    spec = ac_result.get("spec", {}) or {}
+                    dry = ac_result.get("dry_run", {}) or {}
+                    structured_outputs.append({
+                        "type": "alert_draft",
+                        "title": "Borrador de alerta",
+                        "alert": {
+                            "spec_id": ac_result["spec_id"],
+                            "name": spec.get("name", ""),
+                            "status": spec.get("status", "draft"),
+                            "tier": spec.get("tier", ""),
+                            "paraphrase": ac_result.get("paraphrase", ""),
+                            "armable_now": bool(ac_result.get("armable_now")),
+                            "persisted": bool(ac_result.get("persisted")),
+                            "universe": spec.get("universe", {}),
+                            "steps": spec.get("steps", []),
+                            "day_conditions": spec.get("day_conditions", []),
+                            "lifecycle": spec.get("lifecycle", {}),
+                            "dry_run": {
+                                "total_fires": dry.get("total_fires", 0),
+                                "days_scanned": dry.get("days_scanned", []),
+                                "unique_symbols": (dry.get("unique_symbols") or [])[:30],
+                                "per_day": [
+                                    {
+                                        "date": d.get("date"),
+                                        "count": d.get("count", 0),
+                                        "matches": (d.get("matches") or [])[:8],
+                                    }
+                                    for d in (dry.get("per_day") or [])
+                                ],
+                                "errors": dry.get("errors", []),
+                            },
+                        },
                     })
 
                 response_payload: dict[str, Any] = {

@@ -36,6 +36,7 @@ import { HistoricalMultipleSecurityContent } from '@/components/historical-multi
 import { ChartContent } from '@/components/chart/ChartContent';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
 import { EarningsCalendarContent } from '@/components/floating-window/EarningsCalendarContent';
+import { AIAlertsContent } from '@/components/floating-window/AIAlertsContent';
 import { PredictionMarketsContent } from '@/components/floating-window';
 import { EventTableContent } from '@/components/events';
 import { useEventFiltersStore, type ActiveEventFilters } from '@/stores/useEventFiltersStore';
@@ -134,6 +135,7 @@ export default function ScannerPage() {
     if (title === 'Financials') return <FinancialsContent />;
     if (title === 'Community Chat') return <ChatContent />;
     if (title === 'Catalyst Alerts') return <CatalystAlertsConfig />;
+    if (title === 'AI Alerts') return <AIAlertsContent />;
     if (title === 'IPOs') return <IPOContent />;
     if (title === 'Quote Monitor') return <QuoteMonitorContent />;
     if (title === 'Notes') return <NotesContent />;

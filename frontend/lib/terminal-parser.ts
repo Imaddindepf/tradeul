@@ -147,6 +147,12 @@ export const GLOBAL_COMMANDS = {
         name: 'Catalyst Alerts',
         descriptionKey: 'terminalCommands.globalCommands.ALERTS.description'
     },
+    AIA: {
+        id: 'ai_alerts',
+        label: 'AIA',
+        name: 'AI Alerts',
+        descriptionKey: 'terminalCommands.globalCommands.AIA.description'
+    },
     IPO: {
         id: 'ipo',
         label: 'IPO',

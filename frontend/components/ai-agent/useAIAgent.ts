@@ -46,6 +46,8 @@ const NODE_LABELS: Record<string, string> = {
   backtest: 'Backtester',
   synthesizer: 'Synthesizer',
   dilution: 'Dilution Tracker',
+  strategy_scanner: 'Strategy Scanner',
+  alert_compiler: 'Alert Compiler',
   context_enricher: 'Context',
   context_brief: 'Contexto Fundamental',
 };

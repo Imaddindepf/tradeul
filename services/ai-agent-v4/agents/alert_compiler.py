@@ -178,8 +178,13 @@ Use ONLY event types from the catalog you were given.
 """
 
 
-async def _get_live_catalog(date: str = "today") -> tuple[set[str], str]:
-    """Fetch (cached) the live event-type catalog: (known_types, prompt_text)."""
+async def _get_live_catalog(date: str = "yesterday") -> tuple[set[str], str]:
+    """Fetch (cached) the live event-type catalog: (known_types, prompt_text).
+
+    Defaults to YESTERDAY: a complete session covers the full vocabulary
+    (a today catalog compiled at 09:35 would miss most afternoon patterns)
+    and the gateway can cache it for the whole day.
+    """
     now = time.time()
     cached = _catalog_cache.get(date)
     if cached and now - cached[0] < _CATALOG_TTL:
@@ -187,7 +192,13 @@ async def _get_live_catalog(date: str = "today") -> tuple[set[str], str]:
     known: set[str] = set()
     text = ""
     try:
-        raw = await MCP.strategy.get_event_catalog({"date": date, "min_count": 100})
+        # Cold catalog aggregates ~12M event rows; the gateway caches it after
+        # the first call, but that first call needs more than the 30s default.
+        raw = await MCP.strategy.get_event_catalog(
+            {"date": date, "min_count": 100}, timeout=170.0,
+        )
+        if isinstance(raw, dict) and raw.get("error"):
+            raise RuntimeError(raw["error"])
         types = raw.get("event_types", [])
         known = {t["event_type"] for t in types}
         lines = [f"{t['event_type']} ({t['symbols']} symbols)" for t in types[:150]]

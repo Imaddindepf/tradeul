@@ -6,6 +6,8 @@ import { ArrowDownRight, ArrowUpRight, BarChart3, Minus } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { CodeBlock } from './CodeBlock';
 import { StructuredResponseRenderer, type StructuredResponse } from './StructuredResponseRenderer';
+import { AlertDraftCard } from './AlertDraftCard';
+import type { AlertDraftPayload } from '@/lib/aiAlerts';
 import type { ResultBlockData, OutputItem } from './types';
 
 const ChartLoadError = () => (
@@ -317,6 +319,10 @@ const V4ResponseRenderer = memo(function V4ResponseRenderer({ content }: { conte
 function renderOutput(output: OutputItem, idx: number) {
   const type = output.type || 'text';
 
+  if (type === 'alert_draft' && output.alert) {
+    return <AlertDraftCard key={idx} alert={output.alert as unknown as AlertDraftPayload} />;
+  }
+
   if (type === 'research' || type === 'text' || type === 'markdown') {
     const sr = output.structured_response;
     if (sr && typeof sr === 'object' && 'sections' in sr) {
@@ -460,7 +466,7 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
       )}
       {outputs.map((output, idx) => (
         <div key={idx}>
-          {output.title && output.type !== 'research' && output.type !== 'text' && output.type !== 'markdown' && (
+          {output.title && output.type !== 'research' && output.type !== 'text' && output.type !== 'markdown' && output.type !== 'alert_draft' && (
             <div className="text-[11px] font-semibold text-muted-fg uppercase tracking-wide mb-1.5">
               {output.title}
             </div>

@@ -8,6 +8,7 @@ import { AuthWebSocketProvider } from '@/contexts/AuthWebSocketContext';
 import { ChatWebSocketProvider } from '@/contexts/ChatWebSocketContext';
 import { SquawkProvider } from '@/contexts/SquawkContext';
 import { FloatingWindowManager } from '@/components/floating-window/FloatingWindowManager';
+import { AIAlertsBridge } from '@/components/floating-window/AIAlertsBridge';
 import { CatalystAlertsPopup, CatalystDetectorProvider } from '@/components/catalyst-alerts';
 import { DataBridge } from '@/components/scanner/DataBridge';
 import { NewsProvider } from '@/components/news/NewsProvider';
@@ -67,6 +68,8 @@ export function AppShell({ children }: AppShellProps) {
                     </div>
                   </main>
                   <FloatingWindowManager />
+                  {/* Abre la ventana AI Alerts desde eventos globales (chat) */}
+                  <AIAlertsBridge />
                   {/* Catalyst Alerts Popup - floating notifications */}
                   <CatalystAlertsPopup />
                 </div>

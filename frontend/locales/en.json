@@ -619,6 +619,9 @@
       "ALERTS": {
         "description": "Price alerts"
       },
+      "AIA": {
+        "description": "AI alerts from natural language"
+      },
       "IPO": {
         "description": "IPO calendar"
       },

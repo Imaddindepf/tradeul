@@ -233,10 +233,12 @@ class AlertSpec(BaseModel):
             "date": date,
             "session": self.universe.session,
             "day_conditions": [c.model_dump() for c in self.day_conditions],
-            # Symbol lists are filtered client-side (dryrun.py); widen the net
-            # so a watched ticker isn't cut off by the ranking limit.
-            "limit": 200 if self.universe.symbols_include else 50,
+            "limit": 50,
         }
+        if self.universe.symbols_include:
+            args["symbols"] = self.universe.symbols_include
+        if self.universe.symbols_exclude:
+            args["exclude_symbols"] = self.universe.symbols_exclude
         if self.universe.min_market_cap is not None:
             args["min_market_cap"] = self.universe.min_market_cap
         if self.universe.max_market_cap is not None:

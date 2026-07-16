@@ -102,6 +102,8 @@ async def scan_day_setups(
     max_price: Optional[float] = None,
     min_rvol: Optional[float] = None,
     sector: Optional[str] = None,
+    symbols: Optional[list[str]] = None,
+    exclude_symbols: Optional[list[str]] = None,
     sort_by: str = "close_vs_open_pct",
     sort_order: str = "desc",
     limit: int = 50,
@@ -133,6 +135,9 @@ async def scan_day_setups(
         min_rvol: Minimum relative volume AT THE MOMENT each step event fired
             (applied per step, not to day aggregates)
         sector: Sector filter (partial match)
+        symbols: Restrict the scan to these tickers (e.g. ["TSLA"]). Applied
+            in SQL so watched tickers are never cut off by the ranking limit.
+        exclude_symbols: Tickers to skip
         sort_by: Any day metric (default close_vs_open_pct)
         sort_order: 'desc' | 'asc'
         limit: Max symbols returned (default 50, max 200)
@@ -167,6 +172,12 @@ async def scan_day_setups(
     if sector:
         params.append(f"%{sector}%")
         ev_conds.append(f"sector ILIKE ${len(params)}")
+    if symbols:
+        params.append([str(s).upper() for s in symbols])
+        ev_conds.append(f"symbol = ANY(${len(params)})")
+    if exclude_symbols:
+        params.append([str(s).upper() for s in exclude_symbols])
+        ev_conds.append(f"NOT (symbol = ANY(${len(params)}))")
 
     # RVOL floor is a step condition (state at the moment the event fired),
     # not an ev-level filter: filtering ev would distort the day OHLC proxy.
@@ -353,7 +364,7 @@ async def get_event_catalog(date: str = "today", min_count: int = 50) -> dict:
                 GROUP BY event_type
                 ORDER BY occurrences DESC
                 """,
-                ts_from, ts_to, timeout=60,
+                ts_from, ts_to, timeout=150,
             )
         except Exception as e:
             return {"error": f"catalog query failed: {e}"}
