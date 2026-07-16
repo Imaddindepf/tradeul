@@ -7,13 +7,22 @@
  */
 import { memo, useMemo, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import dynamic from 'next/dynamic';
 import {
-  BellRing, CheckCircle2, ChevronDown, ChevronRight,
-  Clock, Copy, Loader2, ShieldCheck, Zap,
+  ArrowRight, BellRing, CheckCircle2, ChevronDown, ChevronRight,
+  Clock, Copy, Globe, Loader2, ShieldCheck, Timer, Zap,
 } from 'lucide-react';
 import {
   AlertDraftPayload, armAlert, formatPriceLevel, formatUniverse, fmtCooldown, matchSteps,
 } from '@/lib/aiAlerts';
+
+const LazyEvidenceChart = dynamic(
+  () => import('./EvidenceChart').then(m => m.EvidenceChart),
+  {
+    ssr: false,
+    loading: () => <div className="h-[180px] bg-surface-hover rounded-lg animate-pulse" />,
+  },
+);
 
 const TIER_LABELS: Record<string, string> = {
   event_match: 'Evento en vivo',
@@ -27,6 +36,111 @@ function pct(v: number | undefined): string {
   return `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
 }
 
+/* ── SpecPipeline — the compiled rule as a visual dataflow ─────────
+   Universo → Condición → Cooldown → Feed. The user sees the machine
+   they just built with words. */
+
+function PipelineNode({
+  icon,
+  label,
+  children,
+  accent = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+  accent?: boolean;
+}) {
+  return (
+    <div className={`flex-1 min-w-[90px] rounded-lg border px-2 py-1.5 ${
+      accent ? 'border-primary/30 bg-primary/5' : 'border-border bg-surface-inset/40'
+    }`}>
+      <div className="flex items-center gap-1 mb-1">
+        <span className={accent ? 'text-primary' : 'text-muted-fg'}>{icon}</span>
+        <span className="text-[8px] font-semibold uppercase tracking-wider text-muted-fg">{label}</span>
+      </div>
+      <div className="flex flex-wrap gap-0.5">{children}</div>
+    </div>
+  );
+}
+
+function SpecPipeline({ alert }: { alert: AlertDraftPayload }) {
+  const universeChips = formatUniverse(alert.universe);
+  const symbols = alert.universe?.symbols_include || [];
+  const filterChips = symbols.length
+    ? universeChips.filter(c => c !== symbols.join(', '))
+    : universeChips;
+
+  const chip = (text: string, cls = 'bg-surface-hover text-foreground/70') => (
+    <span key={text} className={`px-1 py-px rounded text-[8.5px] font-mono leading-tight ${cls}`}>
+      {text}
+    </span>
+  );
+
+  return (
+    <div className="flex items-stretch gap-1">
+      <PipelineNode icon={<Globe className="w-2.5 h-2.5" />} label="Universo">
+        {symbols.length
+          ? chip(symbols.join(' '), 'bg-surface-hover text-foreground font-semibold')
+          : chip('Todo el mercado')}
+        {filterChips.map(c => chip(c))}
+      </PipelineNode>
+
+      <span className="self-center flex-shrink-0 text-muted-fg/50">
+        <ArrowRight className="w-3 h-3" />
+      </span>
+
+      <PipelineNode icon={<Zap className="w-2.5 h-2.5" />} label="Condición" accent>
+        {alert.steps.map((s, i) =>
+          chip(
+            `${alert.steps.length > 1 ? `${i + 1}· ` : ''}${s.event_types.join('|')}` +
+            (s.after === 'opening_low' ? ' tras mín.' : '') +
+            (s.within_minutes ? ` ≤${s.within_minutes}m` : ''),
+            'bg-primary/10 text-primary',
+          ),
+        )}
+        {(alert.price_levels || []).map(p =>
+          chip(
+            formatPriceLevel(p),
+            p.direction === 'above'
+              ? 'bg-emerald-500/10 text-emerald-500'
+              : 'bg-rose-500/10 text-rose-500',
+          ),
+        )}
+        {alert.membership &&
+          chip(
+            `${alert.membership.on === 'enter' ? 'entra en' : 'sale de'} ${alert.membership.category}` +
+            (alert.membership.rank_lte != null ? ` top${alert.membership.rank_lte}` : ''),
+            'bg-primary/10 text-primary',
+          )}
+        {(alert.day_conditions || []).map(dc =>
+          chip(`${dc.metric} ${dc.op} ${dc.value}`, 'bg-amber-500/10 text-amber-500'),
+        )}
+      </PipelineNode>
+
+      <span className="self-center flex-shrink-0 text-muted-fg/50">
+        <ArrowRight className="w-3 h-3" />
+      </span>
+
+      <PipelineNode icon={<Timer className="w-2.5 h-2.5" />} label="Control">
+        {alert.lifecycle?.cooldown_seconds != null &&
+          chip(`cooldown ${fmtCooldown(alert.lifecycle.cooldown_seconds)}`)}
+        {alert.lifecycle?.max_fires_per_day != null &&
+          chip(`máx ${alert.lifecycle.max_fires_per_day}/día`)}
+      </PipelineNode>
+
+      <span className="self-center flex-shrink-0 text-muted-fg/50">
+        <ArrowRight className="w-3 h-3" />
+      </span>
+
+      <PipelineNode icon={<BellRing className="w-2.5 h-2.5" />} label="Aviso">
+        {chip('feed en vivo')}
+        {chip('popup + sonido')}
+      </PipelineNode>
+    </div>
+  );
+}
+
 export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: AlertDraftPayload }) {
   const { getToken } = useAuth();
   const [armState, setArmState] = useState<'idle' | 'arming' | 'armed' | 'error'>(
@@ -35,7 +149,6 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
   const [armNote, setArmNote] = useState('');
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
 
-  const universeChips = useMemo(() => formatUniverse(alert.universe), [alert.universe]);
   const dry = alert.dry_run;
   const daysWithFires = useMemo(
     () => (dry?.per_day || []).filter(d => d.count > 0),
@@ -127,44 +240,8 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
         {/* Paraphrase = the contract */}
         <p className="text-[11px] text-foreground/90 leading-relaxed">{alert.paraphrase}</p>
 
-        {/* Universe + lifecycle chips */}
-        <div className="flex flex-wrap gap-1">
-          {universeChips.map((chip, i) => (
-            <span key={i} className="px-1.5 py-0.5 rounded bg-surface-hover text-[9px] font-mono text-foreground/70">
-              {chip}
-            </span>
-          ))}
-          {alert.steps.map((s, i) => (
-            <span key={`s${i}`} className="px-1.5 py-0.5 rounded bg-primary/10 text-[9px] font-mono text-primary">
-              {alert.steps.length > 1 ? `${i + 1}. ` : ''}{s.event_types.join(' | ')}
-              {s.after === 'opening_low' ? ' (tras mínimo apertura)' : ''}
-              {s.within_minutes ? ` ≤${s.within_minutes}m` : ''}
-            </span>
-          ))}
-          {alert.membership && (
-            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-[9px] font-mono text-primary">
-              {alert.membership.on} {alert.membership.category}
-              {alert.membership.rank_lte != null ? ` top${alert.membership.rank_lte}` : ''}
-            </span>
-          )}
-          {(alert.price_levels || []).map((p, i) => (
-            <span
-              key={`pl${i}`}
-              className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${
-                p.direction === 'above'
-                  ? 'bg-emerald-500/10 text-emerald-500'
-                  : 'bg-rose-500/10 text-rose-500'
-              }`}
-            >
-              {formatPriceLevel(p)}
-            </span>
-          ))}
-          {alert.lifecycle?.cooldown_seconds != null && (
-            <span className="px-1.5 py-0.5 rounded bg-surface-hover text-[9px] font-mono text-foreground/70">
-              cooldown {fmtCooldown(alert.lifecycle.cooldown_seconds)}
-            </span>
-          )}
-        </div>
+        {/* Compiled rule as a visual pipeline */}
+        <SpecPipeline alert={alert} />
 
         {/* Dry-run summary */}
         {dry && (
@@ -187,6 +264,11 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
                 No ocurrió recientemente — la condición es muy restrictiva o poco frecuente.
               </div>
             )}
+
+            {/* Evidence on real candles — each fire marked on the tape */}
+            {(dry.chart_evidence || []).map(ev => (
+              <LazyEvidenceChart key={`${ev.symbol}-${ev.date}`} evidence={ev} />
+            ))}
 
             {/* Per-day evidence, expandable */}
             {daysWithFires.map(day => (

@@ -585,6 +585,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                                     }
                                     for d in (dry.get("per_day") or [])
                                 ],
+                                "chart_evidence": dry.get("chart_evidence") or [],
                                 "errors": dry.get("errors", []),
                                 "note": dry.get("note"),
                             },

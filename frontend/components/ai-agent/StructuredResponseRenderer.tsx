@@ -302,7 +302,14 @@ export const StructuredResponseRenderer = memo(function StructuredResponseRender
       )}
 
       {data.sections.map((section, idx) => (
-        <SectionBlock key={idx} section={section} />
+        <motion.div
+          key={idx}
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: Math.min(idx * 0.09, 0.7) }}
+        >
+          <SectionBlock section={section} />
+        </motion.div>
       ))}
 
       {data.key_takeaways.length > 0 && (

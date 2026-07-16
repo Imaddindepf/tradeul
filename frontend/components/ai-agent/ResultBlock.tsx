@@ -2,7 +2,7 @@
 
 import { memo, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowDownRight, ArrowUpRight, BarChart3, Minus } from 'lucide-react';
+import { BarChart3, FileText, Table2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { CodeBlock } from './CodeBlock';
 import { StructuredResponseRenderer, type StructuredResponse } from './StructuredResponseRenderer';
@@ -209,6 +209,14 @@ function InteractiveTable({ headers, rows }: { headers: string[]; rows: string[]
 }
 
 // ── V4ResponseRenderer: markdown completo con tablas interactivas ─
+// Progressive reveal: elements cascade in like a token stream (capped
+// stagger so long responses never feel slow).
+const _reveal = (idx: number) => ({
+  initial: { opacity: 0, y: 4 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.25, delay: Math.min(idx * 0.045, 0.9) },
+});
+
 const V4ResponseRenderer = memo(function V4ResponseRenderer({ content }: { content: string }) {
   const elements = useMemo(() => parseMarkdown(content), [content]);
   const [showChart, setShowChart] = useState<number | null>(null);
@@ -223,6 +231,7 @@ const V4ResponseRenderer = memo(function V4ResponseRenderer({ content }: { conte
       className="space-y-2"
     >
       {elements.map((el, idx) => {
+        const node = (() => {
         switch (el.type) {
           case 'h1':
             return (
@@ -310,6 +319,10 @@ const V4ResponseRenderer = memo(function V4ResponseRenderer({ content }: { conte
           default:
             return null;
         }
+        })();
+        return node ? (
+          <motion.div key={idx} {..._reveal(idx)}>{node}</motion.div>
+        ) : null;
       })}
     </motion.div>
   );
@@ -430,9 +443,92 @@ function renderOutput(output: OutputItem, idx: number) {
   );
 }
 
+// ── Table extraction for the Datos/Gráfico tabs ──────────────────
+interface ExtractedTable {
+  title: string;
+  headers: string[];
+  rows: string[][];
+}
+
+function extractTables(outputs: OutputItem[]): ExtractedTable[] {
+  const tables: ExtractedTable[] = [];
+  for (const o of outputs) {
+    const type = o.type || 'text';
+    if (type === 'table' && Array.isArray(o.data) && (o.data as unknown[]).length) {
+      const rows = o.data as Record<string, unknown>[];
+      const headers = Object.keys(rows[0]);
+      tables.push({
+        title: o.title || `Tabla ${tables.length + 1}`,
+        headers,
+        rows: rows.map(r => headers.map(h => String(r[h] ?? ''))),
+      });
+      continue;
+    }
+    if (type !== 'research' && type !== 'text' && type !== 'markdown') continue;
+
+    const sr = o.structured_response as { sections?: Array<Record<string, unknown>> } | undefined;
+    if (sr && Array.isArray(sr.sections)) {
+      for (const sec of sr.sections) {
+        const t = sec?.table as { headers?: string[]; rows?: Array<{ cells?: string[] }> } | null;
+        if (t?.headers?.length && t?.rows?.length) {
+          tables.push({
+            title: stripBold(String(sec.title || '')) || `Tabla ${tables.length + 1}`,
+            headers: t.headers.map(stripBold),
+            rows: t.rows.map(r => (r.cells || []).map(stripBold)),
+          });
+        }
+      }
+      continue;
+    }
+    if (typeof o.content === 'string' && o.content.includes('|')) {
+      let lastHeading = '';
+      for (const el of parseMarkdown(o.content)) {
+        if (el.type === 'h1' || el.type === 'h2' || el.type === 'h3') lastHeading = el.content;
+        if (el.type === 'table' && el.rows && el.rows.length >= 2) {
+          tables.push({
+            title: stripBold(lastHeading) || `Tabla ${tables.length + 1}`,
+            headers: el.rows[0].map(stripBold),
+            rows: el.rows.slice(1).map(r => r.map(stripBold)),
+          });
+        }
+      }
+    }
+  }
+  return tables;
+}
+
+function downloadCsv(t: ExtractedTable) {
+  const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const csv = [t.headers, ...t.rows].map(r => r.map(esc).join(',')).join('\n');
+  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${t.title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || 'datos'}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+type ResultTab = 'resumen' | 'datos' | 'grafico';
+
+const TAB_META: Array<{ id: ResultTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: 'resumen', label: 'Resumen', icon: FileText },
+  { id: 'datos', label: 'Datos', icon: Table2 },
+  { id: 'grafico', label: 'Gráfico', icon: BarChart3 },
+];
+
 // ── ResultBlock ──────────────────────────────────────────────────
 export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: ResultBlockProps) {
   const { result, code, codeVisible, status } = block;
+
+  const outputsForTables = status === 'success' && result?.success ? result?.outputs || [] : [];
+  const hasAlertDraftEarly = outputsForTables.some((o) => o.type === 'alert_draft' && o.alert);
+  const tables = useMemo(
+    () => (hasAlertDraftEarly ? [] : extractTables(outputsForTables)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [result, hasAlertDraftEarly],
+  );
+  const [tab, setTab] = useState<ResultTab>('resumen');
+  const [chartTableIdx, setChartTableIdx] = useState(0);
 
   if (status === 'running' || status === 'fixing') {
     return (
@@ -461,7 +557,10 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
     ? outputs.filter((o) => o.type === 'alert_draft')
     : outputs;
 
-  return (
+  const showTabs = !hasAlertDraft && tables.length > 0;
+  const chartTable = tables[Math.min(chartTableIdx, tables.length - 1)];
+
+  const summaryContent = (
     <div className="space-y-3">
       {code && (
         <CodeBlock
@@ -481,6 +580,77 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
           {renderOutput(output, idx)}
         </div>
       ))}
+    </div>
+  );
+
+  if (!showTabs) return summaryContent;
+
+  return (
+    <div className="space-y-2.5">
+      {/* Tab bar — only when the response carries tabular data */}
+      <div className="flex items-center gap-1">
+        {TAB_META.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
+              tab === id
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-fg hover:text-foreground hover:bg-surface-hover'
+            }`}
+          >
+            <Icon className="w-3 h-3" />
+            {label}
+            {id === 'datos' && (
+              <span className="text-[8.5px] tabular-nums opacity-70">{tables.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'resumen' && summaryContent}
+
+      {tab === 'datos' && (
+        <div className="space-y-3">
+          {tables.map((t, i) => (
+            <div key={i} className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-foreground/80">{t.title}</span>
+                <button
+                  onClick={() => downloadCsv(t)}
+                  className="px-1.5 py-0.5 rounded text-[9px] font-medium text-muted-fg hover:text-primary hover:bg-primary/10 transition-colors"
+                >
+                  CSV ↓
+                </button>
+              </div>
+              <InteractiveTable headers={t.headers} rows={t.rows} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'grafico' && chartTable && (
+        <div className="space-y-1.5">
+          {tables.length > 1 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              {tables.map((t, i) => (
+                <button
+                  key={i}
+                  onClick={() => setChartTableIdx(i)}
+                  className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
+                    i === Math.min(chartTableIdx, tables.length - 1)
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-fg hover:text-foreground bg-surface-hover'
+                  }`}
+                >
+                  {t.title}
+                </button>
+              ))}
+            </div>
+          )}
+          <LazyAutoChart headers={chartTable.headers} rows={chartTable.rows} />
+        </div>
+      )}
     </div>
   );
 });

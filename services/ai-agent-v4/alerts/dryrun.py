@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -105,6 +106,131 @@ _SESSION_HOURS = {
     "all": (4, 20),
 }
 
+_MAX_EVIDENCE_CHARTS = 2
+
+
+def _et_wallclock(ts: float) -> int:
+    """Epoch shifted so the chart lib (UTC display) shows ET wall-clock time."""
+    offset = ET.utcoffset(datetime.fromtimestamp(ts, ET))
+    return int(ts + (offset.total_seconds() if offset else 0))
+
+
+def _parse_et_time(date: str, timestr: Any) -> float | None:
+    """'09:34:26 ET' + '2026-07-15' → epoch seconds, or None."""
+    m = re.search(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", str(timestr or ""))
+    if not m:
+        return None
+    try:
+        y, mo, d = (int(x) for x in date.split("-"))
+        dt = datetime(y, mo, d, int(m.group(1)), int(m.group(2)),
+                      int(m.group(3) or 0), tzinfo=ET)
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def _match_fire_point(date: str, m: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract {t, price, label} from a dry-run match row (any tier)."""
+    # Price-level matches carry an exact epoch in "t".
+    if m.get("t"):
+        return {
+            "t": _et_wallclock(float(m["t"])),
+            "price": m.get("step1_price") or m.get("level"),
+            "label": m.get("step1_event") or "fire",
+        }
+    # Event/sequence matches: use the LAST step (the moment the alert fires).
+    last = None
+    for i in range(1, 6):
+        if m.get(f"step{i}_time") is None:
+            break
+        last = i
+    if last is None:
+        return None
+    ts = _parse_et_time(date, m.get(f"step{last}_time"))
+    if ts is None:
+        return None
+    return {
+        "t": _et_wallclock(ts),
+        "price": m.get(f"step{last}_price"),
+        "label": m.get(f"step{last}_event") or "fire",
+    }
+
+
+async def _fetch_evidence_bars(spec: AlertSpec, symbol: str, date: str) -> list[dict[str, Any]]:
+    start_hour, end_hour = _SESSION_HOURS.get(spec.universe.session, (9, 16))
+    try:
+        raw = await MCP.historical.get_minute_bars(
+            {"date": date, "symbol": symbol,
+             "start_hour": start_hour, "end_hour": end_hour},
+            timeout=60.0,
+        )
+    except Exception:
+        return []
+    if isinstance(raw, dict) and raw.get("error"):
+        return []
+    out = []
+    for b in raw.get("bars") or []:
+        try:
+            out.append({
+                "t": _et_wallclock(int(b["window_start"]) / 1e9),
+                "o": float(b["open"]), "h": float(b["high"]),
+                "l": float(b["low"]), "c": float(b["close"]),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+async def _build_chart_evidence(
+    spec: AlertSpec, per_day: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Real candles + fire markers so the user SEES each dry-run trigger.
+
+    Picks up to _MAX_EVIDENCE_CHARTS (date, symbol) pairs, most recent days
+    with fires first. Specs with explicit tickers but zero fires still get
+    the most recent session as context ("this is what the day looked like").
+    """
+    include = [s.upper() for s in spec.universe.symbols_include]
+    pairs: list[tuple[str, str]] = []
+    for day in per_day:  # already sorted desc by date
+        for m in day.get("matches") or []:
+            sym = str(m.get("symbol") or "").upper()
+            if sym:
+                p = (day["date"], sym)
+                if p not in pairs:
+                    pairs.append(p)
+    context_only = not pairs
+    if context_only and include:
+        # No fires: still show recent context for the watched ticker. Try a
+        # few days — the current day often has no minute bars loaded yet.
+        pairs = [(d["date"], include[0]) for d in per_day[:3]]
+
+    levels = [p.model_dump() for p in spec.price_levels]
+    evidence: list[dict[str, Any]] = []
+    # Try a couple extra pairs: today's minute bars usually aren't loaded
+    # yet (T+1 flat files), so a fire from today falls through to yesterday.
+    max_charts = 1 if context_only else _MAX_EVIDENCE_CHARTS
+    for date, sym in pairs[: _MAX_EVIDENCE_CHARTS + 2]:
+        if len(evidence) >= max_charts:
+            break
+        bars = await _fetch_evidence_bars(spec, sym, date)
+        if len(bars) < 5:
+            continue
+        day = next((d for d in per_day if d["date"] == date), None)
+        fires = []
+        for m in (day or {}).get("matches") or []:
+            if str(m.get("symbol") or "").upper() != sym:
+                continue
+            pt = _match_fire_point(date, m)
+            if pt and pt["t"]:
+                fires.append(pt)
+        evidence.append({
+            "symbol": sym, "date": date, "bars": bars,
+            "fires": sorted(fires, key=lambda f: f["t"]),
+            "levels": levels,
+        })
+    return evidence
+
 
 async def _scan_price_levels_one_day(
     spec: AlertSpec, symbol: str, date: str, sem: asyncio.Semaphore,
@@ -161,6 +287,7 @@ async def _scan_price_levels_one_day(
                 ),
                 "step1_time": t_et,
                 "step1_price": close,
+                "t": ts,
                 "level": lvl.value,
                 "direction": lvl.direction,
             })
@@ -201,11 +328,19 @@ async def _run_price_level_dry_run(spec: AlertSpec, days: int) -> dict[str, Any]
     fired_symbols = sorted({
         m["symbol"] for r in per_day for m in r["matches"] if m.get("symbol")
     })
+
+    try:
+        chart_evidence = await _build_chart_evidence(spec, per_day)
+    except Exception:
+        logger.exception("chart evidence failed for %s", spec.id)
+        chart_evidence = []
+
     return {
         "days_scanned": dates,
         "total_fires": sum(r["count"] for r in per_day),
         "unique_symbols": fired_symbols,
         "per_day": per_day,
+        "chart_evidence": chart_evidence,
         "errors": errors,
         "elapsed_ms": int((time.time() - t0) * 1000),
     }
@@ -255,11 +390,18 @@ async def run_dry_run(spec: AlertSpec, days: int = 5) -> dict[str, Any]:
             if m.get("symbol"):
                 symbols.add(m["symbol"])
 
+    try:
+        chart_evidence = await _build_chart_evidence(spec, per_day)
+    except Exception:
+        logger.exception("chart evidence failed for %s", spec.id)
+        chart_evidence = []
+
     return {
         "days_scanned": dates,
         "total_fires": total,
         "unique_symbols": sorted(symbols)[:60],
         "per_day": per_day,
+        "chart_evidence": chart_evidence,
         "errors": errors,
         "elapsed_ms": int((time.time() - t0) * 1000),
     }

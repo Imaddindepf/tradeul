@@ -63,6 +63,19 @@ export const StepCard = memo(function StepCard({ step, isLatest }: StepCardProps
         isComplete ? 'border-border' : 'border-border-subtle'
       } ${isPending ? 'opacity-40' : ''}`}
     >
+      {/* Shimmer sweep while running — "the agent is alive" */}
+      {isRunning && (
+        <motion.div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: 'linear-gradient(105deg, transparent 40%, rgba(59,130,246,0.07) 50%, transparent 60%)',
+            backgroundSize: '200% 100%',
+          }}
+          animate={{ backgroundPosition: ['150% 0%', '-50% 0%'] }}
+          transition={{ duration: 1.6, repeat: Infinity, ease: 'linear' }}
+        />
+      )}
+
       {/* Left accent bar */}
       {(isRunning || isError) && (
         <motion.div

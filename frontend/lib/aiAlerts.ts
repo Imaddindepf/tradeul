@@ -90,11 +90,36 @@ export interface DryRunDay {
   error?: string;
 }
 
+/** One minute-bar (ET wall-clock epoch seconds) for the evidence chart. */
+export interface EvidenceBar {
+  t: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+}
+
+export interface EvidenceFire {
+  t: number;
+  price?: number | null;
+  label?: string;
+}
+
+/** Real candles of a dry-run day with the exact fire moments marked. */
+export interface ChartEvidence {
+  symbol: string;
+  date: string;
+  bars: EvidenceBar[];
+  fires: EvidenceFire[];
+  levels: AlertPriceLevel[];
+}
+
 export interface DryRunResult {
   days_scanned: string[];
   total_fires: number;
   unique_symbols: string[];
   per_day: DryRunDay[];
+  chart_evidence?: ChartEvidence[];
   errors: string[];
   elapsed_ms: number;
 }
@@ -144,6 +169,7 @@ export interface AlertDraftPayload {
     days_scanned: string[];
     unique_symbols: string[];
     per_day: DryRunDay[];
+    chart_evidence?: ChartEvidence[];
     errors: string[];
     note?: string;
   };

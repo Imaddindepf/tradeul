@@ -544,6 +544,23 @@ async def synthesizer_node(state: dict) -> dict:
     payload_size = _safe_json_size(results_payload)
     logger.info("Synthesizer payload: %d chars for %d agents", payload_size, len(results_payload))
 
+    # Live progress: this is the longest silent step in the graph — tell the
+    # user what's being written instead of leaving a frozen spinner.
+    try:
+        from langchain_core.callbacks.manager import adispatch_custom_event
+        n_agents = len(results_payload)
+        await adispatch_custom_event(
+            "synthesizer",
+            {"message": (
+                f"Redactando la respuesta con los resultados de "
+                f"{n_agents} {'agente' if n_agents == 1 else 'agentes'}…"
+                if language == "es" else
+                f"Writing the response from {n_agents} agent result(s)…"
+            )},
+        )
+    except Exception:  # noqa: BLE001 — progress is cosmetic, never fail the node
+        pass
+
     market_session = {}
     for agent_key in ("market_data", "news_events"):
         agent_out = results_payload.get(agent_key, {})

@@ -11,11 +11,17 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import dynamic from 'next/dynamic';
 import {
   Archive, BellRing, CheckCircle2, ChevronDown, ChevronRight, Clock,
   FlaskConical, Loader2, MessageSquarePlus, Pause, Radio, RefreshCw,
   ShieldCheck, Volume2, VolumeX, Zap,
 } from 'lucide-react';
+
+const LazyEvidenceChart = dynamic(
+  () => import('@/components/ai-agent/EvidenceChart').then(m => m.EvidenceChart),
+  { ssr: false, loading: () => <div className="h-[150px] bg-surface-hover rounded-lg animate-pulse" /> },
+);
 import {
   AlertFire, AlertSpec, DryRunResult,
   archiveAlert, armAlert, fmtCooldown, formatPriceLevel, formatUniverse,
@@ -181,6 +187,9 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
                 })}
                 {day.count > 5 && <span className="text-muted-fg">+{day.count - 5} más</span>}
               </div>
+            ))}
+            {(dryResult.chart_evidence || []).map(ev => (
+              <LazyEvidenceChart key={`${ev.symbol}-${ev.date}`} evidence={ev} height={150} />
             ))}
           </div>
         )}
