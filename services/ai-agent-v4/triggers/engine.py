@@ -475,6 +475,9 @@ class TriggerEngine:
                 "symbol": event.symbol,
                 "event_type": event.event_type,
                 "price": str(event.price or ""),
+                "rvol": str(event.rvol or ""),
+                "volume": str(event.volume or ""),
+                "spec_id": trigger.spec_id or "",
                 "timestamp": str(time.time()),
             }
 

@@ -26,6 +26,7 @@ from handlers.rest_handler import router as rest_router
 from handlers.trigger_handler import router as trigger_router
 from handlers.alerts_handler import router as alerts_router
 from handlers.websocket_handler import handle_websocket
+from handlers.alerts_ws import handle_alerts_websocket
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,23 @@ async def ws_chat(websocket: WebSocket, client_id: str):
         await websocket.close(code=4401)  # 4401 = app-level "unauthorized"
         return
     await handle_websocket(websocket, client_id)
+
+
+@app.websocket("/ws/alerts")
+async def ws_alerts(websocket: WebSocket):
+    """Live feed of alert fires (stream:alerts:{user_id} relay).
+
+    Requiere ?token=<jwt de Clerk>. El user_id es 'default' (single-tenant,
+    igual que el resto de la plataforma) hasta que llegue el multi-usuario.
+    """
+    token = extract_ws_token(websocket.scope.get("query_string", b"").decode("latin-1"))
+    try:
+        verify_clerk_token(token or "")
+    except AgentAuthError as exc:
+        logger.info("agent_alerts_ws_auth_denied reason=%s", exc)
+        await websocket.close(code=4401)
+        return
+    await handle_alerts_websocket(websocket, user_id="default")
 
 
 # ── Run ──────────────────────────────────────────────────────────

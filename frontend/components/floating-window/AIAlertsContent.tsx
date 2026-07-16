@@ -13,13 +13,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@clerk/nextjs';
 import {
   Archive, BellRing, CheckCircle2, ChevronDown, ChevronRight, Clock,
-  FlaskConical, Loader2, MessageSquarePlus, Pause, RefreshCw, ShieldCheck, Zap,
+  FlaskConical, Loader2, MessageSquarePlus, Pause, Radio, RefreshCw,
+  ShieldCheck, Volume2, VolumeX, Zap,
 } from 'lucide-react';
 import {
   AlertFire, AlertSpec, DryRunResult,
   archiveAlert, armAlert, fmtCooldown, formatUniverse,
   listAlerts, listFires, matchSteps, pauseAlert, rerunDryRun,
 } from '@/lib/aiAlerts';
+import { useAIAlertFiresStore } from '@/stores/useAIAlertFiresStore';
 
 const POLL_MS = 45_000;
 
@@ -59,13 +61,18 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
   const [dryRunning, setDryRunning] = useState(false);
   const [error, setError] = useState('');
 
+  // Nº de disparos en vivo de esta spec: al crecer, refresca el historial REST
+  const liveFireCount = useAIAlertFiresStore(
+    (s) => s.fires.filter((f) => f.spec_id === spec.id && !f.backlog).length,
+  );
+
   useEffect(() => {
     let cancelled = false;
     listFires(getToken, spec.id, 25)
       .then(r => { if (!cancelled) setFires(r.fires); })
       .catch(() => { if (!cancelled) setFires([]); });
     return () => { cancelled = true; };
-  }, [getToken, spec.id]);
+  }, [getToken, spec.id, liveFireCount]);
 
   const handleDryRun = async () => {
     setDryRunning(true);
@@ -318,6 +325,64 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
   );
 }
 
+// ── Live feed ─────────────────────────────────────────────────────
+
+const FEED_PREVIEW = 6;
+
+function LiveFeed() {
+  const fires = useAIAlertFiresStore((s) => s.fires);
+  const connected = useAIAlertFiresStore((s) => s.connected);
+  const [expanded, setExpanded] = useState(false);
+
+  const rows = expanded ? fires.slice(0, 40) : fires.slice(0, FEED_PREVIEW);
+  if (fires.length === 0) {
+    return (
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[9.5px] text-muted-fg border-b border-border">
+        <Radio className={`w-3 h-3 ${connected ? 'text-emerald-500' : 'text-muted-fg'}`} />
+        {connected
+          ? 'En vivo — los disparos de tus alertas activas aparecerán aquí.'
+          : 'Conectando al feed de disparos…'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-b border-border">
+      <div className="flex items-center gap-1.5 px-2.5 pt-1.5 text-[9px] font-semibold text-muted-fg uppercase tracking-wide">
+        <Radio className={`w-3 h-3 ${connected ? 'text-emerald-500 animate-pulse' : 'text-muted-fg'}`} />
+        Disparos en vivo
+      </div>
+      <div className="px-2.5 py-1.5 space-y-0.5">
+        {rows.map((f) => (
+          <div key={f.id} className="flex items-center gap-1.5 text-[9.5px]">
+            <span className="text-muted-fg tabular-nums flex-shrink-0 w-14">
+              {new Date(f.timestamp * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+            <span className="font-semibold text-foreground w-12 flex-shrink-0">{f.symbol}</span>
+            <span className="font-mono text-foreground/60 truncate">{f.event_type}</span>
+            {f.price != null && (
+              <span className="ml-auto font-mono tabular-nums text-foreground/80 flex-shrink-0">
+                ${f.price.toFixed(2)}
+              </span>
+            )}
+            {f.rvol != null && (
+              <span className="text-muted-fg tabular-nums flex-shrink-0">{f.rvol.toFixed(1)}x</span>
+            )}
+          </div>
+        ))}
+      </div>
+      {fires.length > FEED_PREVIEW && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full pb-1.5 text-[9px] text-muted-fg hover:text-foreground transition-colors"
+        >
+          {expanded ? 'Ver menos' : `Ver ${Math.min(fires.length, 40) - FEED_PREVIEW} más`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Panel ─────────────────────────────────────────────────────────
 
 export function AIAlertsContent() {
@@ -347,6 +412,7 @@ export function AIAlertsContent() {
   useEffect(() => {
     mountedRef.current = true;
     refresh();
+    useAIAlertFiresStore.getState().markAllSeen();
     const onChanged = () => refresh(true);
     window.addEventListener('tradeul:ai-alerts-changed', onChanged);
     const poll = setInterval(() => refresh(true), POLL_MS);
@@ -356,6 +422,9 @@ export function AIAlertsContent() {
       clearInterval(poll);
     };
   }, [refresh]);
+
+  const soundEnabled = useAIAlertFiresStore((s) => s.soundEnabled);
+  const setSoundEnabled = useAIAlertFiresStore((s) => s.setSoundEnabled);
 
   const counts = useMemo(() => {
     const c = { armed: 0, draft: 0, paused: 0 };
@@ -387,15 +456,27 @@ export function AIAlertsContent() {
             {counts.paused > 0 && <span>· {counts.paused} pausadas</span>}
           </span>
         </div>
-        <button
-          onClick={() => refresh()}
-          disabled={loading}
-          className="p-1 rounded text-muted-fg hover:text-foreground hover:bg-surface-hover transition-colors"
-          title="Refrescar"
-        >
-          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className="p-1 rounded text-muted-fg hover:text-foreground hover:bg-surface-hover transition-colors"
+            title={soundEnabled ? 'Silenciar disparos' : 'Activar sonido'}
+          >
+            {soundEnabled ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />}
+          </button>
+          <button
+            onClick={() => refresh()}
+            disabled={loading}
+            className="p-1 rounded text-muted-fg hover:text-foreground hover:bg-surface-hover transition-colors"
+            title="Refrescar"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
+
+      {/* Live fires feed */}
+      <LiveFeed />
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
