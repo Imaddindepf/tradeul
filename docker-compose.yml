@@ -1097,6 +1097,8 @@ services:
         condition: service_started
       backtester:
         condition: service_started
+    # Deja terminar briefs/grafos en curso antes de matar el proceso en un deploy.
+    stop_grace_period: 90s
     restart: unless-stopped
     networks:
       - tradeul_network
@@ -1105,8 +1107,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.5"
-          memory: 1G
+          cpus: "1.0"
+          memory: 1536M
         reservations:
           memory: 512M
 

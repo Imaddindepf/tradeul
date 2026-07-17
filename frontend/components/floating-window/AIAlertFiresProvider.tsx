@@ -6,7 +6,7 @@
  * Se monta una vez en AppShell. Conecta a /ws/alerts del agente (JWT de
  * Clerk), escribe cada disparo en useAIAlertFiresStore y reproduce un sonido
  * para los disparos en vivo (no para el backlog de reconexión).
- * Reconexión con backoff exponencial; el backend deduplica por stream id.
+ * Reconexión con backoff + token fresco + visibility/online kick.
  */
 import { useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
@@ -15,7 +15,7 @@ import { useAIAlertFiresStore, AIAlertFire } from '@/stores/useAIAlertFiresStore
 const AGENT_BASE = process.env.NEXT_PUBLIC_AI_AGENT_V4_API_URL || 'https://agent.tradeul.com/v4';
 const WS_BASE = AGENT_BASE.replace('https://', 'wss://').replace('http://', 'ws://');
 
-const PING_INTERVAL_MS = 30_000;
+const PING_INTERVAL_MS = 25_000;
 
 function playFireSound() {
   if (typeof window === 'undefined') return;
@@ -26,7 +26,6 @@ function playFireSound() {
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
-    // Doble tono ascendente, distinto del catalyst para que se reconozca
     osc.frequency.setValueAtTime(520, ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(780, ctx.currentTime + 0.09);
     osc.frequency.setValueAtTime(520, ctx.currentTime + 0.16);
@@ -47,10 +46,20 @@ export function AIAlertFiresProvider() {
   const pingRef = useRef<NodeJS.Timeout | null>(null);
   const attemptsRef = useRef(0);
   const stoppedRef = useRef(false);
+  const connectRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     if (!isSignedIn) return;
     stoppedRef.current = false;
+
+    const scheduleReconnect = () => {
+      if (stoppedRef.current) return;
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      const attempt = attemptsRef.current;
+      attemptsRef.current = attempt + 1;
+      const delay = Math.min(800 * Math.pow(2, attempt) + Math.random() * 400, 15_000);
+      reconnectRef.current = setTimeout(() => { void connectRef.current(); }, delay);
+    };
 
     const connect = async () => {
       if (stoppedRef.current) return;
@@ -58,7 +67,8 @@ export function AIAlertFiresProvider() {
 
       let token: string | null = null;
       try {
-        token = await getToken({ skipCache: attemptsRef.current > 0 });
+        // Siempre fresco: JWT Clerk ~60s. Cache = fallos de handshake tras un blip.
+        token = await getToken({ skipCache: true });
       } catch {
         token = null;
       }
@@ -67,7 +77,13 @@ export function AIAlertFiresProvider() {
         return;
       }
 
-      const ws = new WebSocket(`${WS_BASE}/ws/alerts?token=${encodeURIComponent(token)}`);
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(`${WS_BASE}/ws/alerts?token=${encodeURIComponent(token)}`);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -78,6 +94,7 @@ export function AIAlertFiresProvider() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data.type === 'keepalive' || data.type === 'ping' || data.type === 'pong') return;
           if (data.type !== 'alert_fire' || !data.fire) return;
           const f = data.fire;
           const fire: AIAlertFire = {
@@ -101,7 +118,7 @@ export function AIAlertFiresProvider() {
           store.addFire(fire);
           if (isNew && !fire.backlog && store.soundEnabled) playFireSound();
         } catch {
-          // frame no-JSON (keepalive malformado) — ignorar
+          // frame no-JSON — ignorar
         }
       };
 
@@ -112,30 +129,36 @@ export function AIAlertFiresProvider() {
       };
 
       ws.onerror = () => {
-        // onclose se dispara después y gestiona la reconexión
+        // onclose gestiona el retry; no spamear consola
       };
     };
 
-    const scheduleReconnect = () => {
-      if (stoppedRef.current) return;
-      if (reconnectRef.current) clearTimeout(reconnectRef.current);
-      const attempt = attemptsRef.current;
-      attemptsRef.current = attempt + 1;
-      const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 30_000);
-      reconnectRef.current = setTimeout(() => { connect(); }, delay);
-    };
+    connectRef.current = connect;
+    void connect();
 
-    connect();
-
-    // Ping periódico: mantiene proxies intermedios despiertos y detecta cortes
     pingRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         try { wsRef.current.send('ping'); } catch { /* noop */ }
       }
     }, PING_INTERVAL_MS);
 
+    const kick = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      attemptsRef.current = 0;
+      if (reconnectRef.current) {
+        clearTimeout(reconnectRef.current);
+        reconnectRef.current = null;
+      }
+      void connect();
+    };
+    document.addEventListener('visibilitychange', kick);
+    window.addEventListener('online', kick);
+
     return () => {
       stoppedRef.current = true;
+      document.removeEventListener('visibilitychange', kick);
+      window.removeEventListener('online', kick);
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
       if (pingRef.current) clearInterval(pingRef.current);
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }

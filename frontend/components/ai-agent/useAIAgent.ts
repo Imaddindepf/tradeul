@@ -581,7 +581,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
     isConnectingRef.current = true;
 
-    // El agente exige un JWT de Clerk (?token=). Sin sesión no conectamos.
+    // Siempre token fresco: los JWT de Clerk duran ~60s; un token cacheado
+    // es la causa #1 de "WebSocket connection failed" tras un blip.
     let token: string | null = null;
     try {
       token = await getToken({ skipCache: true });
@@ -591,12 +592,21 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     if (!token) {
       isConnectingRef.current = false;
       setIsConnected(false);
-      setError('Inicia sesión para usar el agente de IA.');
+      // Solo bloquear si no hay sesión; durante reconnects silenciamos.
+      if (reconnectAttemptsRef.current === 0) {
+        setError('Inicia sesión para usar el agente de IA.');
+      }
       return;
     }
 
     const wsUrl = `${WS_BASE}/ws/chat/${clientIdRef.current}?token=${encodeURIComponent(token)}`;
-    const ws = new WebSocket(wsUrl);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      isConnectingRef.current = false;
+      return;
+    }
 
     ws.onopen = () => {
       isConnectingRef.current = false;
@@ -607,37 +617,50 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
     ws.onmessage = handleWSMessage;
 
-    ws.onclose = (event) => {
+    ws.onclose = () => {
       setIsConnected(false);
       isConnectingRef.current = false;
       wsRef.current = null;
-      // NO cancelamos la petición pendiente: el servidor sigue ejecutando el
-      // grafo y entregará el final_response al socket reconectado
-      // (_ACTIVE_SOCKETS en el backend). Cancelar aquí mostraba el error
-      // "Se perdió la conexión" aunque la respuesta llegaba segundos después.
-      // El activity-timeout (90s sin eventos) queda como fallback real.
+      // NO cancelamos la petición pendiente: el servidor sigue ejecutando y
+      // entregará el final_response al socket reconectado (_ACTIVE_SOCKETS).
       if (pendingRequestRef.current) {
         resetActivityTimeout();
       }
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       const attempt = reconnectAttemptsRef.current;
-      // Con petición en curso reconectamos casi al instante para recibir la
-      // entrega diferida; sin petición usamos backoff exponencial normal.
+      // Con petición en curso: reconectar casi al instante (deploy/502).
+      // Sin petición: backoff, pero nunca dejar de intentar.
       const delay = pendingRequestRef.current
-        ? Math.min(250 * Math.pow(2, attempt), 5000)
-        : Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 30000);
+        ? Math.min(200 * Math.pow(2, attempt), 3000)
+        : Math.min(800 * Math.pow(2, attempt) + Math.random() * 400, 15000);
       reconnectAttemptsRef.current = attempt + 1;
+      // Tras muchos fallos, avisar sin gritar en cada intento.
+      if (attempt >= 3) {
+        setError('Reconectando al agente…');
+      }
       reconnectTimeoutRef.current = setTimeout(() => { connect(); }, delay);
     };
 
-    ws.onerror = (error) => {
-      console.error('AI Agent V4 WebSocket error:', error);
-      setError('Error de conexión con AI Agent V4');
+    // No setError aquí: onclose gestiona el retry. console.error en cada
+    // intento llenaba la consola y parecía un fallo permanente.
+    ws.onerror = () => {
       isConnectingRef.current = false;
     };
 
     wsRef.current = ws;
   }, [handleWSMessage, resetActivityTimeout, getToken]);
+
+  /** Espera a tener WS OPEN (reconecta si hace falta). */
+  const ensureConnected = useCallback(async (timeoutMs = 8000): Promise<boolean> => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return true;
+    await connect();
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) return true;
+      await new Promise(r => setTimeout(r, 150));
+    }
+    return wsRef.current?.readyState === WebSocket.OPEN;
+  }, [connect]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
@@ -654,12 +677,13 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
   // SEND MESSAGE (V4 protocol) — uses persistent sessionId as thread_id
 
-  const sendMessage = useCallback((content: string, chartCtx?: ChartContext | null) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setError('No conectado al servidor');
+  const sendMessage = useCallback(async (content: string, chartCtx?: ChartContext | null) => {
+    if (!content.trim()) return;
+    if (!(await ensureConnected())) {
+      setError('No se pudo conectar al agente. Reintentando…');
+      connect();
       return;
     }
-    if (!content.trim()) return;
     if (pendingRequestRef.current) cancelPendingRequest('error');
 
     const now = Date.now();
@@ -724,13 +748,15 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
       activityTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, BRIEF_ACTIVITY_TIMEOUT_MS);
     }
     if (ctxToSend) { payload.chart_context = ctxToSend; setChartContext(null); }
-    wsRef.current.send(JSON.stringify(payload));
-  }, [cancelPendingRequest, chartContext, sessionId]);
+    wsRef.current?.send(JSON.stringify(payload));
+  }, [cancelPendingRequest, chartContext, sessionId, ensureConnected, connect]);
 
   // SEND CONTEXT BRIEF — abre un hilo NUEVO para una noticia (Opus 4.8 + tools)
-  const sendContextBrief = useCallback((news: ContextBriefNews) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setError('No conectado al servidor');
+  const sendContextBrief = useCallback(async (news: ContextBriefNews) => {
+    if (!(await ensureConnected())) {
+      pendingContextRef.current = news;
+      setError('Reconectando para generar el brief…');
+      connect();
       return;
     }
     if (pendingRequestRef.current) cancelPendingRequest('error');
@@ -765,25 +791,33 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     requestTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, REQUEST_TIMEOUT_MS);
     activityTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, BRIEF_ACTIVITY_TIMEOUT_MS);
 
-    wsRef.current.send(JSON.stringify({
+    wsRef.current?.send(JSON.stringify({
       query: news.text.slice(0, 400),
       thread_id: newSession,
       mode: 'context_brief',
       news_context: contextNewsRef.current,
     }));
-  }, [cancelPendingRequest]);
+  }, [cancelPendingRequest, ensureConnected, connect]);
 
   const triggerContextBrief = useCallback((news: ContextBriefNews) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      sendContextBrief(news);
+      void sendContextBrief(news);
     } else {
       pendingContextRef.current = news;  // se enviará al conectar
+      void ensureConnected().then(ok => {
+        if (ok && pendingContextRef.current === news) {
+          const n = pendingContextRef.current;
+          pendingContextRef.current = null;
+          void sendContextBrief(n);
+        }
+      });
     }
-  }, [sendContextBrief]);
+  }, [sendContextBrief, ensureConnected]);
 
-  const sendClarificationChoice = useCallback((originalQuery: string, rewrite: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setError('No conectado al servidor');
+  const sendClarificationChoice = useCallback(async (originalQuery: string, rewrite: string) => {
+    if (!(await ensureConnected())) {
+      setError('No se pudo conectar al agente. Reintentando…');
+      connect();
       return;
     }
     if (pendingRequestRef.current) cancelPendingRequest('error');
@@ -791,13 +825,15 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     const now = Date.now();
     const messageId = `user-${now}`;
     const assistantMsgId = `assistant-${now}`;
+    const threadId = sessionId || generateSessionId();
+    if (!sessionId) setSessionId(threadId);
 
     setIsLoading(true);
     setError(null);
 
     pendingRequestRef.current = {
       messageId, assistantMsgId, content: originalQuery, sentAt: now,
-      threadId: sessionId, mode: 'auto',
+      threadId, mode: 'auto',
     };
     lastActivityRef.current = now;
     nodeStartTimesRef.current = {};
@@ -805,13 +841,13 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     requestTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, REQUEST_TIMEOUT_MS);
     activityTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, ACTIVITY_TIMEOUT_MS);
 
-    wsRef.current.send(JSON.stringify({
+    wsRef.current?.send(JSON.stringify({
       query: originalQuery,
-      thread_id: sessionId,
+      thread_id: threadId,
       mode: 'auto',
       clarification_hint: rewrite,
     }));
-  }, [cancelPendingRequest, sessionId]);
+  }, [cancelPendingRequest, sessionId, ensureConnected, connect]);
 
   const clearHistory = useCallback(() => {
     setMessages([]);
@@ -840,6 +876,26 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     return () => { disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reconectar al volver a la pestaña / recuperar red (Chrome mata WS en background).
+  useEffect(() => {
+    const kick = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      reconnectAttemptsRef.current = 0;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      void connect();
+    };
+    document.addEventListener('visibilitychange', kick);
+    window.addEventListener('online', kick);
+    return () => {
+      document.removeEventListener('visibilitychange', kick);
+      window.removeEventListener('online', kick);
+    };
+  }, [connect]);
 
   // Listen for active chart broadcasts from TradingChart
   useEffect(() => {
@@ -872,19 +928,25 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     if (isConnected && pendingContextRef.current) {
       const n = pendingContextRef.current;
       pendingContextRef.current = null;
-      sendContextBrief(n);
+      void sendContextBrief(n);
     }
   }, [isConnected, sendContextBrief]);
 
-  // Heartbeat
+  // Heartbeat más agresivo con petición en curso (proxies + keepalive del servidor).
   useEffect(() => {
     const interval = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ query: '', thread_id: '' }));
+        try {
+          wsRef.current.send(JSON.stringify({ query: '', thread_id: '' }));
+        } catch { /* noop */ }
+      } else if (isLoading || pendingRequestRef.current) {
+        // Socket muerto a mitad de un brief: forzar reconnect inmediato.
+        reconnectAttemptsRef.current = 0;
+        void connect();
       }
-    }, isLoading ? 15000 : 45000);
+    }, isLoading ? 12000 : 40000);
     return () => clearInterval(interval);
-  }, [isLoading]);
+  }, [isLoading, connect]);
 
   return {
     messages,
