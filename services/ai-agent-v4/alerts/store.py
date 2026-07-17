@@ -181,6 +181,22 @@ class AlertStore:
             logger.error("list_specs failed for %s: %s", user_id, exc)
             return []
 
+    async def list_armed_scheduled(self) -> list[dict[str, Any]]:
+        """Armed T4 scheduled specs across ALL users (scheduler hydration)."""
+        if not self._ready:
+            return []
+        try:
+            async with self._pool.connection() as conn:
+                cur = await conn.execute(
+                    "SELECT spec FROM alert_specs "
+                    "WHERE status = 'armed' AND tier = 'scheduled'",
+                )
+                rows = await cur.fetchall()
+            return [raw if isinstance(raw, dict) else json.loads(raw) for (raw,) in rows]
+        except Exception as exc:
+            logger.error("list_armed_scheduled failed: %s", exc)
+            return []
+
     async def set_status(
         self, spec_id: str, user_id: str, status: AlertStatus | str,
         trigger_id: Optional[str] = None,

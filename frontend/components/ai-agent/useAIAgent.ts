@@ -322,18 +322,49 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           if (!msgId) break;
           const elapsed = data.elapsed_ms ? data.elapsed_ms / 1000 : 0;
           const preview = data.preview as string || '';
+          const cardData = data.data as AgentStep['data'] | undefined;
           setMessages(prev => prev.map(m =>
             m.id === msgId
               ? {
                 ...m,
                 steps: (m.steps || []).map(s =>
                   s.id === `step-${nodeName}`
-                    ? { ...s, status: 'complete' as const, duration: elapsed, description: preview || undefined }
+                    ? { ...s, status: 'complete' as const, duration: elapsed, description: preview || undefined, data: cardData }
                     : s
                 )
               }
               : m
           ));
+          break;
+        }
+
+        // El agente monta un paso interno de su workflow en vivo (upsert por id)
+        case 'canvas_step': {
+          const nodeName = data.node as string;
+          const msgId = currentMessageIdRef.current;
+          if (!msgId) break;
+          const substep = {
+            id: data.step_id as string,
+            title: (data.title as string) || '',
+            subtitle: (data.subtitle as string) || undefined,
+            status: (data.status as 'running' | 'complete' | 'error') || 'running',
+            durationMs: (data.duration_ms as number) || undefined,
+            blocks: (data.blocks as unknown[]) || [],
+          };
+          setMessages(prev => prev.map(m => {
+            if (m.id !== msgId) return m;
+            return {
+              ...m,
+              steps: (m.steps || []).map(s => {
+                if (s.id !== `step-${nodeName}`) return s;
+                const subs = [...(s.substeps || [])];
+                const idx = subs.findIndex(x => x.id === substep.id);
+                if (idx !== -1) subs[idx] = { ...subs[idx], ...substep };
+                else subs.push(substep);
+                return { ...s, substeps: subs };
+              }),
+            };
+          }));
           break;
         }
 

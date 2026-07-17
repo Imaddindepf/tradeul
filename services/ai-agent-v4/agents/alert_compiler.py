@@ -24,6 +24,7 @@ from typing import Any
 from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from agents._canvas import canvas_step
 from agents._llm_retry import llm_invoke_with_retry
 from agents.mcp_catalog import MCP
 from alerts.dryrun import run_dry_run
@@ -36,8 +37,11 @@ logger = logging.getLogger(__name__)
 _llm = None
 
 # Live event catalog cache: {date: (fetched_at, types_set, prompt_text)}
+# The vocabulary of a finished session never changes, so a long TTL is safe;
+# it is also warmed at startup (see main.py) so no user pays the ~45s cold
+# aggregation over ~12M event rows.
 _catalog_cache: dict[str, tuple[float, set[str], str]] = {}
-_CATALOG_TTL = 600
+_CATALOG_TTL = 6 * 3600
 
 
 def _get_llm():
@@ -53,6 +57,87 @@ async def _progress(message: str) -> None:
         await adispatch_custom_event("alert_compiler_progress", {"message": message})
     except Exception:
         pass
+
+
+# ── Nodos dinámicos del canvas (el agente "monta" su workflow en vivo) ──
+
+_NODE = "alert_compiler"
+
+
+def _spec_code_block(spec: AlertSpec) -> dict[str, Any]:
+    """La spec compilada como código: se escribe con typewriter en el canvas."""
+    payload = {
+        "tier": str(spec.tier),
+        "universe": {
+            k: v for k, v in spec.universe.model_dump().items()
+            if v not in (None, [], "regular")
+        },
+        "steps": [
+            {"event_types": s.event_types, "after": str(s.after)}
+            for s in spec.steps
+        ],
+        "price_levels": [p.model_dump() for p in spec.price_levels],
+        "lifecycle": {"cooldown_seconds": spec.lifecycle.cooldown_seconds},
+    }
+    if not payload["price_levels"]:
+        payload.pop("price_levels")
+    if spec.schedule is not None:
+        payload["schedule"] = spec.schedule.model_dump()
+    return {
+        "kind": "code",
+        "language": "json",
+        "content": json.dumps(payload, indent=2, ensure_ascii=False)[:800],
+        "typewriter": True,
+    }
+
+
+def _fmt_pct(row: dict[str, Any]) -> str:
+    for k in ("postmarket_change_percent", "premarket_change_percent", "change_percent"):
+        v = row.get(k)
+        if isinstance(v, (int, float)):
+            return f"{v:+.2f}%"
+    return ""
+
+
+def _fmt_mcap(v: Any) -> str:
+    if not isinstance(v, (int, float)) or v <= 0:
+        return ""
+    if v >= 1e12:
+        return f"{v / 1e12:.1f}T"
+    if v >= 1e9:
+        return f"{v / 1e9:.1f}B"
+    return f"{v / 1e6:.0f}M"
+
+
+async def _canvas_day_step(day: dict[str, Any]) -> None:
+    """Un día del dry-run terminó: nodo nuevo con sus disparos reales."""
+    date = day.get("date", "?")
+    count = day.get("count", 0)
+    rows = [
+        [
+            str(m.get("symbol") or ""),
+            str(m.get("step1_event") or ""),
+            str(m.get("step1_time") or ""),
+            f"${m['step1_price']:.2f}" if isinstance(m.get("step1_price"), (int, float)) else "",
+        ]
+        for m in (day.get("matches") or [])[:5]
+    ]
+    blocks: list[dict[str, Any]] = (
+        [{
+            "kind": "table",
+            "columns": ["Ticker", "Evento", "Hora", "Precio"],
+            "rows": rows,
+            "total": count,
+            "cascade": True,
+        }]
+        if rows
+        else [{"kind": "text", "text": day.get("error") or "Sin disparos ese día."}]
+    )
+    await canvas_step(
+        _NODE, f"dry-{date}", f"Replay {date}", "complete",
+        subtitle=f"{count} disparo(s) reales",
+        blocks=blocks,
+    )
 
 
 # Curated core vocabulary (most useful for alert setups) — the live catalog
@@ -91,7 +176,7 @@ OUTPUT: ONLY a JSON object (no markdown fences) with these keys:
   "name": "short human name for the alert (user's language, <=60 chars)",
   "paraphrase": "1-2 sentences in the USER'S LANGUAGE restating EXACTLY what \
 will be watched and when it fires. The user will confirm this text.",
-  "tier": "event_match" | "sequence" | "membership",
+  "tier": "event_match" | "sequence" | "membership" | "scheduled",
   "universe": {
     "symbols_include": [],          // uppercase tickers, [] = all stocks
     "symbols_exclude": [],
@@ -119,6 +204,17 @@ will be watched and when it fires. The user will confirm this text.",
     "on": "enter" | "exit",
     "rank_lte": null | int          // e.g. 10 = top 10 only
   },
+  "schedule": null | {              // ONLY when tier = "scheduled"
+    "every_seconds": 60,            // 30-86400; "cada minuto" = 60
+    "task": "scanner_snapshot",
+    "category": "post_market",      // gappers_up, gappers_down, momentum_up,
+                                    // momentum_down, high_volume, winners,
+                                    // losers, reversals, anomalies, new_highs,
+                                    // new_lows, post_market, halts
+    "limit": 10,                    // top N rows per capture (1-25)
+    "sessions": []                  // only run during: PRE_MARKET, MARKET_OPEN,
+                                    // POST_MARKET, CLOSED; [] = always
+  },
   "price_levels": [                 // ABSOLUTE price levels (needs symbols_include)
     {"direction": "above", "value": 502},   // fires when price crosses UP through 502
     {"direction": "below", "value": 500}    // fires when price crosses DOWN through 500
@@ -143,6 +239,14 @@ RULES:
    winners, momentum_up, high_volume, new_highs, losers…). Use when the user
    says "cuando entre en top gappers", "entra en winners", "sale de losers".
    For membership: steps=[], membership={category,on,rank_lte}, dry_run_days=0.
+   tier "scheduled" = PERIODIC SNAPSHOT workflow: the user wants a recurring
+   "picture"/"foto"/"captura"/"resumen" of a ranking on an interval ("cada
+   minuto", "every 5 minutes", "cada hora"). NOT event-driven — time-driven.
+   For scheduled: steps=[], schedule={every_seconds, task, category, limit,
+   sessions}, dry_run_days=0. Map "after hours"/"post market" to category
+   post_market AND sessions ["POST_MARKET"]; "premarket" -> gappers_up +
+   ["PRE_MARKET"]; "top stocks"/"top gainers" during regular -> winners or
+   momentum_up. Universe filters (min_market_cap...) still apply.
 2. day_conditions describe how the DAY looked (close vs open, opening drop).
    They only make sense for reviewing PAST days — a live alert cannot know
    the close in advance. Use them ONLY when the user describes day-level
@@ -197,6 +301,9 @@ User: "acciones de más de 1B que caigan fuerte en el opening y luego crucen el 
 
 User: "avísame cuando AMD reclame 502 o pierda 500"
 {"name": "AMD reclama 502 / pierde 500", "paraphrase": "Vigilaré AMD durante la sesión regular y te avisaré cuando el precio cruce al alza los $502 (reclaim) o cruce a la baja los $500 (pérdida del nivel), con un máximo de un aviso cada 5 minutos.", "tier": "event_match", "universe": {"symbols_include": ["AMD"], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": null, "max_market_cap": null, "sector": null, "session": "regular"}, "steps": [], "day_conditions": [], "membership": null, "price_levels": [{"direction": "above", "value": 502}, {"direction": "below", "value": 500}], "lifecycle": {"cooldown_seconds": 300, "max_fires_per_day": 20}, "message_template": "{symbol}: cruce del nivel {level} ({direction}) a {price}", "dry_run_days": 5}
+
+User: "give me every 1 minute a picture of top stocks after hours with market cap above 1b"
+{"name": "Top after-hours >1B cada minuto", "paraphrase": "Cada minuto durante el after-hours capturaré el top 10 de acciones con mayor movimiento post-market y capitalización superior a 1B, y te lo enviaré como snapshot en vivo.", "tier": "scheduled", "universe": {"symbols_include": [], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": 1000000000, "max_market_cap": null, "sector": null, "session": "afterhours"}, "steps": [], "day_conditions": [], "membership": null, "schedule": {"every_seconds": 60, "task": "scanner_snapshot", "category": "post_market", "limit": 10, "sessions": ["POST_MARKET"]}, "price_levels": [], "lifecycle": {"cooldown_seconds": 60, "max_fires_per_day": 500}, "message_template": "{trigger_name}: top after-hours actualizado", "dry_run_days": 0}
 
 User: "avísame cuando una acción entre en el top 10 de gappers"
 {"name": "Entra en top 10 gappers", "paraphrase": "Te avisaré en el momento en que cualquier acción entre en el top 10 del scanner de gappers al alza durante la sesión regular (máximo un aviso cada 15 minutos por símbolo).", "tier": "membership", "universe": {"symbols_include": [], "symbols_exclude": [], "min_price": null, "max_price": null, "min_rvol": null, "min_volume": null, "min_market_cap": null, "max_market_cap": null, "sector": null, "session": "regular"}, "steps": [], "day_conditions": [], "membership": {"category": "gappers_up", "on": "enter", "rank_lte": 10}, "lifecycle": {"cooldown_seconds": 900, "max_fires_per_day": 30}, "message_template": "{symbol}: entra en top gappers (#{rank})", "dry_run_days": 0}
@@ -268,6 +375,7 @@ def _build_spec(payload: dict[str, Any], query: str, user_id: str) -> AlertSpec:
         steps=payload.get("steps") or [],
         day_conditions=payload.get("day_conditions") or [],
         membership=payload.get("membership"),
+        schedule=payload.get("schedule"),
         price_levels=payload.get("price_levels") or [],
         lifecycle=payload.get("lifecycle") or {},
         actions=actions,
@@ -326,13 +434,42 @@ async def alert_compiler_node(state: dict) -> dict:
     await _progress("Compilando tu alerta a una spec ejecutable...")
 
     # ── 1-3: catalog grounding + compile + validate (with 1 repair) ──
+    await canvas_step(
+        _NODE, "catalog", "Catálogo de eventos", "running",
+        subtitle="vocabulario en vivo del alert engine",
+    )
+    t_cat = time.time()
     known_types, catalog_text = await _get_live_catalog()
+    await canvas_step(
+        _NODE, "catalog", "Catálogo de eventos", "complete",
+        subtitle="vocabulario en vivo del alert engine",
+        duration_ms=int((time.time() - t_cat) * 1000),
+        blocks=[{
+            "kind": "metrics",
+            "items": [
+                {"label": "tipos de evento", "value": len(known_types) or "240+"},
+                {"label": "fuente", "value": "engine en vivo"},
+            ],
+        }],
+    )
+
+    await canvas_step(
+        _NODE, "compile", "Compilar spec ejecutable", "running",
+        subtitle="lenguaje natural → AlertSpec JSON",
+    )
+    t_comp = time.time()
     try:
         spec, meta, err = await _compile_with_repair(query, user_id, known_types, catalog_text)
     except Exception as exc:
         spec, meta, err = None, None, f"compiler crashed: {exc}"
 
     if spec is None:
+        await canvas_step(
+            _NODE, "compile", "Compilar spec ejecutable", "error",
+            subtitle="la validación rechazó la spec",
+            duration_ms=int((time.time() - t_comp) * 1000),
+            blocks=[{"kind": "text", "text": (err or "")[:220]}],
+        )
         elapsed_ms = int((time.time() - start) * 1000)
         return {
             "agent_results": {
@@ -346,6 +483,13 @@ async def alert_compiler_node(state: dict) -> dict:
                 "alert_compiler": {"elapsed_ms": elapsed_ms, "error": "compile_failed"},
             },
         }
+
+    await canvas_step(
+        _NODE, "compile", "Compilar spec ejecutable", "complete",
+        subtitle=f"tier {spec.tier} · validada contra el catálogo",
+        duration_ms=int((time.time() - t_comp) * 1000),
+        blocks=[_spec_code_block(spec)],
+    )
 
     results["spec"] = spec.model_dump(mode="json")
     results["paraphrase"] = spec.paraphrase
@@ -373,7 +517,10 @@ async def alert_compiler_node(state: dict) -> dict:
         dry_days = int((meta or {}).get("dry_run_days", 5))
         if dry_days > 0 and (spec.steps or spec.price_levels):
             try:
-                results["dry_run"] = await run_dry_run(spec, days=dry_days)
+                results["dry_run"] = await run_dry_run(
+                    spec, days=dry_days,
+                    on_progress=_progress, on_day=_canvas_day_step,
+                )
             except Exception as exc:
                 errors.append(f"dry_run: {exc}")
         elapsed_ms = int((time.time() - start) * 1000)
@@ -409,7 +556,10 @@ async def alert_compiler_node(state: dict) -> dict:
             f"en los últimos {dry_days} días de mercado..."
         )
         try:
-            dry = await run_dry_run(spec, days=dry_days)
+            dry = await run_dry_run(
+                spec, days=dry_days,
+                on_progress=_progress, on_day=_canvas_day_step,
+            )
             spec.dry_run = {
                 "total_fires": dry["total_fires"],
                 "days_scanned": dry["days_scanned"],
@@ -423,6 +573,56 @@ async def alert_compiler_node(state: dict) -> dict:
             )
         except Exception as exc:
             errors.append(f"dry_run: {exc}")
+    elif spec.is_scheduled_armable():
+        # Scheduled workflows: no dry-run — run ONE capture right now so the
+        # user (and the canvas) see exactly what each interval will deliver.
+        await canvas_step(
+            _NODE, "preview", "Primera captura", "running",
+            subtitle=f"cada {spec.schedule.every_seconds}s · {spec.schedule.category}",
+        )
+        t_prev = time.time()
+        try:
+            from alerts.scheduler import run_snapshot_task
+            preview = await run_snapshot_task(spec)
+            results["preview"] = preview
+            rows = preview.get("rows") or []
+            table_rows = [
+                [
+                    str(r.get("symbol") or ""),
+                    f"${r['price']:.2f}" if isinstance(r.get("price"), (int, float)) else "",
+                    _fmt_pct(r),
+                    _fmt_mcap(r.get("market_cap")),
+                ]
+                for r in rows[:8]
+            ]
+            await canvas_step(
+                _NODE, "preview", "Primera captura", "complete",
+                subtitle=(
+                    f"{len(rows)} valores · se repetirá cada {spec.schedule.every_seconds}s"
+                    if rows else (preview.get("note") or "sin datos ahora mismo")
+                ),
+                duration_ms=int((time.time() - t_prev) * 1000),
+                blocks=[{
+                    "kind": "table",
+                    "columns": ["Ticker", "Precio", "Cambio", "MCap"],
+                    "rows": table_rows,
+                    "total": len(rows),
+                    "cascade": True,
+                }] if table_rows else [{
+                    "kind": "text",
+                    "text": preview.get("note") or "La captura llegará al armar el workflow.",
+                }],
+            )
+        except Exception as exc:
+            errors.append(f"preview: {exc}")
+            await canvas_step(
+                _NODE, "preview", "Primera captura", "error",
+                blocks=[{"kind": "text", "text": str(exc)[:220]}],
+            )
+        results["dry_run"] = {
+            "total_fires": 0, "days_scanned": [], "unique_symbols": [],
+            "per_day": [], "errors": [], "note": "scheduled workflows preview live, not historically",
+        }
     elif not spec.steps and not spec.price_levels:
         results["dry_run"] = {
             "total_fires": 0, "days_scanned": [], "unique_symbols": [],
@@ -436,6 +636,20 @@ async def alert_compiler_node(state: dict) -> dict:
     results["duplicate"] = False
     if not persisted:
         errors.append("persistence unavailable — spec draft was not saved")
+
+    dry_summary = spec.dry_run or {}
+    await canvas_step(
+        _NODE, "persist", "Borrador guardado", "complete" if persisted else "error",
+        subtitle="confírmalo para armarlo en vivo",
+        blocks=[{
+            "kind": "metrics",
+            "items": [
+                {"label": "disparos", "value": dry_summary.get("total_fires", 0)},
+                {"label": "símbolos", "value": len(dry_summary.get("unique_symbols") or [])},
+                {"label": "estado", "value": "draft"},
+            ],
+        }],
+    )
 
     if errors:
         results["_errors"] = errors

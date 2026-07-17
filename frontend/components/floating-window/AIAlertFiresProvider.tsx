@@ -112,11 +112,14 @@ export function AIAlertFiresProvider() {
             backlog: Boolean(data.backlog),
             receivedAt: Date.now(),
             dismissed: false,
+            snapshot: f.snapshot || null,
           };
           const store = useAIAlertFiresStore.getState();
           const isNew = !store.fires.some((x) => x.id === fire.id);
           store.addFire(fire);
-          if (isNew && !fire.backlog && store.soundEnabled) playFireSound();
+          // Los snapshots programados llegan cada N segundos: sin sonido.
+          const isSnapshot = fire.event_type === 'scheduled_snapshot';
+          if (isNew && !fire.backlog && !isSnapshot && store.soundEnabled) playFireSound();
         } catch {
           // frame no-JSON — ignorar
         }

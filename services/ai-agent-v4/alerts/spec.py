@@ -42,6 +42,7 @@ class AlertTier(str, Enum):
     SEQUENCE = "sequence"         # T1 — ordered event sequence (stateful)
     MEMBERSHIP = "membership"     # T2 — scanner ranking enter/exit
     AGENTIC = "agentic"           # T3 — fire triggers a LangGraph workflow
+    SCHEDULED = "scheduled"       # T4 — periodic snapshot workflow (cron-like)
 
 
 class AlertStatus(str, Enum):
@@ -101,6 +102,28 @@ class MembershipWatch(BaseModel):
     rank_lte: Optional[int] = Field(None, ge=1, le=100)
 
 
+class Schedule(BaseModel):
+    """T4 — periodic snapshot workflow: 'every N minutes, capture X'.
+
+    The SchedulerRuntime runs the task on the interval and publishes each
+    snapshot to the user's alert stream, so the canvas shows a live-updating
+    "picture" (top after-hours stocks every minute, etc.).
+    """
+    every_seconds: int = Field(60, ge=30, le=86400)
+    task: Literal["scanner_snapshot"] = "scanner_snapshot"
+    # scanner_snapshot params
+    category: str = Field(
+        "momentum_up",
+        description="Scanner category: gappers_up, momentum_up, winners, losers, "
+                    "high_volume, new_highs, new_lows, post_market, anomalies…",
+    )
+    limit: int = Field(10, ge=1, le=25)
+    # Only run while the market is in one of these sessions (empty = always).
+    sessions: list[Literal["PRE_MARKET", "MARKET_OPEN", "POST_MARKET", "CLOSED"]] = (
+        Field(default_factory=list)
+    )
+
+
 class PriceLevel(BaseModel):
     """Absolute price-level cross: 'reclaims 502' / 'loses 500'.
 
@@ -155,6 +178,7 @@ class AlertSpec(BaseModel):
     day_conditions: list[DayCondition] = Field(default_factory=list, max_length=6)
     membership: Optional[MembershipWatch] = None
     price_levels: list[PriceLevel] = Field(default_factory=list, max_length=4)
+    schedule: Optional[Schedule] = None
 
     # Behaviour
     lifecycle: Lifecycle = Field(default_factory=Lifecycle)
@@ -176,6 +200,9 @@ class AlertSpec(BaseModel):
         if tier == AlertTier.MEMBERSHIP.value:
             if self.membership is None:
                 raise ValueError("membership tier requires a membership watch")
+        elif tier == AlertTier.SCHEDULED.value:
+            if self.schedule is None:
+                raise ValueError("scheduled tier requires a schedule")
         elif tier == AlertTier.AGENTIC.value:
             if not any(a.channel == "workflow" and a.workflow_id for a in self.actions):
                 raise ValueError("agentic tier requires a workflow action with workflow_id")
@@ -228,6 +255,11 @@ class AlertSpec(BaseModel):
         tier = self.tier if isinstance(self.tier, str) else self.tier.value
         return tier == AlertTier.MEMBERSHIP.value and self.membership is not None
 
+    def is_scheduled_armable(self) -> bool:
+        """Periodic snapshot workflows — run by the SchedulerRuntime."""
+        tier = self.tier if isinstance(self.tier, str) else self.tier.value
+        return tier == AlertTier.SCHEDULED.value and self.schedule is not None
+
     def is_live_armable(self) -> bool:
         """Anything we can evaluate continuously (not just dry-run)."""
         return (
@@ -235,10 +267,15 @@ class AlertSpec(BaseModel):
             or self.is_price_level_armable()
             or self.is_sequence_armable()
             or self.is_membership_armable()
+            or self.is_scheduled_armable()
         )
 
     def to_trigger_config(self) -> dict[str, Any]:
         """Compile a live-armable spec into TriggerEngine config shape."""
+        if self.is_scheduled_armable():
+            raise ValueError(
+                "scheduled specs run on the SchedulerRuntime, not the TriggerEngine"
+            )
         if not self.is_live_armable():
             raise ValueError(
                 "spec is not live-armable (needs day_conditions end-of-day context "

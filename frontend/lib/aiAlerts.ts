@@ -12,7 +12,16 @@ export type GetTokenFn = (opts?: { skipCache?: boolean }) => Promise<string | nu
 // ── Types (mirror of services/ai-agent-v4/alerts/spec.py) ─────────
 
 export type AlertStatus = 'draft' | 'armed' | 'paused' | 'archived';
-export type AlertTier = 'event_match' | 'sequence' | 'membership' | 'agentic';
+export type AlertTier = 'event_match' | 'sequence' | 'membership' | 'agentic' | 'scheduled';
+
+/** T4 — workflow programado: captura periódica de un ranking del scanner. */
+export interface AlertSchedule {
+  every_seconds: number;
+  task: 'scanner_snapshot';
+  category: string;
+  limit: number;
+  sessions: Array<'PRE_MARKET' | 'MARKET_OPEN' | 'POST_MARKET' | 'CLOSED'>;
+}
 
 export interface AlertUniverse {
   symbols_include: string[];
@@ -64,6 +73,7 @@ export interface AlertSpec {
   steps: AlertSequenceStep[];
   day_conditions: AlertDayCondition[];
   price_levels?: AlertPriceLevel[];
+  schedule?: AlertSchedule | null;
   lifecycle: AlertLifecycle;
   trigger_id: string | null;
   dry_run?: {

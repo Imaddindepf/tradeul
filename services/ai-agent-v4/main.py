@@ -6,6 +6,7 @@ Port 8031.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -75,17 +76,44 @@ async def lifespan(app: FastAPI):
     alert_store = get_store()
     await alert_store.init()
 
+    # Scheduler runtime (T4 "every N minutes" snapshot workflows)
+    from alerts.scheduler import SchedulerRuntime
+    scheduler = SchedulerRuntime()
+    await scheduler.start()
+    app.state.scheduler = scheduler
+    logger.info("Scheduler runtime started")
+
     # Validate the MCP tool catalog against the live gateway (non-fatal)
     from agents.mcp_catalog import validate_catalog
     await validate_catalog()
+
+    # Warm the live event catalog in background (cold call aggregates ~12M
+    # rows and takes ~45s; warming it here means no user query ever pays it).
+    async def _warm_event_catalog() -> None:
+        try:
+            from agents.alert_compiler import _get_live_catalog
+            await _get_live_catalog()
+            logger.info("Live event catalog warmed")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Event catalog warm-up failed: %s", exc)
+
+    catalog_warmup = asyncio.create_task(_warm_event_catalog())
 
     yield  # ── app is running ──
 
     logger.info("AI Agent V4 shutting down...")
 
+    catalog_warmup.cancel()
+
     # Stop trigger engine
     try:
         await trigger_engine.stop()
+    except Exception:
+        pass
+
+    # Stop scheduler runtime
+    try:
+        await scheduler.stop()
     except Exception:
         pass
 

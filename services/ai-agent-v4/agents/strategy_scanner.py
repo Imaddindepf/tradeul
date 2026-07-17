@@ -26,9 +26,12 @@ from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from agents.mcp_catalog import MCP
+from agents._canvas import canvas_step
 from agents._llm_retry import llm_invoke_with_retry
 
 logger = logging.getLogger(__name__)
+
+_NODE = "strategy_scanner"
 
 _llm = None
 
@@ -216,6 +219,11 @@ async def strategy_scanner_node(state: dict) -> dict:
     await _progress("Compilando tu setup a una spec de secuencia de eventos...")
 
     # ── Step 1: live catalog + LLM spec compilation ──
+    await canvas_step(
+        _NODE, "compile", "Compilar setup", "running",
+        subtitle="lenguaje natural → spec de secuencia",
+    )
+    t_comp = time.time()
     live_catalog = await _get_live_catalog("today")
     messages = [
         SystemMessage(content=SPEC_PROMPT.replace("{live_catalog}", live_catalog)),
@@ -236,6 +244,12 @@ async def strategy_scanner_node(state: dict) -> dict:
         if not isinstance(spec, dict) or not spec.get("steps"):
             raise ValueError("spec must be an object with non-empty steps")
     except (json.JSONDecodeError, ValueError) as exc:
+        await canvas_step(
+            _NODE, "compile", "Compilar setup", "error",
+            subtitle="spec inválida",
+            duration_ms=int((time.time() - t_comp) * 1000),
+            blocks=[{"kind": "text", "text": str(exc)[:220]}],
+        )
         elapsed_ms = int((time.time() - start_time) * 1000)
         return {
             "agent_results": {
@@ -254,6 +268,17 @@ async def strategy_scanner_node(state: dict) -> dict:
 
     n_steps = len(spec.get("steps", []))
     n_conds = len(spec.get("day_conditions") or [])
+    await canvas_step(
+        _NODE, "compile", "Compilar setup", "complete",
+        subtitle=f"{n_steps} paso(s) de eventos + {n_conds} condición(es) de día",
+        duration_ms=int((time.time() - t_comp) * 1000),
+        blocks=[{
+            "kind": "code",
+            "language": "json",
+            "content": json.dumps(spec, indent=2, ensure_ascii=False)[:800],
+            "typewriter": True,
+        }],
+    )
     await _progress(
         f"Spec compilada: {n_steps} paso(s) de eventos + {n_conds} condición(es) de día. "
         f"Escaneando el universo completo ({spec.get('date', 'today')})..."
@@ -273,18 +298,55 @@ async def strategy_scanner_node(state: dict) -> dict:
         if spec.get(k) is not None:
             scan_args[k] = spec[k]
 
+    await canvas_step(
+        _NODE, "scan", "Escanear el universo", "running",
+        subtitle=f"eventos reales · {scan_args['date']} · todo el mercado",
+    )
+    t_scan = time.time()
     try:
         raw = await MCP.strategy.scan_day_setups(scan_args, timeout=150.0)
         if isinstance(raw, dict) and raw.get("error"):
             errors.append(f"scan: {raw['error']}")
+            await canvas_step(
+                _NODE, "scan", "Escanear el universo", "error",
+                duration_ms=int((time.time() - t_scan) * 1000),
+                blocks=[{"kind": "text", "text": str(raw["error"])[:220]}],
+            )
         else:
             results["scan_results"] = _clean_matches(raw)
+            matches = results["scan_results"]["matches"]
+            rows = [
+                [
+                    str(m.get("symbol") or ""),
+                    str(m.get("step1_event") or ""),
+                    str(m.get("step1_time") or ""),
+                    f"{m['close_vs_open_pct']:+.1f}%" if isinstance(m.get("close_vs_open_pct"), (int, float)) else "",
+                ]
+                for m in matches[:6]
+            ]
+            await canvas_step(
+                _NODE, "scan", "Escanear el universo", "complete",
+                subtitle=f"{results['scan_results']['count']} acciones cumplen el setup",
+                duration_ms=int((time.time() - t_scan) * 1000),
+                blocks=[{
+                    "kind": "table",
+                    "columns": ["Ticker", "Evento", "Hora", "Cierre/Open"],
+                    "rows": rows,
+                    "total": results["scan_results"]["count"],
+                    "cascade": True,
+                }] if rows else [{"kind": "text", "text": "El setup no se dio ese día."}],
+            )
             await _progress(
                 f"Scan completado: {results['scan_results']['count']} acciones "
                 f"cumplen el setup ({raw.get('elapsed_ms', '?')}ms)."
             )
     except Exception as exc:
         errors.append(f"strategy/scan_day_setups: {exc}")
+        await canvas_step(
+            _NODE, "scan", "Escanear el universo", "error",
+            duration_ms=int((time.time() - t_scan) * 1000),
+            blocks=[{"kind": "text", "text": str(exc)[:220]}],
+        )
 
     if errors:
         results["_errors"] = errors

@@ -7,7 +7,11 @@ import { BellRing, History, Sparkles } from 'lucide-react';
 
 const LazyExecutionGraph = dynamic(
   () => import('./ExecutionGraph').then(m => m.ExecutionGraph),
-  { ssr: false, loading: () => <div className="h-[260px] bg-surface-hover rounded-lg animate-pulse" /> },
+  { ssr: false, loading: () => <div className="h-full min-h-[200px] bg-surface-hover rounded-lg animate-pulse" /> },
+);
+const LazyLiveWorkflowsCanvas = dynamic(
+  () => import('./LiveWorkflowsCanvas').then(m => m.LiveWorkflowsCanvas),
+  { ssr: false, loading: () => <div className="h-full min-h-[200px] bg-surface-hover rounded-lg animate-pulse" /> },
 );
 import { useAIAgent } from './useAIAgent';
 import { ResultBlock } from './ResultBlock';
@@ -17,6 +21,7 @@ import { useConversationHistory } from './useConversationHistory';
 import type { SlashCommand } from './SlashCommandMenu';
 import type { AgentStep, ChartContext, Message, ResultBlockData, ClarificationData, SessionMessage } from './types';
 import { StepCard } from './StepCard';
+import { useAIAlertFiresStore } from '@/stores/useAIAlertFiresStore';
 
 const QUICK_ACTIONS = [
   { label: 'Top Gainers', query: 'top 50 gainers today' },
@@ -110,6 +115,24 @@ export const AIAgentContent = memo(function AIAgentContent({
     if (isNarrow && showPipeline) setShowPipeline(false);
   }, [isNarrow, showPipeline]);
 
+  // ── Auto-abrir el canvas al lanzar una consulta (salvo que el usuario lo cerrara) ──
+  const userClosedCanvasRef = useRef(false);
+  const prevLoadingRef = useRef(false);
+  useEffect(() => {
+    if (isLoading && !prevLoadingRef.current && !isNarrow && !userClosedCanvasRef.current) {
+      setShowPipeline(true);
+    }
+    prevLoadingRef.current = isLoading;
+  }, [isLoading, isNarrow]);
+
+  const togglePipeline = useCallback(() => {
+    setShowPipeline(p => {
+      if (p) userClosedCanvasRef.current = true;
+      else userClosedCanvasRef.current = false;
+      return !p;
+    });
+  }, []);
+
   // ── External event listeners ──
   useEffect(() => {
     const handler = (e: CustomEvent<{ message: string }>) => {
@@ -168,8 +191,10 @@ export const AIAgentContent = memo(function AIAgentContent({
     return entries;
   }, [messages, resultBlocks]);
 
+  // Última ejecución CON pasos: así el canvas de ejecución no se queda en
+  // blanco cuando llega un mensaje posterior sin pasos (aclaraciones, etc.).
   const activeSteps = useMemo(() => {
-    const last = [...messages].reverse().find(m => m.role === 'assistant');
+    const last = [...messages].reverse().find(m => m.role === 'assistant' && m.steps?.length);
     return last?.steps || [];
   }, [messages]);
 
@@ -332,10 +357,10 @@ export const AIAgentContent = memo(function AIAgentContent({
               )}
               {!isNarrow && (
                 <button
-                  onClick={() => setShowPipeline(p => !p)}
+                  onClick={togglePipeline}
                   className={`transition-colors ${showPipeline ? 'text-foreground/80 font-medium' : 'text-muted-fg hover:text-foreground/80'}`}
                 >
-                  Pipeline
+                  Canvas
                 </button>
               )}
               <div className="flex items-center gap-1.5">
@@ -447,7 +472,9 @@ export const AIAgentContent = memo(function AIAgentContent({
 
         {/* PIPELINE SIDEBAR */}
         <AnimatePresence>
-          {showPipeline && !isNarrow && <PipelineSidebar steps={activeSteps} />}
+          {showPipeline && !isNarrow && (
+            <PipelineSidebar steps={activeSteps} isLoading={isLoading} />
+          )}
         </AnimatePresence>
       </div>
     </div>
@@ -606,6 +633,44 @@ const UserBubble = memo(function UserBubble({ message }: { message: Message }) {
    AGENT RESPONSE — one unified card per response
    ================================================================ */
 
+/* Resumen plegado de los pasos ya completados: menos ruido bajo cada respuesta */
+const CollapsedSteps = memo(function CollapsedSteps({ steps }: { steps: AgentStep[] }) {
+  const [open, setOpen] = useState(false);
+  const totalS = steps.reduce((acc, s) => acc + (s.duration || 0), 0);
+  const hasErr = steps.some(s => s.status === 'error');
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-[9.5px] text-muted-fg hover:text-foreground/80 transition-colors py-0.5"
+      >
+        <span className={`transition-transform duration-200 inline-block ${open ? 'rotate-90' : ''}`}>›</span>
+        <span className={hasErr ? 'text-red-400' : 'text-emerald-500'}>{hasErr ? '×' : '✓'}</span>
+        <span>{steps.length} pasos</span>
+        {totalS > 0 && <span className="tabular-nums font-mono">· {totalS < 1 ? `${Math.round(totalS * 1000)}ms` : `${totalS.toFixed(1)}s`}</span>}
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="space-y-1 pt-1">
+              {steps.map((step) => (
+                <StepCard key={step.id} step={step} isLatest={false} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
 const AgentResponse = memo(function AgentResponse({
   message,
   results,
@@ -687,14 +752,8 @@ const AgentResponse = memo(function AgentResponse({
 
     return (
       <div className="space-y-2">
-        {/* Completed step cards */}
-        {hasSteps && (
-          <div className="space-y-1">
-            {message.steps!.map((step, i) => (
-              <StepCard key={step.id} step={step} isLatest={false} />
-            ))}
-          </div>
-        )}
+        {/* Pasos completados: una línea discreta, expandible */}
+        {hasSteps && <CollapsedSteps steps={message.steps!} />}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -934,83 +993,194 @@ const ChartContextChip = memo(function ChartContextChip({
    PIPELINE SIDEBAR
    ================================================================ */
 
-const PipelineSidebar = memo(function PipelineSidebar({ steps }: { steps: AgentStep[] }) {
+const PIPELINE_W_DEFAULT = 420;
+const PIPELINE_W_MIN = 320;
+const PIPELINE_W_MAX_RATIO = 0.72; // el canvas puede ocupar hasta ~3/4 de la ventana
+const PIPELINE_W_KEY = 'tradeul.agent.canvasWidth';
+
+type CanvasTab = 'execution' | 'workflows';
+
+/* Estado del feed de disparos en el header de la pestaña Workflows. */
+const LiveWorkflowsBadge = memo(function LiveWorkflowsBadge() {
+  const connected = useAIAlertFiresStore(s => s.connected);
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="relative flex h-1.5 w-1.5">
+        {connected && (
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+        )}
+        <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
+      </span>
+      <span className={`text-[8.5px] font-semibold uppercase tracking-wider ${connected ? 'text-emerald-400' : 'text-red-400'}`}>
+        {connected ? 'live' : 'offline'}
+      </span>
+    </div>
+  );
+});
+
+const PipelineSidebar = memo(function PipelineSidebar({
+  steps,
+  isLoading,
+}: {
+  steps: AgentStep[];
+  isLoading: boolean;
+}) {
   const completedCount = steps.filter(s => s.status === 'complete').length;
   const hasErrors = steps.some(s => s.status === 'error');
   const isProcessing = steps.some(s => s.status === 'running');
 
+  // Pestaña activa: la ejecución manda mientras corre una consulta; si el
+  // usuario cambia a mano, se respeta hasta la siguiente consulta.
+  const [tab, setTab] = useState<CanvasTab>(steps.length > 0 ? 'execution' : 'workflows');
+  const userPickedRef = useRef(false);
+  const prevLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    if (isLoading && !prevLoadingRef.current) {
+      setTab('execution');
+      userPickedRef.current = false;
+    }
+    prevLoadingRef.current = isLoading;
+  }, [isLoading]);
+
+  // Continuidad ejecución → workflows: al armar/pausar un workflow desde el
+  // chat, el canvas salta a "Mis workflows" para mostrar dónde vive ahora.
+  useEffect(() => {
+    const onAlertsChanged = () => {
+      userPickedRef.current = false;
+      setTab('workflows');
+    };
+    window.addEventListener('tradeul:ai-alerts-changed', onAlertsChanged);
+    return () => window.removeEventListener('tradeul:ai-alerts-changed', onAlertsChanged);
+  }, []);
+
+  const pickTab = useCallback((t: CanvasTab) => {
+    userPickedRef.current = true;
+    setTab(t);
+  }, []);
+
+  const [width, setWidth] = useState(() => {
+    if (typeof window === 'undefined') return PIPELINE_W_DEFAULT;
+    const saved = Number(window.localStorage.getItem(PIPELINE_W_KEY));
+    return Number.isFinite(saved) && saved >= PIPELINE_W_MIN ? saved : PIPELINE_W_DEFAULT;
+  });
+  const [dragging, setDragging] = useState(false);
+  const widthRef = useRef(width);
+  widthRef.current = width;
+
+  const onDragStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    setDragging(true);
+    const startX = e.clientX;
+    const startW = widthRef.current;
+    const maxW = Math.round(window.innerWidth * PIPELINE_W_MAX_RATIO);
+
+    const onMove = (ev: PointerEvent) => {
+      // El panel está a la derecha: arrastrar a la izquierda lo agranda.
+      const next = Math.min(maxW, Math.max(PIPELINE_W_MIN, startW + (startX - ev.clientX)));
+      setWidth(next);
+    };
+    const onUp = () => {
+      setDragging(false);
+      window.localStorage.setItem(PIPELINE_W_KEY, String(widthRef.current));
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, []);
+
   return (
     <motion.div
       initial={{ width: 0, opacity: 0 }}
-      animate={{ width: 252, opacity: 1 }}
+      animate={{ width, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
-      transition={{ duration: 0.2, ease: 'easeInOut' }}
-      className="flex-shrink-0 border-l border-border bg-surface overflow-hidden"
+      transition={dragging ? { duration: 0 } : { duration: 0.2, ease: 'easeInOut' }}
+      className="relative flex-shrink-0 border-l border-border bg-surface overflow-hidden"
     >
-      <div className="w-[252px] h-full flex flex-col">
-        <div className="flex-shrink-0 px-3 py-2 border-b border-border-subtle">
-          <span className="text-[10px] font-semibold text-foreground">Pipeline</span>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-3 py-2">
-          {steps.length === 0 ? (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-[10px] text-muted-fg text-center px-2 leading-relaxed">
-                Los pasos del agente aparecerán aquí.
-              </p>
-            </div>
-          ) : (
-            <div>
-              {/* Live execution graph — the multi-agent run as a dataflow */}
-              <div className="mb-2">
-                <LazyExecutionGraph steps={steps} height={230} />
-              </div>
-
-              <div className="mb-2">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[9px] text-muted-fg font-medium uppercase tracking-wider">
-                    {isProcessing ? 'En progreso' : hasErrors ? 'Error' : 'Completado'}
+      {/* Asa de redimensionado: arrastra el borde izquierdo del canvas */}
+      <div
+        onPointerDown={onDragStart}
+        className={`absolute left-0 top-0 bottom-0 w-[5px] z-20 cursor-col-resize group ${
+          dragging ? 'bg-primary/40' : 'hover:bg-primary/25'
+        }`}
+        title="Arrastra para redimensionar el canvas"
+      >
+        <div className={`absolute left-[2px] top-1/2 -translate-y-1/2 h-10 w-[2px] rounded-full transition-colors ${
+          dragging ? 'bg-primary' : 'bg-border group-hover:bg-primary/70'
+        }`} />
+      </div>
+      <div style={{ width }} className="h-full flex flex-col">
+        <div className="flex-shrink-0 px-3 py-1.5 border-b border-border-subtle flex items-center justify-between">
+          <div className="flex items-center gap-0.5">
+            {([
+              ['execution', 'Ejecución', 'Lo que el agente está haciendo AHORA con tu consulta: cada paso, con sus datos reales'],
+              ['workflows', 'Mis workflows', 'Tus workflows activos 24/7: alertas en vivo y capturas programadas, disparando en tiempo real'],
+            ] as const).map(([id, label, hint]) => (
+              <button
+                key={id}
+                onClick={() => pickTab(id)}
+                title={hint}
+                className={`flex items-center gap-1.5 rounded px-2 py-1 text-[9.5px] font-semibold transition-colors ${
+                  tab === id
+                    ? 'bg-surface-inset text-foreground'
+                    : 'text-muted-fg hover:text-foreground/80'
+                }`}
+              >
+                {label}
+                {id === 'execution' && isProcessing && (
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
                   </span>
-                  <span className="text-[9px] text-muted-fg tabular-nums">{completedCount}/{steps.length}</span>
-                </div>
-                <div className="h-1 bg-surface-inset rounded-full overflow-hidden">
-                  <motion.div
-                    className={`h-full rounded-full ${hasErrors ? 'bg-red-400' : isProcessing ? 'bg-primary' : 'bg-emerald-500'}`}
-                    animate={{ width: `${steps.length > 0 ? (completedCount / steps.length) * 100 : 0}%` }}
-                    transition={{ duration: 0.5 }}
-                  />
-                </div>
-              </div>
-
-              {steps.map((step, idx) => {
-                const running = step.status === 'running';
-                const done = step.status === 'complete';
-                const err = step.status === 'error';
-                return (
-                  <motion.div
-                    key={step.id}
-                    initial={{ opacity: 0, x: -6 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.2, delay: idx * 0.04 }}
-                    className="flex items-center gap-2 py-1.5 border-b border-border-subtle last:border-0"
-                  >
-                    <span className={`text-[9px] leading-none font-medium ${
-                      running ? 'text-primary' : done ? 'text-emerald-500' : err ? 'text-red-400' : 'text-muted-fg/50'
-                    }`}>
-                      {running ? '\u25CF' : done ? '\u2713' : err ? '\u00D7' : '\u25CB'}
-                    </span>
-                    <span className={`text-[10px] flex-1 truncate ${
-                      running ? 'text-primary font-medium' : done ? 'text-foreground/80' : err ? 'text-red-600' : 'text-muted-fg'
-                    }`}>
-                      {step.title}
-                    </span>
-                    {running && <LoadingDots />}
-                  </motion.div>
-                );
-              })}
+                )}
+              </button>
+            ))}
+          </div>
+          {tab === 'execution' && steps.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className={`text-[8.5px] font-semibold uppercase tracking-wider ${
+                isProcessing ? 'text-primary' : hasErrors ? 'text-red-400' : 'text-emerald-400'
+              }`}>
+                {isProcessing ? 'ejecutando' : hasErrors ? 'con errores' : 'completado'}
+              </span>
+              <span className="text-[9px] text-muted-fg tabular-nums">{completedCount}/{steps.length}</span>
             </div>
           )}
+          {tab === 'workflows' && <LiveWorkflowsBadge />}
         </div>
+
+        {tab === 'workflows' ? (
+          <div className="flex-1 min-h-0 p-2">
+            <LazyLiveWorkflowsCanvas height="100%" />
+          </div>
+        ) : steps.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-[10px] text-muted-fg text-center px-6 leading-relaxed">
+              <span className="font-semibold text-foreground/70">Ejecución</span> muestra en vivo
+              lo que el agente hace con tu consulta: los nodos que va montando,
+              sus datos reales y los tiempos de cada paso.
+              <br /><br />
+              Lanza una consulta para verlo. Tus alertas y capturas activas viven
+              en <span className="font-semibold text-foreground/70">Mis workflows</span>.
+            </p>
+          </div>
+        ) : (
+          <div className="flex-1 min-h-0 flex flex-col">
+            {/* Barra de progreso fina pegada al header */}
+            <div className="h-[2px] bg-surface-inset flex-shrink-0">
+              <motion.div
+                className={`h-full ${hasErrors ? 'bg-red-400' : isProcessing ? 'bg-primary' : 'bg-emerald-500'}`}
+                animate={{ width: `${steps.length > 0 ? (completedCount / steps.length) * 100 : 0}%` }}
+                transition={{ duration: 0.5 }}
+              />
+            </div>
+
+            {/* Canvas en vivo — ocupa todo el panel */}
+            <div className="flex-1 min-h-0 p-2">
+              <LazyExecutionGraph steps={steps} height="100%" />
+            </div>
+          </div>
+        )}
       </div>
     </motion.div>
   );

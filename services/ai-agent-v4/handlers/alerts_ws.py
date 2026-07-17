@@ -62,7 +62,16 @@ def _parse_fire(entry_id: str | bytes, fields: dict) -> dict[str, Any]:
         d[k.decode() if isinstance(k, bytes) else k] = (
             v.decode() if isinstance(v, bytes) else v
         )
+    # T4 scheduled workflows attach the full ranked capture as JSON.
+    snapshot: Optional[dict[str, Any]] = None
+    if d.get("snapshot"):
+        try:
+            import orjson
+            snapshot = orjson.loads(d["snapshot"])
+        except Exception:
+            snapshot = None
     return {
+        "snapshot": snapshot,
         "id": entry_id.decode() if isinstance(entry_id, bytes) else entry_id,
         "spec_id": d.get("spec_id") or None,
         "trigger_id": d.get("trigger_id") or None,

@@ -15,6 +15,7 @@ import asyncio
 import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -346,8 +347,18 @@ async def _run_price_level_dry_run(spec: AlertSpec, days: int) -> dict[str, Any]
     }
 
 
-async def run_dry_run(spec: AlertSpec, days: int = 5) -> dict[str, Any]:
+async def run_dry_run(
+    spec: AlertSpec,
+    days: int = 5,
+    on_progress: Callable[[str], Awaitable[None]] | None = None,
+    on_day: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
     """Replay the spec over the last `days` trading days in parallel.
+
+    on_progress, when given, receives a short human message as each day's
+    scan lands — the UI shows the dry-run advancing instead of a silent gap.
+    on_day receives the full per-day result (date, count, matches) so the
+    caller can push a rich canvas node with the real evidence rows.
 
     Returns:
         {
@@ -378,7 +389,29 @@ async def run_dry_run(spec: AlertSpec, days: int = 5) -> dict[str, Any]:
 
     dates = _last_trading_days(days)
     sem = asyncio.Semaphore(_MAX_PARALLEL)
-    results = await asyncio.gather(*(_scan_one_day(spec, d, sem) for d in dates))
+
+    done_count = 0
+
+    async def _scan_and_report(date: str) -> dict[str, Any]:
+        nonlocal done_count
+        r = await _scan_one_day(spec, date, sem)
+        done_count += 1
+        if on_progress is not None:
+            try:
+                await on_progress(
+                    f"Dry-run {done_count}/{len(dates)}: {r['date']} → "
+                    f"{r['count']} disparo(s)"
+                )
+            except Exception:  # noqa: BLE001 — progress must never break the scan
+                pass
+        if on_day is not None:
+            try:
+                await on_day(r)
+            except Exception:  # noqa: BLE001
+                pass
+        return r
+
+    results = await asyncio.gather(*(_scan_and_report(d) for d in dates))
 
     per_day = sorted(results, key=lambda r: r["date"], reverse=True)
     errors = [f"{r['date']}: {r['error']}" for r in per_day if r.get("error")]

@@ -205,6 +205,42 @@ def _safe_json_size(obj: Any) -> int:
         return 0
 
 
+def _compact_alert_result(result: dict) -> dict:
+    """Slim alert_compiler output for the LLM.
+
+    The UI renders the full interactive card (spec, per-day evidence, candle
+    charts) from the raw agent_results — the synthesizer only writes a short
+    companion text. Feeding it minute bars and 150 evidence rows made Gemini
+    emit degenerate/unterminated JSON and fall back to markdown.
+    """
+    clean = {k: v for k, v in result.items() if not k.startswith("_")}
+    dry = clean.get("dry_run")
+    if isinstance(dry, dict):
+        clean["dry_run"] = {
+            "total_fires": dry.get("total_fires"),
+            "days_scanned": dry.get("days_scanned"),
+            "unique_symbols": (dry.get("unique_symbols") or [])[:20],
+            "per_day": [
+                {
+                    "date": d.get("date"),
+                    "count": d.get("count", 0),
+                    "matches": (d.get("matches") or [])[:3],
+                }
+                for d in (dry.get("per_day") or [])
+            ],
+            "errors": dry.get("errors") or [],
+            "note": dry.get("note"),
+        }
+    spec = clean.get("spec")
+    if isinstance(spec, dict):
+        clean["spec"] = {
+            k: spec.get(k)
+            for k in ("name", "tier", "paraphrase", "universe", "steps",
+                      "day_conditions", "membership", "price_levels", "lifecycle")
+        }
+    return clean
+
+
 def _prepare_results_payload(agent_results: dict) -> dict:
     """Prepare a clean, size-limited payload for the synthesizer LLM."""
     MAX_PER_AGENT = 30_000
@@ -219,7 +255,10 @@ def _prepare_results_payload(agent_results: dict) -> dict:
             total_size += _safe_json_size(result)
             continue
 
-        clean = {k: v for k, v in result.items() if not k.startswith("_")}
+        if agent_name == "alert_compiler":
+            clean = _compact_alert_result(result)
+        else:
+            clean = {k: v for k, v in result.items() if not k.startswith("_")}
         agent_size = _safe_json_size(clean)
 
         if agent_size > MAX_PER_AGENT:

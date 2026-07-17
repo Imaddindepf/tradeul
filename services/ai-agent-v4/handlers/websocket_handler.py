@@ -17,6 +17,8 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
+from handlers.node_summary import summarize_node_output
+
 logger = logging.getLogger(__name__)
 
 # Heartbeat cadence while a long node (research/synthesizer) runs with no
@@ -62,12 +64,11 @@ async def _heartbeat(
         while True:
             await asyncio.sleep(interval)
             payload = {"type": "keepalive", "timestamp": time.time()}
-            ok = (
+            if client_id:
+                # A failed tick may just be the 1-5s reconnect window; keep
+                # trying — the next tick lands on the client's new socket.
                 await _deliver(websocket, client_id, payload)
-                if client_id
-                else await _safe_send(websocket, payload)
-            )
-            if not ok:
+            elif not await _safe_send(websocket, payload):
                 return
     except asyncio.CancelledError:
         return
@@ -454,25 +455,37 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
 
             # Keepalive runs alongside the stream so long silent nodes
             # (research/synthesizer can be 30-90s) never trip the proxy idle
-            # timeout and drop the socket mid-answer.
-            heartbeat_task = asyncio.create_task(_heartbeat(websocket))
-            # When the socket drops mid-run (background tab), we keep the graph
-            # running: stop streaming events, finish the work, then deliver the
-            # final response to the client's reconnected socket via _deliver().
+            # timeout. client_id: if the browser drops+reconnects mid-run, the
+            # keepalives (and every streamed event below) follow the NEW socket
+            # — otherwise the reconnected tab sits silent for 90s and paints a
+            # false "La solicitud tardó demasiado".
+            heartbeat_task = asyncio.create_task(
+                _heartbeat(websocket, client_id=client_id)
+            )
+            # Even if no socket is live right now, keep the graph running and
+            # keep ATTEMPTING delivery per event: the client usually reconnects
+            # in 1-5s and picks the stream back up seamlessly.
             client_gone = False
             try:
                 async for event in graph.astream_events(initial_state, config=config, version="v2"):
-                    if client_gone:
-                        continue  # let the graph finish; skip event streaming
-
                     kind = event.get("event", "")
                     node_name = event.get("name", "")
 
                     # Forward custom progress events (from adispatch_custom_event)
                     if kind == "on_custom_event":
                         evt_data = event.get("data", {})
+                        # Nodos dinámicos que el agente monta en el canvas
+                        # (agents/_canvas.py) — forward completo al frontend.
+                        if node_name == "canvas_step" and isinstance(evt_data, dict):
+                            if not await _deliver(websocket, client_id, {
+                                "type": "canvas_step",
+                                **evt_data,
+                                "timestamp": time.time(),
+                            }):
+                                client_gone = True
+                            continue
                         if isinstance(evt_data, dict) and "message" in evt_data:
-                            if not await _safe_send(websocket, {
+                            if not await _deliver(websocket, client_id, {
                                 "type": "agent_progress",
                                 "node": event.get("name", ""),
                                 "message": evt_data["message"],
@@ -487,7 +500,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
 
                     if kind == "on_chain_start":
                         node_start_times[node_name] = time.time()
-                        if not await _safe_send(websocket, {
+                        if not await _deliver(websocket, client_id, {
                             "type": "node_started",
                             "node": node_name,
                             "timestamp": time.time(),
@@ -499,26 +512,21 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                         node_elapsed_ms = int((time.time() - node_start) * 1000)
 
                         node_output = event.get("data", {}).get("output", {})
-                        preview = ""
-                        if isinstance(node_output, dict):
-                            ar = node_output.get("agent_results", {})
-                            if ar:
-                                first_key = next(iter(ar), None)
-                                if first_key:
-                                    result = ar[first_key]
-                                    if isinstance(result, dict) and "error" in result:
-                                        preview = f"Error: {result['error']}"
-                                    elif isinstance(result, dict):
-                                        preview = f"Keys: {list(result.keys())}"
-                                    else:
-                                        preview = str(result)[:200]
+                        try:
+                            preview, card_data = summarize_node_output(node_name, node_output)
+                        except Exception as sum_exc:  # noqa: BLE001 — never break the stream
+                            logger.warning("node summary failed for %s: %s", node_name, sum_exc)
+                            preview, card_data = "", None
 
-                        if not await _safe_send(websocket, {
+                        payload: dict[str, Any] = {
                             "type": "node_completed",
                             "node": node_name,
                             "elapsed_ms": node_elapsed_ms,
                             "preview": preview[:300],
-                        }):
+                        }
+                        if card_data:
+                            payload["data"] = card_data
+                        if not await _deliver(websocket, client_id, payload):
                             client_gone = True
             finally:
                 heartbeat_task.cancel()
@@ -648,7 +656,10 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 if structured_outputs:
                     response_payload["outputs"] = structured_outputs
 
-                await _deliver(websocket, client_id, response_payload)
+                # Retry delivery: after a mid-run drop the browser reconnects
+                # in 1-5s; without retries the finished answer was lost and the
+                # UI showed a timeout even though the run succeeded.
+                await _deliver_with_retry(websocket, client_id, response_payload)
 
                 # ── Persist conversation to memory ──
                 try:

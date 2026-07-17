@@ -2,6 +2,43 @@
  * AI Agent V4 — Shared types
  */
 
+/** Muestra estructurada de lo que produjo un nodo (para el canvas en vivo). */
+export interface NodeCardTable {
+  title?: string;
+  columns: string[];
+  rows: string[][];
+  total: number;
+}
+
+export interface NodeCardCode {
+  language: string;
+  content: string;
+}
+
+export interface NodeCardData {
+  metrics?: Record<string, string | number>;
+  table?: NodeCardTable;
+  code?: NodeCardCode;
+  routing?: string[];
+  tickers?: string[];
+  text?: string;
+  error?: string;
+}
+
+/**
+ * Nodo dinámico que un agente monta en el canvas mientras trabaja
+ * (evento WS `canvas_step`, emitido por agents/_canvas.py en el backend).
+ * `blocks` sigue el modelo NodeBlock de workflow/types.ts.
+ */
+export interface CanvasSubstep {
+  id: string;
+  title: string;
+  subtitle?: string;
+  status: 'running' | 'complete' | 'error';
+  durationMs?: number;
+  blocks?: unknown[];
+}
+
 export interface AgentStep {
   id: string;
   type: 'reasoning' | 'tool';
@@ -11,6 +48,10 @@ export interface AgentStep {
   description?: string;
   details?: string;
   duration?: number;
+  /** Datos reales del nodo (tabla, métricas, código) para el canvas */
+  data?: NodeCardData;
+  /** Pasos internos que el agente va montando en vivo (canvas_step). */
+  substeps?: CanvasSubstep[];
 }
 
 export interface ClarificationData {

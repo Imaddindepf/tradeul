@@ -83,7 +83,15 @@ async def arm_alert(
     live = False
     kind = "preview_only"
     trigger_id: Optional[str] = spec.trigger_id
-    if spec.is_live_armable():
+    if spec.is_scheduled_armable():
+        scheduler = getattr(request.app.state, "scheduler", None)
+        if scheduler is None:
+            raise HTTPException(status_code=503, detail="Scheduler runtime is not initialised")
+        spec.status = AlertStatus.ARMED
+        scheduler.register(spec)
+        live = True
+        kind = "scheduled"
+    elif spec.is_live_armable():
         engine = _trigger_engine(request)
         try:
             trigger_cfg = spec.to_trigger_config()
@@ -107,6 +115,7 @@ async def arm_alert(
         raise HTTPException(status_code=500, detail="Failed to persist armed status")
 
     notes = {
+        "scheduled": "Scheduled workflow armed — snapshots stream to your feed on the interval.",
         "event_match": "Live on the reactive engine — fires stream to your alert feed.",
         "price_level": "Live price-level watch armed — fires the moment the level is crossed.",
         "sequence": "Live CEP sequence armed — fires when the full A→B path completes.",
@@ -139,6 +148,9 @@ async def pause_alert(
             await _trigger_engine(request).unregister_trigger(user_id, spec.trigger_id)
         except Exception as exc:
             logger.warning("pause_alert: trigger unregister failed for %s: %s", spec_id, exc)
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if scheduler is not None:
+        scheduler.unregister(spec_id)
 
     updated = await store.set_status(spec_id, user_id, AlertStatus.PAUSED)
     if updated is None:
@@ -188,6 +200,9 @@ async def archive_alert(
             await _trigger_engine(request).unregister_trigger(user_id, spec.trigger_id)
         except Exception as exc:
             logger.warning("archive_alert: trigger unregister failed for %s: %s", spec_id, exc)
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if scheduler is not None:
+        scheduler.unregister(spec_id)
 
     updated = await store.set_status(spec_id, user_id, AlertStatus.ARCHIVED)
     if updated is None:
