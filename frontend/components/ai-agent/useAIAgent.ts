@@ -29,9 +29,11 @@ import {
 const AGENT_BASE = process.env.NEXT_PUBLIC_AI_AGENT_V4_API_URL || 'https://agent.tradeul.com/v4';
 const WS_BASE = AGENT_BASE.replace('https://', 'wss://').replace('http://', 'ws://');
 
-// Timeouts — progress events act as heartbeats so ACTIVITY_TIMEOUT can be moderate
-const REQUEST_TIMEOUT_MS = 600000;  // 10 min max (complex backtests on large datasets)
-const ACTIVITY_TIMEOUT_MS = 90000;  // 90s inactivity (progress events reset this)
+// Timeouts — progress/keepalive events reset the activity clock.
+const REQUEST_TIMEOUT_MS = 600000;  // 10 min hard cap
+const ACTIVITY_TIMEOUT_MS = 90000;  // 90s inactivity for normal graph runs
+// Context briefs (Opus) routinely take 45–180s; the server HTTP timeout is 240s.
+const BRIEF_ACTIVITY_TIMEOUT_MS = 300000;
 
 // Node display names
 const NODE_LABELS: Record<string, string> = {
@@ -67,6 +69,7 @@ interface PendingRequest {
   content: string;
   sentAt: number;
   threadId: string;
+  mode?: 'auto' | 'context_brief';
 }
 
 export function useAIAgent(options: UseAIAgentOptions = {}) {
@@ -78,7 +81,11 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
   const [marketContext, setMarketContext] = useState<MarketContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chartContext, setChartContext] = useState<ChartContext | null>(null);
-  const [sessionId, setSessionId] = useState<string>(() => generateSessionId());
+  // Avoid SSR/client hydration mismatch from Date.now()/Math.random.
+  const [sessionId, setSessionId] = useState<string>('');
+  useEffect(() => {
+    setSessionId(prev => prev || generateSessionId());
+  }, []);
 
   const activeChartRef = useRef<{ ticker: string; interval: string; range: string } | null>(null);
   // Si el hilo actual es un "Brief de Contexto", guardamos la noticia para que
@@ -103,6 +110,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
   const activityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastActivityRef = useRef<number>(0);
   const nodeStartTimesRef = useRef<Record<string, number>>({});
+  const completedMsgIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     optionsRef.current = options;
@@ -110,9 +118,118 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
   // REQUEST LIFECYCLE MANAGEMENT
 
+  const tryRecoverBriefFromMemory = useCallback(async (pending: PendingRequest) => {
+    // El brief se persiste en Redis aunque el socket se caiga. Si el timeout
+    // dispara, recuperamos el último turn del hilo en vez de mostrar error vacío.
+    try {
+      const token = await getToken({ skipCache: true });
+      if (!token) return false;
+      const res = await fetch(
+        `${AGENT_BASE}/api/sessions/${encodeURIComponent(pending.threadId)}/messages?limit=5`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) return false;
+      const data = await res.json();
+      const msgs: Array<{ query?: string; response?: string; timestamp?: number }> = data.messages || [];
+      // Match by query fragment or take the newest response after we sent.
+      const sentAtSec = pending.sentAt / 1000;
+      const hit = [...msgs].reverse().find(m =>
+        !!m.response
+        && (m.timestamp || 0) >= sentAtSec - 5
+        && (
+          !pending.content
+          || (m.query || '').includes(pending.content.slice(0, 80).replace(/^Contexto de la noticia:\s*"?/, '').slice(0, 60))
+          || pending.content.includes((m.query || '').slice(0, 60))
+        ),
+      ) || [...msgs].reverse().find(m => !!m.response && (m.timestamp || 0) >= sentAtSec - 5);
+      if (!hit?.response) return false;
+
+      const response = hit.response;
+      const lateId = pending.assistantMsgId;
+      setMessages(prev => prev.map(m =>
+        m.id === lateId || (m.status === 'thinking' || m.status === 'error')
+          ? { ...m, id: lateId, content: response, status: 'complete' as const }
+          : m,
+      ));
+      setResultBlocks(prev => {
+        const without = prev.filter(b => b.messageId !== lateId);
+        return [...without.slice(-(MAX_RESULT_BLOCKS - 1)), {
+          id: `${lateId}-response`,
+          messageId: lateId,
+          query: pending.content,
+          title: 'Analysis',
+          status: 'success' as const,
+          code: '',
+          codeVisible: false,
+          result: {
+            success: true,
+            code: '',
+            outputs: [{ type: 'research', title: 'AI Analysis', content: response }] as any,
+            execution_time_ms: 0,
+            timestamp: new Date().toISOString(),
+          },
+          timestamp: new Date(),
+        }];
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [getToken]);
+
   const cancelPendingRequest = useCallback((reason: 'timeout' | 'disconnect' | 'error') => {
     const pending = pendingRequestRef.current;
     if (!pending) return;
+
+    // Briefs: no mates la UI todavía — el servidor suele terminar y dejar el
+    // resultado en memoria. Intentamos recuperarlo antes de mostrar error.
+    if (reason === 'timeout' && pending.mode === 'context_brief') {
+      const snapshot = pending;
+      pendingRequestRef.current = null;
+      if (requestTimeoutRef.current) { clearTimeout(requestTimeoutRef.current); requestTimeoutRef.current = null; }
+      if (activityTimeoutRef.current) { clearTimeout(activityTimeoutRef.current); activityTimeoutRef.current = null; }
+
+      setMessages(prev => prev.map(m =>
+        m.id === snapshot.assistantMsgId
+          ? { ...m, content: 'Recuperando el brief…', status: 'thinking' as const }
+          : m,
+      ));
+
+      void (async () => {
+        // Unos segundos extra: el backend reintenta entregar al socket nuevo.
+        for (let i = 0; i < 4; i++) {
+          await new Promise(r => setTimeout(r, 2500));
+          if (completedMsgIdsRef.current.has(snapshot.assistantMsgId)) {
+            setIsLoading(false);
+            return;
+          }
+          if (await tryRecoverBriefFromMemory(snapshot)) {
+            completedMsgIdsRef.current.add(snapshot.assistantMsgId);
+            currentMessageIdRef.current = null;
+            nodeStartTimesRef.current = {};
+            setIsLoading(false);
+            return;
+          }
+        }
+        if (completedMsgIdsRef.current.has(snapshot.assistantMsgId)) {
+          setIsLoading(false);
+          return;
+        }
+        setMessages(prev => prev.map(m =>
+          m.id === snapshot.assistantMsgId || m.status === 'thinking'
+            ? {
+                ...m,
+                status: 'error' as const,
+                content: 'El brief está tardando más de lo habitual. Ábrelo desde el historial en unos segundos, o inténtalo de nuevo.',
+              }
+            : m,
+        ));
+        currentMessageIdRef.current = null;
+        nodeStartTimesRef.current = {};
+        setIsLoading(false);
+      })();
+      return;
+    }
 
     const errorMessages: Record<string, string> = {
       timeout: 'La solicitud tardó demasiado. Por favor, intenta de nuevo.',
@@ -133,15 +250,18 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
     if (requestTimeoutRef.current) { clearTimeout(requestTimeoutRef.current); requestTimeoutRef.current = null; }
     if (activityTimeoutRef.current) { clearTimeout(activityTimeoutRef.current); activityTimeoutRef.current = null; }
-  }, []);
+  }, [tryRecoverBriefFromMemory]);
 
   const resetActivityTimeout = useCallback(() => {
     lastActivityRef.current = Date.now();
     if (activityTimeoutRef.current) clearTimeout(activityTimeoutRef.current);
     if (pendingRequestRef.current) {
+      const limit = pendingRequestRef.current.mode === 'context_brief'
+        ? BRIEF_ACTIVITY_TIMEOUT_MS
+        : ACTIVITY_TIMEOUT_MS;
       activityTimeoutRef.current = setTimeout(() => {
         cancelPendingRequest('timeout');
-      }, ACTIVITY_TIMEOUT_MS);
+      }, limit);
     }
   }, [cancelPendingRequest]);
 
@@ -291,12 +411,15 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
             if (!response) break;
             if (data.thread_id && data.thread_id !== sessionId) break;
             const lateId = `late-${Date.now()}`;
+            completedMsgIdsRef.current.add(lateId);
             setMessages(prev => {
               const revIdx = [...prev].reverse().findIndex(
                 m => m.role === 'assistant' && (m.status === 'error' || m.status === 'thinking')
               );
               if (revIdx !== -1) {
                 const realIdx = prev.length - 1 - revIdx;
+                const oldId = prev[realIdx].id;
+                completedMsgIdsRef.current.add(oldId);
                 return prev.map((m, i) =>
                   i === realIdx
                     ? { ...m, id: lateId, content: response, status: 'complete' as const }
@@ -336,6 +459,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           const totalMs = data.metadata?.total_elapsed_ms;
           const suggestedQuestions = (data.suggested_questions as string[]) || [];
 
+          completedMsgIdsRef.current.add(msgId);
           setMessages(prev => prev.map(m =>
             m.id === msgId
               ? {
@@ -541,6 +665,9 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     const now = Date.now();
     const messageId = `user-${now}`;
     const assistantMsgId = `assistant-${now}`;
+    // sessionId se hidrata en useEffect; si aún está vacío, genera uno aquí.
+    const threadId = sessionId || generateSessionId();
+    if (!sessionId) setSessionId(threadId);
 
     const userMessage: Message = {
       id: messageId,
@@ -555,7 +682,10 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     setIsLoading(true);
     setError(null);
 
-    pendingRequestRef.current = { messageId, assistantMsgId, content: content.trim(), sentAt: now, threadId: sessionId };
+    pendingRequestRef.current = {
+      messageId, assistantMsgId, content: content.trim(), sentAt: now,
+      threadId, mode: 'auto',
+    };
     lastActivityRef.current = now;
     nodeStartTimesRef.current = {};
 
@@ -581,11 +711,17 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     }
 
     // Use the persistent sessionId as thread_id for conversation continuity
-    const payload: Record<string, unknown> = { query: content.trim(), thread_id: sessionId, mode: 'auto' };
+    const payload: Record<string, unknown> = { query: content.trim(), thread_id: threadId, mode: 'auto' };
     // Si estamos en un hilo de Brief de Contexto, los follow-ups van al mismo motor.
     if (contextNewsRef.current) {
       payload.mode = 'context_brief';
       payload.news_context = contextNewsRef.current;
+      pendingRequestRef.current = {
+        ...pendingRequestRef.current!,
+        mode: 'context_brief',
+      };
+      if (activityTimeoutRef.current) clearTimeout(activityTimeoutRef.current);
+      activityTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, BRIEF_ACTIVITY_TIMEOUT_MS);
     }
     if (ctxToSend) { payload.chart_context = ctxToSend; setChartContext(null); }
     wsRef.current.send(JSON.stringify(payload));
@@ -620,11 +756,14 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     setIsLoading(true);
     setError(null);
 
-    pendingRequestRef.current = { messageId, assistantMsgId, content: label, sentAt: now, threadId: newSession };
+    pendingRequestRef.current = {
+      messageId, assistantMsgId, content: label, sentAt: now,
+      threadId: newSession, mode: 'context_brief',
+    };
     lastActivityRef.current = now;
     nodeStartTimesRef.current = {};
     requestTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, REQUEST_TIMEOUT_MS);
-    activityTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, ACTIVITY_TIMEOUT_MS);
+    activityTimeoutRef.current = setTimeout(() => { cancelPendingRequest('timeout'); }, BRIEF_ACTIVITY_TIMEOUT_MS);
 
     wsRef.current.send(JSON.stringify({
       query: news.text.slice(0, 400),
@@ -656,7 +795,10 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     setIsLoading(true);
     setError(null);
 
-    pendingRequestRef.current = { messageId, assistantMsgId, content: originalQuery, sentAt: now, threadId: sessionId };
+    pendingRequestRef.current = {
+      messageId, assistantMsgId, content: originalQuery, sentAt: now,
+      threadId: sessionId, mode: 'auto',
+    };
     lastActivityRef.current = now;
     nodeStartTimesRef.current = {};
 

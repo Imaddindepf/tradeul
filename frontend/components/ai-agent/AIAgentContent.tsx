@@ -578,14 +578,25 @@ const TimelineItem = memo(function TimelineItem({
    USER BUBBLE
    ================================================================ */
 
+/** Locale clocks differ between SSR and client — only render after mount. */
+function ClientClock({ date }: { date: Date }) {
+  const [label, setLabel] = useState('');
+  useEffect(() => {
+    setLabel(date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }));
+  }, [date]);
+  return (
+    <span className="text-[9px] text-muted-fg/50 whitespace-nowrap flex-shrink-0 tabular-nums" suppressHydrationWarning>
+      {label || '\u00a0\u00a0:\u00a0\u00a0'}
+    </span>
+  );
+}
+
 const UserBubble = memo(function UserBubble({ message }: { message: Message }) {
   return (
     <div className="flex justify-end">
       <div className="inline-flex items-baseline gap-2 bg-surface border border-border rounded-lg px-2.5 py-1.5 max-w-[80%]">
         <p className="text-[11px] text-foreground leading-normal">{message.content}</p>
-        <span className="text-[9px] text-muted-fg/50 whitespace-nowrap flex-shrink-0">
-          {message.timestamp.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        <ClientClock date={message.timestamp} />
       </div>
     </div>
   );
@@ -699,11 +710,7 @@ const AgentResponse = memo(function AgentResponse({
             {execMs != null && execMs > 0 && (
               <span>{execMs < 1000 ? `${execMs}ms` : `${(execMs / 1000).toFixed(1)}s`}</span>
             )}
-            {ts && (
-              <span className="text-muted-fg/50">
-                {ts.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
+            {ts && <ClientClock date={ts} />}
           </div>
         </motion.div>
 

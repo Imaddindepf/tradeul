@@ -49,12 +49,25 @@ async def _safe_send(websocket: WebSocket, payload: dict) -> bool:
         return False
 
 
-async def _heartbeat(websocket: WebSocket, interval: float = _HEARTBEAT_INTERVAL_S) -> None:
-    """Keepalive frames so long silent nodes don't trip proxy idle timeouts."""
+async def _heartbeat(
+    websocket: WebSocket,
+    interval: float = _HEARTBEAT_INTERVAL_S,
+    client_id: str | None = None,
+) -> None:
+    """Keepalive frames so long silent nodes don't trip proxy idle timeouts.
+
+    When client_id is set, deliver to the client's newest socket (reconnect-safe).
+    """
     try:
         while True:
             await asyncio.sleep(interval)
-            if not await _safe_send(websocket, {"type": "keepalive", "timestamp": time.time()}):
+            payload = {"type": "keepalive", "timestamp": time.time()}
+            ok = (
+                await _deliver(websocket, client_id, payload)
+                if client_id
+                else await _safe_send(websocket, payload)
+            )
+            if not ok:
                 return
     except asyncio.CancelledError:
         return
@@ -121,18 +134,22 @@ _FOLLOWUP_STAGES = [
 ]
 
 
-async def _progress_pump(websocket: WebSocket, stages: list[str], interval: float = 9.0) -> None:
-    """Emite mensajes de progreso escalonados sobre el step en curso."""
+async def _progress_pump(
+    websocket: WebSocket, client_id: str, stages: list[str], interval: float = 9.0,
+) -> None:
+    """Emite progreso escalonado; usa _deliver para seguir al socket reconectado."""
     i = 0
     try:
         while True:
             msg = stages[min(i, len(stages) - 1)]
-            if not await _safe_send(websocket, {
+            if not await _deliver(websocket, client_id, {
                 "type": "agent_progress",
                 "node": "context_brief",
                 "message": msg,
                 "timestamp": time.time(),
             }):
+                # Socket muerto Y sin reconexión — no abortamos el brief
+                # (sigue en background); solo paramos de spamear progreso.
                 return
             i += 1
             await asyncio.sleep(interval)
@@ -140,6 +157,23 @@ async def _progress_pump(websocket: WebSocket, stages: list[str], interval: floa
         return
     except Exception:  # noqa: BLE001
         return
+
+
+async def _deliver_with_retry(
+    websocket: WebSocket, client_id: str, payload: dict,
+    attempts: int = 8, delay_s: float = 2.0,
+) -> bool:
+    """Entrega con reintentos: el cliente suele reconectar en 1–5s tras un drop."""
+    for i in range(attempts):
+        if await _deliver(websocket, client_id, payload):
+            if i > 0:
+                logger.info(
+                    "Delivered %s to client %s on retry %d",
+                    payload.get("type"), client_id, i,
+                )
+            return True
+        await asyncio.sleep(delay_s)
+    return False
 
 
 async def _handle_context_brief(
@@ -187,14 +221,17 @@ async def _handle_context_brief(
     is_followup = len(history) > 0
 
     # Abre un "step" visible para que el usuario vea el progreso en vivo.
-    await _safe_send(websocket, {
+    await _deliver(websocket, client_id, {
         "type": "node_started",
         "node": "context_brief",
         "timestamp": time.time(),
     })
 
     stages = _FOLLOWUP_STAGES if is_followup else _BRIEF_STAGES
-    pump = asyncio.create_task(_progress_pump(websocket, stages))
+    # Keepalive + progress: Opus puede tardar 30–180s; sin frames el proxy
+    # corta el socket y el frontend dispara "La solicitud tardó demasiado".
+    heartbeat_task = asyncio.create_task(_heartbeat(websocket, client_id=client_id))
+    pump = asyncio.create_task(_progress_pump(websocket, client_id, stages))
 
     start_time = time.time()
     try:
@@ -205,20 +242,22 @@ async def _handle_context_brief(
     except Exception as exc:  # noqa: BLE001
         logger.error("context_brief failed client=%s: %s", client_id, exc)
         pump.cancel()
-        await asyncio.gather(pump, return_exceptions=True)
-        await _safe_send(websocket, {
+        heartbeat_task.cancel()
+        await asyncio.gather(pump, heartbeat_task, return_exceptions=True)
+        await _deliver(websocket, client_id, {
             "type": "node_error",
             "node": "context_brief",
             "error": str(exc),
         })
-        await _safe_send(websocket, {
+        await _deliver(websocket, client_id, {
             "type": "error",
             "message": f"El brief de contexto falló: {exc}",
         })
         return
 
     pump.cancel()
-    await asyncio.gather(pump, return_exceptions=True)
+    heartbeat_task.cancel()
+    await asyncio.gather(pump, heartbeat_task, return_exceptions=True)
 
     brief_md = result.get("brief_markdown") or "(sin contenido)"
     total_ms = int((time.time() - start_time) * 1000)
@@ -240,7 +279,7 @@ async def _handle_context_brief(
     if not _ws_alive(websocket):
         logger.info(
             "context_brief: client %s socket died mid-run (thread=%s); "
-            "brief persisted (%d chars), trying reconnected socket",
+            "brief persisted (%d chars), retrying delivery to reconnected socket",
             client_id, thread_id, len(brief_md),
         )
 
@@ -259,14 +298,14 @@ async def _handle_context_brief(
     summary_parts.append(f"{len(sources)} fuente(s) web")
     completion_preview = " · ".join(summary_parts)
 
-    await _deliver(websocket, client_id, {
+    await _deliver_with_retry(websocket, client_id, {
         "type": "node_completed",
         "node": "context_brief",
         "elapsed_ms": total_ms,
         "preview": completion_preview,
     })
 
-    delivered = await _deliver(websocket, client_id, {
+    delivered = await _deliver_with_retry(websocket, client_id, {
         "type": "final_response",
         "response": brief_md,
         "thread_id": thread_id,
@@ -280,7 +319,7 @@ async def _handle_context_brief(
     })
     if not delivered:
         logger.info(
-            "context_brief: no live socket for client %s (thread=%s); "
+            "context_brief: no live socket for client %s (thread=%s) after retries; "
             "brief remains in thread memory", client_id, thread_id,
         )
 
