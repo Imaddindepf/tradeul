@@ -12,12 +12,15 @@ import logging
 import re
 import time
 import traceback
+import uuid
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from handlers.node_summary import summarize_node_output
+from runs.artifacts import blocks_to_artifacts, build_artifacts
+from runs.store import get_run_store
 
 logger = logging.getLogger(__name__)
 
@@ -381,10 +384,19 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             # ── Detect language from query ──
             language = _detect_language(query)
 
+            # ── Run persistido: cada query es un run con artifacts completos
+            # (inspector de nodo). run_id viaja en ack y en cada node_completed.
+            run_id = uuid.uuid4().hex[:16]
+            run_store = get_run_store()
+            asyncio.create_task(run_store.create_run(
+                run_id, thread_id=thread_id, query=query,
+            ))
+
             # Acknowledge receipt
             if not await _safe_send(websocket, {
                 "type": "ack",
                 "thread_id": thread_id,
+                "run_id": run_id,
             }):
                 continue
 
@@ -477,21 +489,70 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                         # Nodos dinámicos que el agente monta en el canvas
                         # (agents/_canvas.py) — forward completo al frontend.
                         if node_name == "canvas_step" and isinstance(evt_data, dict):
-                            if not await _deliver(websocket, client_id, {
+                            parent = str(evt_data.get("node") or "")
+                            step_id = str(evt_data.get("step_id") or "")
+                            status = str(evt_data.get("status") or "running")
+                            art_key = f"{parent}::{step_id}" if parent and step_id else ""
+                            art_ref = None
+                            # Al completar/errar: persistir blocks como artifacts
+                            # inspeccionables (mismo shape que los nodos del grafo).
+                            if art_key and status in ("complete", "error"):
+                                step_arts = blocks_to_artifacts(
+                                    evt_data.get("blocks") or [],
+                                    title=str(evt_data.get("title") or ""),
+                                    subtitle=str(evt_data.get("subtitle") or ""),
+                                )
+                                if step_arts:
+                                    asyncio.create_task(
+                                        run_store.save_artifacts(run_id, art_key, step_arts)
+                                    )
+                                    art_ref = {
+                                        "run_id": run_id,
+                                        "kinds": [a.get("kind", "json") for a in step_arts],
+                                        "count": len(step_arts),
+                                    }
+                            step_payload: dict[str, Any] = {
                                 "type": "canvas_step",
                                 **evt_data,
+                                "run_id": run_id,
                                 "timestamp": time.time(),
-                            }):
+                            }
+                            if art_ref:
+                                step_payload["artifacts"] = art_ref
+                            if not await _deliver(websocket, client_id, step_payload):
                                 client_gone = True
+                            # Protocolo unificado (además del legacy canvas_step)
+                            await _deliver(websocket, client_id, {
+                                "type": "node_update",
+                                "phase": status,
+                                "node": parent,
+                                "step_id": step_id,
+                                "title": evt_data.get("title"),
+                                "subtitle": evt_data.get("subtitle"),
+                                "blocks": evt_data.get("blocks") or [],
+                                "duration_ms": evt_data.get("duration_ms"),
+                                "run_id": run_id,
+                                "artifacts": art_ref,
+                                "timestamp": time.time(),
+                            })
                             continue
                         if isinstance(evt_data, dict) and "message" in evt_data:
+                            progress_node = event.get("name", "")
                             if not await _deliver(websocket, client_id, {
                                 "type": "agent_progress",
-                                "node": event.get("name", ""),
+                                "node": progress_node,
                                 "message": evt_data["message"],
                                 "timestamp": time.time(),
                             }):
                                 client_gone = True
+                            await _deliver(websocket, client_id, {
+                                "type": "node_update",
+                                "phase": "progress",
+                                "node": progress_node,
+                                "preview": evt_data["message"],
+                                "run_id": run_id,
+                                "timestamp": time.time(),
+                            })
                         continue
 
                     # Only process events for our actual graph nodes
@@ -506,6 +567,13 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                             "timestamp": time.time(),
                         }):
                             client_gone = True
+                        await _deliver(websocket, client_id, {
+                            "type": "node_update",
+                            "phase": "started",
+                            "node": node_name,
+                            "run_id": run_id,
+                            "timestamp": time.time(),
+                        })
 
                     elif kind == "on_chain_end":
                         node_start = node_start_times.pop(node_name, start_time)
@@ -518,16 +586,47 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                             logger.warning("node summary failed for %s: %s", node_name, sum_exc)
                             preview, card_data = "", None
 
+                        # Artifacts completos → Postgres (el WS solo lleva la
+                        # referencia; el inspector los pide por REST).
+                        artifacts = build_artifacts(node_name, node_output)
+                        if artifacts:
+                            asyncio.create_task(
+                                run_store.save_artifacts(run_id, node_name, artifacts)
+                            )
+
+                        art_ref = None
+                        if artifacts:
+                            art_ref = {
+                                "run_id": run_id,
+                                "kinds": [a.get("kind", "json") for a in artifacts],
+                                "count": len(artifacts),
+                            }
+
                         payload: dict[str, Any] = {
                             "type": "node_completed",
                             "node": node_name,
                             "elapsed_ms": node_elapsed_ms,
                             "preview": preview[:300],
+                            "run_id": run_id,
                         }
                         if card_data:
                             payload["data"] = card_data
+                        if art_ref:
+                            payload["artifacts"] = art_ref
                         if not await _deliver(websocket, client_id, payload):
                             client_gone = True
+                        # Protocolo unificado (además del legacy node_completed)
+                        await _deliver(websocket, client_id, {
+                            "type": "node_update",
+                            "phase": "complete",
+                            "node": node_name,
+                            "elapsed_ms": node_elapsed_ms,
+                            "preview": preview[:300],
+                            "data": card_data,
+                            "run_id": run_id,
+                            "artifacts": art_ref,
+                            "timestamp": time.time(),
+                        })
             finally:
                 heartbeat_task.cancel()
                 try:
@@ -556,6 +655,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
 
                 # If the planner requested clarification, send it instead
                 if clarification_data and isinstance(clarification_data, dict):
+                    asyncio.create_task(run_store.finish_run(run_id, "clarification"))
                     await _deliver(websocket, client_id, {
                         "type": "clarification",
                         "message": clarification_data.get("message", ""),
@@ -661,6 +761,8 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 # UI showed a timeout even though the run succeeded.
                 await _deliver_with_retry(websocket, client_id, response_payload)
 
+                asyncio.create_task(run_store.finish_run(run_id, "complete"))
+
                 # ── Persist conversation to memory ──
                 try:
                     memory = websocket.app.state.memory
@@ -703,6 +805,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                     "Graph execution error for client %s: %s\n%s",
                     client_id, exc, traceback.format_exc(),
                 )
+                asyncio.create_task(run_store.finish_run(run_id, "error"))
                 await _safe_send(websocket, {
                     "type": "error",
                     "message": f"Graph execution failed: {exc}",

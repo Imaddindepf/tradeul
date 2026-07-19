@@ -117,10 +117,24 @@ function cardToBlocks(name: string, step: AgentStep | undefined, status: Workflo
   return blocks;
 }
 
+interface ExecutionGraphProps {
+  steps: AgentStep[];
+  height?: number | string;
+  /** Abre el inspector con los artifacts completos de un nodo. */
+  onInspect?: (target: { runId: string; node: string; title: string; subtitle?: string }) => void;
+}
+
 /** Substep dinámico (canvas_step del backend) → nodo del workflow. */
-function substepToSpec(agentName: string, sub: CanvasSubstep, stepNumber: number): WorkflowNodeSpec {
+function substepToSpec(
+  agentName: string,
+  sub: CanvasSubstep,
+  stepNumber: number,
+  onInspect?: ExecutionGraphProps['onInspect'],
+): WorkflowNodeSpec {
+  const nodeKey = `${agentName}::${sub.id}`;
+  const art = sub.artifacts;
   return {
-    id: `${agentName}::${sub.id}`,
+    id: nodeKey,
     title: sub.title,
     subtitle: sub.subtitle,
     status: sub.status === 'running' ? 'running' : sub.status === 'error' ? 'error' : 'complete',
@@ -128,17 +142,21 @@ function substepToSpec(agentName: string, sub: CanvasSubstep, stepNumber: number
     duration: sub.durationMs ? sub.durationMs / 1000 : undefined,
     // Los bloques ya llegan con el shape NodeBlock desde agents/_canvas.py
     blocks: (sub.blocks as NodeBlock[]) || [],
+    onOpen: (art && onInspect)
+      ? () => onInspect({
+          runId: art.runId,
+          node: nodeKey,
+          title: sub.title,
+          subtitle: sub.subtitle,
+        })
+      : undefined,
   };
-}
-
-interface ExecutionGraphProps {
-  steps: AgentStep[];
-  height?: number | string;
 }
 
 export const ExecutionGraph = memo(function ExecutionGraph({
   steps,
   height = 300,
+  onInspect,
 }: ExecutionGraphProps) {
   const { layers, edges } = useMemo(() => {
     const byName = new Map<string, AgentStep>();
@@ -152,14 +170,20 @@ export const ExecutionGraph = memo(function ExecutionGraph({
     const mkSpec = (name: string, step?: AgentStep): WorkflowNodeSpec => {
       stepCounter += 1;
       const status = toStatus(step);
+      const title = NODE_TITLES[name] || step?.title || name;
+      const art = step?.artifacts;
       return {
         id: name,
-        title: NODE_TITLES[name] || step?.title || name,
+        title,
         subtitle: NODE_SUBTITLES[name],
         status,
         stepNumber: stepCounter,
         duration: step?.duration,
         blocks: cardToBlocks(name, step, status),
+        // Nodo inspeccionable: sus outputs completos están persistidos
+        onOpen: (art && onInspect)
+          ? () => onInspect({ runId: art.runId, node: name, title, subtitle: NODE_SUBTITLES[name] })
+          : undefined,
       };
     };
 
@@ -192,7 +216,7 @@ export const ExecutionGraph = memo(function ExecutionGraph({
       const subs = step?.substeps || [];
       if (!subs.length) continue;
       const agentSpec = agentSpecs.find(s => s.id === name)!;
-      const subSpecs = subs.map((sub, i) => substepToSpec(name, sub, i + 1));
+      const subSpecs = subs.map((sub, i) => substepToSpec(name, sub, i + 1, onInspect));
       layers.push(subSpecs);
       let prev: WorkflowNodeSpec = agentSpec;
       for (const ss of subSpecs) {
@@ -215,7 +239,7 @@ export const ExecutionGraph = memo(function ExecutionGraph({
     }
 
     return { layers, edges };
-  }, [steps]);
+  }, [steps, onInspect]);
 
   if (!steps.length) return null;
 

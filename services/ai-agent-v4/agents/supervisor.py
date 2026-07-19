@@ -269,7 +269,7 @@ Field vocabulary (use EXACTLY these names):
 - Day performance: change_pct (% today), gap_percent, change_from_open, todays_range_pct, pos_in_range
 - Relative volume: rvol (day RVOL), vol_1min, vol_5min, vol_10min, vol_30min, vol_60min, minute_volume, trades_today, trades_z_score
 - Momentum windows (%): chg_1min, chg_2min, chg_5min, chg_10min, chg_15min, chg_30min, chg_60min, chg_120min
-- Sessions: premarket_change_percent, premarket_volume, premarket_rvol, postmarket_change_percent
+- Sessions: premarket_change_percent, premarket_volume, premarket_rvol, premarket_high, premarket_low, postmarket_change_percent, postmarket_volume, postmarket_high, postmarket_low
 - Intraday technicals: rsi_14, macd_line, macd_hist, adx_14, stoch_k, stoch_d, vwap, dist_from_vwap, atr_percent, bb_position_5m, ema_9, ema_20, sma_20, sma_200
 - Daily technicals: daily_rsi, daily_adx_14, daily_atr_percent, daily_gap_percent, daily_bb_position, dist_daily_sma_20, dist_daily_sma_50, dist_daily_sma_200
 - Multi-day performance: change_1d, change_3d, change_5d, change_10d, change_20d, change_ytd, change_1y, consecutive_days_up

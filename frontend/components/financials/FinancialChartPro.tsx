@@ -21,6 +21,10 @@ export interface ChartSeriesField {
     values: (number | null)[];   // aligned to `periods` (newest-first, as in the table)
     dataType?: string;           // monetary | percent | perShare | shares | multiple | number | ratio
     balance?: 'debit' | 'credit' | null;
+    /** Optional display unit for non-monetary series, e.g. "Units", "MW". */
+    unitLabel?: string;
+    /** Statement section used to group the fields sidebar (GF-style). */
+    section?: string;
 }
 
 export interface FinancialChartProProps {
@@ -33,11 +37,12 @@ export interface FinancialChartProProps {
     dashboardId?: string;        // when set, this chart can receive "lock overlay" pushes
 }
 
-const MAX_SERIES = 4;
+const MAX_SERIES = 6;
 
 type TransformMode = 'absolute' | 'yoy' | 'common';
 type Representation = 'line' | 'bar' | 'area' | 'ironBars';
 type UnitsMode = 'auto' | 'K' | 'M' | 'B';
+type PanelLayout = 'single' | 'panels';
 interface RefLines { min: boolean; max: boolean; median: boolean; avg: boolean }
 
 interface PreparedSeries {
@@ -47,6 +52,7 @@ interface PreparedSeries {
     rep: Representation;
     axis: 'primary' | 'secondary';
     unit: UnitKind;
+    unitLabel?: string;
     values: (number | null)[];   // chronological (oldest-first), already transformed
 }
 
@@ -119,63 +125,110 @@ export { T as CHART_THEME };
 // Helpers
 // ============================================================================
 
-function unitFromDataType(dt?: string): UnitKind {
-    switch ((dt || 'monetary').toLowerCase()) {
+function unitFromDataType(dt?: string, label?: string): UnitKind {
+    const raw = (dt || '').toLowerCase();
+    switch (raw) {
         case 'percent': return 'percent';
         case 'pershare': return 'perShare';
         case 'shares': return 'shares';
         case 'multiple': return 'multiple';
-        case 'number': return 'number';
+        case 'number':
+        case 'units':
+        case 'count':
+            return 'number';
         case 'ratio': return 'multiple';
-        default: return 'monetary';
+        case 'monetary':
+        case 'currency':
+            return 'monetary';
+        default:
+            break;
     }
+    // Heuristic fallback when dataType is missing/wrong (legacy segment payloads).
+    const l = (label || '').toLowerCase();
+    if (/\(units?\)/.test(l) || /\b(mw|mwh|gw|gpus?|servers?)\b/.test(l)) return 'number';
+    if (raw) return 'monetary';
+    return 'monetary';
 }
 
 function isFlowUnit(u: UnitKind): boolean {
     return u === 'monetary' || u === 'perShare' || u === 'shares' || u === 'number';
 }
 
+function compactMagnitude(abs: number, units: UnitsMode = 'auto'): string {
+    const forced = units !== 'auto';
+    const div = units === 'B' ? 1e9 : units === 'M' ? 1e6 : units === 'K' ? 1e3 : 1;
+    if (forced) {
+        return `${(abs / div).toFixed(div >= 1e9 ? 2 : 1)}${units}`;
+    }
+    if (abs >= 1e12) return `${(abs / 1e12).toFixed(2)}T`;
+    if (abs >= 1e9) return `${(abs / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `${(abs / 1e6).toFixed(1)}M`;
+    if (abs >= 1e3) return `${(abs / 1e3).toFixed(1)}K`;
+    if (Number.isInteger(abs) || abs >= 100) return abs.toFixed(0);
+    return abs.toFixed(2);
+}
+
 export function fmtCompact(v: number | null | undefined, unit: UnitKind, currency = 'USD', units: UnitsMode = 'auto'): string {
     if (v === null || v === undefined || Number.isNaN(v)) return '—';
     if (unit === 'percent') return `${v.toFixed(1)}%`;
     if (unit === 'multiple') return `${v.toFixed(2)}x`;
-    if (unit === 'number') return v.toFixed(2);
     const abs = Math.abs(v);
     const sign = v < 0 ? '-' : '';
-    const sym = unit === 'monetary' ? curSymbol(currency) : '';
-    if (unit === 'perShare' || unit === 'shares') {
-        if (unit === 'perShare') return `${sign}${sym}${abs.toFixed(2)}`;
+    if (unit === 'number') {
+        // Physical counts / capacity — never attach a currency symbol.
+        if (units === 'auto' && abs < 10000) {
+            const body = Number.isInteger(abs) ? abs.toLocaleString('en-US') : abs.toLocaleString('en-US', { maximumFractionDigits: 2 });
+            return `${sign}${body}`;
+        }
+        return `${sign}${compactMagnitude(abs, units)}`;
     }
-    let out: string;
-    const forced = units !== 'auto';
-    const div = units === 'B' ? 1e9 : units === 'M' ? 1e6 : units === 'K' ? 1e3 : 1;
-    if (forced) {
-        const suffix = units;
-        out = `${(abs / div).toFixed(div >= 1e9 ? 2 : 1)}${suffix}`;
-    } else if (abs >= 1e12) out = `${(abs / 1e12).toFixed(2)}T`;
-    else if (abs >= 1e9) out = `${(abs / 1e9).toFixed(2)}B`;
-    else if (abs >= 1e6) out = `${(abs / 1e6).toFixed(1)}M`;
-    else if (abs >= 1e3) out = `${(abs / 1e3).toFixed(1)}K`;
-    else out = abs.toFixed(0);
-    return `${sign}${sym}${out}`;
+    const sym = unit === 'monetary' || unit === 'perShare' ? curSymbol(currency) : '';
+    if (unit === 'perShare') return `${sign}${sym}${abs.toFixed(2)}`;
+    if (unit === 'shares') return `${sign}${compactMagnitude(abs, units)}`;
+    return `${sign}${sym}${compactMagnitude(abs, units)}`;
 }
 
 function fmtFull(v: number | null | undefined, unit: UnitKind, currency = 'USD', units: UnitsMode = 'auto'): string {
     if (v === null || v === undefined || Number.isNaN(v)) return '—';
-    if (unit === 'percent') return `${v >= 0 ? '' : ''}${v.toFixed(2)}%`;
+    if (unit === 'percent') return `${v.toFixed(2)}%`;
     if (unit === 'multiple') return `${v.toFixed(2)}x`;
-    if (unit === 'number') return v.toFixed(2);
     return fmtCompact(v, unit, currency, units);
 }
 
+/** Currency prefix for the company's reported currency (USD→$, EUR→€, CHF→CHF …). */
 export function curSymbol(currency: string): string {
     switch ((currency || 'USD').toUpperCase()) {
         case 'USD': return '$';
         case 'EUR': return '€';
         case 'GBP': return '£';
-        case 'JPY': return '¥';
-        default: return '';
+        case 'JPY':
+        case 'CNY':
+        case 'CNH': return '¥';
+        case 'CHF': return 'CHF\u00a0';
+        case 'CAD': return 'C$';
+        case 'AUD': return 'A$';
+        case 'HKD': return 'HK$';
+        case 'SGD': return 'S$';
+        case 'KRW': return '₩';
+        case 'INR': return '₹';
+        case 'SEK':
+        case 'NOK':
+        case 'DKK': return `${(currency || '').toUpperCase()}\u00a0`;
+        default: {
+            const c = (currency || '').toUpperCase();
+            return c ? `${c}\u00a0` : '';
+        }
     }
+}
+
+/** Short axis/meta label for the active unit kind. */
+export function unitAxisLabel(unit: UnitKind, currency = 'USD', unitLabel?: string): string {
+    if (unit === 'percent') return '%';
+    if (unit === 'multiple') return 'x';
+    if (unit === 'number') return unitLabel || 'Units';
+    if (unit === 'shares') return 'Shares';
+    if (unit === 'perShare') return `Per share (${(currency || 'USD').toUpperCase()})`;
+    return (currency || 'USD').toUpperCase();
 }
 
 export function periodLabel(p: string): string {
@@ -250,8 +303,9 @@ export function FinancialChartPro({
     const [transform, setTransform] = useState<TransformMode>('absolute');
     const [logScale, setLogScale] = useState(false);
     const [repOverride, setRepOverride] = useState<Record<string, Representation>>({});
-    const [pickerOpen, setPickerOpen] = useState(false);
-    const [linesOpen, setLinesOpen] = useState(false);
+    const [fieldsOpen, setFieldsOpen] = useState(true);
+    const [layout, setLayout] = useState<PanelLayout>('single');
+    const [moreOpen, setMoreOpen] = useState(false);
     const [hoverIdx, setHoverIdx] = useState<number | null>(null);
     const [showLabels, setShowLabels] = useState(true);
     const [units, setUnits] = useState<UnitsMode>('auto');
@@ -306,7 +360,10 @@ export function FinancialChartPro({
     const prepared = useMemo<PreparedSeries[]>(() => {
         return selectedKeys.map((key, i) => {
             const f = fieldByKey.get(key);
-            const rawUnit = unitFromDataType(f?.dataType);
+            const label = f?.label || key;
+            const rawUnit = unitFromDataType(f?.dataType, label);
+            const inferredUnitLabel = f?.unitLabel
+                || (rawUnit === 'number' ? (label.match(/\(([^)]+)\)\s*$/)?.[1]?.trim()) : undefined);
             const base = chronoValues(key);
 
             let values = base;
@@ -329,11 +386,10 @@ export function FinancialChartPro({
                 unit = 'percent';
             }
 
-            // Default: first series renders per its natural type (bars for flows),
-            // overlays as lines. User can override per series (Line/Bars/Area/Iron).
-            const defaultRep: Representation = i === 0
-                ? (isFlowUnit(unit) ? 'bar' : 'line')
-                : 'line';
+            // Every series renders per its natural type: bars for flows
+            // (grouped side-by-side like Bloomberg GF), lines for ratios/%.
+            // User can override per series from the sidebar or the toolbar.
+            const defaultRep: Representation = isFlowUnit(unit) ? 'bar' : 'line';
             const rep: Representation = repOverride[key] || defaultRep;
 
             // Iron bars are drawn on their own contextual scale (handled in
@@ -347,11 +403,12 @@ export function FinancialChartPro({
 
             return {
                 key,
-                label: f?.label || key,
+                label,
                 color: SERIES_COLORS[i % SERIES_COLORS.length],
                 rep,
                 axis,
                 unit,
+                unitLabel: inferredUnitLabel,
                 values,
             };
         });
@@ -426,17 +483,28 @@ export function FinancialChartPro({
         });
     }, [chronoPeriods.length]);
 
-    // ---- Metric picker -----------------------------------------------------
+    // ---- Metric selection (fields sidebar) ----------------------------------
     const toggleMetric = (key: string) => {
-        setSelectedKeys(prev =>
-            prev.includes(key)
-                ? prev.filter(k => k !== key)
-                : prev.length >= 4 ? prev : [...prev, key],
-        );
+        setSelectedKeys(prev => {
+            if (prev.includes(key)) {
+                // Never drop the last remaining series.
+                return prev.length > 1 ? prev.filter(k => k !== key) : prev;
+            }
+            return prev.length >= MAX_SERIES ? prev : [...prev, key];
+        });
     };
 
     const setRep = (key: string, rep: Representation) =>
         setRepOverride(prev => ({ ...prev, [key]: rep }));
+
+    // Toolbar buttons apply the representation to every selected series;
+    // fine-grained per-series control lives in the fields sidebar.
+    const setRepAll = (rep: Representation) =>
+        setRepOverride(prev => {
+            const next = { ...prev };
+            for (const k of selectedKeys) next[k] = rep;
+            return next;
+        });
 
     // ---- Export ------------------------------------------------------------
     const svgWrapRef = useRef<HTMLDivElement>(null);
@@ -484,6 +552,11 @@ export function FinancialChartPro({
     const growthColor = (g: number | null) =>
         g == null ? T.textDim : g >= 0 ? T.pos : T.neg;
 
+    const primaryUnitKind = primarySeries?.unit || 'monetary';
+    const scaleControlsVisible = primaryUnitKind === 'monetary' || primaryUnitKind === 'shares';
+    const axisUnit = unitAxisLabel(primaryUnitKind, currency, primarySeries?.unitLabel);
+    const hasRefLines = refLines.min || refLines.max || refLines.median || refLines.avg;
+
     return (
         <div
             ref={rootRef}
@@ -492,161 +565,234 @@ export function FinancialChartPro({
             className="h-full flex flex-col outline-none"
             style={{ background: T.bg, color: T.text }}
         >
-            {/* ---- Header / stats ---- */}
-            <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: `1px solid ${T.border}` }}>
-                <div className="flex items-center gap-3 min-w-0">
-                    <div className="min-w-0">
-                        <div className="text-sm font-bold truncate">{primarySeries?.label}</div>
-                        <div className="text-[10px] flex items-center gap-2" style={{ color: T.textDim }}>
-                            <span>{ticker}</span>
-                            <span style={{ color: T.textFaint }}>{currency}</span>
-                            <span style={{ color: T.textFaint }}>{isAnnual ? 'Annual' : 'Quarterly'}</span>
-                        </div>
-                    </div>
+            {/* Compact status strip — title lives in the window chrome */}
+            <div
+                className="flex items-center justify-between gap-3 px-3 h-8 shrink-0"
+                style={{ borderBottom: `1px solid ${T.border}` }}
+            >
+                <div className="flex items-center gap-2 min-w-0 text-[10px]" style={{ color: T.textDim }}>
+                    <span className="font-semibold tracking-wide" style={{ color: T.text }}>{ticker}</span>
+                    <span style={{ color: T.textFaint }}>·</span>
+                    <span>{isAnnual ? 'Annual' : 'Quarterly'}</span>
+                    <span style={{ color: T.textFaint }}>·</span>
+                    <span className="truncate" title={axisUnit}>{axisUnit}</span>
+                </div>
+                <div className="flex items-baseline gap-2 shrink-0">
                     {stats && (
-                        <div className="flex items-baseline gap-2 pl-3" style={{ borderLeft: `1px solid ${T.border}` }}>
-                            <span className="text-lg font-bold tabular-nums" style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+                        <>
+                            <span
+                                className="text-sm font-semibold tabular-nums"
+                                style={{ fontFamily: 'var(--font-mono, monospace)', color: T.text }}
+                            >
                                 {fmtFull(stats.latest, primarySeries.unit, currency, units)}
                             </span>
                             {stats.yoy != null && (
-                                <span className="text-xs font-semibold tabular-nums" style={{ color: growthColor(stats.yoy) }}>
+                                <span className="text-[10px] font-medium tabular-nums" style={{ color: growthColor(stats.yoy) }}>
                                     {stats.yoy >= 0 ? '+' : ''}{stats.yoy.toFixed(1)}% YoY
                                 </span>
                             )}
-                        </div>
+                        </>
                     )}
-                </div>
-                <div className="flex items-center gap-1">
-                    <button onClick={exportPNG} className="text-[10px] px-2 py-1 rounded font-medium hover:bg-white/10" style={{ color: T.textDim }}>PNG</button>
-                    <button onClick={exportCSV} className="text-[10px] px-2 py-1 rounded font-medium hover:bg-white/10" style={{ color: T.textDim }}>CSV</button>
+                    <div className="flex items-center ml-1" style={{ borderLeft: `1px solid ${T.border}` }}>
+                        <button onClick={exportPNG} className="text-[9px] px-1.5 py-0.5 font-medium hover:opacity-80" style={{ color: T.textFaint }}>PNG</button>
+                        <button onClick={exportCSV} className="text-[9px] px-1.5 py-0.5 font-medium hover:opacity-80" style={{ color: T.textFaint }}>CSV</button>
+                    </div>
                 </div>
             </div>
 
-            {/* ---- Toolbar ---- */}
-            <div className="flex items-center justify-between gap-2 px-3 py-1.5 flex-wrap" style={{ borderBottom: `1px solid ${T.border}`, background: T.panel }}>
-                <div className="flex items-center gap-1 flex-wrap">
-                    <SegBtn active={transform === 'absolute'} onClick={() => setTransform('absolute')}>Absolute</SegBtn>
-                    <SegBtn active={transform === 'yoy'} onClick={() => setTransform('yoy')}>YoY %</SegBtn>
-                    <SegBtn active={transform === 'common'} onClick={() => commonBaseKey && setTransform('common')} disabled={!commonBaseKey}>% Rev</SegBtn>
-                    <SegBtn active={logScale} onClick={() => setLogScale(v => !v)}>Log</SegBtn>
-                    <div className="mx-1 h-4 w-px" style={{ background: T.border }} />
-                    <SegBtn active={effectiveStack === 'stack'} disabled={!stackEligible}
-                        onClick={() => setStackMode(m => (m === 'stack' ? 'off' : 'stack'))}>Stacked</SegBtn>
-                    <SegBtn active={effectiveStack === 'pct'} disabled={!stackEligible}
-                        onClick={() => setStackMode(m => (m === 'pct' ? 'off' : 'pct'))}>100%</SegBtn>
-                    <div className="mx-1 h-4 w-px" style={{ background: T.border }} />
-                    <SegBtn active={showLabels} onClick={() => setShowLabels(v => !v)}>Labels</SegBtn>
+            {/* Single toolbar row */}
+            <div
+                className="flex items-center justify-between gap-2 px-2 h-8 shrink-0"
+                style={{ borderBottom: `1px solid ${T.border}`, background: T.panel }}
+            >
+                <div className="flex items-center gap-0.5 min-w-0">
+                    <SegGroup>
+                        <SegBtn active={transform === 'absolute'} onClick={() => setTransform('absolute')}>Abs</SegBtn>
+                        <SegBtn active={transform === 'yoy'} onClick={() => setTransform('yoy')}>YoY</SegBtn>
+                        <SegBtn active={transform === 'common'} onClick={() => commonBaseKey && setTransform('common')} disabled={!commonBaseKey}>%Rev</SegBtn>
+                    </SegGroup>
+                    <Divider />
+                    {primarySeries && (
+                        <SegGroup>
+                            {(['bar', 'line', 'area'] as Representation[]).map(rp => (
+                                <SegBtn
+                                    key={rp}
+                                    active={prepared.length > 0 && prepared.every(s => s.rep === rp)}
+                                    onClick={() => setRepAll(rp)}
+                                >
+                                    {rp === 'bar' ? 'Bars' : rp === 'area' ? 'Area' : 'Line'}
+                                </SegBtn>
+                            ))}
+                        </SegGroup>
+                    )}
+                    <Divider />
                     <div className="relative">
-                        <button onClick={() => setLinesOpen(o => !o)} className="text-[10px] px-2 py-1 rounded font-medium"
-                            style={{ color: (refLines.min || refLines.max || refLines.median || refLines.avg) ? T.accent : T.textDim }}>
-                            Lines
-                        </button>
-                        {linesOpen && (
-                            <div className="absolute top-7 left-0 z-30 w-40 rounded shadow-2xl py-1" style={{ background: T.panelAlt, border: `1px solid ${T.border}` }} onMouseLeave={() => setLinesOpen(false)}>
+                        <SegBtn active={moreOpen || logScale || hasRefLines || effectiveStack !== 'off'} onClick={() => setMoreOpen(o => !o)}>
+                            More
+                        </SegBtn>
+                        {moreOpen && (
+                            <div
+                                className="absolute top-7 left-0 z-30 w-52 py-1 shadow-2xl"
+                                style={{ background: T.panelAlt, border: `1px solid ${T.border}` }}
+                                onMouseLeave={() => setMoreOpen(false)}
+                            >
+                                <MoreRow label="Labels" on={showLabels} onClick={() => setShowLabels(v => !v)} />
+                                <MoreRow label="Log scale" on={logScale} onClick={() => setLogScale(v => !v)} />
+                                <MoreRow label="Stacked" on={effectiveStack === 'stack'} disabled={!stackEligible}
+                                    onClick={() => setStackMode(m => (m === 'stack' ? 'off' : 'stack'))} />
+                                <MoreRow label="100% stack" on={effectiveStack === 'pct'} disabled={!stackEligible}
+                                    onClick={() => setStackMode(m => (m === 'pct' ? 'off' : 'pct'))} />
+                                <div className="my-1 h-px" style={{ background: T.border }} />
+                                <div className="px-2 py-1 text-[9px] uppercase tracking-wider" style={{ color: T.textFaint }}>Reference</div>
                                 {([['min', 'Min'], ['max', 'Max'], ['median', 'Median'], ['avg', 'Average']] as [keyof RefLines, string][]).map(([k, lbl]) => (
-                                    <button key={k} onClick={() => setRefLines(r => ({ ...r, [k]: !r[k] }))}
-                                        className="w-full flex items-center gap-2 px-2 py-1 text-[11px] text-left hover:bg-white/5"
-                                        style={{ color: refLines[k] ? T.accent : T.text }}>
-                                        <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ background: refLines[k] ? T.accent : 'transparent', border: `1px solid ${T.border}` }} />{lbl}
-                                    </button>
+                                    <MoreRow key={k} label={lbl} on={refLines[k]} onClick={() => setRefLines(r => ({ ...r, [k]: !r[k] }))} />
                                 ))}
+                                {scaleControlsVisible && (
+                                    <>
+                                        <div className="my-1 h-px" style={{ background: T.border }} />
+                                        <div className="px-2 py-1 text-[9px] uppercase tracking-wider" style={{ color: T.textFaint }}>Scale</div>
+                                        <div className="flex gap-0.5 px-2 py-1">
+                                            {(['auto', 'K', 'M', 'B'] as UnitsMode[]).map(u => (
+                                                <SegBtn key={u} active={units === u} onClick={() => setUnits(u)}>{u === 'auto' ? 'Auto' : u}</SegBtn>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+                                {primarySeries && (
+                                    <>
+                                        <div className="my-1 h-px" style={{ background: T.border }} />
+                                        <MoreRow
+                                            label="Iron bars"
+                                            on={primarySeries.rep === 'ironBars'}
+                                            onClick={() => setRep(primarySeries.key, primarySeries.rep === 'ironBars' ? 'bar' : 'ironBars')}
+                                        />
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
-                    <div className="mx-1 h-4 w-px" style={{ background: T.border }} />
-                    {(['auto', 'K', 'M', 'B'] as UnitsMode[]).map(u => (
-                        <SegBtn key={u} active={units === u} onClick={() => setUnits(u)}>{u === 'auto' ? 'Auto' : u}</SegBtn>
-                    ))}
                 </div>
-                <div className="flex items-center gap-1 relative">
-                    <button
-                        onClick={() => setPickerOpen(o => !o)}
-                        className="text-[10px] px-2 py-1 rounded font-medium"
-                        style={{ background: T.panelAlt, color: T.accent, border: `1px solid ${T.border}` }}
-                    >
-                        Compare
-                    </button>
-                    {pickerOpen && (
-                        <MetricPicker
-                            fields={allFields}
-                            selected={selectedKeys}
-                            onToggle={toggleMetric}
-                            onClose={() => setPickerOpen(false)}
-                        />
+
+                <div className="flex items-center gap-0.5 relative shrink-0">
+                    {prepared.length > 1 && (
+                        <>
+                            <SegGroup>
+                                <SegBtn active={layout === 'single'} onClick={() => setLayout('single')}>Single</SegBtn>
+                                <SegBtn active={layout === 'panels'} onClick={() => setLayout('panels')}>Panels</SegBtn>
+                            </SegGroup>
+                            <Divider />
+                        </>
                     )}
-                    <div className="mx-1 h-4 w-px" style={{ background: T.border }} />
                     {(isAnnual ? [3, 5, 10] : [2, 3, 5]).map(y => (
                         <PresetBtn key={y} onClick={() => applyPreset(y)}>{y}Y</PresetBtn>
                     ))}
                     <PresetBtn onClick={() => applyPreset('max')}>Max</PresetBtn>
+                    <Divider />
+                    <button
+                        onClick={() => setFieldsOpen(o => !o)}
+                        className="text-[10px] px-2 py-0.5 font-medium"
+                        style={{ color: fieldsOpen ? T.accent : T.textDim }}
+                    >
+                        Fields
+                    </button>
                 </div>
             </div>
 
-            {/* ---- Series panel (TIKR-style: per-series type + value) ---- */}
-            <div className="flex items-center gap-4 px-3 py-1.5 flex-wrap" style={{ borderBottom: `1px solid ${T.border}` }}>
-                {prepared.map((s, i) => (
-                    <div key={s.key} className="flex items-center gap-2 text-[10px]">
-                        <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: s.color }} />
-                        <span style={{ color: T.text }}>{s.label}</span>
-                        {s.axis === 'secondary' && s.rep !== 'ironBars' && <span style={{ color: T.textFaint }}>(right axis)</span>}
-                        {stats && i === 0 && (
-                            <span className="tabular-nums" style={{ color: T.textDim }}>{fmtFull(s.values[range.end], s.unit, currency, units)}</span>
-                        )}
-                        <span className="inline-flex rounded overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
-                            {(['line', 'bar', 'area', 'ironBars'] as Representation[]).map(rp => (
-                                <button key={rp} onClick={() => setRep(s.key, rp)}
-                                    className="px-1.5 py-0.5 text-[9px] font-medium"
-                                    style={{ background: s.rep === rp ? T.accent : 'transparent', color: s.rep === rp ? '#03101f' : T.textDim }}>
-                                    {rp === 'ironBars' ? 'Iron' : rp === 'bar' ? 'Bars' : rp === 'area' ? 'Area' : 'Line'}
-                                </button>
-                            ))}
-                        </span>
-                        {i > 0 && (
-                            <button onClick={() => toggleMetric(s.key)} className="text-[9px] uppercase tracking-wide hover:underline" style={{ color: T.textFaint }}>
-                                Remove
-                            </button>
+            {/* Body: fields sidebar (GF-style) + chart area */}
+            <div className="flex-1 min-h-0 flex">
+                {fieldsOpen && (
+                    <FieldsSidebar
+                        fields={allFields}
+                        selected={selectedKeys}
+                        prepared={prepared}
+                        onToggle={toggleMetric}
+                        onSetRep={setRep}
+                    />
+                )}
+
+                <div className="flex-1 min-w-0 flex flex-col">
+                    <div ref={svgWrapRef} className="flex-1 min-h-0 flex flex-col">
+                        {layout === 'panels' && prepared.length > 1 ? (
+                            prepared.map((s, i) => (
+                                <div
+                                    key={s.key}
+                                    className="flex-1 min-h-0 relative"
+                                    style={{ borderBottom: i < prepared.length - 1 ? `1px solid ${T.border}` : undefined }}
+                                >
+                                    <div
+                                        className="absolute top-1 left-2 z-10 flex items-center gap-1.5 text-[9px] pointer-events-none"
+                                        style={{ color: T.textDim }}
+                                    >
+                                        <span className="inline-block w-2 h-2" style={{ background: s.color }} />
+                                        <span>{s.label}</span>
+                                        <span className="tabular-nums" style={{ color: T.textFaint }}>
+                                            {fmtCompact(s.values[range.end], s.unit, currency, units)}
+                                        </span>
+                                    </div>
+                                    <ParentSize>
+                                        {({ width, height }) =>
+                                            width > 0 && height > 0 ? (
+                                                <InnerChart
+                                                    width={width}
+                                                    height={height}
+                                                    chronoPeriods={chronoPeriods}
+                                                    estimateFlags={estimateFlags}
+                                                    prepared={[{ ...s, axis: 'primary' }]}
+                                                    range={range}
+                                                    logScale={logScale}
+                                                    stackMode="off"
+                                                    currency={currency}
+                                                    units={units}
+                                                    showLabels={false}
+                                                    refLines={i === 0 ? refLines : { min: false, max: false, median: false, avg: false }}
+                                                    refStats={i === 0 && stats ? { min: stats.min, max: stats.max, median: stats.median, avg: stats.avg } : null}
+                                                    hoverIdx={hoverIdx}
+                                                    setHoverIdx={setHoverIdx}
+                                                    compact
+                                                />
+                                            ) : null
+                                        }
+                                    </ParentSize>
+                                </div>
+                            ))
+                        ) : (
+                            <ParentSize>
+                                {({ width, height }) =>
+                                    width > 0 && height > 0 ? (
+                                        <InnerChart
+                                            width={width}
+                                            height={height}
+                                            chronoPeriods={chronoPeriods}
+                                            estimateFlags={estimateFlags}
+                                            prepared={prepared}
+                                            range={range}
+                                            logScale={logScale}
+                                            stackMode={effectiveStack}
+                                            currency={currency}
+                                            units={units}
+                                            showLabels={showLabels}
+                                            refLines={refLines}
+                                            refStats={stats ? { min: stats.min, max: stats.max, median: stats.median, avg: stats.avg } : null}
+                                            hoverIdx={hoverIdx}
+                                            setHoverIdx={setHoverIdx}
+                                        />
+                                    ) : null
+                                }
+                            </ParentSize>
                         )}
                     </div>
-                ))}
-            </div>
 
-            {/* ---- Chart ---- */}
-            <div ref={svgWrapRef} className="flex-1 min-h-0">
-                <ParentSize>
-                    {({ width, height }) =>
-                        width > 0 && height > 0 ? (
-                            <InnerChart
-                                width={width}
-                                height={height}
-                                chronoPeriods={chronoPeriods}
-                                estimateFlags={estimateFlags}
-                                prepared={prepared}
-                                range={range}
-                                logScale={logScale}
-                                stackMode={effectiveStack}
-                                currency={currency}
-                                units={units}
-                                showLabels={showLabels}
-                                refLines={refLines}
-                                refStats={stats ? { min: stats.min, max: stats.max, median: stats.median, avg: stats.avg } : null}
-                                hoverIdx={hoverIdx}
-                                setHoverIdx={setHoverIdx}
-                            />
-                        ) : null
-                    }
-                </ParentSize>
+                    {chronoPeriods.length > 2 && primarySeries && (
+                        <Overview
+                            series={primarySeries}
+                            periods={chronoPeriods}
+                            estimateFlags={estimateFlags}
+                            range={range}
+                            onChange={(start, end) => setRange({ start, end })}
+                        />
+                    )}
+                </div>
             </div>
-
-            {/* ---- Overview / range brush ---- */}
-            {chronoPeriods.length > 2 && primarySeries && (
-                <Overview
-                    series={primarySeries}
-                    periods={chronoPeriods}
-                    estimateFlags={estimateFlags}
-                    range={range}
-                    onChange={(start, end) => setRange({ start, end })}
-                />
-            )}
         </div>
     );
 }
@@ -671,14 +817,23 @@ interface InnerChartProps {
     refStats: { min: number; max: number; median: number; avg: number } | null;
     hoverIdx: number | null;
     setHoverIdx: (i: number | null) => void;
+    /** Panel-per-field mode: tighter margins, no top padding for header strip. */
+    compact?: boolean;
 }
 
 function InnerChart({
     width, height, chronoPeriods, estimateFlags, prepared, range,
     logScale, stackMode, currency, units, showLabels, refLines, refStats, hoverIdx, setHoverIdx,
+    compact = false,
 }: InnerChartProps) {
     const hasSecondary = prepared.some(s => s.axis === 'secondary');
-    const margin = { top: 14, right: hasSecondary ? 56 : 18, bottom: 26, left: 66 };
+    // Right margin always fits the Bloomberg-style last-value axis tag.
+    const margin = {
+        top: compact ? 16 : 14,
+        right: hasSecondary ? 56 : 52,
+        bottom: compact ? 18 : 26,
+        left: compact ? 54 : 66,
+    };
     const innerW = Math.max(0, width - margin.left - margin.right);
     const innerH = Math.max(0, height - margin.top - margin.bottom);
 
@@ -932,27 +1087,37 @@ function InnerChart({
                         );
                     })}
 
-                    {/* bar series */}
-                    {prepared.filter(s => s.rep === 'bar' && !isStacked(s)).map(s => (
-                        <Group key={`bar-${s.key}`}>
-                            {visibleIdx.map(i => {
-                                const v = s.values[i];
-                                if (v === null || Number.isNaN(v)) return null;
-                                const yv = yFor(s)(v);
-                                const top = Math.min(yv, zeroY);
-                                const h = Math.abs(yv - zeroY);
-                                const x = xScale(i) ?? 0;
-                                const isEst = estimateFlags[i];
-                                const fill = v < 0 ? T.neg : s.color;
-                                return (
-                                    <g key={i}>
-                                        <rect x={x} y={top} width={xScale.bandwidth()} height={Math.max(0, h)} rx={2} fill={fill} opacity={isEst ? 0.4 : 0.9} />
-                                        {isEst && <rect x={x} y={top} width={xScale.bandwidth()} height={Math.max(0, h)} rx={2} fill="url(#estHatch)" />}
-                                    </g>
-                                );
-                            })}
-                        </Group>
-                    ))}
+                    {/* bar series — multiple bar series render grouped side-by-side
+                        within each period band (Bloomberg GF style) */}
+                    {(() => {
+                        const barSeries = prepared.filter(s => s.rep === 'bar' && !isStacked(s));
+                        const nGroups = barSeries.length;
+                        if (nGroups === 0) return null;
+                        const gap = nGroups > 1 ? 1 : 0;
+                        const slotW = (xScale.bandwidth() - gap * (nGroups - 1)) / nGroups;
+                        return barSeries.map((s, slot) => (
+                            <Group key={`bar-${s.key}`}>
+                                {visibleIdx.map(i => {
+                                    const v = s.values[i];
+                                    if (v === null || Number.isNaN(v)) return null;
+                                    const y0 = yFor(s)(0);
+                                    const zero = useLogEff ? innerH : Math.max(0, Math.min(innerH, y0));
+                                    const yv = yFor(s)(v);
+                                    const top = Math.min(yv, zero);
+                                    const h = Math.abs(yv - zero);
+                                    const x = (xScale(i) ?? 0) + slot * (slotW + gap);
+                                    const isEst = estimateFlags[i];
+                                    const fill = v < 0 ? T.neg : s.color;
+                                    return (
+                                        <g key={i}>
+                                            <rect x={x} y={top} width={Math.max(1, slotW)} height={Math.max(0, h)} rx={nGroups > 1 ? 1 : 2} fill={fill} opacity={isEst ? 0.4 : 0.9} />
+                                            {isEst && <rect x={x} y={top} width={Math.max(1, slotW)} height={Math.max(0, h)} rx={nGroups > 1 ? 1 : 2} fill="url(#estHatch)" />}
+                                        </g>
+                                    );
+                                })}
+                            </Group>
+                        ));
+                    })()}
 
                     {/* line series (split actual / estimate) */}
                     {prepared.filter(s => s.rep === 'line' && !isStacked(s)).map(s => {
@@ -1037,6 +1202,53 @@ function InnerChart({
                         tickStroke={T.border}
                         tickLabelProps={() => ({ fill: T.textDim, fontSize: 9, textAnchor: 'middle', dy: 2 })}
                     />
+
+                    {/* Bloomberg-style last-value tags on the right axis
+                        (with simple vertical de-overlap when values collide) */}
+                    {!stacking && (() => {
+                        const tags: { key: string; color: string; y: number; text: string }[] = [];
+                        for (const s of prepared) {
+                            if (s.rep === 'ironBars') continue;
+                            let lastIdx: number | null = null;
+                            for (let k = visibleIdx.length - 1; k >= 0; k--) {
+                                const v = s.values[visibleIdx[k]];
+                                if (v !== null && !Number.isNaN(v)) { lastIdx = visibleIdx[k]; break; }
+                            }
+                            if (lastIdx === null) continue;
+                            const v = s.values[lastIdx] as number;
+                            const yv = yFor(s)(v);
+                            if (yv < -2 || yv > innerH + 2) continue;
+                            tags.push({ key: s.key, color: s.color, y: yv, text: fmtCompact(v, s.unit, currency, units) });
+                        }
+                        // Push overlapping tags apart (14px tag height + 1px gap).
+                        tags.sort((a, b) => a.y - b.y);
+                        for (let i = 1; i < tags.length; i++) {
+                            if (tags[i].y - tags[i - 1].y < 15) tags[i].y = tags[i - 1].y + 15;
+                        }
+                        for (let i = tags.length - 1; i >= 0; i--) {
+                            if (tags[i].y > innerH) tags[i].y = innerH;
+                            if (i < tags.length - 1 && tags[i + 1].y - tags[i].y < 15) tags[i].y = tags[i + 1].y - 15;
+                        }
+                        return tags.map(t => {
+                            const w = Math.max(34, t.text.length * 5.4 + 8);
+                            return (
+                                <g key={`tag-${t.key}`}>
+                                    <rect x={innerW + 2} y={t.y - 7} width={w} height={14} fill={t.color} />
+                                    <text
+                                        x={innerW + 2 + w / 2}
+                                        y={t.y + 3}
+                                        textAnchor="middle"
+                                        fontSize={8.5}
+                                        fontWeight={700}
+                                        fill="#000000"
+                                        style={{ fontFamily: 'var(--font-mono, monospace)' }}
+                                    >
+                                        {t.text}
+                                    </text>
+                                </g>
+                            );
+                        });
+                    })()}
 
                     {/* mouse capture */}
                     <rect x={0} y={0} width={innerW} height={innerH} fill="transparent" onMouseMove={handleMove} onMouseLeave={handleLeave} />
@@ -1134,7 +1346,7 @@ function Overview({ series, periods, range, onChange }: OverviewProps) {
     const endPct = n <= 1 ? 100 : (range.end / (n - 1)) * 100;
 
     return (
-        <div className="px-3 py-2" style={{ borderTop: `1px solid ${T.border}`, background: T.panel }}>
+        <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${T.border}`, background: T.panel }}>
             <div ref={ref} className="relative" style={{ height: H }}>
                 <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="absolute inset-0">
                     <AreaClosed
@@ -1144,21 +1356,20 @@ function Overview({ series, periods, range, onChange }: OverviewProps) {
                         yScale={scaleLinear({ domain: [min, max], range: [H, 0] })}
                         curve={curveMonotoneX}
                         fill={series.color}
-                        fillOpacity={0.18}
+                        fillOpacity={0.12}
                         stroke={series.color}
                         strokeWidth={1}
                     />
                 </svg>
-                {/* selected window */}
                 <div className="absolute top-0 bottom-0 cursor-grab active:cursor-grabbing"
-                    style={{ left: `${startPct}%`, width: `${endPct - startPct}%`, background: `${T.accent}22`, borderLeft: `2px solid ${T.accent}`, borderRight: `2px solid ${T.accent}` }}
+                    style={{ left: `${startPct}%`, width: `${endPct - startPct}%`, background: `${T.accent}18`, borderLeft: `1px solid ${T.accent}`, borderRight: `1px solid ${T.accent}` }}
                     onMouseDown={e => onDown(e, 'range')} />
                 <div className="absolute top-0 bottom-0 w-2 -ml-1 cursor-ew-resize" style={{ left: `${startPct}%` }} onMouseDown={e => onDown(e, 'start')} />
                 <div className="absolute top-0 bottom-0 w-2 -ml-1 cursor-ew-resize" style={{ left: `${endPct}%` }} onMouseDown={e => onDown(e, 'end')} />
             </div>
-            <div className="flex items-center justify-between mt-1 text-[9px]" style={{ color: T.textFaint }}>
+            <div className="flex items-center justify-between mt-0.5 text-[9px]" style={{ color: T.textFaint }}>
                 <span>{periodLabel(periods[range.start])}</span>
-                <span>{range.end - range.start + 1} / {n}</span>
+                <span>{range.end - range.start + 1}/{n}</span>
                 <span>{periodLabel(periods[range.end])}</span>
             </div>
         </div>
@@ -1166,44 +1377,115 @@ function Overview({ series, periods, range, onChange }: OverviewProps) {
 }
 
 // ============================================================================
-// Metric picker
+// Fields sidebar — Bloomberg GF "Select Fields" panel
 // ============================================================================
 
-function MetricPicker({ fields, selected, onToggle, onClose }: {
+function FieldsSidebar({ fields, selected, prepared, onToggle, onSetRep }: {
     fields: ChartSeriesField[];
     selected: string[];
+    prepared: PreparedSeries[];
     onToggle: (key: string) => void;
-    onClose: () => void;
+    onSetRep: (key: string, rep: Representation) => void;
 }) {
     const [q, setQ] = useState('');
-    const ref = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
-        document.addEventListener('mousedown', h);
-        return () => document.removeEventListener('mousedown', h);
-    }, [onClose]);
-    const filtered = fields.filter(f => f.label.toLowerCase().includes(q.toLowerCase()));
+
+    const seriesFor = (key: string) => prepared.find(s => s.key === key);
+
+    // Group by section, preserving field order. Fields without a section go
+    // into a single unnamed bucket so plain statements render as a flat list.
+    const groups = useMemo(() => {
+        const query = q.trim().toLowerCase();
+        const out: { section: string; items: ChartSeriesField[] }[] = [];
+        const index = new Map<string, number>();
+        for (const f of fields) {
+            if (query && !f.label.toLowerCase().includes(query)) continue;
+            const section = f.section || '';
+            if (!index.has(section)) {
+                index.set(section, out.length);
+                out.push({ section, items: [] });
+            }
+            out[index.get(section)!].items.push(f);
+        }
+        return out;
+    }, [fields, q]);
+
+    const atCapacity = selected.length >= MAX_SERIES;
+
     return (
-        <div ref={ref} className="absolute top-8 right-0 z-30 w-64 rounded shadow-2xl"
-            style={{ background: T.panelAlt, border: `1px solid ${T.border}` }}>
+        <div
+            className="w-56 shrink-0 flex flex-col min-h-0"
+            style={{ borderRight: `1px solid ${T.border}`, background: T.panel }}
+        >
             <input
-                autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search metric"
-                className="w-full px-2 py-1.5 text-[11px] bg-transparent outline-none"
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                placeholder="Filter fields…"
+                className="w-full px-2 py-1.5 text-[10px] bg-transparent outline-none shrink-0"
                 style={{ color: T.text, borderBottom: `1px solid ${T.border}` }}
             />
-            <div className="max-h-64 overflow-y-auto py-1">
-                {filtered.map(f => {
-                    const on = selected.includes(f.key);
-                    return (
-                        <button key={f.key} onClick={() => onToggle(f.key)}
-                            className="w-full flex items-center justify-between px-2 py-1 text-[11px] text-left hover:bg-white/5"
-                            style={{ color: on ? T.accent : T.text }}>
-                            <span className="truncate">{f.label}</span>
-                            {on && <span className="text-[9px] uppercase tracking-wide flex-shrink-0">Added</span>}
-                        </button>
-                    );
-                })}
-                {filtered.length === 0 && <div className="px-2 py-2 text-[10px]" style={{ color: T.textFaint }}>No results</div>}
+            <div className="flex-1 overflow-y-auto py-1">
+                {groups.map(g => (
+                    <div key={g.section || '_'}>
+                        {g.section && (
+                            <div className="px-2 pt-2 pb-0.5 text-[8px] font-semibold uppercase tracking-widest" style={{ color: T.textFaint }}>
+                                {g.section}
+                            </div>
+                        )}
+                        {g.items.map(f => {
+                            const on = selected.includes(f.key);
+                            const series = on ? seriesFor(f.key) : undefined;
+                            const disabled = !on && atCapacity;
+                            return (
+                                <div
+                                    key={f.key}
+                                    className="w-full flex items-center gap-1.5 px-2 py-[3px] hover:bg-white/5 group"
+                                >
+                                    <button
+                                        onClick={() => onToggle(f.key)}
+                                        disabled={disabled}
+                                        title={f.label}
+                                        className="flex items-center gap-1.5 min-w-0 flex-1 text-left disabled:opacity-30"
+                                    >
+                                        <span
+                                            className="inline-block w-2.5 h-2.5 shrink-0"
+                                            style={{
+                                                background: on ? series?.color : 'transparent',
+                                                border: `1px solid ${on ? series?.color : T.border}`,
+                                            }}
+                                        />
+                                        <span className="truncate text-[10px]" style={{ color: on ? T.text : T.textDim }}>
+                                            {f.label}
+                                        </span>
+                                    </button>
+                                    {series && (
+                                        <span className="inline-flex shrink-0" style={{ border: `1px solid ${T.border}` }}>
+                                            {(['bar', 'line', 'area'] as Representation[]).map(rp => (
+                                                <button
+                                                    key={rp}
+                                                    onClick={() => onSetRep(f.key, rp)}
+                                                    title={rp === 'bar' ? 'Bars' : rp === 'line' ? 'Line' : 'Area'}
+                                                    className="px-1 text-[8px] font-bold leading-[13px]"
+                                                    style={{
+                                                        background: series.rep === rp ? series.color : 'transparent',
+                                                        color: series.rep === rp ? '#000' : T.textFaint,
+                                                    }}
+                                                >
+                                                    {rp === 'bar' ? 'B' : rp === 'line' ? 'L' : 'A'}
+                                                </button>
+                                            ))}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ))}
+                {groups.length === 0 && (
+                    <div className="px-2 py-2 text-[10px]" style={{ color: T.textFaint }}>No results</div>
+                )}
+            </div>
+            <div className="px-2 py-1 text-[9px] shrink-0 tabular-nums" style={{ color: T.textFaint, borderTop: `1px solid ${T.border}` }}>
+                {selected.length}/{MAX_SERIES} fields
             </div>
         </div>
     );
@@ -1213,21 +1495,58 @@ function MetricPicker({ fields, selected, onToggle, onClose }: {
 // Small UI atoms
 // ============================================================================
 
+function SegGroup({ children }: { children: React.ReactNode }) {
+    return (
+        <div className="inline-flex items-center" style={{ border: `1px solid ${T.border}` }}>
+            {children}
+        </div>
+    );
+}
+
 function SegBtn({ children, active, onClick, disabled }: {
     children: React.ReactNode; active?: boolean; onClick: () => void; disabled?: boolean;
 }) {
     return (
         <button onClick={onClick} disabled={disabled}
-            className="text-[10px] px-2 py-1 rounded font-medium transition-colors disabled:opacity-30"
-            style={{ background: active ? T.accent : 'transparent', color: active ? '#03101f' : T.textDim }}>
+            className="text-[10px] px-2 py-0.5 font-medium transition-colors disabled:opacity-30"
+            style={{
+                background: active ? T.accent : 'transparent',
+                color: active ? '#03101f' : T.textDim,
+            }}>
             {children}
+        </button>
+    );
+}
+
+function Divider() {
+    return <div className="mx-1 h-3.5 w-px shrink-0" style={{ background: T.border }} />;
+}
+
+function MoreRow({ label, on, onClick, disabled }: {
+    label: string; on?: boolean; onClick: () => void; disabled?: boolean;
+}) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={disabled}
+            className="w-full flex items-center justify-between px-2 py-1 text-[11px] text-left hover:bg-white/5 disabled:opacity-30"
+            style={{ color: on ? T.accent : T.text }}
+        >
+            <span>{label}</span>
+            <span
+                className="inline-block w-3 h-3 shrink-0"
+                style={{
+                    background: on ? T.accent : 'transparent',
+                    border: `1px solid ${on ? T.accent : T.border}`,
+                }}
+            />
         </button>
     );
 }
 
 function PresetBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
     return (
-        <button onClick={onClick} className="flex items-center text-[10px] px-1.5 py-1 rounded font-medium hover:bg-white/10" style={{ color: T.textDim }}>
+        <button onClick={onClick} className="text-[10px] px-1.5 py-0.5 font-medium hover:opacity-80" style={{ color: T.textDim }}>
             {children}
         </button>
     );

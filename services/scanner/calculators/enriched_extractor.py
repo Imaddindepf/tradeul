@@ -74,6 +74,8 @@ class EnrichedData:
     premarket_rvol: Optional[float] = None
     postmarket_change_percent: Optional[float] = None
     postmarket_volume: Optional[int] = None
+    postmarket_high: Optional[float] = None
+    postmarket_low: Optional[float] = None
 
 
 _RANGE_KEYS = (
@@ -153,6 +155,8 @@ class EnrichedDataExtractor:
         data.premarket_rvol = atr_data.get('premarket_rvol')
         data.postmarket_change_percent = atr_data.get('postmarket_change_percent')
         data.postmarket_volume = atr_data.get('postmarket_volume')
+        data.postmarket_high = atr_data.get('postmarket_high')
+        data.postmarket_low = atr_data.get('postmarket_low')
         
         return data
     

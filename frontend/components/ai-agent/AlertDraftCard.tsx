@@ -518,7 +518,7 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
             className="px-2.5 py-1.5 rounded-lg text-[10.5px] font-medium text-foreground/70
                        hover:text-foreground hover:bg-surface-hover transition-colors"
           >
-            Ver mis alertas
+            Mis workflows
           </button>
         </div>
 

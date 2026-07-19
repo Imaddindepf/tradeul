@@ -37,6 +37,35 @@ export interface CanvasSubstep {
   status: 'running' | 'complete' | 'error';
   durationMs?: number;
   blocks?: unknown[];
+  /** Artifacts del substep persistidos (clave `parent::step_id` en el store). */
+  artifacts?: ArtifactRef;
+}
+
+/**
+ * Artifact — output completo y tipado de un nodo, persistido en el backend
+ * (runs/artifacts.py). El inspector de nodo los pide por REST; el WS solo
+ * transporta la referencia (ArtifactRef).
+ */
+export type Artifact =
+  | { kind: 'summary'; title?: string; text: string }
+  | { kind: 'metrics'; title?: string; items: Array<{ label: string; value: string | number }> }
+  | { kind: 'chips'; title?: string; items: string[] }
+  | {
+      kind: 'table';
+      title?: string;
+      columns: string[];
+      rows: Array<Array<string | number | boolean | null>>;
+      total?: number;
+    }
+  | { kind: 'code'; title?: string; language?: string; content: string }
+  | { kind: 'chart'; title?: string; chart: Record<string, unknown> }
+  | { kind: 'json'; title?: string; data: unknown };
+
+/** Referencia a los artifacts persistidos (llega en node_completed / canvas_step). */
+export interface ArtifactRef {
+  runId: string;
+  kinds: string[];
+  count: number;
 }
 
 export interface AgentStep {
@@ -52,6 +81,8 @@ export interface AgentStep {
   data?: NodeCardData;
   /** Pasos internos que el agente va montando en vivo (canvas_step). */
   substeps?: CanvasSubstep[];
+  /** Referencia a los artifacts completos persistidos (inspector de nodo). */
+  artifacts?: ArtifactRef;
 }
 
 export interface ClarificationData {
@@ -70,6 +101,8 @@ export interface Message {
   thinkingStartTime?: number;
   suggestedQuestions?: string[];
   clarification?: ClarificationData;
+  /** Run persistido en el backend (ack.run_id) — clave de los artifacts. */
+  runId?: string;
 }
 
 export interface OutputItem {

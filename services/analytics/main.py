@@ -195,6 +195,7 @@ async def handle_day_changed(event: Event) -> None:
             enrichment_pipeline.clear_change_detector()
             logger.info("change_detector_reset")
             enrichment_pipeline.reset_premarket_volume_for_new_day()
+            enrichment_pipeline.reset_postmarket_for_new_day()
     else:
         logger.info("skipping_cache_reset", reason="holiday_mode_active", date=new_date_str)
 
@@ -215,6 +216,11 @@ async def handle_session_changed(event: Event) -> None:
     
     # Write last_close when transitioning to POST_MARKET or CLOSED
     if new_session in ('POST_MARKET', 'CLOSED') and enrichment_pipeline:
+        # Freeze post-market metrics FIRST so the last_close snapshot (and the
+        # CLOSED session afterwards) keeps real postmarket_* values.
+        if new_session == 'CLOSED':
+            now_et = datetime.now(ZoneInfo("America/New_York"))
+            await enrichment_pipeline.freeze_postmarket_metrics_if_needed(now_et)
         logger.info("writing_last_close_snapshot", trigger=f"{old_session}→{new_session}")
         await enrichment_pipeline.write_last_close_snapshot()
 

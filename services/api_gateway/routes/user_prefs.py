@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
-from fastapi import APIRouter, HTTPException, Header, Depends, Request
+from fastapi import APIRouter, HTTPException, Header, Depends, Request, Response
 import structlog
 from auth import get_current_user, get_current_user_optional, AuthenticatedUser
 
@@ -131,6 +131,7 @@ def get_timescale():
 
 @router.get("/preferences", response_model=UserPreferencesResponse)
 async def get_preferences(
+    response: Response,
     user: AuthenticatedUser = Depends(get_current_user),
     db=Depends(get_timescale)
 ):
@@ -138,6 +139,10 @@ async def get_preferences(
     Obtiene las preferencias del usuario.
     Si no existen, retorna valores por defecto.
     """
+    # Safari caches GETs without explicit cache headers; a stale cached copy
+    # of this response resurrects old layouts on other browsers.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     try:
         user_id = user.id
         query = """

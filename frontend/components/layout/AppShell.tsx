@@ -2,7 +2,6 @@
 
 import { ReactNode } from 'react';
 import { Navbar } from './Navbar';
-import { AnnouncementBanner } from './AnnouncementBanner';
 import { FloatingWindowProvider } from '@/contexts/FloatingWindowContext';
 import { AuthWebSocketProvider } from '@/contexts/AuthWebSocketContext';
 import { ChatWebSocketProvider } from '@/contexts/ChatWebSocketContext';
@@ -60,8 +59,6 @@ export function AppShell({ children }: AppShellProps) {
               <CatalystDetectorProvider>
                 <OpenULProvider>
                 <div className="min-h-screen bg-background relative">
-                  {/* Announcement Banner - floating toast */}
-                  <AnnouncementBanner />
                   <Navbar />
                   <main className="w-full">
                     {/* Contenido principal con padding-top para dejar espacio al navbar fijo */}
@@ -70,7 +67,7 @@ export function AppShell({ children }: AppShellProps) {
                     </div>
                   </main>
                   <FloatingWindowManager />
-                  {/* Abre la ventana AI Alerts desde eventos globales (chat) */}
+                  {/* Redirige open-ai-alerts → AI Agent (Mis workflows) */}
                   <AIAlertsBridge />
                   {/* Feed en vivo de disparos de alertas IA (WS + popup) */}
                   <AIAlertFiresProvider />

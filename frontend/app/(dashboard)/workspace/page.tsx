@@ -1,18 +1,19 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
 import type { MarketSession } from '@/lib/types';
 import { Navbar, NavbarContent, UserMenu } from '@/components/layout/Navbar';
 import { PinnedCommands } from '@/components/layout/PinnedCommands';
 import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
 import { TerminalPalette } from '@/components/ui/TerminalPalette';
 import { HelpModal } from '@/components/ui/HelpModal';
-import { Settings2, LayoutGrid } from 'lucide-react';
+import { Settings2 } from 'lucide-react';
+import { WorkspaceEmptyState } from '@/components/workspace/WorkspaceEmptyState';
 import { Z_INDEX, floatingFocusManager } from '@/lib/z-index';
 import { hasTickerSearch, typeIntoTickerSearch } from '@/lib/tickerSearchRegistry';
 import { useFloatingWindowActions, useFloatingWindowsList } from '@/contexts/FloatingWindowContext';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { useWorkspaceLayouts } from '@/hooks/useWorkspaceLayouts';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { WorkspaceTabs } from '@/components/layout/WorkspaceTabs';
@@ -36,7 +37,6 @@ import { HistoricalMultipleSecurityContent } from '@/components/historical-multi
 import { ChartContent } from '@/components/chart/ChartContent';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
 import { EarningsCalendarContent } from '@/components/floating-window/EarningsCalendarContent';
-import { AIAlertsContent } from '@/components/floating-window/AIAlertsContent';
 import { PredictionMarketsContent } from '@/components/floating-window';
 import { EventTableContent } from '@/components/events';
 import { useEventFiltersStore, type ActiveEventFilters } from '@/stores/useEventFiltersStore';
@@ -58,6 +58,7 @@ import { ConfigWindow, type AlertWindowConfig } from '@/components/config/Config
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { BugReportsAdminContent } from '@/components/dashboard-toolbar/BugReportsAdminContent';
+import { useAuth } from '@clerk/nextjs';
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
 function adaptMarketSession(session: MarketSession) {
@@ -88,10 +89,7 @@ function adaptMarketSession(session: MarketSession) {
   };
 }
 
-const DEFAULT_CATEGORIES = ['gappers_up', 'gappers_down', 'momentum_up', 'winners', 'new_highs', 'new_lows', 'high_volume', 'post_market'];
-
 export default function ScannerPage() {
-  const { t } = useTranslation();
   // Sesión desde el store global único (sincronizado por useMarketClockSync).
   const session = useMarketSessionStore(selectSession);
   const [mounted, setMounted] = useState(false);
@@ -111,12 +109,40 @@ export default function ScannerPage() {
 
   const { openWindow, closeWindow } = useFloatingWindowActions();
   const windows = useFloatingWindowsList();
-  const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, getScannerCategory } = useCommandExecutor();
+  const {
+    openScannerTable,
+    closeScannerTable,
+    isScannerTableOpen,
+    executeTickerCommand,
+    getScannerCategory,
+    executeCommand,
+    openEventTable,
+    } = useCommandExecutor();
+  const { applyLayout } = useWorkspaceLayouts();
   const { getSavedLayout, hasLayout, isLayoutInitialized } = useLayoutPersistence();
   const { activeWorkspace, saveCurrentLayout } = useWorkspaces();
 
   const layoutRestoredRef = useRef(false);
   const initialTablesOpenedRef = useRef(false);
+
+  // ── Gate: do NOT restore the layout until the backend state is known ──
+  // The store hydrates from THIS browser's localStorage, which can be stale
+  // (another browser has the real layout) or empty (Safari ITP eviction).
+  // Restoring from it and auto-saving 3s later overwrites the server copy.
+  // We wait for loadFromBackend to resolve; fallback timeout covers offline
+  // sessions and signed-out users (where the load never runs).
+  const backendLoadComplete = useUserPreferencesStore((s) => s.backendLoadComplete);
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const [restoreGateOpen, setRestoreGateOpen] = useState(false);
+  useEffect(() => {
+    if (restoreGateOpen) return;
+    if (backendLoadComplete || (authLoaded && !isSignedIn)) {
+      setRestoreGateOpen(true);
+      return;
+    }
+    const t = setTimeout(() => setRestoreGateOpen(true), 5000);
+    return () => clearTimeout(t);
+  }, [restoreGateOpen, backendLoadComplete, authLoaded, isSignedIn]);
   // Suppresses the "No windows open" empty state during the brief gap between
   // mount and layout restoration. Without this, F5 reload flashes the empty
   // state for ~100–250 ms while persisted layouts hydrate and open.
@@ -135,7 +161,8 @@ export default function ScannerPage() {
     if (title === 'Financials') return <FinancialsContent />;
     if (title === 'Community Chat') return <ChatContent />;
     if (title === 'Catalyst Alerts') return <CatalystAlertsConfig />;
-    if (title === 'AI Alerts') return <AIAlertsContent />;
+    // Legacy: ventanas restauradas como "AI Alerts" → Agent (Mis workflows)
+    if (title === 'AI Alerts') return <AIAgentContent />;
     if (title === 'IPOs') return <IPOContent />;
     if (title === 'Quote Monitor') return <QuoteMonitorContent />;
     if (title === 'Notes') return <NotesContent />;
@@ -315,6 +342,11 @@ export default function ScannerPage() {
   // Restaurar layout del workspace activo O abrir tablas por defecto
   useEffect(() => {
     if (!mounted) return;
+    // Wait until the server state is applied to the store (or the gate times
+    // out). Restoring earlier reads a stale/empty local snapshot and the
+    // subsequent auto-save propagates it to the backend, destroying the
+    // layout saved from other browsers.
+    if (!restoreGateOpen) return;
     // Already restored — skip all branches
     if (layoutRestoredRef.current) return;
 
@@ -386,11 +418,8 @@ export default function ScannerPage() {
       return;
     }
 
-    // Caso 3: Primera vez — wait for store hydration before opening defaults.
-    // If layoutInitialized is false AND no layouts exist, the store may not be
-    // hydrated yet (skipHydration: true). Only open defaults once we're confident
-    // this is truly a first-time user (layoutInitialized would be true after hydration
-    // for any returning user).
+    // Caso 3: Primera vez — no abrimos nada. El usuario nuevo ve el empty
+    // state con los layouts predefinidos y elige cómo montar su workspace.
     if (!isLayoutInitialized && !hasLayout && !hasWorkspaceLayouts && !initialTablesOpenedRef.current) {
       // Check if Zustand has finished hydrating from localStorage.
       // If it hasn't, skip and let the effect re-run after hydration.
@@ -399,35 +428,9 @@ export default function ScannerPage() {
 
       layoutRestoredRef.current = true;
       initialTablesOpenedRef.current = true;
-
-      let categories = DEFAULT_CATEGORIES;
-      try {
-        const saved = localStorage.getItem('scanner_categories');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            categories = parsed;
-          }
-        }
-      } catch (e) {
-        console.error('Error loading saved categories:', e);
-      }
-
-      setTimeout(() => {
-        categories.forEach((categoryId, index) => {
-          setTimeout(() => {
-            openScannerTable(categoryId, index);
-            if (index === categories.length - 1) {
-              setLayoutReady(true);
-            }
-          }, index * 50);
-        });
-        if (categories.length === 0) {
-          setLayoutReady(true);
-        }
-      }, 100);
+      setLayoutReady(true);
     }
-  }, [mounted, hasLayout, isLayoutInitialized, activeWorkspace, getSavedLayout, getWindowContent, openWindow, openScannerTable]);
+  }, [mounted, restoreGateOpen, hasLayout, isLayoutInitialized, activeWorkspace, getSavedLayout, getWindowContent, openWindow]);
 
   // Safety net: if layout restoration never completes (edge case), reveal the
   // empty state after 1.5s so the user is never left staring at a blank canvas.
@@ -622,29 +625,18 @@ export default function ScannerPage() {
       >
         {/* Empty state cuando no hay ventanas — only after layout restore completes */}
         {hasNoWindows && layoutReady && (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center text-muted-fg">
-              <LayoutGrid className="h-16 w-16 mx-auto mb-4 text-muted-fg/50" />
-              <p className="text-xl font-semibold text-foreground">{t('workspace.noWindowsOpen')}</p>
-              <p className="text-sm mt-2 text-muted-fg">
-                {t('workspace.useCommandToOpen')}
-              </p>
-              <div className="mt-4 flex gap-2 justify-center">
-                {DEFAULT_CATEGORIES.slice(0, 3).map((catId) => {
-                  const category = getScannerCategory(catId);
-                  return (
-                    <button
-                      key={catId}
-                      onClick={() => openScannerTable(catId, 0)}
-                      className="px-3 py-1.5 text-xs font-medium bg-primary text-white rounded-md hover:bg-primary-hover"
-                    >
-                      {category?.name || catId}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          <WorkspaceEmptyState
+            onOpenScanner={(categoryId) => openScannerTable(categoryId, 0)}
+            onOpenLayout={(layoutId, ticker) => applyLayout(layoutId, ticker)}
+            onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+            onOpenModule={(commandId) => {
+              if (commandId.startsWith('evt_')) {
+                openEventTable(commandId);
+                return;
+              }
+              executeCommand(commandId);
+            }}
+          />
         )}
 
         {/* Las ventanas flotantes se renderizan automáticamente desde FloatingWindowContext */}

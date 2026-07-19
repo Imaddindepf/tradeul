@@ -453,16 +453,6 @@
     "profile": "Profile",
     "user": "User"
   },
-  "announcement": {
-    "newFeature": "What's New",
-    "communityChat": "Community Chat",
-    "communityChatDesc": "New real-time chat to connect with other traders. Share ideas, tickers with live prices ($AAPL) and stay updated.",
-    "groupsAndDMs": "Groups & Direct Messages",
-    "groupsAndDMsDesc": "Create private groups, invite members and manage roles. You can also send direct messages to any user.",
-    "chatPopOut": "Pop-out Window",
-    "chatPopOutDesc": "Open the chat in a separate window to keep it visible while trading. Click the ↗ icon for pop-out.",
-    "dismiss": "Got it"
-  },
   "sidebar": {
     "scanner": "Scanner",
     "settings": "Settings"
@@ -544,7 +534,54 @@
     "newWorkspace": "New Workspace",
     "create": "Create new workspace",
     "close": "Close workspace",
-    "rename": "Rename workspace"
+    "rename": "Rename workspace",
+    "empty": {
+      "eyebrow": "Workspace",
+      "title": "Start your session",
+      "subtitle": "Open a scanner, module, or ticker command to build your layout.",
+      "commandHint": "Type a command or search modules…",
+      "scanners": "Scanners",
+      "modules": "Modules",
+      "layouts": "Preset layouts",
+      "windows": "windows",
+      "openLayout": "Open layout",
+      "sharedTicker": "shared ticker",
+      "openWithTicker": "Open with a ticker",
+      "tickerHint": "Every compatible window will load this symbol automatically.",
+      "open": "Open",
+      "withoutTicker": "No ticker",
+      "tip": "Ticker commands:"
+    },
+    "layouts": {
+      "dayTrading": {
+        "name": "Day Trading",
+        "desc": "Gap and momentum scanners, live event alerts, breaking news and market pulse — everything for the open.",
+        "audience": "Trader"
+      },
+      "investor": {
+        "name": "Fundamental Analysis",
+        "desc": "Company overview and description, financial statements, analyst ratings and ratio analysis side by side.",
+        "audience": "Investor"
+      },
+      "newsCatalysts": {
+        "name": "News & Catalysts",
+        "desc": "Full news feed, breaking headlines, tickers moving on news and the upcoming earnings calendar.",
+        "audience": "Catalyst"
+      },
+      "marketOverview": {
+        "name": "Market Overview",
+        "desc": "Sector heatmap, market pulse, top gainers and unusual volume — the whole tape at a glance.",
+        "audience": "Macro"
+      }
+    },
+    "modules": {
+      "news": "Live news feed",
+      "dt": "Dilution tracker",
+      "evn": "Event strategies",
+      "ai": "Multi-agent analysis",
+      "pulse": "Market overview",
+      "screener": "Custom screener"
+    }
   },
   "notes": {
     "title": "Notes",

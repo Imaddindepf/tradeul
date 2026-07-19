@@ -24,6 +24,7 @@ Public API of this module:
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -810,6 +811,21 @@ def _format_year_label(row: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _format_quarter_label(row: Dict[str, Any]) -> Optional[str]:
+    """Quarterly label, e.g. 'Q3 2026'."""
+    year = _format_year_label(row)
+    if not year:
+        return None
+    q = row.get("fiscalQuarter")
+    if q in (1, 2, 3, 4):
+        return f"Q{q} {year}"
+    date = row.get("date") or ""
+    if len(date) >= 7 and date[5:7].isdigit():
+        month = int(date[5:7])
+        return f"Q{(month - 1) // 3 + 1} {year}"
+    return None
+
+
 def _sum_quarterly_to_annual(values: Dict[str, List[float]]) -> Dict[str, float]:
     """Aggregate quarterly values per fiscal year by sum (revenue-style metrics)."""
     return {year: sum(v for v in vals if v is not None) for year, vals in values.items() if vals}
@@ -828,22 +844,65 @@ def _latest_per_year(values: Dict[str, List[Tuple[str, float]]]) -> Dict[str, fl
     return out
 
 
-def transform_segments(ticker: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _segment_unit_meta(info: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive display metadata for a segment / KPI metric.
+
+    Preserves whether the series is monetary (report currency) vs a physical
+    count / capacity (Units, MW, GPUs, …) so the FE never paints € on units.
+    """
+    name = (info.get("metricName") or info.get("metricId") or "").strip()
+    fmt = (info.get("metricFormat") or "").strip().lower()
+    is_currency = bool(info.get("isCurrency"))
+
+    if fmt == "%":
+        data_type = "percent"
+    elif is_currency:
+        data_type = "monetary"
+    else:
+        data_type = "number"
+
+    unit_label: Optional[str] = None
+    if data_type == "number":
+        # Prefer an explicit parenthetical unit in the name, e.g. "(Units)".
+        m = re.search(r"\(([^)]+)\)\s*$", name)
+        if m:
+            unit_label = m.group(1).strip()
+        elif fmt and fmt not in ("number", "ratio"):
+            unit_label = info.get("metricFormat")
+
+    return {
+        "data_type": data_type,
+        "is_currency": is_currency,
+        "unit_label": unit_label,
+    }
+
+
+def transform_segments(
+    ticker: str,
+    payload: Dict[str, Any],
+    period: str = "annual",
+) -> Optional[Dict[str, Any]]:
     """
     Convert the v3 `segments` + `segments_metadata` blocks into the shape that
     SegmentsTable expects:
         {
-          symbol, period_end, filing_date,
+          symbol, currency, period, period_end, filing_date,
           segments: {
-            revenue: { segmentName: { year: value } },
-            operating_income: { segmentName: { year: value } },
+            revenue: { segmentName: { periodLabel: value } },
+            operating_income: { segmentName: { periodLabel: value } },
           },
           geography: { revenue: {}, operating_income: {} },
           products:  { revenue: {} },
+          metric_meta: { segmentName: { data_type, is_currency, unit_label } },
         }
+
+    `period`: "annual" groups by fiscal year (revenue summed across quarters);
+    "quarterly" keeps one column per fiscal quarter (values passed through).
     """
     if not payload:
         return None
+
+    is_quarterly = (period or "").lower().startswith("quarter")
 
     segments_rows: List[Dict[str, Any]] = payload.get("segments") or []
     metadata = payload.get("segments_metadata") or {}
@@ -856,9 +915,10 @@ def transform_segments(ticker: str, payload: Dict[str, Any]) -> Optional[Dict[st
         if m.get("metricId")
     }
 
-    # ── Bucket metric values by metricId × year ───────────────────────────
-    # Currency-Segment values are summed across quarters per year (revenue).
+    # ── Bucket metric values by metricId × period label ───────────────────
+    # Annual: currency-segment values are summed across quarters (revenue);
     # KPI / capacity values are snapshots → take the latest in the year.
+    # Quarterly: every quarter is its own column, values pass through.
     revenue_buckets: Dict[str, Dict[str, List[float]]] = {}
     kpi_buckets: Dict[str, Dict[str, List[Tuple[str, float]]]] = {}
 
@@ -872,9 +932,9 @@ def transform_segments(ticker: str, payload: Dict[str, Any]) -> Optional[Dict[st
         return "revenue" if info.get("isCurrency") else "kpi"
 
     for row in segments_rows:
-        year_label = _format_year_label(row)
+        label = _format_quarter_label(row) if is_quarterly else _format_year_label(row)
         date_str = row.get("date") or ""
-        if not year_label:
+        if not label:
             continue
 
         for metric_id, info in metric_info.items():
@@ -883,9 +943,9 @@ def transform_segments(ticker: str, payload: Dict[str, Any]) -> Optional[Dict[st
                 continue
             bucket = _classify(info)
             if bucket == "revenue":
-                revenue_buckets.setdefault(metric_id, {}).setdefault(year_label, []).append(value)
+                revenue_buckets.setdefault(metric_id, {}).setdefault(label, []).append(value)
             else:
-                kpi_buckets.setdefault(metric_id, {}).setdefault(year_label, []).append((date_str, value))
+                kpi_buckets.setdefault(metric_id, {}).setdefault(label, []).append((date_str, value))
 
     if not revenue_buckets and not kpi_buckets:
         return None
@@ -905,21 +965,35 @@ def transform_segments(ticker: str, payload: Dict[str, Any]) -> Optional[Dict[st
             ordered_metric_ids.append(mid)
             seen_ids.add(mid)
 
+    def _reduce_revenue(bucket: Dict[str, List[float]]) -> Dict[str, float]:
+        if is_quarterly:
+            # One row per quarter — take the latest reported value for the label.
+            return {label: vals[-1] for label, vals in bucket.items() if vals}
+        return _sum_quarterly_to_annual(bucket)
+
     business_revenue: Dict[str, Dict[str, float]] = {}
     kpi_block: Dict[str, Dict[str, float]] = {}
+    metric_meta: Dict[str, Dict[str, Any]] = {}
     for metric_id in ordered_metric_ids:
         info = metric_info.get(metric_id, {})
         name = info.get("metricName") or metric_id
+        meta = _segment_unit_meta(info)
         if metric_id in revenue_buckets:
-            business_revenue[name] = _sum_quarterly_to_annual(revenue_buckets[metric_id])
+            business_revenue[name] = _reduce_revenue(revenue_buckets[metric_id])
+            # Revenue / segment lines are monetary even if metadata is sparse.
+            metric_meta[name] = {**meta, "data_type": "monetary", "is_currency": True}
         if metric_id in kpi_buckets:
             kpi_block[name] = _latest_per_year(kpi_buckets[metric_id])
+            # KPIs keep their derived type (units, MW, %, …) — never force currency.
+            metric_meta[name] = meta
 
     # Most recent statement date (used in the FE info text)
     latest_date = max((row.get("date") or "" for row in segments_rows), default="")
 
     return {
         "symbol": ticker.upper(),
+        "currency": _currency_from_payload(payload),
+        "period": "quarterly" if is_quarterly else "annual",
         "filing_date": latest_date,
         "period_end": latest_date,
         "segments": {
@@ -934,4 +1008,5 @@ def transform_segments(ticker: str, payload: Dict[str, Any]) -> Optional[Dict[st
         "products": {
             "revenue": {},
         },
+        "metric_meta": metric_meta,
     }

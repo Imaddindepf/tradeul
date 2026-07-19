@@ -13,7 +13,6 @@ import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsCont
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
 import { EarningsCalendarContent } from '@/components/floating-window/EarningsCalendarContent';
-import { AIAlertsContent } from '@/components/floating-window/AIAlertsContent';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 // DescriptionContent removed - now using FinancialAnalystContent
@@ -49,6 +48,14 @@ import type { UserFilter } from '@/lib/types/scannerFilters';
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
     const closeCurrentWindow = useCloseCurrentWindow();
     return <TickerStrip symbol={symbol} exchange={exchange} onClose={closeCurrentWindow} />;
+}
+
+/** Rect explícito (px) para posicionar una ventana — usado por los layouts predefinidos */
+export interface WindowRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
 }
 
 /**
@@ -106,7 +113,7 @@ export function useCommandExecutor() {
     /**
      * Abrir una tabla de eventos como ventana flotante
      */
-    const openEventTable = useCallback((categoryId: string, index: number = 0) => {
+    const openEventTable = useCallback((categoryId: string, index: number = 0, rect?: WindowRect) => {
         const category = getEventCategory(categoryId);
         if (!category) {
             console.warn(`Unknown event category: ${categoryId}`);
@@ -138,10 +145,10 @@ export function useCommandExecutor() {
                     defaultFilters={category.defaultFilters}
                 />
             ),
-            width: 750,
-            height: 450,
-            x: baseX + offsetX,
-            y: baseY + offsetY,
+            width: rect?.width ?? 750,
+            height: rect?.height ?? 450,
+            x: rect?.x ?? baseX + offsetX,
+            y: rect?.y ?? baseY + offsetY,
             minWidth: 500,
             minHeight: 300,
             hideHeader: true,
@@ -154,7 +161,7 @@ export function useCommandExecutor() {
     /**
      * Abrir una tabla del scanner como ventana flotante
      */
-    const openScannerTable = useCallback((categoryId: string, index: number = 0) => {
+    const openScannerTable = useCallback((categoryId: string, index: number = 0, rect?: WindowRect) => {
         const category = getScannerCategory(categoryId);
         if (!category) {
             console.warn(`Unknown scanner category: ${categoryId}`);
@@ -174,10 +181,10 @@ export function useCommandExecutor() {
             return openWindow({
                 title,
                 content: <TickersWithNewsContent title={category.name} />,
-                width: 900,
-                height: 500,
-                x: baseX + offsetX,
-                y: baseY + offsetY,
+                width: rect?.width ?? 900,
+                height: rect?.height ?? 500,
+                x: rect?.x ?? baseX + offsetX,
+                y: rect?.y ?? baseY + offsetY,
                 minWidth: 600,
                 minHeight: 300,
                 hideHeader: true,
@@ -195,10 +202,10 @@ export function useCommandExecutor() {
                     categoryName={category.name}
                 />
             ),
-            width: 850,
-            height: 500,
-            x: baseX + offsetX,
-            y: baseY + offsetY,
+            width: rect?.width ?? 850,
+            height: rect?.height ?? 500,
+            x: rect?.x ?? baseX + offsetX,
+            y: rect?.y ?? baseY + offsetY,
             minWidth: 500,
             minHeight: 300,
             hideHeader: true,
@@ -427,15 +434,18 @@ export function useCommandExecutor() {
                 return null;
 
             case 'ai_alerts':
+                // Las alertas viven en el canvas del Agent (Mis workflows).
+                // Abrimos el Agent y pedimos la pestaña de workflows.
+                window.dispatchEvent(new CustomEvent('tradeul:ai-agent-show-workflows'));
                 openWindow({
-                    title: 'AI Alerts',
-                    content: <AIAlertsContent />,
-                    width: 480,
-                    height: 560,
-                    x: screenWidth - 510,
-                    y: 90,
-                    minWidth: 400,
-                    minHeight: 420,
+                    title: 'AI Agent',
+                    content: <AIAgentContent />,
+                    width: 1100,
+                    height: 700,
+                    x: Math.max(50, screenWidth / 2 - 550),
+                    y: Math.max(70, screenHeight / 2 - 350),
+                    minWidth: 480,
+                    minHeight: 400,
                 });
                 return null;
 

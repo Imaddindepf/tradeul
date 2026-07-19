@@ -42,6 +42,7 @@ SNAPSHOT_ENRICHED_META = "snapshot:enriched:latest:__meta__"
 SNAPSHOT_LAST_CLOSE_HASH = "snapshot:enriched:last_close"
 SNAPSHOT_ENRICHED_TTL = 600  # 10 minutes
 SNAPSHOT_LAST_CLOSE_TTL = 604800  # 7 days
+POSTMARKET_FROZEN_TTL = 259200  # 72h — survives the weekend for restart recovery
 
 
 class EnrichmentPipeline:
@@ -138,6 +139,19 @@ class EnrichmentPipeline:
         self._regular_close_frozen = False
         self._regular_volumes_cache: Dict[str, int] = {}
         self._regular_volumes_loaded = False
+
+        # Post-market metrics engine (mirrors the pre-market freeze pattern).
+        # Live maps updated every POST_MARKET cycle; frozen to Redis when the
+        # session ends so postmarket_* keeps real values while CLOSED/weekend.
+        # _postmarket_frozen: symbol → {change_percent, change_dollars, volume, high, low}
+        self._postmarket_highs: Dict[str, float] = {}
+        self._postmarket_lows: Dict[str, float] = {}
+        self._postmarket_change_pct: Dict[str, float] = {}
+        self._postmarket_change_dollars: Dict[str, float] = {}
+        self._postmarket_volumes: Dict[str, int] = {}
+        self._postmarket_frozen: Dict[str, dict] = {}
+        self._postmarket_frozen_flag = False
+        self._postmarket_recovered = False
     
     @property
     def is_holiday_mode(self) -> bool:
@@ -231,6 +245,9 @@ class EnrichmentPipeline:
             logger.info("regular_close_frozen", tickers=len(self._regular_close_cache))
         elif session != MarketSession.POST_MARKET:
             if self._regular_close_frozen:
+                # POST_MARKET just ended: freeze postmarket metrics FIRST so
+                # they keep being served while CLOSED (and survive restarts).
+                await self.freeze_postmarket_metrics_if_needed(now)
                 self._regular_close_cache.clear()
                 self._regular_close_frozen = False
                 self._regular_volumes_cache.clear()
@@ -285,6 +302,22 @@ class EnrichmentPipeline:
             self._premarket_highs.clear()
             self._premarket_lows.clear()
             self._premarket_frozen = False
+
+        # Post-market high/low: track running extremes from lastTrade during
+        # POST_MARKET (same pattern as premarket_high/low above).
+        if session == MarketSession.POST_MARKET:
+            self._postmarket_frozen_flag = False
+            for td in tickers_data:
+                sym = td.get('ticker')
+                if not sym:
+                    continue
+                lt = td.get('lastTrade', {})
+                p = lt.get('p') if isinstance(lt, dict) else None
+                if p and p > 0:
+                    if p > self._postmarket_highs.get(sym, 0):
+                        self._postmarket_highs[sym] = p
+                    if p < self._postmarket_lows.get(sym, float('inf')):
+                        self._postmarket_lows[sym] = p
         
         # Restart recovery: if analytics started after 9:30, the in-memory freeze is
         # empty. Load the frozen snapshot from Redis once so premarket_volume survives
@@ -301,6 +334,16 @@ class EnrichmentPipeline:
         # Load regular session volumes from scanner's PostMarketVolumeCapture (once per post-market)
         if session == MarketSession.POST_MARKET and not self._regular_volumes_loaded:
             await self._load_regular_volumes(now)
+
+        # Restart recovery: if analytics starts while CLOSED, load the frozen
+        # post-market metrics of the last trading day from Redis (once).
+        if (
+            session == MarketSession.CLOSED
+            and not self._postmarket_frozen
+            and not self._postmarket_recovered
+        ):
+            await self._load_postmarket_frozen(now)
+            self._postmarket_recovered = True
         
         # Get ATR batch from cache
         symbols = [t.get('ticker') for t in tickers_data if t.get('ticker')]
@@ -1008,27 +1051,45 @@ class EnrichmentPipeline:
         else:
             ticker_data.setdefault('premarket_change_percent', None)
 
-        # postmarket_change_percent (uses frozen regular close to avoid Polygon drift)
+        # postmarket_* metrics: live during POST_MARKET (frozen regular close
+        # avoids Polygon drift), frozen snapshot while CLOSED, None otherwise.
+        _sym = ticker_data.get('ticker', '')
         if _session == MarketSession.POST_MARKET:
-            _sym = ticker_data.get('ticker', '')
+            # Change % / $ vs the frozen regular close
             _reg_close = self._regular_close_cache.get(_sym)
             if _reg_close and price and _reg_close > 0:
-                ticker_data['postmarket_change_percent'] = round((price - _reg_close) / _reg_close * 100, 2)
+                _post_pct = round((price - _reg_close) / _reg_close * 100, 2)
+                _post_dollars = round(price - _reg_close, 4)
+                self._postmarket_change_pct[_sym] = _post_pct
+                self._postmarket_change_dollars[_sym] = _post_dollars
             else:
-                ticker_data['postmarket_change_percent'] = None
-        else:
-            ticker_data['postmarket_change_percent'] = None
-
-        # postmarket_volume = total volume today - regular session volume
-        if _session == MarketSession.POST_MARKET:
-            _sym = ticker_data.get('ticker', '')
+                _post_pct = None
+                _post_dollars = None
+            ticker_data['postmarket_change_percent'] = _post_pct
+            ticker_data['postmarket_change_dollars'] = _post_dollars
+            # Volume = total volume today - regular session volume
             _reg_vol = self._regular_volumes_cache.get(_sym)
             if _reg_vol is not None and _day_vol_total is not None:
-                ticker_data['postmarket_volume'] = max(0, int(_day_vol_total) - _reg_vol)
+                _post_vol = max(0, int(_day_vol_total) - _reg_vol)
+                self._postmarket_volumes[_sym] = _post_vol
             else:
-                ticker_data['postmarket_volume'] = None
+                _post_vol = None
+            ticker_data['postmarket_volume'] = _post_vol
+            ticker_data['postmarket_high'] = self._postmarket_highs.get(_sym)
+            ticker_data['postmarket_low'] = self._postmarket_lows.get(_sym)
+        elif _session == MarketSession.CLOSED and self._postmarket_frozen:
+            _frozen = self._postmarket_frozen.get(_sym) or {}
+            ticker_data['postmarket_change_percent'] = _frozen.get('change_percent')
+            ticker_data['postmarket_change_dollars'] = _frozen.get('change_dollars')
+            ticker_data['postmarket_volume'] = _frozen.get('volume')
+            ticker_data['postmarket_high'] = _frozen.get('high')
+            ticker_data['postmarket_low'] = _frozen.get('low')
         else:
+            ticker_data['postmarket_change_percent'] = None
+            ticker_data['postmarket_change_dollars'] = None
             ticker_data['postmarket_volume'] = None
+            ticker_data['postmarket_high'] = None
+            ticker_data['postmarket_low'] = None
 
         # ================================================================
         # Pre-market VOLUME (live during pre-market, frozen at 9:30 ET for the rest of the day)
@@ -1663,6 +1724,107 @@ class EnrichmentPipeline:
             logger.info("regular_volumes_loaded", count=count, date=date_str)
         except Exception as e:
             logger.error("regular_volumes_load_error", error=str(e))
+
+    # ================================================================
+    # Post-market metrics engine: freeze / recovery / daily reset
+    # (mirrors the pre-market volume engine above)
+    # ================================================================
+
+    @staticmethod
+    def _postmarket_frozen_key(date_str: str) -> str:
+        """Redis hash key for the frozen post-market metrics of a trading day."""
+        return f"session_postmarket:metrics:{date_str}"
+
+    async def freeze_postmarket_metrics_if_needed(self, now: datetime) -> None:
+        """One-shot freeze guard. Safe to call from both the enrichment cycle
+        and the SESSION_CHANGED handler (whichever runs first wins)."""
+        if not self._postmarket_frozen_flag:
+            await self._freeze_postmarket_metrics(now)
+            self._postmarket_frozen_flag = True
+
+    async def _freeze_postmarket_metrics(self, now: datetime) -> None:
+        """
+        Freeze end-of-session post-market metrics when POST_MARKET ends (20:00 ET).
+
+        Copies the in-memory live maps into _postmarket_frozen (served while
+        CLOSED) and persists one JSON blob per symbol to Redis so a restarted
+        analytics process — and the weekend last_close snapshot — keep real
+        postmarket_* values. Idempotent: HSET overwrite.
+        """
+        try:
+            symbols = (
+                set(self._postmarket_change_pct)
+                | set(self._postmarket_volumes)
+                | set(self._postmarket_highs)
+            )
+            frozen: Dict[str, dict] = {}
+            for sym in symbols:
+                frozen[sym] = {
+                    "change_percent": self._postmarket_change_pct.get(sym),
+                    "change_dollars": self._postmarket_change_dollars.get(sym),
+                    "volume": self._postmarket_volumes.get(sym),
+                    "high": self._postmarket_highs.get(sym),
+                    "low": self._postmarket_lows.get(sym),
+                }
+            self._postmarket_frozen = frozen
+
+            if frozen:
+                key = self._postmarket_frozen_key(now.strftime("%Y%m%d"))
+                pipe = self.redis.client.pipeline()
+                pipe.delete(key)
+                pipe.hset(key, mapping={
+                    s: orjson.dumps(v).decode("utf-8") for s, v in frozen.items()
+                })
+                pipe.expire(key, POSTMARKET_FROZEN_TTL)
+                await pipe.execute()
+
+            logger.info(
+                "postmarket_metrics_frozen",
+                symbols=len(frozen),
+                at=now.strftime("%H:%M:%S"),
+            )
+        except Exception as e:
+            logger.error("postmarket_metrics_freeze_error", error=str(e))
+
+    async def _load_postmarket_frozen(self, now: datetime) -> None:
+        """
+        Recover the frozen post-market metrics from Redis after a restart while
+        CLOSED. Walks back up to 4 days to find the last trading day's freeze
+        (handles the after-midnight window and weekends).
+        """
+        try:
+            from datetime import timedelta
+            for days_back in range(5):
+                date_str = (now - timedelta(days=days_back)).strftime("%Y%m%d")
+                key = self._postmarket_frozen_key(date_str)
+                raw = await self.redis.client.hgetall(key)
+                if not raw:
+                    continue
+                frozen: Dict[str, dict] = {}
+                for k, v in raw.items():
+                    sym = k.decode() if isinstance(k, bytes) else k
+                    try:
+                        frozen[sym] = orjson.loads(v)
+                    except Exception:
+                        continue
+                self._postmarket_frozen = frozen
+                logger.info("postmarket_metrics_recovered", symbols=len(frozen), date=date_str)
+                return
+            logger.info("postmarket_metrics_no_freeze_found")
+        except Exception as e:
+            logger.error("postmarket_metrics_recovery_error", error=str(e))
+
+    def reset_postmarket_for_new_day(self) -> None:
+        """Clear all post-market metric state. Called on DAY_CHANGED before pre-market."""
+        self._postmarket_highs.clear()
+        self._postmarket_lows.clear()
+        self._postmarket_change_pct.clear()
+        self._postmarket_change_dollars.clear()
+        self._postmarket_volumes.clear()
+        self._postmarket_frozen.clear()
+        self._postmarket_frozen_flag = False
+        self._postmarket_recovered = False
+        logger.info("postmarket_metrics_reset_for_new_day")
     
     # ================================================================
     # Slow-changing caches: metadata (fundamentals) + screener (daily indicators)

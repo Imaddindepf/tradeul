@@ -31,6 +31,7 @@ interface ConsolidatedField {
     source_fields?: string[];
     data_type?: string;
     balance?: 'debit' | 'credit' | null;  // debit = outflow (rojo), credit = inflow
+    section?: string;
 }
 
 interface SymbioticFinancialData {
@@ -242,6 +243,7 @@ function MetricsBlockTab({ symbol, block, period, currency, lockOverlay, dashboa
             values: f.values,
             dataType: f.data_type,
             balance: f.balance,
+            section: f.section,
         }));
         openWindow({
             title: `${symbol} — ${field?.label || metricKey}`,
@@ -481,6 +483,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
             values: f.values,
             dataType: f.data_type,
             balance: f.balance,
+            section: f.section,
         }));
 
         openWindow({
@@ -746,6 +749,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                             <SegmentsTable
                                 symbol={data.symbol}
                                 currency={data.currency}
+                                period={periodFilter}
                                 lockOverlay={lockOverlay}
                                 dashboardId={dashboardId}
                             />

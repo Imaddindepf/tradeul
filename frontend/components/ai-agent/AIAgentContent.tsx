@@ -14,6 +14,7 @@ const LazyLiveWorkflowsCanvas = dynamic(
   { ssr: false, loading: () => <div className="h-full min-h-[200px] bg-surface-hover rounded-lg animate-pulse" /> },
 );
 import { useAIAgent } from './useAIAgent';
+import { NodeInspector, type InspectTarget } from './NodeInspector';
 import { ResultBlock } from './ResultBlock';
 import { SlashCommandMenu, useSlashCommands } from './SlashCommandMenu';
 import { ConversationHistory } from './ConversationHistory';
@@ -124,6 +125,20 @@ export const AIAgentContent = memo(function AIAgentContent({
     }
     prevLoadingRef.current = isLoading;
   }, [isLoading, isNarrow]);
+
+  // Abrir canvas + Mis workflows cuando un toast/comando pide "ver alertas"
+  useEffect(() => {
+    const onShowWorkflows = () => {
+      userClosedCanvasRef.current = false;
+      setShowPipeline(true);
+    };
+    window.addEventListener('tradeul:ai-agent-show-workflows', onShowWorkflows);
+    window.addEventListener('tradeul:ai-alerts-changed', onShowWorkflows);
+    return () => {
+      window.removeEventListener('tradeul:ai-agent-show-workflows', onShowWorkflows);
+      window.removeEventListener('tradeul:ai-alerts-changed', onShowWorkflows);
+    };
+  }, []);
 
   const togglePipeline = useCallback(() => {
     setShowPipeline(p => {
@@ -1029,6 +1044,11 @@ const PipelineSidebar = memo(function PipelineSidebar({
   const hasErrors = steps.some(s => s.status === 'error');
   const isProcessing = steps.some(s => s.status === 'running');
 
+  // Inspector de nodo: clic en un nodo del canvas → modal con artifacts completos
+  const [inspecting, setInspecting] = useState<InspectTarget | null>(null);
+  const closeInspector = useCallback(() => setInspecting(null), []);
+  const openInspector = useCallback((t: InspectTarget) => setInspecting(t), []);
+
   // Pestaña activa: la ejecución manda mientras corre una consulta; si el
   // usuario cambia a mano, se respeta hasta la siguiente consulta.
   const [tab, setTab] = useState<CanvasTab>(steps.length > 0 ? 'execution' : 'workflows');
@@ -1042,15 +1062,19 @@ const PipelineSidebar = memo(function PipelineSidebar({
     prevLoadingRef.current = isLoading;
   }, [isLoading]);
 
-  // Continuidad ejecución → workflows: al armar/pausar un workflow desde el
-  // chat, el canvas salta a "Mis workflows" para mostrar dónde vive ahora.
+  // Continuidad ejecución → workflows: al armar/pausar, o al abrir "mis
+  // alertas" desde un toast/comando, el canvas salta a Mis workflows.
   useEffect(() => {
-    const onAlertsChanged = () => {
+    const goWorkflows = () => {
       userPickedRef.current = false;
       setTab('workflows');
     };
-    window.addEventListener('tradeul:ai-alerts-changed', onAlertsChanged);
-    return () => window.removeEventListener('tradeul:ai-alerts-changed', onAlertsChanged);
+    window.addEventListener('tradeul:ai-alerts-changed', goWorkflows);
+    window.addEventListener('tradeul:ai-agent-show-workflows', goWorkflows);
+    return () => {
+      window.removeEventListener('tradeul:ai-alerts-changed', goWorkflows);
+      window.removeEventListener('tradeul:ai-agent-show-workflows', goWorkflows);
+    };
   }, []);
 
   const pickTab = useCallback((t: CanvasTab) => {
@@ -1177,11 +1201,14 @@ const PipelineSidebar = memo(function PipelineSidebar({
 
             {/* Canvas en vivo — ocupa todo el panel */}
             <div className="flex-1 min-h-0 p-2">
-              <LazyExecutionGraph steps={steps} height="100%" />
+              <LazyExecutionGraph steps={steps} height="100%" onInspect={openInspector} />
             </div>
           </div>
         )}
       </div>
+
+      {/* Inspector de nodo: artifacts completos (tablas enteras, código, charts) */}
+      <NodeInspector target={inspecting} onClose={closeInspector} />
     </motion.div>
   );
 });

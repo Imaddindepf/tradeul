@@ -453,16 +453,6 @@
     "profile": "Perfil",
     "user": "Usuario"
   },
-  "announcement": {
-    "newFeature": "Novedades",
-    "communityChat": "Chat de la Comunidad",
-    "communityChatDesc": "Nuevo chat en tiempo real para conectar con otros traders. Comparte ideas, tickers con precios en vivo ($AAPL) y mantente al día.",
-    "groupsAndDMs": "Grupos y Mensajes Directos",
-    "groupsAndDMsDesc": "Crea grupos privados, invita miembros y gestiona roles. También puedes enviar mensajes directos a cualquier usuario.",
-    "chatPopOut": "Ventana Independiente",
-    "chatPopOutDesc": "Abre el chat en una ventana separada para tenerlo siempre visible mientras operas. Click en el icono ↗ para pop-out.",
-    "dismiss": "Entendido"
-  },
   "sidebar": {
     "scanner": "Escáner",
     "settings": "Configuración"
@@ -544,7 +534,54 @@
     "newWorkspace": "Nuevo Espacio",
     "create": "Crear nuevo espacio de trabajo",
     "close": "Cerrar espacio de trabajo",
-    "rename": "Renombrar espacio de trabajo"
+    "rename": "Renombrar espacio de trabajo",
+    "empty": {
+      "eyebrow": "Workspace",
+      "title": "Empieza tu sesión",
+      "subtitle": "Abre un scanner, un módulo o un comando de ticker para montar tu layout.",
+      "commandHint": "Escribe un comando o busca módulos…",
+      "scanners": "Scanners",
+      "modules": "Módulos",
+      "layouts": "Layouts predefinidos",
+      "windows": "ventanas",
+      "openLayout": "Abrir layout",
+      "sharedTicker": "ticker compartido",
+      "openWithTicker": "Abrir con un ticker",
+      "tickerHint": "Todas las ventanas compatibles cargarán este símbolo automáticamente.",
+      "open": "Abrir",
+      "withoutTicker": "Sin ticker",
+      "tip": "Comandos de ticker:"
+    },
+    "layouts": {
+      "dayTrading": {
+        "name": "Day Trading",
+        "desc": "Scanners de gaps y momentum, alertas de eventos en vivo, noticias y pulso de mercado — todo para la apertura.",
+        "audience": "Trader"
+      },
+      "investor": {
+        "name": "Análisis Fundamental",
+        "desc": "Descripción y visión general de la empresa, estados financieros, ratings de analistas y análisis de ratios.",
+        "audience": "Inversor"
+      },
+      "newsCatalysts": {
+        "name": "Noticias y Catalizadores",
+        "desc": "Feed completo de noticias, titulares de última hora, tickers moviéndose por noticias y calendario de earnings.",
+        "audience": "Catalizador"
+      },
+      "marketOverview": {
+        "name": "Visión de Mercado",
+        "desc": "Heatmap por sectores, pulso de mercado, top gainers y volumen inusual — toda la cinta de un vistazo.",
+        "audience": "Macro"
+      }
+    },
+    "modules": {
+      "news": "Feed de noticias",
+      "dt": "Dilution tracker",
+      "evn": "Estrategias de eventos",
+      "ai": "Análisis multi-agente",
+      "pulse": "Visión de mercado",
+      "screener": "Screener personalizado"
+    }
   },
   "notes": {
     "title": "Notas",

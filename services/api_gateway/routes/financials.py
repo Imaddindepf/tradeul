@@ -290,7 +290,10 @@ async def get_key_stats(
 # ============================================================================
 
 @router.get("/{symbol}/segments")
-async def get_segment_breakdown(symbol: str):
+async def get_segment_breakdown(
+    symbol: str,
+    period: str = Query("annual", description="annual | quarterly"),
+):
     """
     Business segments + KPIs (Bitcoin mined, GPUs, MW capacity, RPO, etc.) as
     surfaced by Perplexity Finance v3. Falls back to the legacy XBRL service
@@ -309,7 +312,7 @@ async def get_segment_breakdown(symbol: str):
 
     if payload:
         try:
-            segments = transform_segments(symbol, payload)
+            segments = transform_segments(symbol, payload, period)
             if segments and (
                 segments.get("segments", {}).get("revenue")
                 or segments.get("geography", {}).get("revenue")

@@ -331,6 +331,11 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   // Ref para debounce del auto-guardado
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInitializedRef = useRef(false);
+  // True once this session actually had open windows. Distinguishes "user
+  // deliberately closed everything" (persist the empty layout) from "nothing
+  // was ever restored in this tab" (persisting [] would wipe the real layout).
+  const hadWindowsRef = useRef(false);
+  if (windows.length > 0) hadWindowsRef.current = true;
 
   // Force-save layout on page unload (prevents data loss on reload)
   useEffect(() => {
@@ -343,7 +348,9 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
       if (store.isWorkspaceSwitching) return;
 
       const currentWindows = windowsRef.current;
-      if (currentWindows.length === 0) return;
+      // Mirror the auto-save rule: only persist an empty layout when this
+      // session really had windows and the user closed them all.
+      if (currentWindows.length === 0 && !hadWindowsRef.current) return;
 
       const activeWorkspaceId = store.activeWorkspaceId;
       const activeWorkspace = store.workspaces.find(w => w.id === activeWorkspaceId);
@@ -546,7 +553,11 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
       if (store.isWorkspaceSwitching) return;
 
       const currentWindows = windowsRef.current;
-      if (currentWindows.length === 0) return;
+      // An intentionally emptied workspace is a valid state and must persist
+      // (otherwise other browsers resurrect the old layout or show onboarding
+      // defaults). Only persist [] when this session actually had windows —
+      // i.e. the user deliberately closed them all.
+      if (currentWindows.length === 0 && !hadWindowsRef.current) return;
 
       // Only save if we're still on the same workspace we captured
       if (store.activeWorkspaceId !== targetWorkspaceId) return;

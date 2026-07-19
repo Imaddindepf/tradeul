@@ -314,6 +314,10 @@ _ENRICHED_FIELDS = {
     "rvol", "dollar_volume",
     "intraday_high", "intraday_low",
     "shares_outstanding",
+    "premarket_change_percent", "premarket_volume",
+    "premarket_high", "premarket_low",
+    "postmarket_change_percent", "postmarket_volume",
+    "postmarket_change_dollars", "postmarket_high", "postmarket_low",
 }
 
 

@@ -60,6 +60,11 @@ export interface WorkflowNodeSpec {
   /** Texto del footer izquierdo (p. ej. "computation step" / "live workflow"). */
   footerLabel?: string;
   blocks: NodeBlock[];
+  /**
+   * Si está definido, el nodo es inspeccionable: muestra el botón de expandir
+   * y el clic abre el inspector con los artifacts completos del nodo.
+   */
+  onOpen?: () => void;
 }
 
 export type WorkflowEdgeState = 'idle' | 'active' | 'live' | 'done' | 'fired';

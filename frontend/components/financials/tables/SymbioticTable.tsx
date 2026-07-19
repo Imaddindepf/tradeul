@@ -62,12 +62,10 @@ const formatValue = (
         return `${pct.toFixed(1)}%`;
     }
     
-    // Per share
+    // Per share — currency is shown in the table header, not per cell
     if (dataType === 'perShare') {
-        if (value < 0) {
-            return `($${Math.abs(value).toFixed(2)})`;
-        }
-        return `$${value.toFixed(2)}`;
+        const body = Math.abs(value).toFixed(2);
+        return value < 0 ? `(${body})` : body;
     }
 
     // Multiples (P/E, EV/EBITDA, turnover ratios…) → "30.08x"

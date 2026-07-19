@@ -21,6 +21,7 @@ import {
 } from '@/lib/aiAlerts';
 import { useAIAlertFiresStore, type AIAlertFire } from '@/stores/useAIAlertFiresStore';
 import { WorkflowCanvas, type FocusRequest } from './workflow/WorkflowCanvas';
+import { WorkflowInspector } from './WorkflowInspector';
 import type {
   NodeBlock, WorkflowEdgeSpec, WorkflowNodeSpec,
 } from './workflow/types';
@@ -54,6 +55,7 @@ function fmtPct(row: Record<string, number | string | undefined>): string {
 /** T4 programado: la "foto" periódica como tabla en vivo dentro del nodo. */
 function scheduledSpecToNode(
   spec: AlertSpec, fires: AIAlertFire[], justFired: boolean,
+  onOpen?: () => void,
 ): WorkflowNodeSpec {
   const armed = spec.status === 'armed';
   const lastSnap = fires.find(f => f.snapshot && f.snapshot.rows?.length);
@@ -100,6 +102,7 @@ function scheduledSpecToNode(
     footerLabel: 'scheduled workflow',
     badge: armed ? 'capturando' : undefined,
     blocks,
+    onOpen,
   };
 }
 
@@ -137,6 +140,7 @@ function engineSpec(connected: boolean, armedCount: number, firesToday: number):
 
 function alertSpecToNode(
   spec: AlertSpec, fires: AIAlertFire[], justFired: boolean,
+  onOpen?: () => void,
 ): WorkflowNodeSpec {
   const armed = spec.status === 'armed';
   const firesToday = fires.filter(f => isToday(f.timestamp)).length;
@@ -182,6 +186,7 @@ function alertSpecToNode(
     status: justFired ? 'fired' : armed ? 'live' : 'paused',
     footerLabel: 'live workflow',
     blocks,
+    onOpen,
   };
 }
 
@@ -257,6 +262,8 @@ export const LiveWorkflowsCanvas = memo(function LiveWorkflowsCanvas({
   const [loaded, setLoaded] = useState(false);
   const [focusReq, setFocusReq] = useState<FocusRequest | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Inspector de workflow (la antigua ventana AI Alerts, fusionada al canvas)
+  const [inspectingId, setInspectingId] = useState<string | null>(null);
   const fires = useAIAlertFiresStore(s => s.fires);
   const connected = useAIAlertFiresStore(s => s.connected);
 
@@ -316,9 +323,10 @@ export const LiveWorkflowsCanvas = memo(function LiveWorkflowsCanvas({
     const alertNodes = ordered.map(spec => {
       const specFires = firesBySpec.get(spec.id) || [];
       const justFired = specFires.some(f => !f.backlog && now - f.receivedAt < FIRE_GLOW_MS);
+      const onOpen = () => setInspectingId(spec.id);
       return spec.tier === 'scheduled'
-        ? scheduledSpecToNode(spec, specFires, justFired)
-        : alertSpecToNode(spec, specFires, justFired);
+        ? scheduledSpecToNode(spec, specFires, justFired, onOpen)
+        : alertSpecToNode(spec, specFires, justFired, onOpen);
     });
 
     const layers: WorkflowNodeSpec[][] = alertNodes.length
@@ -435,6 +443,12 @@ export const LiveWorkflowsCanvas = memo(function LiveWorkflowsCanvas({
           focusRequest={focusReq}
         />
       </div>
+
+      {/* Inspector: detalle completo del workflow (spec + historial de disparos) */}
+      <WorkflowInspector
+        spec={specs.find(s => s.id === inspectingId) || null}
+        onClose={() => setInspectingId(null)}
+      />
     </div>
   );
 });

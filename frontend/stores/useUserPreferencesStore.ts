@@ -173,6 +173,13 @@ interface UserPreferencesState extends UserPreferences {
   isSyncing: boolean;
   /** Última vez que se sincronizó */
   lastSyncedAt: number | null;
+  /**
+   * True once the initial GET /user/preferences received a server response
+   * this session. Gates layout restoration AND outbound sync/beacon: writing
+   * to the backend before reading it lets a cold browser (stale/empty
+   * localStorage) overwrite the user's real layout with defaults.
+   */
+  backendLoadComplete: boolean;
   
   // Workspace Switching Flag
   /** Flag para indicar que se está cambiando de workspace (desactiva auto-save) */
@@ -229,7 +236,7 @@ const DEFAULT_MAIN_WORKSPACE: Workspace = {
   isMain: true,
 };
 
-const DEFAULT_PREFERENCES: UserPreferences & { isSyncing: boolean; lastSyncedAt: number | null; isWorkspaceSwitching: boolean } = {
+const DEFAULT_PREFERENCES: UserPreferences & { isSyncing: boolean; lastSyncedAt: number | null; isWorkspaceSwitching: boolean; backendLoadComplete: boolean } = {
   colors: DEFAULT_COLORS,
   theme: DEFAULT_THEME,
   chart: DEFAULT_CHART,
@@ -241,6 +248,7 @@ const DEFAULT_PREFERENCES: UserPreferences & { isSyncing: boolean; lastSyncedAt:
   // Sync state (not persisted)
   isSyncing: false,
   lastSyncedAt: null,
+  backendLoadComplete: false,
   isWorkspaceSwitching: false,
   columnVisibility: {},
   columnOrder: {},
@@ -468,6 +476,9 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       // ========================================
       syncWorkspacesToBackend: async (getToken?: () => Promise<string | null>) => {
         if (get().isSyncing) return;
+        // Read-before-write: never push local state to the backend until the
+        // initial load succeeded, or a cold browser overwrites the real layout.
+        if (!get().backendLoadComplete) return;
         set({ isSyncing: true });
         
         try {
@@ -518,10 +529,18 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
             method: 'GET',
             headers,
             credentials: 'include',
+            // Safari aggressively caches GETs without cache headers; a stale
+            // cached response here would resurrect an old layout and sync it
+            // back to the server. Always hit the network.
+            cache: 'no-store',
           });
           
           if (!response.ok) return false;
-          
+
+          // A successful response (even default prefs for a new user) means
+          // "we know the server state" — from here on it's safe to sync out.
+          set({ backendLoadComplete: true });
+
           const data = await response.json();
           
           if (data.workspaces && data.workspaces.length > 0) {
@@ -558,6 +577,15 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
               }
             }
 
+            // New users get a synthetic default Main with createdAt=0 from the
+            // API; any real (saved) workspace row has createdAt > 0. This lets
+            // us mark returning users as initialized even when they left every
+            // workspace intentionally empty — so they get the empty state, not
+            // the onboarding defaults.
+            const serverHasRealWorkspaces = remoteWorkspaces.some(
+              (w) => (w.createdAt ?? 0) > 0
+            );
+
             const remoteActiveId = data.activeWorkspaceId || 'main';
             const validActiveId = hydratedWorkspaces.some((w) => w.id === local.activeWorkspaceId)
               ? local.activeWorkspaceId
@@ -574,7 +602,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
               columnOrder: data.columnOrder || {},
               // Keep layoutInitialized in sync so workspace page does not open defaults.
               layoutInitialized:
-                hasWorkspaceLayouts || legacyWindowLayouts.length > 0
+                hasWorkspaceLayouts || legacyWindowLayouts.length > 0 || serverHasRealWorkspaces
                   ? true
                   : local.layoutInitialized,
               workspacesModifiedAt: data.updatedAt ? new Date(data.updatedAt).getTime() : Date.now(),

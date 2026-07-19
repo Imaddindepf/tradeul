@@ -285,6 +285,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           if (pending) {
             const assistantId = pending.assistantMsgId;
             currentMessageIdRef.current = assistantId;
+            const runId = typeof data.run_id === 'string' ? data.run_id : undefined;
             setMessages(prev => [...prev, {
               id: assistantId,
               role: 'assistant',
@@ -292,7 +293,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
               timestamp: new Date(),
               status: 'thinking',
               steps: [],
-              thinkingStartTime: Date.now()
+              thinkingStartTime: Date.now(),
+              runId,
             }]);
           }
           break;
@@ -323,13 +325,18 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           const elapsed = data.elapsed_ms ? data.elapsed_ms / 1000 : 0;
           const preview = data.preview as string || '';
           const cardData = data.data as AgentStep['data'] | undefined;
+          // Referencia a artifacts completos persistidos (inspector de nodo)
+          const artRaw = data.artifacts as { run_id?: string; kinds?: string[]; count?: number } | undefined;
+          const artifacts = artRaw?.run_id
+            ? { runId: artRaw.run_id, kinds: artRaw.kinds || [], count: artRaw.count || 0 }
+            : undefined;
           setMessages(prev => prev.map(m =>
             m.id === msgId
               ? {
                 ...m,
                 steps: (m.steps || []).map(s =>
                   s.id === `step-${nodeName}`
-                    ? { ...s, status: 'complete' as const, duration: elapsed, description: preview || undefined, data: cardData }
+                    ? { ...s, status: 'complete' as const, duration: elapsed, description: preview || undefined, data: cardData, artifacts }
                     : s
                 )
               }
@@ -343,6 +350,10 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           const nodeName = data.node as string;
           const msgId = currentMessageIdRef.current;
           if (!msgId) break;
+          const artRaw = data.artifacts as { run_id?: string; kinds?: string[]; count?: number } | undefined;
+          const artifacts = artRaw?.run_id
+            ? { runId: artRaw.run_id, kinds: artRaw.kinds || [], count: artRaw.count || 0 }
+            : undefined;
           const substep = {
             id: data.step_id as string,
             title: (data.title as string) || '',
@@ -350,6 +361,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
             status: (data.status as 'running' | 'complete' | 'error') || 'running',
             durationMs: (data.duration_ms as number) || undefined,
             blocks: (data.blocks as unknown[]) || [],
+            ...(artifacts ? { artifacts } : {}),
           };
           setMessages(prev => prev.map(m => {
             if (m.id !== msgId) return m;
@@ -359,14 +371,24 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
                 if (s.id !== `step-${nodeName}`) return s;
                 const subs = [...(s.substeps || [])];
                 const idx = subs.findIndex(x => x.id === substep.id);
-                if (idx !== -1) subs[idx] = { ...subs[idx], ...substep };
-                else subs.push(substep);
+                if (idx !== -1) {
+                  // Preserve previous artifacts if this update is still "running"
+                  const prevArt = subs[idx].artifacts;
+                  subs[idx] = { ...subs[idx], ...substep, artifacts: substep.artifacts || prevArt };
+                } else {
+                  subs.push(substep);
+                }
                 return { ...s, substeps: subs };
               }),
             };
           }));
           break;
         }
+
+        // Protocolo unificado (backend emite además de los legacy). Ignorado
+        // aquí: los handlers legacy ya actualizan el estado del canvas.
+        case 'node_update':
+          break;
 
         case 'agent_progress': {
           const msgId = currentMessageIdRef.current;

@@ -65,10 +65,29 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
       !hasLoadedRef.current
     ) {
       hasLoadedRef.current = true;
-      isLoadingRef.current = true;
-      loadFromBackend(getToken).finally(() => {
-        isLoadingRef.current = false;
-      });
+
+      // Retry with backoff: a single failed GET would leave the session
+      // without server state forever — layout restore falls back to stale
+      // localStorage and outbound sync stays blocked for the whole session.
+      let cancelled = false;
+      let attempt = 0;
+      const tryLoad = () => {
+        if (cancelled) return;
+        isLoadingRef.current = true;
+        loadFromBackend(getToken)
+          .then(() => {
+            const done = useUserPreferencesStore.getState().backendLoadComplete;
+            if (!done && !cancelled && attempt < 5) {
+              attempt += 1;
+              setTimeout(tryLoad, Math.min(2000 * attempt, 8000));
+            }
+          })
+          .finally(() => {
+            isLoadingRef.current = false;
+          });
+      };
+      tryLoad();
+      return () => { cancelled = true; };
     }
   }, [isLoaded, isSignedIn, options.enableInitialLoad, loadFromBackend, getToken]);
 
@@ -85,6 +104,9 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
     }
     prefsSyncTimeoutRef.current = setTimeout(() => {
       if (isLoadingRef.current) return;
+      // Never write to the backend before we've read it: a cold browser with
+      // stale/empty localStorage would overwrite the user's real layout.
+      if (!useUserPreferencesStore.getState().backendLoadComplete) return;
       syncWorkspacesToBackend(getToken);
     }, PREFS_SYNC_DEBOUNCE_MS);
 
@@ -110,6 +132,10 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
       if (!isSignedIn || !navigator.sendBeacon) return;
 
       const state = useUserPreferencesStore.getState();
+      // Same guard as the debounced sync: if this session never loaded the
+      // server state, beaconing the (possibly default) local store on unload
+      // would wipe the user's real layout saved from another browser.
+      if (!state.backendLoadComplete) return;
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       const payload = JSON.stringify({
         workspaces: state.workspaces,

@@ -26,6 +26,7 @@ from auth import (
 from handlers.rest_handler import router as rest_router
 from handlers.trigger_handler import router as trigger_router
 from handlers.alerts_handler import router as alerts_router
+from handlers.runs_handler import router as runs_router
 from handlers.websocket_handler import handle_websocket
 from handlers.alerts_ws import handle_alerts_websocket
 
@@ -76,6 +77,11 @@ async def lifespan(app: FastAPI):
     alert_store = get_store()
     await alert_store.init()
 
+    # Run/artifact store (inspector de nodo; non-fatal if unavailable)
+    from runs.store import get_run_store
+    run_store = get_run_store()
+    await run_store.init()
+
     # Scheduler runtime (T4 "every N minutes" snapshot workflows)
     from alerts.scheduler import SchedulerRuntime
     scheduler = SchedulerRuntime()
@@ -120,6 +126,12 @@ async def lifespan(app: FastAPI):
     # Close the alert spec store pool
     try:
         await alert_store.close()
+    except Exception:
+        pass
+
+    # Close the run/artifact store pool
+    try:
+        await run_store.close()
     except Exception:
         pass
 
@@ -217,6 +229,7 @@ app.add_middleware(
 app.include_router(rest_router)
 app.include_router(trigger_router)
 app.include_router(alerts_router)
+app.include_router(runs_router)
 
 # ── WebSocket endpoint ───────────────────────────────────────────
 

@@ -130,10 +130,16 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps<Workf
     ? data.blocks.filter((_, i) => i !== tableIdx && i !== codeIdx)
     : data.blocks;
 
+  const openable = Boolean(data.onOpen);
+
   return (
     <div
       style={{ width: CARD_W }}
-      className={`relative overflow-hidden rounded-xl border backdrop-blur-sm transition-all duration-500 ${CARD_STYLE[status]}`}
+      onDoubleClick={openable ? () => data.onOpen?.() : undefined}
+      className={`relative overflow-hidden rounded-xl border backdrop-blur-sm transition-all duration-500 ${CARD_STYLE[status]} ${
+        openable ? 'cursor-pointer hover:brightness-110' : ''
+      }`}
+      title={openable ? 'Doble clic o ↗ para abrir el inspector' : undefined}
     >
       {status === 'running' && <Scanline />}
       {status === 'live' && <Scanline slow />}
@@ -155,6 +161,18 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps<Workf
         <span className="text-[10px] font-semibold text-foreground leading-tight flex-1 truncate" title={data.title}>
           {data.title}
         </span>
+        {openable && (
+          <button
+            onClick={(e) => { e.stopPropagation(); data.onOpen?.(); }}
+            className="shrink-0 rounded p-0.5 text-muted-fg/50 transition-colors hover:bg-surface-inset hover:text-foreground nodrag"
+            title="Abrir inspector — datos completos del nodo"
+            aria-label="Abrir inspector del nodo"
+          >
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+            </svg>
+          </button>
+        )}
         <StatusDot status={status} />
       </div>
 
