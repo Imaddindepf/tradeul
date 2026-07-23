@@ -481,6 +481,7 @@ services:
     volumes:
       - polygon_data:/data/polygon # Write metadata for screener
       - backtester_data:/data/backtester # minute_aggs_adjusted + splits
+      - lake_data:/data/lake # Event Lake (backtester v2: events + reference point-in-time)
     environment:
       - TIMEZONE=America/New_York
       - MAINTENANCE_SCHEDULE=MARKET_CLOSE
@@ -1500,6 +1501,8 @@ volumes:
   pattern_indexes:
     driver: local
   backtester_data:
+    driver: local
+  lake_data:
     driver: local
 
 

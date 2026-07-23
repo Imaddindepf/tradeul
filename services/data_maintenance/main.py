@@ -95,7 +95,13 @@ async def lifespan(app: FastAPI):
     # Recibe daily_scheduler para usar su lógica de holidays (sin duplicar)
     flat_files_watcher = FlatFilesWatcher(redis_client, daily_scheduler)
     watcher_task = asyncio.create_task(flat_files_watcher.run())
-    
+
+    # Event Lake archiver (Backtester v2 Fase 0): market_events tiene retención
+    # de 3 días — este loop horario archiva a Parquet antes de la purga.
+    from lake_archiver_scheduler import LakeArchiverScheduler
+    lake_archiver = LakeArchiverScheduler(timescale_client)
+    lake_archiver_task = asyncio.create_task(lake_archiver.run())
+
     logger.info("=" * 60)
     logger.info("📅 Schedule: Daily maintenance at 3:00 AM ET")
     logger.info("   (1 hour before pre-market opens at 4:00 AM ET)")
@@ -118,7 +124,13 @@ async def lifespan(app: FastAPI):
     
     daily_scheduler.stop()
     scheduler_task.cancel()
-    
+
+    lake_archiver_task.cancel()
+    try:
+        await lake_archiver_task
+    except asyncio.CancelledError:
+        pass
+
     try:
         await watcher_task
     except asyncio.CancelledError:
