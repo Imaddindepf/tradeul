@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, Hash, Users, Plus, X, Search, ChevronDown, ChevronRight, MoreVertical, LogOut, Trash2, Settings, AlertTriangle } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -25,7 +26,10 @@ interface ConfirmModalProps {
   onCancel: () => void;
 }
 
-function ConfirmModal({ isOpen, title, message, confirmText = 'Confirmar', cancelText = 'Cancelar', variant = 'danger', onConfirm, onCancel }: ConfirmModalProps) {
+function ConfirmModal({ isOpen, title, message, confirmText, cancelText, variant = 'danger', onConfirm, onCancel }: ConfirmModalProps) {
+  const { t } = useTranslation();
+  const confirm = confirmText ?? t('common.confirm');
+  const cancel = cancelText ?? t('common.cancel');
   if (!isOpen) return null;
 
   return (
@@ -67,7 +71,7 @@ function ConfirmModal({ isOpen, title, message, confirmText = 'Confirmar', cance
               onClick={onCancel}
               className="px-2.5 py-1 text-[10px] rounded border border-border hover:bg-muted transition-colors"
             >
-              {cancelText}
+              {cancel}
             </button>
             <button
               onClick={onConfirm}
@@ -76,7 +80,7 @@ function ConfirmModal({ isOpen, title, message, confirmText = 'Confirmar', cance
                 variant === 'danger' ? "bg-danger hover:bg-danger/90" : "bg-warning hover:bg-warning/90"
               )}
             >
-              {confirmText}
+              {confirm}
             </button>
           </div>
         </motion.div>
@@ -96,6 +100,7 @@ interface UserResult {
 }
 
 export function ChatContent() {
+  const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -624,14 +629,14 @@ export function ChatContent() {
       {/* Confirmation Modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
-        title={confirmModal.type === 'delete' ? 'Eliminar grupo' : 'Salir del grupo'}
+        title={confirmModal.type === 'delete' ? t('chat.deleteGroup') : t('chat.leaveGroup')}
         message={
           confirmModal.type === 'delete'
-            ? 'Esta acción eliminará el grupo y todos sus mensajes permanentemente.'
-            : `¿Seguro que quieres salir de "${activeGroup?.name || 'este grupo'}"?`
+            ? t('chat.deleteGroupMessage')
+            : t('chat.leaveGroupMessage', { name: activeGroup?.name || t('chat.thisGroup') })
         }
-        confirmText={confirmModal.type === 'delete' ? 'Eliminar' : 'Salir'}
-        cancelText="Cancelar"
+        confirmText={confirmModal.type === 'delete' ? t('chat.delete') : t('chat.leave')}
+        cancelText={t('common.cancel')}
         variant={confirmModal.type === 'delete' ? 'danger' : 'warning'}
         onConfirm={() => {
           if (confirmModal.type === 'delete') {

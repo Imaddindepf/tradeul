@@ -9,6 +9,7 @@
  * (typewriter de specs, cascada de filas, scanline) viven en workflow/.
  */
 import { memo, useMemo } from 'react';
+import i18n from '@/lib/i18n';
 import type { AgentStep, CanvasSubstep, NodeCardData } from './types';
 import { WorkflowCanvas } from './workflow/WorkflowCanvas';
 import type {
@@ -35,23 +36,26 @@ export const NODE_TITLES: Record<string, string> = {
   context_brief: 'Contexto Fundamental',
 };
 
-const NODE_SUBTITLES: Record<string, string> = {
-  query_planner: 'routing + intent',
-  supervisor: 'routing + intent',
-  market_data: 'precios · rvol · técnica',
-  news_events: 'noticias · earnings · eventos',
-  financial: 'fundamentales',
-  research: 'búsqueda web + citas',
-  code_exec: 'python sandbox',
-  screener: 'filtros duckdb',
-  backtest: 'simulación P&L',
-  synthesizer: 'respuesta final',
-  dilution: 'SEC · ATM · S-3',
-  strategy_scanner: 'secuencias de eventos',
-  alert_compiler: 'NL → spec ejecutable',
-  alert_manager: 'alertas guardadas',
-  context_enricher: 'régimen de mercado',
-};
+function nodeSubtitle(name: string): string | undefined {
+  const hints: Record<string, string> = {
+    query_planner: 'routing + intent',
+    supervisor: 'routing + intent',
+    market_data: i18n.t('aiAgent.execHints.market_data'),
+    news_events: 'noticias · earnings · eventos',
+    financial: 'fundamentales',
+    research: i18n.t('aiAgent.execHints.research'),
+    code_exec: 'python sandbox',
+    screener: 'filtros duckdb',
+    backtest: i18n.t('aiAgent.execHints.backtest'),
+    synthesizer: 'respuesta final',
+    dilution: 'SEC · ATM · S-3',
+    strategy_scanner: 'secuencias de eventos',
+    alert_compiler: 'NL → spec ejecutable',
+    alert_manager: 'alertas guardadas',
+    context_enricher: i18n.t('aiAgent.execHints.context_enricher'),
+  };
+  return hints[name];
+}
 
 const PLANNERS = new Set(['query_planner', 'supervisor']);
 const FINALS = new Set(['synthesizer']);
@@ -175,14 +179,14 @@ export const ExecutionGraph = memo(function ExecutionGraph({
       return {
         id: name,
         title,
-        subtitle: NODE_SUBTITLES[name],
+        subtitle: nodeSubtitle(name),
         status,
         stepNumber: stepCounter,
         duration: step?.duration,
         blocks: cardToBlocks(name, step, status),
         // Nodo inspeccionable: sus outputs completos están persistidos
         onOpen: (art && onInspect)
-          ? () => onInspect({ runId: art.runId, node: name, title, subtitle: NODE_SUBTITLES[name] })
+          ? () => onInspect({ runId: art.runId, node: name, title, subtitle: nodeSubtitle(name) })
           : undefined,
       };
     };

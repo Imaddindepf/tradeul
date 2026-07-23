@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Check, X, Users, Loader2 } from 'lucide-react';
 import { useUser } from '@clerk/nextjs';
+import { useTranslation } from 'react-i18next';
 import { useChatStore } from '@/stores/useChatStore';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 import { cn } from '@/lib/utils';
@@ -11,6 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
 
 export function ChatInvites() {
+  const { t } = useTranslation();
   const { authFetch, isSignedIn } = useAuthFetch();
   const { user } = useUser();
   const { invites, addInvite, removeInvite, groups, setGroups, setActiveTarget } = useChatStore();
@@ -108,8 +110,8 @@ export function ChatInvites() {
             <Users className="w-4 h-4 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-[11px] truncate">
-                <span className="text-muted-foreground font-medium">{invite.inviter_name || 'Alguien'}</span>
-                {' te invitó a '}
+                <span className="text-muted-foreground font-medium">{invite.inviter_name || t('chat.someone')}</span>
+                {t('chat.invitedYouTo')}
                 <span className="font-medium text-primary">{invite.group_name}</span>
               </p>
             </div>
@@ -121,14 +123,14 @@ export function ChatInvites() {
                 <button
                   onClick={() => handleAccept(invite)}
                   className="p-1 rounded bg-success/20 text-success hover:bg-success/30 transition-colors"
-                  title="Aceptar"
+                  title={t('chat.accept')}
                 >
                   <Check className="w-3 h-3" />
                 </button>
                 <button
                   onClick={() => handleDecline(invite)}
                   className="p-1 rounded bg-danger/20 text-danger hover:bg-danger/30 transition-colors"
-                  title="Rechazar"
+                  title={t('chat.decline')}
                 >
                   <X className="w-3 h-3" />
                 </button>

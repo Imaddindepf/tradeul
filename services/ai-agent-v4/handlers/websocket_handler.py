@@ -182,13 +182,23 @@ async def _deliver_with_retry(
 
 async def _handle_context_brief(
     websocket: WebSocket, client_id: str, message: dict[str, Any],
-    thread_id: str, query: str,
-) -> None:
-    """Route a 'context brief' request to the ai-news-brief service (Opus 4.8).
+    thread_id: str, query: str, user_id: str, run_id: str = "",
+) -> tuple[bool, dict[str, Any] | None]:
+    """Route a 'context brief' FIRST TURN to the ai-news-brief service (Opus).
 
-    First turn -> full fundamental brief of the news.
-    Follow-up (thread already has history) -> conversational answer, same engine,
-    keeping the original news as context.
+    First turn -> full fundamental brief of the news, handled here directly
+    (generating the brief needs no planning; keeps the staged-progress UX).
+
+    Follow-ups (thread already has history) are NOT handled here since Fase 3b:
+    they enter the graph, where the planner sees the `news_brief` agent
+    alongside the live agents and decides — brief engine alone, live data
+    alone, or both in parallel (the hybrid the old binary LIVE/CHAT router
+    in agents/brief_router.py could not express; that module is now obsolete).
+
+    Returns (handled, brief_state):
+      - (True, None): turn fully handled here.
+      - (False, {"news_context", "brief_history"}): caller must run the graph
+        with these fields in the initial state.
 
     Persists each turn to the same Redis memory the normal agent uses, so it
     shows up in conversation history and supports follow-ups.
@@ -211,7 +221,7 @@ async def _handle_context_brief(
     history: list[dict[str, str]] = []
     if memory:
         try:
-            past = await memory.get_conversation_history("default", thread_id, limit=8)
+            past = await memory.get_conversation_history(user_id, thread_id, limit=8)
             for turn in past:
                 q = turn.get("query")
                 r = turn.get("response")
@@ -223,6 +233,17 @@ async def _handle_context_brief(
             logger.warning("context_brief history load failed: %s", exc)
 
     is_followup = len(history) > 0
+
+    # Fase 3b: TODO follow-up de brief entra al grafo — el planner decide
+    # entre news_brief (conversacional), agentes live (datos de mercado) o
+    # ambos en paralelo. Devolvemos la noticia + historial ya cargados para
+    # que el caller los inyecte en el estado inicial del grafo.
+    if is_followup:
+        logger.info(
+            "context_brief handoff → graph (follow-up on brief thread) "
+            "thread=%s query=%r", thread_id, (clean_q or query)[:80],
+        )
+        return False, {"news_context": news_ctx, "brief_history": history}
 
     # Abre un "step" visible para que el usuario vea el progreso en vivo.
     await _deliver(websocket, client_id, {
@@ -257,7 +278,9 @@ async def _handle_context_brief(
             "type": "error",
             "message": f"El brief de contexto falló: {exc}",
         })
-        return
+        if run_id:
+            await get_run_store().finish_run(run_id, "error")
+        return True, None
 
     pump.cancel()
     heartbeat_task.cancel()
@@ -272,7 +295,7 @@ async def _handle_context_brief(
     if memory:
         try:
             await memory.store_conversation(
-                user_id="default",
+                user_id=user_id,
                 thread_id=thread_id,
                 query=(clean_q or query)[:500],
                 response=brief_md[:15000],
@@ -327,9 +350,31 @@ async def _handle_context_brief(
             "brief remains in thread memory", client_id, thread_id,
         )
 
+    # Cierre del run + artifact auditable (antes los runs de brief quedaban
+    # en estado "running" para siempre y sin rastro inspeccionable).
+    if run_id:
+        store = get_run_store()
+        await store.save_artifacts(run_id, "context_brief", [{
+            "kind": "markdown",
+            "title": "Brief follow-up" if is_followup else "Context brief",
+            "markdown": brief_md[:20000],
+            "sources": sources,
+            "tools_used": tools_used,
+            "elapsed_ms": total_ms,
+            "engine": "ai-news-brief",
+        }])
+        await store.finish_run(run_id, "complete")
 
-async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
+    return True, None
+
+
+async def handle_websocket(
+    websocket: WebSocket, client_id: str, user_id: str,
+) -> None:
     """Handle a single WebSocket connection for real-time chat.
+
+    ``user_id`` is the authenticated Clerk sub — every persisted artifact of
+    the conversation (memory, runs, alert specs) is scoped to it.
 
     Protocol (client -> server):
         {
@@ -347,12 +392,19 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
         {"type": "error",          "message": "..."}
     """
     await websocket.accept()
+    # SECURITY: the reconnect-delivery table is keyed by client_id, which comes
+    # from the client-controlled URL path. Namespacing it with the authenticated
+    # user_id ensures a colliding/forged client_id from user B can never resolve
+    # to user A's socket (no cross-tenant response delivery). All helpers take
+    # this composite as their opaque `client_id` key.
+    client_id = f"{user_id}:{client_id}"
     logger.info("WebSocket connected: client_id=%s", client_id)
     # Register as the latest live socket for this client (reconnect delivery).
     _ACTIVE_SOCKETS[client_id] = websocket
 
     # Lazy import to avoid circular dependency at module level
     from graph.orchestrator import get_graph
+    from limits import check_rate, clamp_query, RateLimitExceeded
 
     try:
         while True:
@@ -375,6 +427,23 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 # Empty query = heartbeat/ping, ignore silently
                 continue
 
+            # ── Input bound + per-user throttle (expensive multi-LLM service) ──
+            query, size_err = clamp_query(query)
+            if size_err:
+                await _safe_send(websocket, {"type": "error", "message": size_err})
+                continue
+            _memory = getattr(websocket.app.state, "memory", None)
+            if _memory is not None:
+                try:
+                    await check_rate(await _memory._get_redis(), user_id)
+                except RateLimitExceeded as rl:
+                    await _safe_send(websocket, {
+                        "type": "error",
+                        "message": f"Vas demasiado rápido. Reintenta en {rl.retry_after}s.",
+                        "retry_after": rl.retry_after,
+                    })
+                    continue
+
             thread_id = message.get("thread_id", f"{client_id}-{int(time.time())}")
             market_context = message.get("market_context", {})
             mode = message.get("mode", "auto")
@@ -389,7 +458,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             run_id = uuid.uuid4().hex[:16]
             run_store = get_run_store()
             asyncio.create_task(run_store.create_run(
-                run_id, thread_id=thread_id, query=query,
+                run_id, user_id=user_id, thread_id=thread_id, query=query,
             ))
 
             # Acknowledge receipt
@@ -400,10 +469,21 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             }):
                 continue
 
-            # ── Context Brief mode: route to ai-news-brief (Opus), bypass graph ──
+            # ── Context Brief mode ──
+            # Primer turno: brief completo vía ai-news-brief (Opus), directo.
+            # Follow-ups (Fase 3b): entran al grafo con news_context +
+            # brief_history en el estado; el planner elige entre news_brief,
+            # agentes live, o ambos en paralelo.
+            brief_state: dict[str, Any] | None = None
             if mode == "context_brief" or query.startswith("/contexto"):
-                await _handle_context_brief(websocket, client_id, message, thread_id, query)
-                continue
+                handled, brief_state = await _handle_context_brief(
+                    websocket, client_id, message, thread_id, query, user_id,
+                    run_id=run_id,
+                )
+                if handled:
+                    continue
+                if query.startswith("/contexto"):
+                    query = query[len("/contexto"):].strip() or query
 
             # Build initial agent state (V5 parallel architecture)
             # If user chose a clarification option, prepend context
@@ -417,13 +497,15 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             if memory:
                 try:
                     memory_context = await memory.build_memory_context(
-                        user_id="default", thread_id=thread_id, query=query,
+                        user_id=user_id, thread_id=thread_id, query=query,
                     )
                 except Exception as mem_exc:
                     logger.warning("memory_context load failed: %s", mem_exc)
 
             initial_state: dict[str, Any] = {
                 "messages": [{"role": "user", "content": effective_query}],
+                "user_id": user_id,
+                "run_id": run_id,
                 "query": effective_query,
                 "language": language,
                 "mode": mode if mode in ("auto", "quick", "deep") else "auto",
@@ -440,6 +522,8 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "workflow_id": None,
                 "trigger_context": None,
                 "node_config": None,
+                "news_context": (brief_state or {}).get("news_context"),
+                "brief_history": (brief_state or {}).get("brief_history"),
                 "final_response": "",
                 "structured_response": None,
                 "execution_metadata": {},
@@ -449,7 +533,9 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "error": None,
             }
 
-            config = {"configurable": {"thread_id": thread_id}}
+            # Checkpoints namespaced por usuario: dos usuarios con el mismo
+            # thread_id del cliente nunca comparten estado del grafo.
+            config = {"configurable": {"thread_id": f"{user_id}:{thread_id}"}}
 
             # Stream graph execution events
             graph = get_graph()
@@ -462,7 +548,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "news_events", "financial", "research", "code_exec",
                 "screener", "backtest", "synthesizer",
                 "dilution", "strategy_scanner", "alert_compiler", "alert_manager",
-                "context_enricher",
+                "news_brief", "context_enricher",
             }
 
             # Keepalive runs alongside the stream so long silent nodes
@@ -782,7 +868,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                         turn_intent = final_state.values.get("intent", "") or ""
 
                     await memory.store_conversation(
-                        user_id="default",
+                        user_id=user_id,
                         thread_id=thread_id,
                         query=query,
                         # Full response (final_response is already capped at

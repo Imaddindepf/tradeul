@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDownIcon } from './icons';
 import { INTERVAL_GROUPS, type Interval } from './constants';
 import { Tooltip } from './Tooltip';
@@ -27,6 +28,7 @@ const ALL_ITEMS = [
 ];
 
 export function ChartTimeframeTabs({ selectedInterval, onSelect }: Props) {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -84,21 +86,21 @@ export function ChartTimeframeTabs({ selectedInterval, onSelect }: Props) {
                     onMouseDown={(e) => e.stopPropagation()}
                 >
                     <DropdownGroup
-                        title="Minutos"
+                        title={t('chart.minutes')}
                         items={INTERVAL_GROUPS.intraday}
                         selected={selectedInterval}
                         onSelect={select}
                     />
                     <div className="my-0.5 border-t border-[color:var(--color-border-subtle)]" />
                     <DropdownGroup
-                        title="Horas"
+                        title={t('chart.hours')}
                         items={INTERVAL_GROUPS.hourly}
                         selected={selectedInterval}
                         onSelect={select}
                     />
                     <div className="my-0.5 border-t border-[color:var(--color-border-subtle)]" />
                     <DropdownGroup
-                        title="Días"
+                        title={t('chart.days')}
                         items={INTERVAL_GROUPS.daily}
                         selected={selectedInterval}
                         onSelect={select}

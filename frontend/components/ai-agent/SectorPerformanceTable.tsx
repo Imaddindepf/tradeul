@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useState, useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
 import { ChartContent } from '@/components/chart/ChartContent';
@@ -40,6 +41,7 @@ const TickerChip = memo(function TickerChip({
     ticker: string;
     onOpenChart: (t: string) => void;
 }) {
+    const { t } = useTranslation();
     return (
         <button
             onClick={(e) => {
@@ -47,7 +49,7 @@ const TickerChip = memo(function TickerChip({
                 onOpenChart(ticker);
             }}
             className="px-0.5 py-px bg-surface-inset hover:bg-primary/15 text-foreground hover:text-primary rounded text-[9px] font-[family-name:var(--font-mono-selected)] transition-colors cursor-pointer"
-            title={`Abrir gráfico de ${ticker}`}
+            title={t('aiAgent.openChartOf', { ticker })}
         >
             {ticker}
         </button>

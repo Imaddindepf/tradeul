@@ -142,9 +142,9 @@ export function SettingsContent() {
               <span className="text-[9px] text-muted-fg w-12">{t('settings.theme', 'Theme')}</span>
               <div className="flex gap-0.5 bg-surface-inset rounded p-0.5">
                 {([
-                  { id: 'light' as const, icon: Sun, label: 'Light' },
-                  { id: 'dark' as const, icon: Moon, label: 'Dark' },
-                  { id: 'system' as const, icon: Monitor, label: 'Auto' },
+                  { id: 'light' as const, icon: Sun, label: t('common.themeLight') },
+                  { id: 'dark' as const, icon: Moon, label: t('common.themeDark') },
+                  { id: 'system' as const, icon: Monitor, label: t('common.themeAuto') },
                 ] as const).map(({ id, icon: Icon, label }) => (
                   <button
                     key={id}

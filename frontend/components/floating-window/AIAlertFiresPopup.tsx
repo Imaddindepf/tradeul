@@ -8,11 +8,13 @@
  * cuerpo abre el panel AI Alerts.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BellRing, X, Volume2 } from 'lucide-react';
 import { useAIAlertFiresStore, selectPopupFires } from '@/stores/useAIAlertFiresStore';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 
 export function AIAlertFiresPopup() {
+  const { t } = useTranslation();
   const fires = useAIAlertFiresStore(selectPopupFires);
   const dismissFire = useAIAlertFiresStore((s) => s.dismissFire);
   const { executeTickerCommand } = useCommandExecutor();
@@ -83,7 +85,7 @@ export function AIAlertFiresPopup() {
                   <Volume2 className="w-3 h-3" /> RVOL {fire.rvol.toFixed(1)}x
                 </span>
               )}
-              <span className="ml-auto text-[9.5px] text-muted-fg">hace {fmtTime(fire.timestamp)}</span>
+              <span className="ml-auto text-[9.5px] text-muted-fg">{t('common.ago', { time: fmtTime(fire.timestamp) })}</span>
             </div>
           </button>
         </div>

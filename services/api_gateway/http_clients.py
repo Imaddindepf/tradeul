@@ -318,6 +318,33 @@ class FMPClient:
         )
         response.raise_for_status()
         return response.json()
+
+    async def get_all_exchange_market_hours(self) -> List[Dict]:
+        """Horarios de todas las bolsas (/stable/all-exchange-market-hours)."""
+        response = await self._client.get(
+            "/stable/all-exchange-market-hours",
+            params={"apikey": self.api_key},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_exchange_market_hours(self, exchange: str) -> List[Dict]:
+        """Horarios de una bolsa (/stable/exchange-market-hours)."""
+        response = await self._client.get(
+            "/stable/exchange-market-hours",
+            params={"exchange": exchange, "apikey": self.api_key},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_holidays_by_exchange(self, exchange: str) -> List[Dict]:
+        """Festivos de una bolsa (/stable/holidays-by-exchange)."""
+        response = await self._client.get(
+            "/stable/holidays-by-exchange",
+            params={"exchange": exchange, "apikey": self.api_key},
+        )
+        response.raise_for_status()
+        return response.json()
     
     async def close(self):
         """Cierra el cliente"""

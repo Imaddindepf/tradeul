@@ -39,7 +39,7 @@ gateway = FastMCP(
         "- News: Benzinga real-time news and catalyst alerts\n"
         "- Earnings: Calendar with EPS/revenue estimates and actuals\n"
         "- SEC Filings: Real-time EDGAR filings (8-K, 10-K, S-1, etc.)\n"
-        "- Financials: XBRL financial statements, ratios, segments\n"
+        "- Financials: Financial statements, ratios, key stats, adjusted metrics, segments\n"
         "- Dilution: Warrant tracking, ATM offerings, cash runway, risk scores\n"
         "- Screener: DuckDB-powered screening with 60+ indicators\n"
         "- Historical: 1760+ days of OHLCV data (minute + daily)\n"
@@ -186,12 +186,31 @@ async def cleanup():
 # REST API for direct tool invocation (used by AI Agent V4)
 # Wraps FastMCP tools in a simple JSON POST endpoint.
 # ──────────────────────────────────────────────────────────────────────
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 import orjson
 import traceback
+import hmac
+import logging as _logging
+
+_gwlog = _logging.getLogger("mcp_gateway.rest")
 
 rest_app = FastAPI(title="Tradeul MCP Gateway REST API")
+
+# Internal service token. The gateway sits on the private bridge network and
+# proxies data services (incl. a TimescaleDB tool that aggregates ~12M rows),
+# so callers must present a shared secret. Safe rollout: if MCP_GATEWAY_TOKEN
+# is unset the check is disabled and behaviour is unchanged — set the env var
+# on the gateway AND on ai-agent-v4 to turn enforcement on.
+_GATEWAY_TOKEN = os.getenv("MCP_GATEWAY_TOKEN", "").strip()
+
+
+def _require_token(request: Request) -> None:
+    if not _GATEWAY_TOKEN:
+        return
+    provided = request.headers.get("x-mcp-token", "")
+    if not provided or not hmac.compare_digest(provided, _GATEWAY_TOKEN):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 @rest_app.get("/health")
@@ -200,8 +219,9 @@ async def health():
 
 
 @rest_app.get("/api/tools")
-async def list_tools():
+async def list_tools(request: Request):
     """List all available MCP tools (public FastMCP API, works on v3.x)."""
+    _require_token(request)
     tools = []
     try:
         for tool in await gateway.list_tools():
@@ -221,6 +241,7 @@ async def call_tool(tool_name: str, request: Request):
     Body: JSON object with tool arguments.
     Returns: {"result": ...} or {"error": "..."}
     """
+    _require_token(request)
     try:
         body = await request.json()
     except Exception:
@@ -252,11 +273,15 @@ async def call_tool(tool_name: str, request: Request):
                 return JSONResponse(content={"result": result})
         else:
             return JSONResponse(content={"result": str(result)})
+    except HTTPException:
+        raise
     except Exception as e:
-        tb = traceback.format_exc()
+        # Log the full traceback server-side; never leak internal structure
+        # (paths, stack) to callers.
+        _gwlog.warning("tool %s failed: %s", tool_name, traceback.format_exc())
         return JSONResponse(
             status_code=500,
-            content={"error": str(e), "traceback": tb}
+            content={"error": f"tool execution failed: {type(e).__name__}"}
         )
 
 

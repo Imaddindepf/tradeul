@@ -83,6 +83,9 @@ class _Financials:
     get_balance_sheet = MCPTool("financials", "get_balance_sheet")
     get_cash_flow = MCPTool("financials", "get_cash_flow")
     get_segments = MCPTool("financials", "get_segments")
+    get_financial_ratios = MCPTool("financials", "get_financial_ratios")
+    get_key_stats = MCPTool("financials", "get_key_stats")
+    get_adjusted_metrics = MCPTool("financials", "get_adjusted_metrics")
 
 
 class _Dilution:

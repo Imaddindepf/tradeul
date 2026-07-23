@@ -20,6 +20,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 import jwt
+from fastapi import HTTPException, Request
 from jwt import PyJWKClient
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,31 @@ logger = logging.getLogger(__name__)
 
 class AgentAuthError(Exception):
     """El token no es válido / no se pudo verificar."""
+
+
+def user_id_from_claims(claims: dict[str, Any]) -> str:
+    """El user_id canónico de la plataforma es el `sub` del JWT de Clerk."""
+    sub = str(claims.get("sub") or "").strip()
+    if not sub:
+        raise AgentAuthError("token has no sub claim")
+    return sub
+
+
+def request_user_id(request: Request) -> str:
+    """Dependencia FastAPI: usuario autenticado inyectado por ClerkAuthMiddleware.
+
+    El middleware verifica el JWT en toda ruta HTTP (salvo /api/health) y deja
+    el sub en request.state.user_id. Si falta, la request no pasó por el
+    middleware o el token no traía sub → 401.
+    """
+    uid = getattr(request.state, "user_id", None)
+    if not uid:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return uid
 
 
 def _derive_domain_from_pk() -> Optional[str]:

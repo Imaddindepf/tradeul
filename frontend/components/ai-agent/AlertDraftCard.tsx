@@ -6,12 +6,14 @@
  * dry-run evidence ("when it would have fired") and a one-click arm button.
  */
 import { memo, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@clerk/nextjs';
 import dynamic from 'next/dynamic';
 import {
   ArrowRight, BellRing, CheckCircle2, ChevronDown, ChevronRight,
   Clock, Copy, Globe, Loader2, ShieldCheck, SlidersHorizontal, Timer, Zap,
 } from 'lucide-react';
+import i18n from '@/lib/i18n';
 import {
   AlertDraftPayload, armAlert, formatPriceLevel, formatUniverse, fmtCooldown, matchSteps,
 } from '@/lib/aiAlerts';
@@ -24,12 +26,9 @@ const LazyEvidenceChart = dynamic(
   },
 );
 
-const TIER_LABELS: Record<string, string> = {
-  event_match: 'Evento en vivo',
-  sequence: 'Secuencia',
-  membership: 'Ranking',
-  agentic: 'Workflow',
-};
+function tierLabel(tier: string): string {
+  return i18n.t(`aiAlerts.tier.${tier}`, { defaultValue: tier });
+}
 
 function pct(v: number | undefined): string {
   if (v == null || isNaN(v)) return '—';
@@ -65,6 +64,7 @@ function PipelineNode({
 }
 
 function SpecPipeline({ alert }: { alert: AlertDraftPayload }) {
+  const { t } = useTranslation();
   const universeChips = formatUniverse(alert.universe);
   const symbols = alert.universe?.symbols_include || [];
   const filterChips = symbols.length
@@ -79,10 +79,10 @@ function SpecPipeline({ alert }: { alert: AlertDraftPayload }) {
 
   return (
     <div className="flex items-stretch gap-1">
-      <PipelineNode icon={<Globe className="w-2.5 h-2.5" />} label="Universo">
+      <PipelineNode icon={<Globe className="w-2.5 h-2.5" />} label={t('aiAgent.draft.universe')}>
         {symbols.length
           ? chip(symbols.join(' '), 'bg-surface-hover text-foreground font-semibold')
-          : chip('Todo el mercado')}
+          : chip(t('aiAgent.draft.entireMarket'))}
         {filterChips.map(c => chip(c))}
       </PipelineNode>
 
@@ -90,11 +90,11 @@ function SpecPipeline({ alert }: { alert: AlertDraftPayload }) {
         <ArrowRight className="w-3 h-3" />
       </span>
 
-      <PipelineNode icon={<Zap className="w-2.5 h-2.5" />} label="Condición" accent>
+      <PipelineNode icon={<Zap className="w-2.5 h-2.5" />} label={t('aiAgent.draft.condition')} accent>
         {alert.steps.map((s, i) =>
           chip(
             `${alert.steps.length > 1 ? `${i + 1}· ` : ''}${s.event_types.join('|')}` +
-            (s.after === 'opening_low' ? ' tras mín.' : '') +
+            (s.after === 'opening_low' ? t('aiAgent.draft.afterOpeningLow') : '') +
             (s.within_minutes ? ` ≤${s.within_minutes}m` : ''),
             'bg-primary/10 text-primary',
           ),
@@ -109,7 +109,9 @@ function SpecPipeline({ alert }: { alert: AlertDraftPayload }) {
         )}
         {alert.membership &&
           chip(
-            `${alert.membership.on === 'enter' ? 'entra en' : 'sale de'} ${alert.membership.category}` +
+            (alert.membership.on === 'enter'
+              ? t('aiAgent.draft.enterCategory', { category: alert.membership.category })
+              : t('aiAgent.draft.exitCategory', { category: alert.membership.category })) +
             (alert.membership.rank_lte != null ? ` top${alert.membership.rank_lte}` : ''),
             'bg-primary/10 text-primary',
           )}
@@ -122,20 +124,20 @@ function SpecPipeline({ alert }: { alert: AlertDraftPayload }) {
         <ArrowRight className="w-3 h-3" />
       </span>
 
-      <PipelineNode icon={<Timer className="w-2.5 h-2.5" />} label="Control">
+      <PipelineNode icon={<Timer className="w-2.5 h-2.5" />} label={t('aiAgent.draft.cooldown')}>
         {alert.lifecycle?.cooldown_seconds != null &&
           chip(`cooldown ${fmtCooldown(alert.lifecycle.cooldown_seconds)}`)}
         {alert.lifecycle?.max_fires_per_day != null &&
-          chip(`máx ${alert.lifecycle.max_fires_per_day}/día`)}
+          chip(t('aiAgent.draft.maxPerDay', { count: alert.lifecycle.max_fires_per_day }))}
       </PipelineNode>
 
       <span className="self-center flex-shrink-0 text-muted-fg/50">
         <ArrowRight className="w-3 h-3" />
       </span>
 
-      <PipelineNode icon={<BellRing className="w-2.5 h-2.5" />} label="Aviso">
-        {chip('feed en vivo')}
-        {chip('popup + sonido')}
+      <PipelineNode icon={<BellRing className="w-2.5 h-2.5" />} label={t('aiAgent.draft.feed')}>
+        {chip(t('aiAgent.draft.liveFeedChip'))}
+        {chip(t('aiAgent.draft.popupSound'))}
       </PipelineNode>
     </div>
   );
@@ -149,6 +151,7 @@ function SpecPipeline({ alert }: { alert: AlertDraftPayload }) {
 const COOLDOWN_PRESETS = [60, 300, 900, 1800, 3600];
 
 function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () => void }) {
+  const { t } = useTranslation();
   const [cooldown, setCooldown] = useState<number>(alert.lifecycle?.cooldown_seconds ?? 900);
   const [minRvol, setMinRvol] = useState(
     alert.universe?.min_rvol != null ? String(alert.universe.min_rvol) : '',
@@ -164,17 +167,23 @@ function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () =
   const buildChanges = (): string[] => {
     const changes: string[] = [];
     if (cooldown !== (alert.lifecycle?.cooldown_seconds ?? 900)) {
-      changes.push(`cooldown de ${fmtCooldown(cooldown)}`);
+      changes.push(t('aiAgent.draft.cooldownOf', { value: fmtCooldown(cooldown) }));
     }
     const origRvol = alert.universe?.min_rvol != null ? String(alert.universe.min_rvol) : '';
-    if (minRvol !== origRvol && minRvol.trim()) changes.push(`RVOL mínimo ${minRvol.trim()}`);
+    if (minRvol !== origRvol && minRvol.trim()) {
+      changes.push(t('aiAgent.draft.minRvol', { value: minRvol.trim() }));
+    }
     const origPrice = alert.universe?.min_price != null ? String(alert.universe.min_price) : '';
-    if (minPrice !== origPrice && minPrice.trim()) changes.push(`precio mínimo $${minPrice.trim()}`);
+    if (minPrice !== origPrice && minPrice.trim()) {
+      changes.push(t('aiAgent.draft.minPrice', { value: minPrice.trim() }));
+    }
     levels.forEach((l, i) => {
       const orig = alert.price_levels?.[i];
       if (orig && String(orig.value) !== l.value && l.value.trim()) {
         changes.push(
-          `${l.direction === 'above' ? 'nivel superior (reclaim)' : 'nivel inferior (pérdida)'} en $${l.value.trim()}`,
+          l.direction === 'above'
+            ? t('aiAgent.draft.levelAbove', { value: l.value.trim() })
+            : t('aiAgent.draft.levelBelow', { value: l.value.trim() }),
         );
       }
     });
@@ -187,9 +196,8 @@ function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () =
   const handleApply = () => {
     if (!changes.length) return;
     const message =
-      `Recompila esta alerta con ajustes. Alerta original: «${alert.paraphrase}» ` +
-      `Cambios que quiero: ${changes.join('; ')}.`;
-    window.dispatchEvent(new CustomEvent('agent:send', { detail: { message } }));
+      t('aiAgent.draft.recompilePrefix', { paraphrase: alert.paraphrase }) +
+      changes.join('; ') + '.';    window.dispatchEvent(new CustomEvent('agent:send', { detail: { message } }));
     onSent();
   };
 
@@ -223,14 +231,14 @@ function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () =
         <div className="grid grid-cols-2 gap-1.5">
           <div>
             <div className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-fg mb-1">
-              RVOL mín
+              {t('aiAgent.draft.minRvolLabel')}
             </div>
             <input value={minRvol} onChange={e => setMinRvol(e.target.value)}
               placeholder="—" inputMode="decimal" className={inputCls} />
           </div>
           <div>
             <div className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-fg mb-1">
-              Precio mín
+              {t('aiAgent.draft.minPriceLabel')}
             </div>
             <input value={minPrice} onChange={e => setMinPrice(e.target.value)}
               placeholder="—" inputMode="decimal" className={inputCls} />
@@ -241,7 +249,7 @@ function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () =
       {levels.length > 0 && (
         <div>
           <div className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-fg mb-1">
-            Niveles de precio
+            {t('aiAgent.draft.priceLevelsLabel')}
           </div>
           <div className="flex gap-1.5">
             {levels.map((l, i) => (
@@ -267,13 +275,13 @@ function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () =
 
       <div>
         <div className="text-[8.5px] font-semibold uppercase tracking-wider text-muted-fg mb-1">
-          Otros cambios (lenguaje natural)
+          {t('aiAgent.draft.otherChanges')}
         </div>
         <input
           value={extra}
           onChange={e => setExtra(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleApply()}
-          placeholder="p. ej. solo premarket, añade NVDA, máximo 5 avisos al día…"
+          placeholder={t('aiAgent.draft.adjustPlaceholder')}
           className={inputCls}
         />
       </div>
@@ -281,8 +289,8 @@ function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () =
       <div className="flex items-center justify-between">
         <span className="text-[9px] text-muted-fg">
           {changes.length
-            ? `${changes.length} cambio${changes.length > 1 ? 's' : ''}: ${changes.join(' · ')}`
-            : 'Modifica algo para recompilar'}
+            ? t('aiAgent.draft.changesCount', { count: changes.length, list: changes.join(' · ') })
+            : t('aiAgent.draft.modifyToRecompile')}
         </span>
         <button
           onClick={handleApply}
@@ -290,7 +298,7 @@ function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () =
           className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-primary text-white
                      hover:bg-primary/90 disabled:opacity-40 transition-colors flex-shrink-0"
         >
-          Recompilar
+          {t('aiAgent.draft.recompile')}
         </button>
       </div>
     </div>
@@ -298,6 +306,7 @@ function AdjustPanel({ alert, onSent }: { alert: AlertDraftPayload; onSent: () =
 }
 
 export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: AlertDraftPayload }) {
+  const { t } = useTranslation();
   const { getToken } = useAuth();
   const [armState, setArmState] = useState<'idle' | 'arming' | 'armed' | 'error'>(
     alert.status === 'armed' ? 'armed' : 'idle',
@@ -328,16 +337,16 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
       setArmState('armed');
       const kind = (res as { kind?: string }).kind;
       if (res.live) {
-        if (kind === 'sequence') setArmNote('Secuencia CEP activa — disparará cuando se complete A→B.');
-        else if (kind === 'membership') setArmNote('Watch de ranking activo — disparará al entrar/salir del scanner.');
-        else setArmNote('Activa en el motor en tiempo real — los disparos llegarán a tu feed.');
+        if (kind === 'sequence') setArmNote(t('aiAgent.draft.noteSequence'));
+        else if (kind === 'membership') setArmNote(t('aiAgent.draft.noteMembership'));
+        else setArmNote(t('aiAgent.draft.noteLive'));
       } else {
-        setArmNote(res.note || 'Guardada, pero no evaluable en vivo (contexto de fin de día).');
+        setArmNote(res.note || t('aiAgent.draft.noteSavedOffline'));
       }
       window.dispatchEvent(new CustomEvent('tradeul:ai-alerts-changed'));
     } catch (e) {
       setArmState('error');
-      setArmNote(e instanceof Error ? e.message : 'No se pudo activar la alerta');
+      setArmNote(e instanceof Error ? e.message : t('aiAgent.draft.armFailed'));
     }
   };
 
@@ -356,16 +365,16 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-primary/10 text-primary">
             {alert.tier === 'event_match' ? <Zap className="w-2.5 h-2.5" /> : <Clock className="w-2.5 h-2.5" />}
-            {TIER_LABELS[alert.tier] || alert.tier}
+            {tierLabel(alert.tier)}
           </span>
           {isDuplicate && (
             <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-500/10 text-amber-500">
-              ya existe
+              {t('aiAgent.draft.alreadyExists')}
             </span>
           )}
           {!isDuplicate && alert.armable_now && armState !== 'armed' && (
             <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-500/10 text-emerald-500">
-              lista para activar
+              {t('aiAgent.draft.readyToArm')}
             </span>
           )}
         </div>
@@ -374,15 +383,12 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
       <div className="p-3 space-y-2.5">
         {isDuplicate && exact[0] && (
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 text-[10.5px] text-foreground/80 leading-relaxed">
-            Ya tienes una alerta equivalente:{' '}
-            <span className="font-semibold">«{exact[0].name}»</span>
-            {' '}(estado: <span className="font-mono">{exact[0].status}</span>).
-            No he creado un borrador nuevo — puedes reactivarla o gestionarla en el panel.
+            {t('aiAgent.draft.duplicateBody', { name: exact[0].name, status: exact[0].status })}
           </div>
         )}
         {!isDuplicate && near.length > 0 && (
           <div className="rounded-lg border border-border bg-surface-inset/50 px-2.5 py-2 text-[10px] text-muted-fg">
-            Parecida(s) que ya tienes:{' '}
+            {t('aiAgent.draft.similarExisting')}{' '}
             {near.map((n, i) => (
               <span key={n.spec_id}>
                 {i > 0 && ', '}
@@ -390,7 +396,7 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
                 <span className="font-mono"> ({n.status})</span>
               </span>
             ))}
-            . Creo esta como borrador nuevo por si quieres ambas.
+            {t('aiAgent.draft.createAsNewDraft')}
           </div>
         )}
 
@@ -406,19 +412,20 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
             <div className="flex items-baseline gap-2">
               <span className="text-[16px] font-bold tabular-nums text-foreground">{dry.total_fires}</span>
               <span className="text-[10px] text-muted-fg">
-                {dry.total_fires === 1 ? 'disparo' : 'disparos'} en los últimos {dry.days_scanned.length} días de mercado
+                {t('aiAgent.draft.fire', { count: dry.total_fires })}{' '}
+                {t('aiAgent.draft.inLastMarketDays', { days: dry.days_scanned.length })}
                 {dry.unique_symbols.length > 1 &&
-                  ` · ${dry.unique_symbols.length}${dry.unique_symbols.length >= 30 ? '+' : ''} símbolos`}
+                  ` · ${dry.unique_symbols.length}${dry.unique_symbols.length >= 30 ? '+' : ''} ${t('aiAgent.draft.symbols')}`}
               </span>
             </div>
             {noisy && (
               <div className="text-[9.5px] text-amber-500">
-                ~{avgPerDay}/día: puede ser ruidosa. Considera subir RVOL, precio mínimo o el cooldown.
+                {t('aiAgent.draft.noisyHint', { avg: avgPerDay })}
               </div>
             )}
             {dry.total_fires === 0 && (
               <div className="text-[9.5px] text-muted-fg">
-                No ocurrió recientemente — la condición es muy restrictiva o poco frecuente.
+                {t('aiAgent.draft.noRecentFires')}
               </div>
             )}
 
@@ -438,7 +445,7 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
                     ? <ChevronDown className="w-3 h-3" />
                     : <ChevronRight className="w-3 h-3" />}
                   <span className="font-mono">{day.date}</span>
-                  <span className="text-muted-fg">· {day.count} {day.count === 1 ? 'disparo' : 'disparos'}</span>
+                  <span className="text-muted-fg">· {day.count} {t('aiAgent.draft.fire', { count: day.count })}</span>
                 </button>
                 {expandedDay === day.date && (
                   <div className="mt-1 ml-4 overflow-x-auto">
@@ -446,10 +453,10 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
                       <thead>
                         <tr className="text-muted-fg text-left">
                           <th className="pr-2 py-0.5 font-medium">Ticker</th>
-                          <th className="pr-2 py-0.5 font-medium">Evento</th>
-                          <th className="pr-2 py-0.5 font-medium">Hora</th>
-                          <th className="pr-2 py-0.5 font-medium text-right">Precio</th>
-                          <th className="pr-2 py-0.5 font-medium text-right">Cierre vs Open</th>
+                          <th className="pr-2 py-0.5 font-medium">{t('aiAlerts.event')}</th>
+                          <th className="pr-2 py-0.5 font-medium">{t('aiAgent.draft.time')}</th>
+                          <th className="pr-2 py-0.5 font-medium text-right">{t('aiAlerts.price')}</th>
+                          <th className="pr-2 py-0.5 font-medium text-right">{t('aiAgent.draft.closeVsOpen')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border-subtle">
@@ -485,7 +492,7 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
           {armState === 'armed' || (isDuplicate && alert.status === 'armed') ? (
             <span className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-emerald-500">
               <ShieldCheck className="w-3.5 h-3.5" />
-              {isDuplicate ? 'Ya está activa' : 'Alerta activada'}
+              {isDuplicate ? t('aiAlerts.alertAlreadyActive') : t('aiAlerts.alertArmed')}
             </span>
           ) : (
             <button
@@ -496,9 +503,9 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
                          disabled:cursor-not-allowed transition-colors"
             >
               {armState === 'arming'
-                ? <><Loader2 className="w-3 h-3 animate-spin" /> Activando…</>
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> {t('aiAlerts.arming')}</>
                 : <><CheckCircle2 className="w-3 h-3" />
-                  {isDuplicate ? 'Reactivar alerta' : 'Activar alerta'}</>}
+                  {isDuplicate ? t('aiAlerts.rearmAlert') : t('aiAlerts.armAlert')}</>}
             </button>
           )}
           {!isDuplicate && (
@@ -510,7 +517,7 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
                   : 'text-foreground/70 hover:text-foreground hover:bg-surface-hover'}`}
             >
               <SlidersHorizontal className="w-3 h-3" />
-              Ajustar
+              {t('aiAgent.draft.adjust')}
             </button>
           )}
           <button
@@ -518,7 +525,7 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
             className="px-2.5 py-1.5 rounded-lg text-[10.5px] font-medium text-foreground/70
                        hover:text-foreground hover:bg-surface-hover transition-colors"
           >
-            Mis workflows
+            {t('aiAgent.draft.myWorkflows')}
           </button>
         </div>
 
@@ -530,7 +537,7 @@ export const AlertDraftCard = memo(function AlertDraftCard({ alert }: { alert: A
         )}
         {!alert.persisted && !isDuplicate && (
           <p className="text-[9.5px] text-amber-500">
-            El borrador no se pudo guardar (persistencia no disponible) — vuelve a pedir la alerta.
+            {t('aiAgent.draft.persistFailed')}
           </p>
         )}
       </div>

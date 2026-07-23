@@ -56,6 +56,10 @@ Your audience: experienced day traders and institutional analysts who demand pre
 
 You MUST return a JSON object matching the provided schema. Every field you populate must come from the agent_results data — NEVER hallucinate prices, volumes, percentages, or company info.
 
+<tool_status>
+If a "tool_status" object is present, each listed agent FAILED to return data (timeout or error) — its absence is a tool failure, NOT an absence of market activity. Never present missing data as if it were a finding (e.g. do not conclude "no hay movers" when the scanner failed). State briefly that that data source was temporarily unavailable, and answer with what you do have.
+</tool_status>
+
 <language>
 {language_instruction}
 All text fields (session_context, section titles, section content, bullets, key_takeaways) must be in the specified language.
@@ -241,6 +245,30 @@ def _compact_alert_result(result: dict) -> dict:
     return clean
 
 
+def _collect_tool_status(agent_results: dict) -> dict:
+    """Surface per-agent failure signals the LLM would otherwise never see.
+
+    A failed specialist and a genuine "no data" must be distinguishable: an
+    agent that timed out / crashed (guard status) or whose tool returned an
+    in-band error should be reported as unavailable, not silently omitted.
+    """
+    status: dict[str, dict] = {}
+    for name, result in agent_results.items():
+        if not isinstance(result, dict):
+            continue
+        err = None
+        if result.get("status") == "tool_error":
+            err = result.get("error") or "tool_error"
+        elif result.get("error"):
+            err = result.get("error")
+        elif result.get("_errors"):
+            errs = result.get("_errors")
+            err = "; ".join(map(str, errs)) if isinstance(errs, list) else str(errs)
+        if err:
+            status[name] = {"available": False, "detail": str(err)[:300]}
+    return status
+
+
 def _prepare_results_payload(agent_results: dict) -> dict:
     """Prepare a clean, size-limited payload for the synthesizer LLM."""
     MAX_PER_AGENT = 30_000
@@ -248,6 +276,10 @@ def _prepare_results_payload(agent_results: dict) -> dict:
 
     payload = {}
     total_size = 0
+
+    tool_status = _collect_tool_status(agent_results)
+    if tool_status:
+        payload["tool_status"] = tool_status
 
     for agent_name, result in agent_results.items():
         if not isinstance(result, dict):
@@ -497,6 +529,33 @@ async def synthesizer_node(state: dict) -> dict:
     agent_results = state.get("agent_results", {})
     language = state.get("language", "en")
     ticker_info = state.get("ticker_info", {})
+
+    # ── News-brief fast-path (Fase 3b) ──
+    # Si el único agente fue el motor de briefs, su markdown (Opus) ya es la
+    # respuesta final pulida: reescribirla con el synthesizer solo añadiría
+    # latencia y degradaría la voz del brief. Passthrough literal.
+    # Con resultados mixtos (news_brief + agentes live) sí se sintetiza.
+    nb_result = agent_results.get("news_brief", {})
+    if (
+        len(agent_results) == 1
+        and isinstance(nb_result, dict)
+        and nb_result.get("status") == "success"
+        and nb_result.get("brief_markdown")
+    ):
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        return {
+            "final_response": nb_result["brief_markdown"],
+            "execution_metadata": {
+                **(state.get("execution_metadata", {})),
+                "synthesizer": {
+                    "elapsed_ms": elapsed_ms,
+                    "result_agents": ["news_brief"],
+                    "response_length": len(nb_result["brief_markdown"]),
+                    "language": language,
+                    "news_brief_fast_path": True,
+                },
+            },
+        }
 
     # ── Backtest fast-path (unchanged) ──
     bt_result = agent_results.get("backtest", {})

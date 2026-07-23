@@ -17,11 +17,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from alerts.dryrun import run_dry_run
 from alerts.spec import AlertSpec, AlertStatus
 from alerts.store import get_store
+from auth import request_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def _trigger_engine(request: Request):
 
 @router.get("")
 async def list_alerts(
-    user_id: str = Query("default"),
+    user_id: str = Depends(request_user_id),
     include_archived: bool = Query(False),
 ) -> dict[str, Any]:
     specs = await _store_or_503().list_specs(user_id, include_archived=include_archived)
@@ -61,14 +62,16 @@ async def list_alerts(
 
 
 @router.get("/{spec_id}")
-async def get_alert(spec_id: str, user_id: str = Query("default")) -> dict[str, Any]:
+async def get_alert(
+    spec_id: str, user_id: str = Depends(request_user_id),
+) -> dict[str, Any]:
     spec = await _spec_or_404(spec_id, user_id)
     return spec.model_dump(mode="json")
 
 
 @router.post("/{spec_id}/arm")
 async def arm_alert(
-    spec_id: str, request: Request, user_id: str = Query("default"),
+    spec_id: str, request: Request, user_id: str = Depends(request_user_id),
 ) -> dict[str, Any]:
     """Arm a draft/paused spec.
 
@@ -138,7 +141,7 @@ async def arm_alert(
 
 @router.post("/{spec_id}/pause")
 async def pause_alert(
-    spec_id: str, request: Request, user_id: str = Query("default"),
+    spec_id: str, request: Request, user_id: str = Depends(request_user_id),
 ) -> dict[str, Any]:
     store = _store_or_503()
     spec = await _spec_or_404(spec_id, user_id)
@@ -161,7 +164,7 @@ async def pause_alert(
 @router.post("/{spec_id}/dry-run")
 async def rerun_dry_run(
     spec_id: str,
-    user_id: str = Query("default"),
+    user_id: str = Depends(request_user_id),
     days: int = Query(5, ge=1, le=10),
 ) -> dict[str, Any]:
     store = _store_or_503()
@@ -180,7 +183,7 @@ async def rerun_dry_run(
 @router.get("/{spec_id}/fires")
 async def list_alert_fires(
     spec_id: str,
-    user_id: str = Query("default"),
+    user_id: str = Depends(request_user_id),
     limit: int = Query(50, ge=1, le=200),
 ) -> dict[str, Any]:
     await _spec_or_404(spec_id, user_id)
@@ -190,7 +193,7 @@ async def list_alert_fires(
 
 @router.delete("/{spec_id}", status_code=200)
 async def archive_alert(
-    spec_id: str, request: Request, user_id: str = Query("default"),
+    spec_id: str, request: Request, user_id: str = Depends(request_user_id),
 ) -> dict[str, Any]:
     store = _store_or_503()
     spec = await _spec_or_404(spec_id, user_id)

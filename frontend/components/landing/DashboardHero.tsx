@@ -941,7 +941,8 @@ export function DashboardHero() {
   const [flashRow, setFlashRow]       = useState<string | null>(null);
 
   // Responsive scaler: medimos el contenedor y escalamos el mockup (que es pixel-fijo internamente).
-  // Cap a 1.45x para que en 4K no se vea grotesco, floor a 0.5x para mobile/tablet.
+  // Cap a 1.45x para que en 4K no se vea grotesco. Sin floor: en móvil escala
+  // hasta caber en el viewport en vez de desbordar por detrás.
   const scalerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   useEffect(() => {
@@ -950,7 +951,7 @@ export function DashboardHero() {
     const update = () => {
       const w = el.getBoundingClientRect().width;
       if (!w) return;
-      const s = Math.min(Math.max(w / HERO_INTRINSIC_W, 0.5), 1.45);
+      const s = Math.min(w / HERO_INTRINSIC_W, 1.45);
       setScale(s);
     };
     update();

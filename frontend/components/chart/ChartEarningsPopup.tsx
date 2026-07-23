@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/lib/i18n';
 import type { EarningsRecord } from './hooks/useEarningsMarkers';
 import { EarningsBadgeIcon, CloseIcon } from './icons';
 
 /**
  * In-pane popup shown when the user clicks an earnings marker. Mirrors the
- * TradingView "Beneficios e ingresos" panel — same sections, same number
+ * TradingView "{t('chart.earningsPopup.title')}" panel — same sections, same number
  * formatting, same color cues for surprise %.
  *
  * Positioning: anchored at (x, y) in chart-container coords. Clamped so it
@@ -31,6 +33,7 @@ const PANEL_MAX_HEIGHT = 360;
 export function ChartEarningsPopup({
     record, ticker, x, y, containerWidth, containerHeight, onClose, onOpenMore,
 }: ChartEarningsPopupProps) {
+    const { t } = useTranslation();
     const ref = useRef<HTMLDivElement>(null);
 
     // Click outside / Escape closes.
@@ -92,13 +95,13 @@ export function ChartEarningsPopup({
                         E
                     </span>
                     <span className="font-semibold text-[color:var(--color-fg)]">
-                        Beneficios e ingresos
+                        {t('chart.earningsPopup.title')}
                     </span>
                 </div>
                 <button
                     onClick={onClose}
                     className="p-0.5 rounded text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)] hover:bg-[color:var(--color-surface-hover)]"
-                    aria-label="Cerrar"
+                    aria-label={t('common.close')}
                 >
                     <CloseIcon className="w-3.5 h-3.5" />
                 </button>
@@ -106,57 +109,57 @@ export function ChartEarningsPopup({
 
             {/* Metadata rows */}
             <div className="px-3 py-2 grid grid-cols-2 gap-y-1 text-[color:var(--color-muted-fg)]">
-                <span>Fecha</span>
+                <span>{t('chart.earningsPopup.date')}</span>
                 <span className="text-right text-[color:var(--color-fg)]">{dateLabel}</span>
                 {fiscalLabel && (
                     <>
-                        <span>Finalización del período</span>
+                        <span>{t('chart.earningsPopup.periodEnd')}</span>
                         <span className="text-right text-[color:var(--color-fg)]">{fiscalLabel}</span>
                     </>
                 )}
                 {record.time_slot && (
                     <>
-                        <span>Hora</span>
+                        <span>{t('chart.earningsPopup.time')}</span>
                         <span className="text-right text-[color:var(--color-fg)]">{formatTimeSlot(record.time_slot)}</span>
                     </>
                 )}
             </div>
 
             {/* BENEFICIOS / EPS section */}
-            <Section label="Beneficios">
+            <Section label={t('chart.earningsPopup.earnings')}>
                 <Row
-                    label="Estandarizado"
+                    label={t('chart.earningsPopup.standardized')}
                     value={formatNumber(record.previous_eps, 3)}
                 />
                 <Row
-                    label="Informado"
+                    label={t('chart.earningsPopup.reported')}
                     value={formatNumber(record.eps_actual, 2)}
                     tone={isReported ? 'strong' : undefined}
                 />
                 <Row
-                    label="Estimación"
+                    label={t('chart.earningsPopup.estimate')}
                     value={formatNumber(record.eps_estimate, 3)}
                 />
                 <Row
-                    label="Sorpresa"
+                    label={t('chart.earningsPopup.surprise')}
                     value={formatEpsSurprise(record)}
                     tone={surpriseTone(record.eps_surprise_pct)}
                 />
             </Section>
 
             {/* INGRESOS / REVENUE section */}
-            <Section label="Ingresos">
+            <Section label={t('chart.earningsPopup.revenue')}>
                 <Row
-                    label="Informado"
+                    label={t('chart.earningsPopup.reported')}
                     value={formatLargeMoney(record.revenue_actual)}
                     tone={isReported ? 'strong' : undefined}
                 />
                 <Row
-                    label="Estimación"
+                    label={t('chart.earningsPopup.estimate')}
                     value={formatLargeMoney(record.revenue_estimate)}
                 />
                 <Row
-                    label="Sorpresa"
+                    label={t('chart.earningsPopup.surprise')}
                     value={formatRevenueSurprise(record)}
                     tone={surpriseTone(record.revenue_surprise_pct)}
                 />
@@ -168,7 +171,7 @@ export function ChartEarningsPopup({
                     onClick={onOpenMore}
                     className="text-[color:var(--color-primary)] hover:underline text-[11px]"
                 >
-                    Más beneficios de {ticker}
+                    {t('chart.earningsPopup.moreEarnings', { ticker })}
                 </button>
             </div>
         </div>
@@ -212,7 +215,7 @@ function Row({
 
 function formatNumber(value: number | null | undefined, decimals = 2): string {
     if (value == null || !Number.isFinite(value)) return '—';
-    return value.toLocaleString('es-ES', {
+    return value.toLocaleString(uiLocale(), {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });
@@ -221,11 +224,11 @@ function formatNumber(value: number | null | undefined, decimals = 2): string {
 function formatLargeMoney(value: number | null | undefined): string {
     if (value == null || !Number.isFinite(value)) return '—';
     const abs = Math.abs(value);
-    if (abs >= 1e12) return `${(value / 1e12).toLocaleString('es-ES', { maximumFractionDigits: 2 })} T`;
-    if (abs >= 1e9) return `${(value / 1e9).toLocaleString('es-ES', { maximumFractionDigits: 2 })} B`;
-    if (abs >= 1e6) return `${(value / 1e6).toLocaleString('es-ES', { maximumFractionDigits: 2 })} M`;
-    if (abs >= 1e3) return `${(value / 1e3).toLocaleString('es-ES', { maximumFractionDigits: 2 })} K`;
-    return value.toLocaleString('es-ES');
+    if (abs >= 1e12) return `${(value / 1e12).toLocaleString(uiLocale(), { maximumFractionDigits: 2 })} T`;
+    if (abs >= 1e9) return `${(value / 1e9).toLocaleString(uiLocale(), { maximumFractionDigits: 2 })} B`;
+    if (abs >= 1e6) return `${(value / 1e6).toLocaleString(uiLocale(), { maximumFractionDigits: 2 })} M`;
+    if (abs >= 1e3) return `${(value / 1e3).toLocaleString(uiLocale(), { maximumFractionDigits: 2 })} K`;
+    return value.toLocaleString(uiLocale());
 }
 
 function formatEpsSurprise(r: EarningsRecord): string {
@@ -234,9 +237,9 @@ function formatEpsSurprise(r: EarningsRecord): string {
     const pct = r.eps_surprise_pct != null ? Math.abs(r.eps_surprise_pct) * 100 : null;
     const sign = diff >= 0 ? '' : '−';
     const absDiff = Math.abs(diff);
-    const main = absDiff.toLocaleString('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+    const main = absDiff.toLocaleString(uiLocale(), { minimumFractionDigits: 3, maximumFractionDigits: 3 });
     return pct != null
-        ? `${sign}${main} (${pct.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)`
+        ? `${sign}${main} (${pct.toLocaleString(uiLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)`
         : `${sign}${main}`;
 }
 
@@ -247,7 +250,7 @@ function formatRevenueSurprise(r: EarningsRecord): string {
     const sign = diff >= 0 ? '' : '−';
     const formattedDiff = formatLargeMoney(Math.abs(diff));
     return pct != null
-        ? `${sign}${formattedDiff} (${pct.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)`
+        ? `${sign}${formattedDiff} (${pct.toLocaleString(uiLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)`
         : `${sign}${formattedDiff}`;
 }
 
@@ -258,14 +261,19 @@ function surpriseTone(pct: number | null | undefined): 'up' | 'down' | undefined
     return undefined;
 }
 
-/** "2026-05-06" -> "mié 06 May '26". */
+function uiLocale(): string {
+    return (i18n.language || 'en').startsWith('es') ? 'es-ES' : 'en-US';
+}
+
+/** "2026-05-06" -> "Wed 06 May '26" / "mié 06 may '26". */
 function formatLongDate(iso: string): string {
     const d = new Date(`${iso}T12:00:00`);
     if (!Number.isFinite(d.getTime())) return iso;
-    const dow = d.toLocaleDateString('es-ES', { weekday: 'short' });
-    const day = d.toLocaleDateString('es-ES', { day: '2-digit' });
-    const mon = d.toLocaleDateString('es-ES', { month: 'short' });
-    const yr = d.toLocaleDateString('es-ES', { year: '2-digit' });
+    const loc = uiLocale();
+    const dow = d.toLocaleDateString(loc, { weekday: 'short' });
+    const day = d.toLocaleDateString(loc, { day: '2-digit' });
+    const mon = d.toLocaleDateString(loc, { month: 'short' });
+    const yr = d.toLocaleDateString(loc, { year: '2-digit' });
     return `${capitalize(dow)} ${day} ${capitalize(mon)} '${yr}`;
 }
 
@@ -276,14 +284,15 @@ function formatFiscalPeriod(r: EarningsRecord): string | null {
     if (!Number.isFinite(d.getTime())) return r.fiscal_quarter;
     // Period end approximation: one month before report_date (Q1 -> month-1 of report).
     const periodEnd = new Date(d.getFullYear(), d.getMonth() - 1, 1);
-    const mon = periodEnd.toLocaleDateString('es-ES', { month: 'short' });
-    const yr = periodEnd.toLocaleDateString('es-ES', { year: '2-digit' });
+    const loc = uiLocale();
+    const mon = periodEnd.toLocaleDateString(loc, { month: 'short' });
+    const yr = periodEnd.toLocaleDateString(loc, { year: '2-digit' });
     return `${capitalize(mon)} '${yr}`;
 }
 
 function formatTimeSlot(slot: string): string {
-    if (slot === 'BMO') return 'Antes de mercado';
-    if (slot === 'AMC') return 'Después de mercado';
+    if (slot === 'BMO') return i18n.t('chart.bmo');
+    if (slot === 'AMC') return i18n.t('chart.amc');
     return slot;
 }
 

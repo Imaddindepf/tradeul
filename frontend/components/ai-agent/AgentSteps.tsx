@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useState, useEffect, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain, Database, Search, Filter, Sparkles, ChevronDown,
@@ -147,6 +148,7 @@ const StepItem = memo(function StepItem({ step, index, total }: { step: AgentSte
 
 /* ─── Main AgentSteps component ─── */
 export const AgentSteps = memo(function AgentSteps({ steps, thinkingTime }: AgentStepsProps) {
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const startTimeRef = useRef<number>(Date.now());
 
@@ -193,8 +195,7 @@ export const AgentSteps = memo(function AgentSteps({ steps, thinkingTime }: Agen
           <span className="text-[11px] font-medium text-foreground truncate block">
             {isProcessing && runningStep
               ? (runningStep.description || runningStep.title)
-              : hasErrors ? 'Error in pipeline' : 'Analysis complete'}
-          </span>
+              : hasErrors ? t('aiAgent.pipelineError') : t('aiAgent.analysisComplete')}          </span>
           {/* Progress bar */}
           <div className="mt-1.5 h-[3px] w-full bg-border rounded-full overflow-hidden">
             <motion.div

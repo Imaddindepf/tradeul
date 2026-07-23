@@ -18,6 +18,7 @@ import {
   type UTCTimestamp,
   type SeriesMarker,
 } from 'lightweight-charts';
+import i18n from '@/lib/i18n';
 import type { ChartEvidence } from '@/lib/aiAlerts';
 
 const _cssVar = (v: string, fallback: string) =>
@@ -103,7 +104,7 @@ export const EvidenceChart = memo(function EvidenceChart({
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: lvl.direction === 'above' ? '↑ reclaim' : '↓ pérdida',
+        title: lvl.direction === 'above' ? i18n.t('aiAgent.evidence.reclaim') : i18n.t('aiAgent.evidence.loss'),
       });
     }
 
@@ -149,8 +150,8 @@ export const EvidenceChart = memo(function EvidenceChart({
         </div>
         <span className="text-[8.5px] text-muted-fg">
           {evidence.fires.length > 0
-            ? `${evidence.fires.length} ${evidence.fires.length === 1 ? 'disparo marcado' : 'disparos marcados'}`
-            : 'sin disparos este día'}
+            ? i18n.t('aiAgent.evidence.fireMarked', { count: evidence.fires.length })
+            : i18n.t('aiAgent.evidence.noFiresDay')}
           {' · velas 1m'}
         </span>
       </div>

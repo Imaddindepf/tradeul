@@ -60,6 +60,7 @@ from routes.analyst_ratings import router as analyst_ratings_router
 from routes.perplexity_financials import router as perplexity_financials_router
 from routes.developer import router as developer_router, set_redis_client as set_developer_redis
 from routes.bug_reports import router as bug_reports_router, set_redis_client as set_bug_reports_redis
+from routes.imap import router as imap_router
 from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
@@ -272,6 +273,7 @@ app.include_router(analyst_ratings_router)  # Analyst ratings & price targets (P
 app.include_router(perplexity_financials_router)  # Balance Sheet + Cash Flow (Perplexity proxy)
 app.include_router(developer_router)               # Trader API key management (Openul stream)
 app.include_router(bug_reports_router)             # Dashboard bug report submissions
+app.include_router(imap_router)                    # World Venue Map (IMAP) — FMP exchange hours
 
 
 # ============================================================================

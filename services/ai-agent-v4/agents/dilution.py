@@ -789,6 +789,163 @@ Extract all dilutive instruments and risk scores. Only use data explicitly prese
     return result
 
 
+# ── Native tool-calling path (Fase 3c rollout) ────────────────────────────────
+
+def _prune(obj: Any, max_items: int = 12, max_str: int = 600, depth: int = 0) -> Any:
+    """Poda genérica para payloads sin limpiador dedicado (p.ej. el enhanced
+    profile ronda 20K chars): listas a max_items, strings a max_str."""
+    if depth > 6:
+        return "…"
+    if isinstance(obj, dict):
+        return {k: _prune(v, max_items, max_str, depth + 1) for k, v in obj.items()}
+    if isinstance(obj, list):
+        out = [_prune(v, max_items, max_str, depth + 1) for v in obj[:max_items]]
+        if len(obj) > max_items:
+            out.append(f"[+{len(obj) - max_items} more]")
+        return out
+    if isinstance(obj, str) and len(obj) > max_str:
+        return obj[:max_str] + "…"
+    return obj
+
+
+# tool del roster → (result_key, limpiador). El key mantiene los nombres que
+# la heurística ya expone al synthesizer.
+_NATIVE_TOOLS: dict[str, tuple[str, Any]] = {
+    "dilution.get_sec_dilution_profile": ("profile", _clean_profile),
+    "dilution.get_instrument_context": ("instrument_context", _clean_instrument_context),
+    "dilution.get_dilution_risk_ratings": ("risk_ratings", _clean_risk_ratings),
+    "dilution.get_dilution_analysis": ("dilution_analysis", _clean_dilution_analysis),
+    "dilution.get_cash_runway": ("cash_runway", _clean_cash_runway),
+    "dilution.get_cash_position": ("cash_position", None),
+    "dilution.get_warrants": ("warrants_detail", None),
+    "dilution.get_shares_history": ("shares_history", None),
+    "dilution.get_completed_offerings": ("completed_offerings", None),
+    "dilution.get_atm_offerings": ("atm_offerings", None),
+    "dilution.get_shelf_registrations": ("shelf_registrations", None),
+    "dilution.get_sec_filings": ("sec_filings", _prune),
+    "dilution.get_enhanced_profile": ("enhanced_profile", _prune),
+}
+
+# Señal Tier-2 (¿está el ticker en nuestra BD?): igual que la heurística,
+# profile + instrument_context se piden siempre aunque el selector no los elija.
+_NATIVE_BASE = [
+    "dilution.get_sec_dilution_profile",
+    "dilution.get_instrument_context",
+]
+
+
+async def _exec_native_dilution_tool(tool: str, ticker: str) -> tuple[str, Any, Any]:
+    """Ejecuta una tool del roster con args deterministas (el LLM elige QUÉ
+    llamar; los args salen del estado). Devuelve (result_key, limpio, raw) —
+    el raw se conserva para la señal Tier-2."""
+    key, cleaner = _NATIVE_TOOLS[tool]
+    name = tool.split(".", 1)[1]
+    args: dict[str, Any] = {"ticker": ticker}
+    if tool == "dilution.get_sec_filings":
+        args["limit"] = 20
+    # Un ticker frío puede disparar scrape/cómputo lento en el tracker.
+    raw = await getattr(MCP.dilution, name)(args, timeout=60.0)
+    return key, (cleaner(raw) if cleaner and isinstance(raw, dict) else raw), raw
+
+
+async def _dilution_node_native(state: dict, start_time: float) -> dict | None:
+    """Ruta nativa: selector LLM sobre el roster del agente (tool_rosters.py).
+    Devuelve None si el selector no dio tools (el caller cae a la heurística)."""
+    from agents._tool_selector import select_tools
+
+    query = state.get("query", "")
+    task = state.get("agent_task") or query
+    tickers = state.get("tickers", [])[:3]
+
+    selected = await select_tools("dilution", task)
+    if not selected:
+        return None
+
+    results: dict[str, Any] = {}
+    errors: list[str] = []
+    wants_trending = "dilution.get_trending_dilution" in selected
+    per_ticker = [t for t in selected if t in _NATIVE_TOOLS]
+
+    # Trending es de mercado (sin ticker) y se llama una sola vez.
+    if wants_trending:
+        try:
+            raw = await MCP.dilution.get_trending_dilution({"limit": 25})
+            results["market"] = {"trending_dilution": _prune(raw)}
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"dilution.get_trending_dilution: {exc}")
+
+    if not tickers and not wants_trending:
+        return None  # la heurística dará el mensaje de "no ticker"
+
+    async def _run_ticker(ticker: str) -> tuple[str, dict[str, Any], list[str]]:
+        tools = list(dict.fromkeys(_NATIVE_BASE + per_ticker))
+        data: dict[str, Any] = {}
+        errs: list[str] = []
+        raws: dict[str, Any] = {}
+        outs = await asyncio.gather(
+            *[_exec_native_dilution_tool(t, ticker) for t in tools],
+            return_exceptions=True,
+        )
+        for tool, out in zip(tools, outs):
+            if isinstance(out, BaseException):
+                errs.append(f"{tool}/{ticker}: {out}")
+                continue
+            key, cleaned, raw = out
+            data[key] = cleaned
+            raws[key] = raw
+        # Tier-2: mismo criterio que la heurística — ticker fuera de la BD
+        # de tracking → research EDGAR RAG con el mismo schema de salida.
+        ic_raw = raws.get("instrument_context")
+        if ic_raw is None:
+            ic_err = next((e for e in errs if "instrument_context" in e), None)
+            if ic_err and "not found" in ic_err.lower():
+                ic_raw = {"detail": "not found"}
+        if _db_has_no_data(raws.get("profile"), ic_raw):
+            logger.info(
+                "dilution_fallback_triggered (native) ticker=%s keys=%s",
+                ticker, list(data.keys()),
+            )
+            fallback = await _dilution_fallback_research(
+                ticker, _focus(task), raws.get("profile") or {})
+            data["profile"] = fallback
+            data["_tier"] = "edgar_rag"
+            data["_note"] = (
+                f"{ticker} has no instrument data in our dilution tracker yet. "
+                "Instrument analysis (warrants, shelf, ATM) was generated via "
+                "EDGAR RAG. Financial data (cash/runway) comes from our "
+                "database where available."
+            )
+        return ticker, data, errs
+
+    if tickers:
+        for ticker, data, errs in await asyncio.gather(*[_run_ticker(t) for t in tickers]):
+            results[ticker] = data
+            errors.extend(errs)
+
+    if errors:
+        results["_errors"] = errors
+
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    return {
+        "agent_results": {
+            "dilution": {
+                "tickers_analyzed": tickers,
+                "tools_selected": selected,
+                **results,
+            },
+        },
+        "execution_metadata": {
+            **(state.get("execution_metadata", {})),
+            "dilution": {
+                "elapsed_ms": elapsed_ms,
+                "tickers": tickers,
+                "native_tools": selected,
+                "error_count": len(errors),
+            },
+        },
+    }
+
+
 # ── Main node ─────────────────────────────────────────────────────────────────
 
 async def dilution_node(state: dict) -> dict:
@@ -798,6 +955,17 @@ async def dilution_node(state: dict) -> dict:
     query = state.get("query", "")
     agent_task = state.get("agent_task", query)
     tickers = state.get("tickers", [])
+
+    # ── Fase 3c: ruta nativa tras el flag; cualquier fallo cae aquí abajo ──
+    from agents._tool_selector import native_tools_enabled
+    if native_tools_enabled("dilution"):
+        try:
+            native = await _dilution_node_native(state, start_time)
+            if native is not None:
+                return native
+            logger.info("dilution native: selector sin tools — ruta heurística")
+        except Exception:  # noqa: BLE001
+            logger.exception("dilution native path failed — falling back to heuristic")
 
     if not tickers:
         elapsed_ms = int((time.time() - start_time) * 1000)

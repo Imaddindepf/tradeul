@@ -17,6 +17,7 @@ import ReactFlow, {
   type Node,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import i18n from '@/lib/i18n';
 import type { NodeBlock, WorkflowEdgeSpec, WorkflowNodeSpec } from './types';
 import { CARD_W, WorkflowNode } from './WorkflowNode';
 
@@ -174,16 +175,16 @@ export const WorkflowCanvas = memo(function WorkflowCanvas({
 
   if (!nodes.length) {
     return (
-      <div style={{ height }} className="rounded-lg border border-border-subtle bg-[#080b12] flex items-center justify-center">
+      <div style={{ height }} className="rounded-lg border border-border-subtle bg-surface-inset flex items-center justify-center">
         <p className="text-[10px] text-muted-fg text-center px-6 leading-relaxed whitespace-pre-line">
-          {emptyMessage || 'Sin nodos que mostrar.'}
+          {emptyMessage || i18n.t('aiAgent.workflow.noNodes')}
         </p>
       </div>
     );
   }
 
   return (
-    <div style={{ height }} className="rounded-lg border border-border-subtle overflow-hidden bg-[#080b12] relative">
+    <div style={{ height }} className="rounded-lg border border-border-subtle overflow-hidden bg-surface-inset relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}

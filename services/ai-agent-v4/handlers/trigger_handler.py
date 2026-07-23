@@ -14,9 +14,10 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from auth import request_user_id
 from triggers.engine import TriggerEngine
 from triggers.models import ActionType, TriggerConditions
 
@@ -48,7 +49,6 @@ def _get_engine() -> TriggerEngine:
 
 
 class CreateTriggerRequest(BaseModel):
-    user_id: str = Field(..., description="Owner user ID")
     name: str = Field(..., min_length=1, max_length=256, description="Trigger name")
     conditions: TriggerConditions = Field(default_factory=TriggerConditions)
 
@@ -89,11 +89,13 @@ class TriggerListResponse(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────
 
 
-def _build_trigger_dict(req: CreateTriggerRequest, trigger_id: str | None = None) -> dict[str, Any]:
+def _build_trigger_dict(
+    req: CreateTriggerRequest, user_id: str, trigger_id: str | None = None,
+) -> dict[str, Any]:
     """Build a raw trigger config dict from a create/update request."""
     return {
         "id": trigger_id or uuid.uuid4().hex,
-        "user_id": req.user_id,
+        "user_id": user_id,
         "name": req.name,
         "enabled": req.enabled,
         "conditions": req.conditions.model_dump(),
@@ -128,13 +130,16 @@ def _trigger_to_response(cfg: Any) -> TriggerResponse:
 
 
 @router.post("", response_model=TriggerResponse, status_code=201)
-async def create_trigger(request: CreateTriggerRequest) -> TriggerResponse:
-    """Create a new reactive trigger for a user."""
+async def create_trigger(
+    request: CreateTriggerRequest,
+    user_id: str = Depends(request_user_id),
+) -> TriggerResponse:
+    """Create a new reactive trigger for the authenticated user."""
     engine = _get_engine()
-    trigger_dict = _build_trigger_dict(request)
+    trigger_dict = _build_trigger_dict(request, user_id)
 
     try:
-        config = await engine.register_trigger(request.user_id, trigger_dict)
+        config = await engine.register_trigger(user_id, trigger_dict)
     except Exception as exc:
         logger.error("Failed to create trigger: %s", exc)
         raise HTTPException(status_code=500, detail=f"Failed to create trigger: {exc}")
@@ -144,9 +149,9 @@ async def create_trigger(request: CreateTriggerRequest) -> TriggerResponse:
 
 @router.get("", response_model=TriggerListResponse)
 async def list_triggers(
-    user_id: str = Query(..., description="User ID to list triggers for"),
+    user_id: str = Depends(request_user_id),
 ) -> TriggerListResponse:
-    """List all triggers belonging to a user."""
+    """List all triggers belonging to the authenticated user."""
     engine = _get_engine()
 
     # Fetch from Redis (source of truth, includes disabled triggers)
@@ -168,7 +173,7 @@ async def list_triggers(
 async def update_trigger(
     trigger_id: str,
     request: UpdateTriggerRequest,
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(request_user_id),
 ) -> TriggerResponse:
     """Update an existing trigger."""
     engine = _get_engine()
@@ -217,7 +222,7 @@ async def update_trigger(
 @router.delete("/{trigger_id}", status_code=204)
 async def delete_trigger(
     trigger_id: str,
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(request_user_id),
 ) -> None:
     """Delete a trigger."""
     engine = _get_engine()
@@ -230,7 +235,7 @@ async def delete_trigger(
 @router.post("/{trigger_id}/toggle", response_model=TriggerResponse)
 async def toggle_trigger(
     trigger_id: str,
-    user_id: str = Query(..., description="User ID"),
+    user_id: str = Depends(request_user_id),
 ) -> TriggerResponse:
     """Toggle a trigger's enabled/disabled state."""
     engine = _get_engine()

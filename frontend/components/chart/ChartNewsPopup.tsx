@@ -1,6 +1,7 @@
 'use client';
 
 import { ExternalLink } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { getUserTimezone } from '@/lib/date-utils';
 
 export interface NewsArticle {
@@ -13,11 +14,14 @@ export interface NewsArticle {
 }
 
 export function ChartNewsPopup({ ticker, articles }: { ticker: string; articles: NewsArticle[] }) {
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language?.startsWith('es') ? 'es-ES' : 'en-US';
+
     const formatTime = (isoString: string) => {
         try {
             const d = new Date(isoString);
             const tz = getUserTimezone();
-            return d.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+            return d.toLocaleTimeString(locale, { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
         } catch {
             return '—';
         }
@@ -26,7 +30,7 @@ export function ChartNewsPopup({ ticker, articles }: { ticker: string; articles:
     if (articles.length === 0) {
         return (
             <div className="flex items-center justify-center h-full bg-surface p-4">
-                <p className="text-muted-fg text-sm">No news for {ticker}</p>
+                <p className="text-muted-fg text-sm">{t('chart.noNewsFor', { ticker })}</p>
             </div>
         );
     }
@@ -36,7 +40,7 @@ export function ChartNewsPopup({ ticker, articles }: { ticker: string; articles:
             <div className="px-3 py-2 bg-surface-hover border-b border-border">
                 <span className="text-sm font-bold text-primary">{ticker}</span>
                 <span className="text-xs text-muted-fg ml-2">
-                    {articles.length} article{articles.length !== 1 ? 's' : ''}
+                    {t(articles.length === 1 ? 'chart.article_one' : 'chart.article_other', { count: articles.length })}
                 </span>
             </div>
             <div className="flex-1 overflow-auto divide-y divide-border">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
     Drawing,
     DrawingType,
@@ -49,23 +50,6 @@ type TabId = 'style' | 'text' | 'coords' | 'visibility';
 
 // ─── Type → spanish label ─────────────────────────────────────────────────
 
-const TYPE_LABEL: Record<DrawingType, string> = {
-    horizontal_line: 'Línea horizontal',
-    vertical_line: 'Línea vertical',
-    trendline: 'Línea de tendencia',
-    ray: 'Rayo',
-    extended_line: 'Línea extendida',
-    parallel_channel: 'Canal paralelo',
-    fibonacci: 'Fibonacci',
-    rectangle: 'Rectángulo',
-    circle: 'Círculo',
-    triangle: 'Triángulo',
-    measure: 'Regla de medida',
-    arrow: 'Flecha',
-    text: 'Texto',
-    price_range: 'Rango de precio',
-    date_range: 'Rango de fecha',
-};
 
 const HAS_FILL: Record<DrawingType, boolean> = {
     horizontal_line: false,
@@ -95,6 +79,8 @@ export function ChartDrawingDialog({
     containerWidth, containerHeight,
     onClose, onUpdate, onReplace, onDelete,
 }: ChartDrawingDialogProps) {
+    const { t } = useTranslation();
+    const defaultTypeLabel = t(`chart.drawing.types.${drawing.type}`);
     // ── Cancel snapshot ────────────────────────────────────────────────
     const [initialSnapshot] = useState<Drawing>(() => structuredClone(drawing));
 
@@ -132,16 +118,16 @@ export function ChartDrawingDialog({
 
     // ── Title (editable) ───────────────────────────────────────────────
     const [editingTitle, setEditingTitle] = useState(false);
-    const [title, setTitle] = useState<string>(() => (drawing as { label?: string }).label || TYPE_LABEL[drawing.type]);
+    const [title, setTitle] = useState<string>(() => (drawing as { label?: string }).label || defaultTypeLabel);
     const commitTitle = useCallback(() => {
         setEditingTitle(false);
-        const next = title.trim() || TYPE_LABEL[drawing.type];
+        const next = title.trim() || defaultTypeLabel;
         setTitle(next);
         if ('label' in drawing || drawing.type === 'horizontal_line') {
             // Persist into drawing.label when the type supports it
-            onUpdate({ label: next === TYPE_LABEL[drawing.type] ? undefined : next } as Partial<Drawing>);
+            onUpdate({ label: next === defaultTypeLabel ? undefined : next } as Partial<Drawing>);
         }
-    }, [title, drawing, onUpdate]);
+    }, [title, drawing, onUpdate, defaultTypeLabel]);
 
     // ── Tabs ───────────────────────────────────────────────────────────
     const [tab, setTab] = useState<TabId>('style');
@@ -175,7 +161,7 @@ export function ChartDrawingDialog({
                 maxHeight: DIALOG_MAX_HEIGHT,
             }}
             role="dialog"
-            aria-label={TYPE_LABEL[drawing.type]}
+            aria-label={defaultTypeLabel}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
         >
@@ -204,7 +190,7 @@ export function ChartDrawingDialog({
                             onClick={() => setEditingTitle(true)}
                             onPointerDown={(e) => e.stopPropagation()}
                             className="flex items-center gap-1.5 min-w-0 text-[13px] font-semibold text-[color:var(--color-fg)] hover:text-[color:var(--color-primary)] transition-colors"
-                            title="Editar nombre"
+                            title={t('chart.drawing.editName')}
                         >
                             <span className="truncate">{title}</span>
                             <PencilIcon className="w-3 h-3 opacity-60 flex-shrink-0" />
@@ -215,7 +201,7 @@ export function ChartDrawingDialog({
                     onClick={onClose}
                     onPointerDown={(e) => e.stopPropagation()}
                     className="p-0.5 rounded text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)] hover:bg-[color:var(--color-surface-hover)]"
-                    aria-label="Cerrar"
+                    aria-label={t('common.close')}
                 >
                     <CloseIcon className="w-3.5 h-3.5" />
                 </button>
@@ -223,18 +209,18 @@ export function ChartDrawingDialog({
 
             {/* ─── Tabs ──────────────────────────────────────────────── */}
             <div className="flex gap-4 px-3 pt-2 border-b border-[color:var(--color-border)] text-[12px]">
-                {(['style', 'text', 'coords', 'visibility'] as TabId[]).map(t => (
+                {(['style', 'text', 'coords', 'visibility'] as TabId[]).map(tabId => (
                     <button
-                        key={t}
-                        onClick={() => setTab(t)}
+                        key={tabId}
+                        onClick={() => setTab(tabId)}
                         className={`relative pb-2 font-medium transition-colors ${
-                            tab === t
+                            tab === tabId
                                 ? 'text-[color:var(--color-fg)]'
                                 : 'text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)]'
                         }`}
                     >
-                        {TAB_LABEL[t]}
-                        {tab === t && (
+                        {t(`chart.drawing.tabs.${tabId}`)}
+                        {tab === tabId && (
                             <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-[color:var(--color-fg)] rounded-t" />
                         )}
                     </button>
@@ -244,9 +230,9 @@ export function ChartDrawingDialog({
             {/* ─── Body ──────────────────────────────────────────────── */}
             <div className="flex-1 overflow-y-auto px-3 py-3">
                 {tab === 'style' && <StyleTab drawing={drawing} colors={colors} onUpdate={onUpdate} />}
-                {tab === 'text' && <ComingSoonTab title="Texto" hint="Etiquetas, fuente, alineación y formato." />}
+                {tab === 'text' && <ComingSoonTab title={t('chart.drawing.tabs.text')} hint={t('chart.drawing.textHint')} />}
                 {tab === 'coords' && <CoordinatesTab drawing={drawing} onUpdate={onUpdate} />}
-                {tab === 'visibility' && <ComingSoonTab title="Visibilidad" hint="Mostrar u ocultar el dibujo según la temporalidad." />}
+                {tab === 'visibility' && <ComingSoonTab title={t('chart.drawing.tabs.visibility')} hint={t('chart.drawing.visibilityHint')} />}
             </div>
 
             {/* ─── Footer ────────────────────────────────────────────── */}
@@ -255,16 +241,16 @@ export function ChartDrawingDialog({
                     <button
                         disabled
                         className="flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-[color:var(--color-border)] text-[color:var(--color-muted-fg)]/50 cursor-not-allowed"
-                        title="Próximamente"
+                        title={t('chart.drawing.comingSoon')}
                     >
-                        Plantilla
+                        {t('chart.drawing.template')}
                         <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.2" /></svg>
                     </button>
                     <button
                         onClick={onDelete}
                         className="p-1 rounded text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-danger)] hover:bg-[color:var(--color-danger)]/10 transition-colors"
-                        aria-label="Eliminar"
-                        title="Eliminar"
+                        aria-label={t('chart.drawing.delete')}
+                        title={t('chart.drawing.delete')}
                     >
                         <TrashIcon className="w-3.5 h-3.5" />
                     </button>
@@ -274,13 +260,13 @@ export function ChartDrawingDialog({
                         onClick={handleCancel}
                         className="px-3 py-1 text-[12px] rounded border border-[color:var(--color-border)] text-[color:var(--color-fg)] hover:bg-[color:var(--color-surface-hover)] transition-colors"
                     >
-                        Cancelar
+                        {t('chart.drawing.cancel')}
                     </button>
                     <button
                         onClick={handleAccept}
                         className="px-3 py-1 text-[12px] font-semibold rounded bg-[color:var(--color-fg)] text-[color:var(--color-surface)] hover:opacity-90 transition-opacity"
                     >
-                        Aceptar
+                        {t('chart.drawing.accept')}
                     </button>
                 </div>
             </div>
@@ -290,13 +276,6 @@ export function ChartDrawingDialog({
 
 // ─── Tabs ───────────────────────────────────────────────────────────────────
 
-const TAB_LABEL: Record<TabId, string> = {
-    style: 'Estilo',
-    text: 'Texto',
-    coords: 'Coordenadas',
-    visibility: 'Visibilidad',
-};
-
 interface StyleTabProps {
     drawing: Drawing;
     colors: readonly string[];
@@ -304,12 +283,13 @@ interface StyleTabProps {
 }
 
 function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
+    const { t } = useTranslation();
     const hasFill = HAS_FILL[drawing.type];
 
     return (
         <div className="space-y-3 text-[12px]">
             {/* Color */}
-            <Row label="Color">
+            <Row label={t('chart.drawing.color')}>
                 <ColorSwatchPicker
                     value={drawing.color}
                     colors={colors}
@@ -325,7 +305,7 @@ function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
             </Row>
 
             {/* Line width */}
-            <Row label="Grosor">
+            <Row label={t('chart.drawing.thickness')}>
                 <LineWidthPicker
                     value={drawing.lineWidth}
                     color={drawing.color}
@@ -334,7 +314,7 @@ function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
             </Row>
 
             {/* Line style */}
-            <Row label="Estilo">
+            <Row label={t('chart.drawing.style')}>
                 <LineStyleSwitcher
                     value={drawing.lineStyle}
                     color={drawing.color}
@@ -344,7 +324,7 @@ function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
 
             {/* Fill: shapes & channel only */}
             {hasFill && 'fillColor' in drawing && (
-                <Row label="Relleno">
+                <Row label={t('chart.drawing.fill')}>
                     <FillControl
                         baseColor={drawing.color}
                         fillColor={(drawing as { fillColor: string }).fillColor}
@@ -355,12 +335,12 @@ function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
 
             {/* Per-tool extras */}
             {drawing.type === 'horizontal_line' && (
-                <Row label="Etiqueta">
+                <Row label={t('chart.drawing.label')}>
                     <input
                         type="text"
                         value={(drawing as HorizontalLineDrawing).label || ''}
                         onChange={(e) => onUpdate({ label: e.target.value || undefined } as Partial<HorizontalLineDrawing>)}
-                        placeholder="(opcional)"
+                        placeholder={t('chart.drawing.optional')}
                         className="flex-1 px-2 py-1 text-[12px] rounded border border-[color:var(--color-border)] bg-[color:var(--color-surface)] focus:outline-none focus:border-[color:var(--color-primary)]"
                     />
                 </Row>
@@ -374,7 +354,7 @@ function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
             )}
 
             {drawing.type === 'arrow' && (
-                <Row label="Dirección">
+                <Row label={t('chart.drawing.direction')}>
                     <ArrowDirectionPicker
                         value={(drawing as ArrowDrawing).direction}
                         onChange={(d) => onUpdate({ direction: d } as Partial<ArrowDrawing>)}
@@ -384,7 +364,7 @@ function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
 
             {drawing.type === 'text' && (
                 <>
-                    <Row label="Texto">
+                    <Row label={t('chart.drawing.text')}>
                         <textarea
                             value={(drawing as TextDrawing).text}
                             onChange={(e) => onUpdate({ text: e.target.value } as Partial<TextDrawing>)}
@@ -392,7 +372,7 @@ function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
                             className="flex-1 px-2 py-1 text-[12px] rounded border border-[color:var(--color-border)] bg-[color:var(--color-surface)] focus:outline-none focus:border-[color:var(--color-primary)] resize-none"
                         />
                     </Row>
-                    <Row label="Tamaño">
+                    <Row label={t('chart.drawing.size')}>
                         <input
                             type="range"
                             min={9}
@@ -404,14 +384,14 @@ function StyleTab({ drawing, colors, onUpdate }: StyleTabProps) {
                         />
                         <span className="ml-2 text-[11px] tabular-nums w-8 text-right">{(drawing as TextDrawing).fontSize}px</span>
                     </Row>
-                    <Row label="Fondo">
+                    <Row label={t('chart.drawing.background')}>
                         <label className="flex items-center gap-2 text-[12px]">
                             <input
                                 type="checkbox"
                                 checked={(drawing as TextDrawing).background}
                                 onChange={(e) => onUpdate({ background: e.target.checked } as Partial<TextDrawing>)}
                             />
-                            <span className="text-[color:var(--color-muted-fg)]">Píldora coloreada</span>
+                            <span className="text-[color:var(--color-muted-fg)]">{t('chart.drawing.coloredPill')}</span>
                         </label>
                     </Row>
                 </>
@@ -548,26 +528,28 @@ interface PointEditorProps {
 }
 
 function PointEditor({ index, point, onChange }: PointEditorProps) {
+    const { t } = useTranslation();
     return (
         <div className="border border-[color:var(--color-border-subtle)] rounded p-2 space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wider text-[color:var(--color-muted-fg)]">Punto Nº {index}</div>
-            <Row label="Precio">
+            <div className="text-[10px] uppercase tracking-wider text-[color:var(--color-muted-fg)]">{t('chart.drawing.pointN', { n: index })}</div>
+            <Row label={t('chart.drawing.price')}>
                 <NumberInput value={point.price} step={0.01} onChange={(v) => onChange({ ...point, price: v })} />
             </Row>
-            <Row label="Fecha">
-                <DateTimeInput value={point.time} onChange={(t) => onChange({ ...point, time: t })} />
+            <Row label={t('chart.drawing.date')}>
+                <DateTimeInput value={point.time} onChange={(time) => onChange({ ...point, time })} />
             </Row>
         </div>
     );
 }
 
 function ComingSoonTab({ title, hint }: { title: string; hint: string }) {
+    const { t } = useTranslation();
     return (
         <div className="flex flex-col items-center justify-center py-8 text-center">
             <div className="text-[13px] font-semibold text-[color:var(--color-fg)]">{title}</div>
             <div className="text-[11px] text-[color:var(--color-muted-fg)] mt-1 max-w-[260px]">{hint}</div>
             <div className="text-[10px] text-[color:var(--color-muted-fg)]/70 mt-3 px-2 py-0.5 rounded border border-[color:var(--color-border)]">
-                Próximamente
+                {t('chart.drawing.comingSoon')}
             </div>
         </div>
     );
@@ -644,10 +626,11 @@ interface LineStyleSwitcherProps {
 }
 
 function LineStyleSwitcher({ value, color, onChange }: LineStyleSwitcherProps) {
+    const { t } = useTranslation();
     const styles: { id: LineStyle; label: string; pattern: string }[] = [
-        { id: 'solid', label: 'Sólida', pattern: '' },
-        { id: 'dashed', label: 'Discontinua', pattern: '6 4' },
-        { id: 'dotted', label: 'Punteada', pattern: '2 3' },
+        { id: 'solid', label: t('chart.drawing.solid'), pattern: '' },
+        { id: 'dashed', label: t('chart.drawing.dashed'), pattern: '6 4' },
+        { id: 'dotted', label: t('chart.drawing.dotted'), pattern: '2 3' },
     ];
     return (
         <div className="flex gap-1 flex-1">
@@ -685,13 +668,14 @@ interface FillControlProps {
 }
 
 function FillControl({ baseColor, fillColor, onChange }: FillControlProps) {
+    const { t } = useTranslation();
     const alpha = alphaFromColor(fillColor);
     return (
         <div className="flex items-center gap-2 flex-1">
             <div
                 className="w-5 h-5 rounded border border-[color:var(--color-border)]"
                 style={{ backgroundColor: fillColor }}
-                title="Color de relleno actual"
+                title={t('chart.drawing.fillColor')}
             />
             <input
                 type="range"

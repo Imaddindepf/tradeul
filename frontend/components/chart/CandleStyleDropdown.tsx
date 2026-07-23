@@ -1,17 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CandleStyleIcon, ChevronDownIcon } from './icons';
 import { Tooltip } from './Tooltip';
 import type { ChartCandleStyle } from '@/stores/useUserPreferencesStore';
-
-const STYLES: { id: ChartCandleStyle; label: string; description: string }[] = [
-    { id: 'candles', label: 'Candles', description: 'Standard OHLC candles' },
-    { id: 'bars', label: 'Bars', description: 'OHLC bars (OHLC ticks)' },
-    { id: 'heikin-ashi', label: 'Heikin-Ashi', description: 'Smoothed candles, slower signals' },
-    { id: 'line', label: 'Line', description: 'Closes only — fastest read' },
-    { id: 'area', label: 'Area', description: 'Filled close line' },
-];
 
 interface Props {
     value: ChartCandleStyle;
@@ -19,8 +12,17 @@ interface Props {
 }
 
 export function CandleStyleDropdown({ value, onChange }: Props) {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
+
+    const styles = useMemo(() => [
+        { id: 'candles' as const, label: t('chart.styles.candles'), description: t('chart.styles.candlesDesc') },
+        { id: 'bars' as const, label: t('chart.styles.bars'), description: t('chart.styles.barsDesc') },
+        { id: 'heikin-ashi' as const, label: t('chart.styles.heikinAshi'), description: t('chart.styles.heikinAshiDesc') },
+        { id: 'line' as const, label: t('chart.styles.line'), description: t('chart.styles.lineDesc') },
+        { id: 'area' as const, label: t('chart.styles.area'), description: t('chart.styles.areaDesc') },
+    ], [t]);
 
     useEffect(() => {
         if (!open) return;
@@ -44,7 +46,7 @@ export function CandleStyleDropdown({ value, onChange }: Props) {
 
     return (
         <div className="relative" ref={ref}>
-            <Tooltip content="Tipo de gráfico" placement="bottom">
+            <Tooltip content={t('chart.chartType')} placement="bottom">
                 <button
                     onClick={() => setOpen(prev => !prev)}
                     className="flex items-center gap-0.5 h-[22px] px-1.5 rounded-[3px] text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)] hover:bg-[color:var(--color-surface-hover)]"
@@ -55,7 +57,7 @@ export function CandleStyleDropdown({ value, onChange }: Props) {
             </Tooltip>
             {open && (
                 <div className="absolute top-full left-0 mt-1 bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-md shadow-lg z-50 min-w-[200px] py-1">
-                    {STYLES.map(s => {
+                    {styles.map(s => {
                         const isActive = value === s.id;
                         return (
                             <button

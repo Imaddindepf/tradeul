@@ -3,6 +3,7 @@
 import { memo, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
+import { useTranslation } from 'react-i18next';
 import { BellRing, History, Sparkles } from 'lucide-react';
 
 const LazyExecutionGraph = dynamic(
@@ -34,28 +35,12 @@ const QUICK_ACTIONS = [
 
 // Alert recipes — one click compiles them through the full
 // compile → dry-run → arm loop, so the empty state teaches the killer feature.
-const ALERT_TEMPLATES = [
-  {
-    label: 'Cruce de VWAP con volumen',
-    query: 'Avísame cuando cualquier acción con RVOL mayor a 2 cruce el VWAP al alza',
-    hint: 'evento en vivo · todo el mercado',
-  },
-  {
-    label: 'Niveles de precio',
-    query: 'Avísame cuando NVDA reclame 190 o pierda 180',
-    hint: 'niveles absolutos · 1 ticker',
-  },
-  {
-    label: 'Secuencia intradía',
-    query: 'Acciones de más de 1B que caigan fuerte en el opening y luego crucen el VWAP al alza tras el mínimo',
-    hint: 'secuencia A→B · CEP',
-  },
-  {
-    label: 'Entra en ranking',
-    query: 'Avísame cuando una acción entre en el top 10 de gappers',
-    hint: 'membership · scanner',
-  },
-];
+const ALERT_TEMPLATE_KEYS = [
+  { labelKey: 'aiAgent.quickAlerts.vwapCross', queryKey: 'aiAgent.quickAlerts.vwapCrossQuery', hint: 'evento en vivo · todo el mercado' },
+  { labelKey: 'aiAgent.quickAlerts.priceLevels', queryKey: 'aiAgent.quickAlerts.priceLevelsQuery', hint: 'niveles absolutos · 1 ticker' },
+  { labelKey: 'aiAgent.quickAlerts.intradaySequence', queryKey: 'aiAgent.quickAlerts.intradaySequenceQuery', hint: 'secuencia A→B · CEP' },
+  { labelKey: 'aiAgent.quickAlerts.enterRanking', queryKey: 'aiAgent.quickAlerts.enterRankingQuery', hint: 'membership · scanner' },
+] as const;
 
 interface TimelineEntry {
   userMessage: Message;
@@ -74,6 +59,7 @@ interface AIAgentContentProps {
 export const AIAgentContent = memo(function AIAgentContent({
   onMarketUpdate,
 }: AIAgentContentProps) {
+  const { t } = useTranslation();
   const {
     messages,
     resultBlocks,
@@ -358,7 +344,7 @@ export const AIAgentContent = memo(function AIAgentContent({
               <button
                 onClick={history.toggle}
                 className={`p-1.5 rounded-lg transition-all ${history.isOpen ? 'bg-primary/10 text-primary' : 'text-muted-fg hover:text-foreground/80 hover:bg-surface-hover'}`}
-                title="Historial de conversaciones"
+                title={t('aiAgent.input.historyTitle')}
               >
                 <History className="w-4 h-4" />
               </button>
@@ -367,7 +353,7 @@ export const AIAgentContent = memo(function AIAgentContent({
             <div className="flex items-center gap-3 text-[10px]">
               {messages.length > 0 && (
                 <button onClick={handleNewSession} className="text-muted-fg hover:text-foreground/80 transition-colors">
-                  Nueva sesión
+                  {t('aiAgent.newSession')}
                 </button>
               )}
               {!isNarrow && (
@@ -380,7 +366,7 @@ export const AIAgentContent = memo(function AIAgentContent({
               )}
               <div className="flex items-center gap-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-muted-fg/50 animate-pulse'}`} />
-                <span className="text-muted-fg">{isConnected ? 'Live' : 'Connecting...'}</span>
+                <span className="text-muted-fg">{isConnected ? 'Live' : t('aiAgent.status.connecting')}</span>
               </div>
             </div>
           </div>
@@ -461,7 +447,7 @@ export const AIAgentContent = memo(function AIAgentContent({
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={isConnected ? 'Escribe tu consulta o / para comandos...' : 'Conectando...'}
+                    placeholder={isConnected ? t('aiAgent.input.placeholder') : t('aiAgent.status.connecting')}
                     disabled={!isConnected || isLoading}
                     rows={1}
                     className="w-full px-3.5 py-2.5 text-[13px] bg-surface-hover border border-border rounded-2xl text-foreground placeholder-muted-fg resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-50 transition-all"
@@ -511,6 +497,12 @@ const EmptyState = memo(function EmptyState({
   isNarrow: boolean;
   onOpenHistory: () => void;
 }) {
+  const { t } = useTranslation();
+  const alertTemplates = ALERT_TEMPLATE_KEYS.map((tmpl) => ({
+    label: t(tmpl.labelKey),
+    query: t(tmpl.queryKey),
+    hint: tmpl.hint,
+  }));
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -518,15 +510,15 @@ const EmptyState = memo(function EmptyState({
       transition={{ duration: 0.5 }}
       className="flex flex-col items-center justify-center min-h-[40vh] text-center"
     >
-      <h2 className={`font-semibold text-foreground mb-1.5 ${isNarrow ? 'text-[14px]' : 'text-[16px]'}`}>¿Qué quieres analizar?</h2>
+      <h2 className={`font-semibold text-foreground mb-1.5 ${isNarrow ? 'text-[14px]' : 'text-[16px]'}`}>{t('aiAgent.emptyTitle')}</h2>
       <p className="text-[11px] text-muted-fg max-w-[340px] mb-5 leading-relaxed">
-        Sistema multi-agente: mercados, screeners, financials y noticias en tiempo real.
+        {t('aiAgent.emptySubtitle')}
       </p>
 
       <div className={`w-full ${isNarrow ? 'max-w-[260px]' : 'max-w-[520px]'}`}>
         <div className="flex items-center gap-1.5 mb-2">
           <Sparkles className="w-3 h-3 text-muted-fg" />
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-fg">Analiza</span>
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-fg">{t('aiAgent.analyzeSection')}</span>
         </div>
         <div className={`grid gap-2 ${isNarrow ? 'grid-cols-1' : 'grid-cols-2'}`}>
           {QUICK_ACTIONS.slice(0, 4).map((action) => (
@@ -547,23 +539,23 @@ const EmptyState = memo(function EmptyState({
         <div className="flex items-center gap-1.5 mt-4 mb-2">
           <BellRing className="w-3 h-3 text-primary" />
           <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-fg">
-            Crea alertas con lenguaje natural
+            {t('aiAgent.createAlertsSection')}
           </span>
         </div>
         <div className={`grid gap-2 ${isNarrow ? 'grid-cols-1' : 'grid-cols-2'}`}>
-          {ALERT_TEMPLATES.map((t) => (
+          {alertTemplates.map((tmpl) => (
             <motion.button
-              key={t.query}
-              onClick={() => onQuickAction(t.query)}
+              key={tmpl.query}
+              onClick={() => onQuickAction(tmpl.query)}
               disabled={!isConnected}
               whileHover={{ y: -1 }}
               whileTap={{ scale: 0.98 }}
               className="px-3 py-2.5 bg-primary/[0.03] border border-primary/20 rounded-lg text-left
                          hover:border-primary/40 hover:shadow-sm transition-all disabled:opacity-40"
             >
-              <span className="text-[11px] font-medium text-foreground block">{t.label}</span>
-              <span className="text-[9px] text-muted-fg block mt-0.5 truncate">&ldquo;{t.query}&rdquo;</span>
-              <span className="text-[8px] text-primary/70 font-mono block mt-1">{t.hint}</span>
+              <span className="text-[11px] font-medium text-foreground block">{tmpl.label}</span>
+              <span className="text-[9px] text-muted-fg block mt-0.5 truncate">&ldquo;{tmpl.query}&rdquo;</span>
+              <span className="text-[8px] text-primary/70 font-mono block mt-1">{tmpl.hint}</span>
             </motion.button>
           ))}
         </div>
@@ -574,7 +566,7 @@ const EmptyState = memo(function EmptyState({
         className="mt-5 flex items-center gap-1.5 text-[10px] text-muted-fg hover:text-primary transition-colors"
       >
         <History className="w-3 h-3" />
-        <span>Ver conversaciones anteriores</span>
+        <span>{t('aiAgent.viewPastConversations')}</span>
       </button>
     </motion.div>
   );
@@ -699,6 +691,7 @@ const AgentResponse = memo(function AgentResponse({
   onToggleCode: (id: string) => void;
   onSendMessage: (msg: string) => void;
 }) {
+  const { t } = useTranslation();
   const isThinking = message.status === 'thinking';
   const isComplete = message.status === 'complete';
   const isError = message.status === 'error';
@@ -723,7 +716,9 @@ const AgentResponse = memo(function AgentResponse({
         className="px-3 py-2 bg-surface border border-border rounded-lg"
       >
         <span className="text-[11px] text-muted-fg">
-          {thinkingSeconds > 0 ? `Analizando... ${thinkingSeconds}s` : 'Iniciando análisis...'}
+          {thinkingSeconds > 0
+            ? t('aiAgent.status.analyzing', { seconds: thinkingSeconds })
+            : t('aiAgent.status.startingAnalysis')}
         </span>
         <LoadingDots className="ml-2" />
       </motion.div>
@@ -755,7 +750,7 @@ const AgentResponse = memo(function AgentResponse({
   if (isError) {
     return (
       <div className="px-3 py-2 bg-red-500/10 border border-red-500/25 rounded-lg text-[11px] text-red-600 dark:text-red-400">
-        {message.content || 'Error al procesar la solicitud'}
+        {message.content || t('aiAgent.errors.processFailed')}
       </div>
     );
   }
@@ -798,7 +793,7 @@ const AgentResponse = memo(function AgentResponse({
   if (isComplete) {
     return (
       <div className="px-3 py-2 bg-surface border border-border rounded-lg text-[11px] text-muted-fg">
-        Análisis completado
+        {t('aiAgent.analysisCompleted')}
       </div>
     );
   }
@@ -868,6 +863,7 @@ const ClarificationCard = memo(function ClarificationCard({
   onChoose: (oq: string, rw: string) => void;
   disabled: boolean;
 }) {
+  const { t } = useTranslation();
   const [chosen, setChosen] = useState<number | null>(null);
   const [showCustom, setShowCustom] = useState(false);
   const [customText, setCustomText] = useState('');
@@ -890,7 +886,7 @@ const ClarificationCard = memo(function ClarificationCard({
   if (disabled && chosen === null) {
     return (
       <div className="px-3 py-2 bg-surface border border-border rounded-lg text-[10px] text-muted-fg italic">
-        Clarificación omitida
+        {t('aiAgent.clarificationSkipped')}
       </div>
     );
   }
@@ -939,7 +935,7 @@ const ClarificationCard = memo(function ClarificationCard({
               value={customText}
               onChange={(e) => setCustomText(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && submitCustom()}
-              placeholder="Escribe lo que necesitas..."
+              placeholder={t('aiAgent.input.placeholderNeeds')}
               className="flex-1 px-2.5 py-1.5 text-[11px] border border-border rounded-lg text-foreground placeholder-muted-fg focus:outline-none focus:border-primary"
             />
             <button
@@ -1017,6 +1013,7 @@ type CanvasTab = 'execution' | 'workflows';
 
 /* Estado del feed de disparos en el header de la pestaña Workflows. */
 const LiveWorkflowsBadge = memo(function LiveWorkflowsBadge() {
+  const { t } = useTranslation();
   const connected = useAIAlertFiresStore(s => s.connected);
   return (
     <div className="flex items-center gap-1.5">
@@ -1027,7 +1024,7 @@ const LiveWorkflowsBadge = memo(function LiveWorkflowsBadge() {
         <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
       </span>
       <span className={`text-[8.5px] font-semibold uppercase tracking-wider ${connected ? 'text-emerald-400' : 'text-red-400'}`}>
-        {connected ? 'live' : 'offline'}
+        {connected ? t('aiAgent.workflow.emitting') : t('aiAgent.workflow.offline')}
       </span>
     </div>
   );
@@ -1040,6 +1037,7 @@ const PipelineSidebar = memo(function PipelineSidebar({
   steps: AgentStep[];
   isLoading: boolean;
 }) {
+  const { t } = useTranslation();
   const completedCount = steps.filter(s => s.status === 'complete').length;
   const hasErrors = steps.some(s => s.status === 'error');
   const isProcessing = steps.some(s => s.status === 'running');
@@ -1127,7 +1125,7 @@ const PipelineSidebar = memo(function PipelineSidebar({
         className={`absolute left-0 top-0 bottom-0 w-[5px] z-20 cursor-col-resize group ${
           dragging ? 'bg-primary/40' : 'hover:bg-primary/25'
         }`}
-        title="Arrastra para redimensionar el canvas"
+        title={t('aiAgent.input.resizeCanvas')}
       >
         <div className={`absolute left-[2px] top-1/2 -translate-y-1/2 h-10 w-[2px] rounded-full transition-colors ${
           dragging ? 'bg-primary' : 'bg-border group-hover:bg-primary/70'
@@ -1137,8 +1135,8 @@ const PipelineSidebar = memo(function PipelineSidebar({
         <div className="flex-shrink-0 px-3 py-1.5 border-b border-border-subtle flex items-center justify-between">
           <div className="flex items-center gap-0.5">
             {([
-              ['execution', 'Ejecución', 'Lo que el agente está haciendo AHORA con tu consulta: cada paso, con sus datos reales'],
-              ['workflows', 'Mis workflows', 'Tus workflows activos 24/7: alertas en vivo y capturas programadas, disparando en tiempo real'],
+              ['execution', t('aiAgent.tabs.execution'), t('aiAgent.tabs.executionHint')],
+              ['workflows', t('aiAgent.tabs.workflows'), t('aiAgent.tabs.workflowsHint')],
             ] as const).map(([id, label, hint]) => (
               <button
                 key={id}
@@ -1179,14 +1177,10 @@ const PipelineSidebar = memo(function PipelineSidebar({
           </div>
         ) : steps.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-[10px] text-muted-fg text-center px-6 leading-relaxed">
-              <span className="font-semibold text-foreground/70">Ejecución</span> muestra en vivo
-              lo que el agente hace con tu consulta: los nodos que va montando,
-              sus datos reales y los tiempos de cada paso.
-              <br /><br />
-              Lanza una consulta para verlo. Tus alertas y capturas activas viven
-              en <span className="font-semibold text-foreground/70">Mis workflows</span>.
-            </p>
+            <p
+              className="text-[10px] text-muted-fg text-center px-6 leading-relaxed whitespace-pre-line"
+              dangerouslySetInnerHTML={{ __html: t('aiAgent.canvasEmptyHelp') }}
+            />
           </div>
         ) : (
           <div className="flex-1 min-h-0 flex flex-col">

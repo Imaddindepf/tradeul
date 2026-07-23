@@ -21,6 +21,7 @@ from auth import (
     AgentAuthError,
     extract_bearer_token,
     extract_ws_token,
+    user_id_from_claims,
     verify_clerk_token,
 )
 from handlers.rest_handler import router as rest_router
@@ -66,9 +67,12 @@ async def lifespan(app: FastAPI):
     set_engine(trigger_engine)
     logger.info("Reactive Trigger Engine started")
 
-    # Initialize memory manager
+    # Initialize memory manager (historial en Postgres + caché Redis;
+    # init() abre el ConversationStore y ejecuta el backfill one-shot
+    # del historial legacy que vivía solo en Redis — non-fatal)
     from memory.manager import MemoryManager
     memory_mgr = MemoryManager()
+    await memory_mgr.init()
     app.state.memory = memory_mgr
     logger.info("Memory Manager initialized")
 
@@ -105,11 +109,30 @@ async def lifespan(app: FastAPI):
 
     catalog_warmup = asyncio.create_task(_warm_event_catalog())
 
+    # Checkpoint retention: prune inactive LangGraph checkpoints so the
+    # checkpoint tables stop growing without bound (non-fatal background loop).
+    from maintenance.checkpoint_retention import run_retention_loop
+    retention_task = asyncio.create_task(run_retention_loop())
+    logger.info("Checkpoint retention loop started")
+
+    # LLM telemetry: per-call tokens/cost/latency attributed to run/user/node
+    # (non-fatal; the LLM callback and background writer degrade to no-op).
+    from telemetry import get_telemetry
+    await get_telemetry().init()
+
     yield  # ── app is running ──
 
     logger.info("AI Agent V4 shutting down...")
 
     catalog_warmup.cancel()
+    retention_task.cancel()
+
+    # Flush + stop telemetry writer
+    try:
+        from telemetry import get_telemetry
+        await get_telemetry().close()
+    except Exception:
+        pass
 
     # Stop trigger engine
     try:
@@ -182,6 +205,9 @@ app = FastAPI(
 class ClerkAuthMiddleware(BaseHTTPMiddleware):
     """Exige un JWT de Clerk válido en todas las rutas HTTP salvo el healthcheck.
 
+    Deja el usuario autenticado (claim `sub`) en request.state.user_id para que
+    los handlers multi-tenant (alertas, sesiones, runs) filtren por él.
+
     El WebSocket se autentica aparte (query param ?token=) porque el middleware
     HTTP de Starlette no intercepta el scope 'websocket'.
     """
@@ -195,7 +221,8 @@ class ClerkAuthMiddleware(BaseHTTPMiddleware):
 
         token = extract_bearer_token(request.headers.get("Authorization"))
         try:
-            verify_clerk_token(token or "")
+            claims = verify_clerk_token(token or "")
+            request.state.user_id = user_id_from_claims(claims)
         except AgentAuthError as exc:
             logger.info("agent_http_auth_denied path=%s reason=%s", request.url.path, exc)
             return JSONResponse(
@@ -243,29 +270,31 @@ async def ws_chat(websocket: WebSocket, client_id: str):
     """
     token = extract_ws_token(websocket.scope.get("query_string", b"").decode("latin-1"))
     try:
-        verify_clerk_token(token or "")
+        claims = verify_clerk_token(token or "")
+        user_id = user_id_from_claims(claims)
     except AgentAuthError as exc:
         logger.info("agent_ws_auth_denied client_id=%s reason=%s", client_id, exc)
         await websocket.close(code=4401)  # 4401 = app-level "unauthorized"
         return
-    await handle_websocket(websocket, client_id)
+    await handle_websocket(websocket, client_id, user_id=user_id)
 
 
 @app.websocket("/ws/alerts")
 async def ws_alerts(websocket: WebSocket):
     """Live feed of alert fires (stream:alerts:{user_id} relay).
 
-    Requiere ?token=<jwt de Clerk>. El user_id es 'default' (single-tenant,
-    igual que el resto de la plataforma) hasta que llegue el multi-usuario.
+    Requiere ?token=<jwt de Clerk>. Cada usuario recibe únicamente su propio
+    stream (el user_id es el `sub` del JWT verificado).
     """
     token = extract_ws_token(websocket.scope.get("query_string", b"").decode("latin-1"))
     try:
-        verify_clerk_token(token or "")
+        claims = verify_clerk_token(token or "")
+        user_id = user_id_from_claims(claims)
     except AgentAuthError as exc:
         logger.info("agent_alerts_ws_auth_denied reason=%s", exc)
         await websocket.close(code=4401)
         return
-    await handle_alerts_websocket(websocket, user_id="default")
+    await handle_alerts_websocket(websocket, user_id=user_id)
 
 
 # ── Run ──────────────────────────────────────────────────────────

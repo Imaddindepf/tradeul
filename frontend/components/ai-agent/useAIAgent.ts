@@ -10,6 +10,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import i18n from '@/lib/i18n';
 import {
   Message,
   ResultBlockData,
@@ -191,7 +192,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
       setMessages(prev => prev.map(m =>
         m.id === snapshot.assistantMsgId
-          ? { ...m, content: 'Recuperando el brief…', status: 'thinking' as const }
+          ? { ...m, content: i18n.t('aiAgent.recoveringBrief'), status: 'thinking' as const }
           : m,
       ));
 
@@ -220,7 +221,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
             ? {
                 ...m,
                 status: 'error' as const,
-                content: 'El brief está tardando más de lo habitual. Ábrelo desde el historial en unos segundos, o inténtalo de nuevo.',
+                content: i18n.t('aiAgent.errors.briefSlow'),
               }
             : m,
         ));
@@ -232,9 +233,9 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     }
 
     const errorMessages: Record<string, string> = {
-      timeout: 'La solicitud tardó demasiado. Por favor, intenta de nuevo.',
-      disconnect: 'Se perdió la conexión. Reconectando...',
-      error: 'Error al procesar la solicitud.'
+      timeout: i18n.t('aiAgent.errors.timeout'),
+      disconnect: i18n.t('aiAgent.errors.disconnect'),
+      error: i18n.t('aiAgent.errors.processFailed'),
     };
 
     setMessages(prev => prev.map(m =>
@@ -304,6 +305,16 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           const nodeName = data.node as string;
           const msgId = currentMessageIdRef.current;
           if (!msgId) break;
+          // Brief→graph handoff: a graph node fired on a thread the client had
+          // pinned to context_brief. The server routed a live-data follow-up to
+          // the full agent, so graduate the thread to normal mode — otherwise
+          // later follow-ups keep forcing context_brief and timeout-recovery
+          // could surface the stale brief instead of this run's answer.
+          if (nodeName !== 'context_brief' && pendingRequestRef.current?.mode === 'context_brief') {
+            pendingRequestRef.current.mode = 'auto';
+            contextNewsRef.current = null;
+            resetActivityTimeout();
+          }
           nodeStartTimesRef.current[nodeName] = data.timestamp || Date.now() / 1000;
           const step: AgentStep = {
             id: `step-${nodeName}`,
@@ -454,6 +465,14 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           const msgId = currentMessageIdRef.current;
           const response = data.response as string || '';
 
+          // Belt-and-suspenders handoff un-stick: if the server served this
+          // turn through the graph (metadata.mode != context_brief) while the
+          // thread was still pinned to brief mode, graduate it to normal mode.
+          const servedMode = (data.metadata as { mode?: string } | undefined)?.mode;
+          if (servedMode && servedMode !== 'context_brief' && contextNewsRef.current) {
+            contextNewsRef.current = null;
+          }
+
           // Respuesta tardía: el socket se cayó (pestaña en background) y el
           // servidor la entrega en la reconexión. La petición ya fue cancelada
           // (msgId=null), así que reemplazamos el mensaje de error de conexión
@@ -568,7 +587,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
         case 'error': {
           const msgId = currentMessageIdRef.current;
-          const errorMsg = data.message as string || 'Error desconocido';
+          const errorMsg = data.message as string || i18n.t('aiAgent.errors.unknown');
           const lowerErr = errorMsg.toLowerCase();
           const isRateLimit = ['429', 'rate limit', 'resource exhausted', 'too many requests', 'quota'].some(k => lowerErr.includes(k));
 
@@ -601,7 +620,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           }
 
           const friendlyMsg = isRateLimit
-            ? 'El servicio está temporalmente saturado. Por favor, espera unos segundos e intenta de nuevo.'
+            ? i18n.t('aiAgent.errors.saturated')
             : errorMsg;
 
           if (msgId) {
@@ -647,7 +666,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
       setIsConnected(false);
       // Solo bloquear si no hay sesión; durante reconnects silenciamos.
       if (reconnectAttemptsRef.current === 0) {
-        setError('Inicia sesión para usar el agente de IA.');
+        setError(i18n.t('aiAgent.errors.signIn'));
       }
       return;
     }
@@ -689,7 +708,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
       reconnectAttemptsRef.current = attempt + 1;
       // Tras muchos fallos, avisar sin gritar en cada intento.
       if (attempt >= 3) {
-        setError('Reconectando al agente…');
+        setError(i18n.t('aiAgent.reconnectingAgent'));
       }
       reconnectTimeoutRef.current = setTimeout(() => { connect(); }, delay);
     };
@@ -808,7 +827,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
   const sendContextBrief = useCallback(async (news: ContextBriefNews) => {
     if (!(await ensureConnected())) {
       pendingContextRef.current = news;
-      setError('Reconectando para generar el brief…');
+      setError(i18n.t('aiAgent.reconnectingBrief'));
       connect();
       return;
     }

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { SignIn, SignUp, SignedIn, SignedOut, useAuth } from '@clerk/nextjs';
-import { ArrowRight, X, Zap, Newspaper, BarChart3, Shield, SlidersHorizontal, LineChart, Bell, Target, Layers, ExternalLink, Link2 } from 'lucide-react';
+import { ArrowRight, X, Zap, Newspaper, BarChart3, Shield, SlidersHorizontal, LineChart, Bell, Target, Layers, ExternalLink, Link2, Menu } from 'lucide-react';
 import { useAppTranslation } from '@/hooks/useAppTranslation';
 import GmailAutoGoogle from '@/components/auth/GmailAutoGoogle';
 import { motion, useScroll, useTransform, useSpring, MotionValue, AnimatePresence } from 'framer-motion';
@@ -12,6 +12,14 @@ import { DashboardHero } from '@/components/landing/DashboardHero';
 import { type TopMover } from '@/hooks/useTopMovers';
 
 type AuthPanel = 'closed' | 'signin' | 'signup';
+
+// Secciones ancladas del navbar (desktop pill + dropdown móvil)
+const NAV_SECTIONS = [
+  { id: 'products',  labelKey: 'landing.nav.products'  },
+  { id: 'tools',     labelKey: 'landing.nav.tools'     },
+  { id: 'solutions', labelKey: 'landing.nav.solutions' },
+  { id: 'resources', labelKey: 'landing.nav.resources' },
+] as const;
 
 // ─── Tradeul wordmark — calco del logo oficial (texto en bold + barra azul bajo la "t") ──
 function TradeulWordmark({
@@ -590,6 +598,56 @@ function ModuleTableHeader({
 }
 
 // Wrapper component: window shell with configurable chrome kind
+// ─── ScaleToFit ──────────────────────────────────────────────────────────────
+// Los mockups son calcos pixel-perfect con columnas de ancho fijo: no pueden
+// reflow. En contenedores más estrechos que su ancho de diseño (móvil) los
+// escalamos proporcionalmente con transform en vez de dejar que desborden.
+function ScaleToFit({
+  designWidth,
+  className = '',
+  children,
+}: {
+  designWidth: number;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const [scaledH, setScaledH] = useState<number | null>(null);
+
+  useEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+    const update = () => {
+      const w = outer.clientWidth;
+      if (!w) return;
+      const s = Math.min(1, w / designWidth);
+      setScale(s);
+      // offsetHeight ignora el transform → altura de layout real
+      setScaledH(s < 1 ? inner.offsetHeight * s : null);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(outer);
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, [designWidth]);
+
+  return (
+    <div ref={outerRef} className={className} style={scaledH !== null ? { height: scaledH } : undefined}>
+      <div
+        ref={innerRef}
+        className="origin-top-left"
+        style={scale < 1 ? { width: designWidth, transform: `scale(${scale})` } : undefined}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function ProductWindow({
   kind = 'table', title, showLive = true, dotColor = 'emerald', extra, children, className = '',
 }: {
@@ -1364,6 +1422,7 @@ export default function Home() {
   const { isSignedIn, isLoaded } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [authPanel, setAuthPanel] = useState<AuthPanel>('closed');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { t } = useAppTranslation();
 
   // Hero scroll progress for parallax
@@ -1579,36 +1638,31 @@ export default function Home() {
         </Link>
       </div>
 
-      {/* Navigation - Centered floating pill navbar */}
-      <nav className="fixed top-[52px] left-1/2 -translate-x-1/2 z-50">
+      {/* Navigation — centered floating pill on desktop, compact pill (hamburger + CTA) top-right on mobile */}
+      <nav className="fixed top-[52px] right-4 md:right-auto md:left-1/2 md:-translate-x-1/2 z-50">
         <div className="flex items-center gap-1 px-2 py-2 rounded-full bg-white/80 backdrop-blur-xl border border-slate-200 shadow-lg shadow-slate-200/50">
-          {/* Menu items */}
-          <div className="flex items-center">
-            <button
-              onClick={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })}
-              className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 transition-colors rounded-full hover:bg-slate-100"
-            >
-              {t('landing.nav.products')}
-            </button>
-            <button
-              onClick={() => document.getElementById('tools')?.scrollIntoView({ behavior: 'smooth' })}
-              className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 transition-colors rounded-full hover:bg-slate-100"
-            >
-              {t('landing.nav.tools')}
-            </button>
-            <button
-              onClick={() => document.getElementById('solutions')?.scrollIntoView({ behavior: 'smooth' })}
-              className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 transition-colors rounded-full hover:bg-slate-100"
-            >
-              {t('landing.nav.solutions')}
-            </button>
-            <button
-              onClick={() => document.getElementById('resources')?.scrollIntoView({ behavior: 'smooth' })}
-              className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 transition-colors rounded-full hover:bg-slate-100"
-            >
-              {t('landing.nav.resources')}
-            </button>
+          {/* Menu items — desktop only */}
+          <div className="hidden md:flex items-center">
+            {NAV_SECTIONS.map(section => (
+              <button
+                key={section.id}
+                onClick={() => document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth' })}
+                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 transition-colors rounded-full hover:bg-slate-100"
+              >
+                {t(section.labelKey)}
+              </button>
+            ))}
           </div>
+
+          {/* Hamburger — mobile only */}
+          <button
+            onClick={() => setMobileNavOpen(o => !o)}
+            aria-label="Menu"
+            aria-expanded={mobileNavOpen}
+            className="md:hidden p-2 rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+          >
+            {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
 
           {/*
             CTA button. `treatPendingAsSignedOut` makes Clerk treat sessions
@@ -1635,6 +1689,32 @@ export default function Home() {
             </Link>
           </SignedIn>
         </div>
+
+        {/* Mobile dropdown menu */}
+        <AnimatePresence>
+          {mobileNavOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.97 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="md:hidden absolute right-0 top-full mt-2 w-52 py-2 rounded-2xl bg-white/95 backdrop-blur-xl border border-slate-200 shadow-xl shadow-slate-300/40 overflow-hidden"
+            >
+              {NAV_SECTIONS.map(section => (
+                <button
+                  key={section.id}
+                  onClick={() => {
+                    setMobileNavOpen(false);
+                    document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="w-full text-left px-5 py-2.5 text-sm text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+                >
+                  {t(section.labelKey)}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </nav>
 
       {/* ========== HERO SECTION — compact, editorial ========== */}
@@ -1788,7 +1868,9 @@ export default function Home() {
               transition={{ duration: 1, delay: 0.4 }}
               className="relative flex justify-center lg:justify-end"
             >
-              <HeroScannerTerminal />
+              <ScaleToFit designWidth={494} className="w-full max-w-[540px]">
+                <HeroScannerTerminal />
+              </ScaleToFit>
             </motion.div>
           </div>
         </motion.div>
@@ -1884,8 +1966,12 @@ export default function Home() {
               </div>
             </div>
             <div className="grid md:grid-cols-2 gap-5">
-              <ScannerMock title="Gappers Up"  rows={GAPPERS_UP_ROWS}  sortKey="Gap%" />
-              <ScannerMock title="Momentum Up" rows={MOMENTUM_UP_ROWS} sortKey="Chg%" />
+              <ScaleToFit designWidth={432}>
+                <ScannerMock title="Gappers Up"  rows={GAPPERS_UP_ROWS}  sortKey="Gap%" />
+              </ScaleToFit>
+              <ScaleToFit designWidth={432}>
+                <ScannerMock title="Momentum Up" rows={MOMENTUM_UP_ROWS} sortKey="Chg%" />
+              </ScaleToFit>
             </div>
           </motion.div>
 
@@ -1909,7 +1995,9 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <SECFilingsMock />
+            <ScaleToFit designWidth={560}>
+              <SECFilingsMock />
+            </ScaleToFit>
           </motion.div>
 
           {/* Module 3: Pattern Match */}
@@ -1932,7 +2020,9 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <PatternMatchingMock />
+            <ScaleToFit designWidth={560}>
+              <PatternMatchingMock />
+            </ScaleToFit>
           </motion.div>
 
           {/* Module 4: Market Pulse */}
@@ -1956,7 +2046,11 @@ export default function Home() {
               </div>
             </div>
             <div className="grid lg:grid-cols-12 gap-5 items-start">
-              <div className="lg:col-span-7 lg:col-start-4"><MarketPulseMock /></div>
+              <div className="lg:col-span-7 lg:col-start-4">
+                <ScaleToFit designWidth={560}>
+                  <MarketPulseMock />
+                </ScaleToFit>
+              </div>
             </div>
           </motion.div>
 
@@ -2043,7 +2137,7 @@ export default function Home() {
       </section>
 
       {/* ========== 32-MODULE INDEX GRID ========== */}
-      <section className="relative py-24 px-6 bg-white border-t border-slate-200/70">
+      <section id="tools" className="relative py-24 px-6 bg-white border-t border-slate-200/70 scroll-mt-24">
         <div className="max-w-[1440px] mx-auto px-2 md:px-6 lg:px-8">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }} className="max-w-3xl mb-12">

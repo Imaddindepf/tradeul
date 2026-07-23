@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MoreVertical, Copy, Reply, Smile, MessageCircle, CornerDownRight } from 'lucide-react';
 import { type ChatMessage as ChatMessageType, useChatStore } from '@/stores/useChatStore';
 import { useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
@@ -24,6 +25,7 @@ interface ChatMessageProps {
 const TICKER_REGEX = /\$([A-Z]{1,5})\b/g;
 
 export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
+  const { t } = useTranslation();
   const { openWindow } = useFloatingWindowActions();
   const { getToken, userId } = useAuth();
   const { groups, setGroups, setActiveTarget, messages, activeTarget, getTargetKey } = useChatStore();
@@ -279,9 +281,9 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
                     "hover:scale-125 active:scale-95",
                     hasReacted && "drop-shadow-[0_0_3px_rgba(59,130,246,0.5)]"
                   )}
-                  title={hasReacted 
-                    ? `Clic para quitar tu reacción (${userIds.length} total)`
-                    : `${userIds.length} ${userIds.length === 1 ? 'reacción' : 'reacciones'}`
+                  title={hasReacted
+                    ? t('chat.removeReaction', { count: userIds.length })
+                    : t(userIds.length === 1 ? 'chat.reaction_one' : 'chat.reaction_other', { count: userIds.length })
                   }
                 >
                   <span>{emoji}</span>
@@ -371,7 +373,7 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
                 <button
                   onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                   className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors ml-1"
-                  title="Más emojis"
+                  title={t('chat.moreEmojis')}
                 >
                   <Smile className="w-4 h-4" />
                 </button>

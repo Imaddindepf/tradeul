@@ -66,6 +66,8 @@ AVAILABLE_AGENTS = {
         "Use for: ANY question about warrants, ATM, shelf, dilution risk, cash runway, "
         "shares outstanding history, offering history, convertible instruments, "
         "equity lines, PIPE deals, registration statements. "
+        "ALSO market-wide (no ticker needed): trending dilution — which tickers have "
+        "the most recent dilutive filing activity (shelfs, ATMs, warrants) right now. "
         "CRITICAL for micro-cap and small-cap analysis."
     ),
     "research": (
@@ -138,6 +140,24 @@ AVAILABLE_AGENTS = {
     ),
 }
 
+# ── Brief-thread agent (Fase 3b) ─────────────────────────────────
+# Solo se ofrece al planner cuando el estado trae `news_context` (el thread
+# nació de un "Contexto de noticia"). Fuera de esos threads el agente no
+# existe para el planner, así el routing normal no cambia ni un ápice.
+NEWS_BRIEF_AGENT_DESC = (
+    "Conversational analyst for THIS thread's news story (the [Brief thread] block "
+    "below). Continues the fundamental-context brief conversation: implications of the "
+    "news, who benefits, background, fundamentals of the tickers involved, web context. "
+    "Has web search + per-ticker fundamentals, but NO real-time market data (no prices "
+    "now, no movers, no rankings, no volume). "
+    "ROUTING RULES for brief threads: "
+    "(1) Follow-up asks about the news itself, its implications, or analysis → news_brief alone. "
+    "(2) Follow-up needs LIVE market data (what's moving now, prices, rankings, volume) → "
+    "the live agents (market_data, screener, ...) WITHOUT news_brief. "
+    "(3) HYBRID (e.g. 'qué stocks suben hoy con este catalizador y qué implica para el sector') → "
+    "news_brief PLUS the live agents in parallel; the synthesizer merges both."
+)
+
 SCANNER_CATEGORIES = [
     "gappers_up", "gappers_down", "momentum_up", "momentum_down",
     "high_volume", "winners", "losers", "reversals", "anomalies",
@@ -183,12 +203,21 @@ Follow-up resolution rules:
    the missing subject from the MOST RECENT turn that has tickers.
 2. Inherit those tickers into the "tickers" field and route as if the user had
    named them explicitly. Set confidence >= 0.9 — do NOT ask for clarification
-   when the conversation context disambiguates the subject.
+   when THIS THREAD's context disambiguates the subject.
 3. If the user explicitly names a NEW ticker or topic, the new subject wins;
    ignore prior context.
 4. Mention the resolved subject in "plan" (e.g. "Follow-up sobre NVDA: ...").
-5. A [Relevant past analysis] block may include snippets from other conversations —
-   use it only as background, never as the subject of the current query.
+5. A [Relevant past analysis] block may include snippets from OTHER conversations —
+   background only, NEVER the subject of the current query.
+6. CRITICAL — referents must live in THIS thread. If the query points at
+   something specific ("este catalizador", "esa noticia", "the event we
+   discussed") and the referent does NOT appear in [Conversation so far] or a
+   [Brief thread] block (both count as this-thread context), do NOT fill it in
+   from [Relevant past analysis] or from a guess. The query is ambiguous: set
+   confidence to 0.5 and emit a "clarification" whose options include the most
+   plausible candidate from past analysis — labeled as coming from a previous
+   conversation — plus an option to specify something else. Silently adopting a
+   topic recalled from another conversation produces confidently-wrong answers.
 </conversation_awareness>
 
 <date_format_awareness>
@@ -222,7 +251,7 @@ COMPLETE_ANALYSIS — Full picture: "análisis completo", "deep dive", "full bre
 CODE — Custom statistical analysis, frequency studies, conditional probabilities, data transformations → code_exec. Use when user asks "how often", "what % of the time", "con qué frecuencia", "average return after X", "correlation between X and Y" — any question needing custom Python/DuckDB analysis on historical data WITHOUT trading strategy P&L simulation.
 BACKTEST — Trading strategy P&L simulation with entry/exit rules → backtest. ONLY when user describes a STRATEGY with entry conditions AND exit rules (stop, target, time). Examples: "backtest buying RSI<30 with 5% stop", "/backtest gap-up strategy". If query is a frequency/statistical question WITHOUT explicit P&L strategy intent, route to CODE instead. If user is only asking ABOUT backtest capabilities (no strategy given), classify as GREETING.
 CHART_ANALYSIS — User is asking about a specific chart they are viewing (technical analysis, patterns, support/resistance, trend) → market_data (add research if "why" is asked, add news_events for context)
-DILUTION_ANALYSIS — ANY question about stock dilution, warrants, ATM offerings, shelf registrations, convertible notes/preferred, equity lines, S-1 filings, cash runway, burn rate, shares outstanding history, offering history, PIPE deals, registration statements, dilution risk scores, price protection/ratchet clauses, baby-shelf restrictions, overhead supply → dilution. Add market_data for current price context. Add news_events if asking about recent filings or catalysts.
+DILUTION_ANALYSIS — ANY question about stock dilution, warrants, ATM offerings, shelf registrations, convertible notes/preferred, equity lines, S-1 filings, cash runway, burn rate, shares outstanding history, offering history, PIPE deals, registration statements, dilution risk scores, price protection/ratchet clauses, baby-shelf restrictions, overhead supply → dilution. Add market_data for current price context. Add news_events if asking about recent filings or catalysts. ALSO market-wide dilution-activity questions WITHOUT a ticker ("¿qué tickers están diluyendo ahora?", "who is filing shelfs/ATMs this week?", "most dilution activity") → dilution (it has a market-wide trending source) — these are DILUTION_ANALYSIS, NOT RANKING.
 
 A single query can combine MULTIPLE intents — select agents for ALL detected intents.
 Example: "Why is TSLA up? Show me the financials too" = CAUSAL + FUNDAMENTALS → research + news_events + market_data + financial
@@ -506,12 +535,74 @@ def _get_llm():
     global _llm
     if _llm is None:
         from agents._make_llm import make_llm
-        _llm = make_llm(tier="fast", temperature=0.0, max_tokens=1024)
+        # Constrained decoding (json_mode) + a generous token budget: the
+        # planner's routing decision — the single most important LLM call —
+        # must never truncate mid-object and fall back to blind market_data
+        # routing. max_tokens was 1024, which the agent_tasks block overran on
+        # complex multi-agent queries (observed FALLBACKs).
+        #
+        # Thinking stays ENABLED: eval regression showed that disabling it
+        # traded truncation-FALLBACKs for under-classification of genuinely
+        # ambiguous queries (a macro NFP question misread as GREETING). For the
+        # router, decision quality beats latency — so we keep thinking and give
+        # it enough headroom (6144) that reasoning + JSON both fit.
+        _llm = make_llm(
+            tier="fast", temperature=0.0, max_tokens=6144, json_mode=True,
+        )
     return _llm
 
 
-def _build_agents_desc() -> str:
-    return "\n".join(f"- {name}: {desc}" for name, desc in AVAILABLE_AGENTS.items())
+def _salvage_json(raw: str):
+    """Best-effort parse: strip fences, else extract the outermost balanced
+    {...} object. Returns a dict or None. Kept as a safety net beneath JSON
+    mode, so a stray wrapper never forces a FALLBACK."""
+    if not raw:
+        return None
+    s = raw.strip()
+    if s.startswith("```"):
+        s = s.split("\n", 1)[-1]
+    if s.endswith("```"):
+        s = s.rsplit("```", 1)[0]
+    s = s.strip()
+    try:
+        return json.loads(s)
+    except Exception:  # noqa: BLE001
+        pass
+    start = s.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(s)):
+        c = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(s[start:i + 1])
+                except Exception:  # noqa: BLE001
+                    return None
+    return None
+
+
+def _build_agents_desc(include_news_brief: bool = False) -> str:
+    desc = "\n".join(f"- {name}: {desc}" for name, desc in AVAILABLE_AGENTS.items())
+    if include_news_brief:
+        desc += f"\n- news_brief: {NEWS_BRIEF_AGENT_DESC}"
+    return desc
 
 
 # ── Market context helper ─────────────────────────────────────────
@@ -626,7 +717,12 @@ async def query_planner_node(state: dict) -> dict:
     query = state.get("query", "")
     language = state.get("language", "en")
 
-    agents_desc = _build_agents_desc()
+    # Brief threads (Fase 3b): el agente news_brief solo existe para el
+    # planner cuando el thread nació de un "Contexto de noticia".
+    news_context = state.get("news_context") or {}
+    is_brief_thread = bool(news_context.get("text"))
+
+    agents_desc = _build_agents_desc(include_news_brief=is_brief_thread)
     market_context = await _get_market_context_str(state)
     scanner_cats = ", ".join(SCANNER_CATEGORIES)
 
@@ -712,32 +808,51 @@ async def query_planner_node(state: dict) -> dict:
     if conversation_block:
         user_content = f"{conversation_block}\n\n[Current query]\n{user_content}"
 
+    if is_brief_thread:
+        headline = (news_context.get("headline") or news_context.get("title") or "").strip()
+        news_text = (news_context.get("text") or "").strip()
+        news_tickers = news_context.get("tickers") or []
+        brief_lines = ["[Brief thread] This conversation started from a news story."]
+        if headline:
+            brief_lines.append(f"Headline: {headline[:200]}")
+        if news_text:
+            brief_lines.append(f"News: {news_text[:400]}")
+        if news_tickers:
+            brief_lines.append(f"News tickers: {', '.join(news_tickers[:8])}")
+        brief_lines.append(
+            "Apply the news_brief ROUTING RULES: conversational/analytical follow-ups "
+            "about this news go to news_brief; live-market questions go to the live "
+            "agents; hybrids select both."
+        )
+        user_content = "\n".join(brief_lines) + f"\n\n{user_content}"
+
     llm = _get_llm()
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
 
+    decision = None
     try:
         response = await llm_invoke_with_retry(llm, messages)
-        raw = response.content.strip()
+        raw = (response.content or "").strip()
+        decision = _salvage_json(raw)
+    except Exception as e:  # noqa: BLE001
+        logger.error("Query planner LLM call failed: %s", e)
+        raw = ""
 
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[-1]
-        if raw.endswith("```"):
-            raw = raw.rsplit("```", 1)[0]
-        raw = raw.strip()
-
-        decision = json.loads(raw)
-    except (json.JSONDecodeError, Exception) as e:
-        logger.error("Query planner parse error: %s — raw: %s", e, raw if "raw" in dir() else "N/A")
+    if not isinstance(decision, dict):
+        logger.error(
+            "Query planner unparseable output — raw head: %s",
+            (raw[:200] if isinstance(raw, str) else "N/A"),
+        )
         decision = {
             "intent": "FALLBACK",
             "tickers": [],
             "plan": "Fallback: routing to market_data due to parse error",
             "agents": ["market_data"],
             "confidence": 0.5,
-            "reasoning": f"LLM output could not be parsed: {e}",
+            "reasoning": "LLM output could not be parsed",
         }
 
     # ── Clarification handling ──
@@ -782,7 +897,12 @@ async def query_planner_node(state: dict) -> dict:
                 names = {t: info.get("company_name", "?") for t, info in ticker_info.items()}
                 logger.info("Planner: ticker metadata loaded: %s", names)
 
-    requested_agents = [a for a in decision.get("agents", []) if a in AVAILABLE_AGENTS]
+    _allowed = set(AVAILABLE_AGENTS) | ({"news_brief"} if is_brief_thread else set())
+    requested_agents = [a for a in decision.get("agents", []) if a in _allowed]
+    # Fail-safe de brief threads: un follow-up sin agentes (p.ej. clasificado
+    # GREETING) se queda en el motor de briefs — el comportamiento histórico.
+    if is_brief_thread and not requested_agents:
+        requested_agents = ["news_brief"]
 
     # ── Execution mode shaping ──
     # quick: cheapest useful answer — cap fan-out at 2 agents, drop research
@@ -791,7 +911,7 @@ async def query_planner_node(state: dict) -> dict:
     mode = state.get("mode", "auto")
     if mode == "quick" and len(requested_agents) > 1:
         _quick_priority = [
-            "market_data", "news_events", "dilution", "screener",
+            "news_brief", "market_data", "news_events", "dilution", "screener",
             "strategy_scanner", "financial", "backtest", "code_exec", "research",
         ]
         requested_agents = sorted(

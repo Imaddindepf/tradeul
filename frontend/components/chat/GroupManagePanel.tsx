@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Search, UserPlus, UserMinus, Shield, ShieldOff, Loader2, Crown, Users, Clock, XCircle, Link2, Copy, Check, Trash2, Plus } from 'lucide-react';
 import { useAuth } from '@clerk/nextjs';
+import { useTranslation } from 'react-i18next';
 import { useChatStore, type ChatGroup } from '@/stores/useChatStore';
 import { cn } from '@/lib/utils';
 
@@ -53,6 +54,7 @@ interface GroupManagePanelProps {
 }
 
 export function GroupManagePanel({ group, onClose }: GroupManagePanelProps) {
+    const { t } = useTranslation();
     const { getToken, userId } = useAuth();
     const { groups, setGroups } = useChatStore();
 
@@ -545,7 +547,7 @@ export function GroupManagePanel({ group, onClose }: GroupManagePanelProps) {
                                                 onClick={() => handleCancelInvite(invite.invitee_id)}
                                                 disabled={cancellingInvite === invite.invitee_id}
                                                 className="p-1 rounded transition-colors hover:bg-danger/20 text-danger"
-                                                title="Cancelar invitación"
+                                                title={t('chat.cancelInvite')}
                                             >
                                                 {cancellingInvite === invite.invitee_id ? (
                                                     <Loader2 className="w-3 h-3 animate-spin" />

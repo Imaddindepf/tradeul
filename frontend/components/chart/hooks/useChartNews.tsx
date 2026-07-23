@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { ISeriesApi } from 'lightweight-charts';
+import { useTranslation } from 'react-i18next';
 import { useArticlesByTicker } from '@/stores/useNewsStore';
 import { getUserTimezone } from '@/lib/date-utils';
 import { roundToInterval } from '../formatters';
@@ -58,6 +59,7 @@ export function useChartNews(
     showNewsMarkers: boolean,
     openWindow: OpenWindowFn,
 ) {
+    const { t } = useTranslation();
     // Live articles already in the global store (real-time WS updates).
     const storeNews = useArticlesByTicker(currentTicker);
     // Ticker-scoped history fetched on demand. The global store only holds the
@@ -225,13 +227,13 @@ export function useChartNews(
         const newsAtTime = newsTimeMapRef.current.get(time);
         if (newsAtTime && newsAtTime.length > 0) {
             openWindow({
-                title: `News: ${currentTicker}`,
+                title: t('chart.newsTitle', { ticker: currentTicker }),
                 content: <ChartNewsPopup ticker={currentTicker} articles={newsAtTime as any} />,
                 width: 400, height: 300, x: 300, y: 150,
                 minWidth: 320, minHeight: 200,
             });
         }
-    }, [currentTicker, openWindow]);
+    }, [currentTicker, openWindow, t]);
 
     const showNewsMarkersRef = useRef(showNewsMarkers);
     showNewsMarkersRef.current = showNewsMarkers;

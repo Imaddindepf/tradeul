@@ -56,7 +56,7 @@ export const TypewriterCode = memo(function TypewriterCode({
 }) {
   const { text, typing } = useTypewriter(content, !!typewriter);
   return (
-    <pre className="rounded-md border border-border-subtle bg-[#0a0e16] px-2 py-1.5 text-[8px] leading-[1.5] font-mono text-sky-300/90 overflow-hidden max-h-[104px] whitespace-pre-wrap break-all">
+    <pre className="rounded-md border border-border-subtle bg-slate-100 dark:bg-[#0a0e16] px-2 py-1.5 text-[8px] leading-[1.5] font-mono text-sky-800 dark:text-sky-300/90 overflow-hidden max-h-[104px] whitespace-pre-wrap break-all">
       {text}
       {typing && <span className="inline-block w-[5px] h-[9px] bg-sky-300/90 align-middle animate-pulse ml-px" />}
     </pre>

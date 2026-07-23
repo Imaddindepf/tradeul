@@ -2,8 +2,10 @@
 
 import { memo, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { BarChart3, FileText, Table2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import i18n from '@/lib/i18n';
 import { CodeBlock } from './CodeBlock';
 import { StructuredResponseRenderer, type StructuredResponse } from './StructuredResponseRenderer';
 import { AlertDraftCard } from './AlertDraftCard';
@@ -12,7 +14,7 @@ import type { ResultBlockData, OutputItem } from './types';
 
 const ChartLoadError = () => (
   <div className="h-[80px] flex items-center justify-center rounded-xl border border-border bg-surface text-[11px] text-muted-fg">
-    No se pudo cargar el gráfico — recarga la página (hay una versión nueva de la app).
+    {i18n.t('aiAgent.chartLoadFailed')}
   </div>
 );
 
@@ -116,6 +118,7 @@ const INLINE_TABLE_PREVIEW = 10;
 const INLINE_TABLE_MAX = 500;
 
 function InteractiveTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+  const { t } = useTranslation();
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -201,7 +204,7 @@ function InteractiveTable({ headers, rows }: { headers: string[]; rows: string[]
           onClick={() => setExpanded(true)}
           className="w-full py-1.5 text-[10px] text-muted-fg hover:text-foreground bg-surface-hover border-t border-border transition-colors"
         >
-          Mostrar más ({sortedRows.length - INLINE_TABLE_PREVIEW} filas más)
+          {t('aiAgent.showMoreRows', { count: sortedRows.length - INLINE_TABLE_PREVIEW })}
         </button>
       )}
     </div>
@@ -218,6 +221,7 @@ const _reveal = (idx: number) => ({
 });
 
 const V4ResponseRenderer = memo(function V4ResponseRenderer({ content }: { content: string }) {
+  const { t } = useTranslation();
   const elements = useMemo(() => parseMarkdown(content), [content]);
   const [showChart, setShowChart] = useState<number | null>(null);
 
@@ -297,7 +301,7 @@ const V4ResponseRenderer = memo(function V4ResponseRenderer({ content }: { conte
                       className="inline-flex items-center gap-1 px-2 py-1 text-[9px] font-medium text-primary bg-primary/10 hover:bg-primary/15 rounded transition-colors"
                     >
                       <BarChart3 className="w-3 h-3" />
-                      {showChart === tIdx ? 'Ocultar gráfico' : 'Visualizar'}
+                      {showChart === tIdx ? t('aiAgent.result.hideChart') : t('aiAgent.result.visualize')}
                     </button>
                   </div>
                 )}
@@ -428,7 +432,7 @@ function renderOutput(output: OutputItem, idx: number) {
           </pre>
         )}
         {ceCode && (
-          <CodeBlock code={ceCode} title="Código generado" isVisible={false} onToggle={() => {}} />
+          <CodeBlock code={ceCode} title={i18n.t('aiAgent.result.generatedCode')} isVisible={false} onToggle={() => {}} />
         )}
       </div>
     );
@@ -510,14 +514,17 @@ function downloadCsv(t: ExtractedTable) {
 
 type ResultTab = 'resumen' | 'datos' | 'grafico';
 
-const TAB_META: Array<{ id: ResultTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: 'resumen', label: 'Resumen', icon: FileText },
-  { id: 'datos', label: 'Datos', icon: Table2 },
-  { id: 'grafico', label: 'Gráfico', icon: BarChart3 },
-];
+function getTabMeta(): Array<{ id: ResultTab; label: string; icon: React.ComponentType<{ className?: string }> }> {
+  return [
+    { id: 'resumen', label: 'Resumen', icon: FileText },
+    { id: 'datos', label: 'Datos', icon: Table2 },
+    { id: 'grafico', label: i18n.t('aiAgent.result.chart'), icon: BarChart3 },
+  ];
+}
 
 // ── ResultBlock ──────────────────────────────────────────────────
 export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: ResultBlockProps) {
+  const { t } = useTranslation();
   const { result, code, codeVisible, status } = block;
 
   const outputsForTables = status === 'success' && result?.success ? result?.outputs || [] : [];
@@ -540,7 +547,7 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
   }
 
   if (status === 'error' || !result?.success) {
-    const errorText = result?.outputs?.[0]?.content || 'Error al procesar la solicitud.';
+    const errorText = result?.outputs?.[0]?.content || t('aiAgent.errors.processFailed');
     return (
       <div className="text-[13px] text-red-500 rounded bg-red-50 border border-red-200 px-3 py-2">
         {String(errorText)}
@@ -565,7 +572,7 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
       {code && (
         <CodeBlock
           code={code}
-          title="Código generado"
+          title={t('aiAgent.result.generatedCode')}
           isVisible={codeVisible}
           onToggle={onToggleCode}
         />
@@ -589,7 +596,7 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
     <div className="space-y-2.5">
       {/* Tab bar — only when the response carries tabular data */}
       <div className="flex items-center gap-1">
-        {TAB_META.map(({ id, label, icon: Icon }) => (
+        {getTabMeta().map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}

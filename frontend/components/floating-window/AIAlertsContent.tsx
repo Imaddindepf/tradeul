@@ -11,6 +11,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import { useTranslation } from 'react-i18next';
 import dynamic from 'next/dynamic';
 import {
   Archive, BellRing, CheckCircle2, ChevronDown, ChevronRight, Clock,
@@ -28,29 +29,28 @@ import {
   listAlerts, listFires, matchSteps, pauseAlert, rerunDryRun,
 } from '@/lib/aiAlerts';
 import { useAIAlertFiresStore } from '@/stores/useAIAlertFiresStore';
+import { formatTimeAgo } from '@/lib/relative-time';
+import i18n from '@/lib/i18n';
 
 const POLL_MS = 45_000;
 
-const STATUS_META: Record<string, { label: string; cls: string; dot: string }> = {
-  armed: { label: 'ACTIVA', cls: 'bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500 animate-pulse' },
-  draft: { label: 'BORRADOR', cls: 'bg-amber-500/10 text-amber-500', dot: 'bg-amber-500' },
-  paused: { label: 'PAUSADA', cls: 'bg-slate-500/10 text-slate-400', dot: 'bg-slate-400' },
-  archived: { label: 'ARCHIVADA', cls: 'bg-slate-500/10 text-slate-500', dot: 'bg-slate-500' },
-};
+function statusMeta(status: string): { label: string; cls: string; dot: string } {
+  const styles: Record<string, { cls: string; dot: string }> = {
+    armed: { cls: 'bg-emerald-500/10 text-emerald-500', dot: 'bg-emerald-500 animate-pulse' },
+    draft: { cls: 'bg-amber-500/10 text-amber-500', dot: 'bg-amber-500' },
+    paused: { cls: 'bg-slate-500/10 text-slate-400', dot: 'bg-slate-400' },
+    archived: { cls: 'bg-slate-500/10 text-slate-500', dot: 'bg-slate-500' },
+  };
+  const style = styles[status] || styles.draft;
+  return { label: i18n.t(`aiAlerts.status.${status}`, { defaultValue: status }), ...style };
+}
 
-const TIER_LABELS: Record<string, string> = {
-  event_match: 'Evento en vivo',
-  sequence: 'Secuencia',
-  membership: 'Ranking',
-  agentic: 'Workflow',
-};
+function tierLabel(tier: string): string {
+  return i18n.t(`aiAlerts.tier.${tier}`, { defaultValue: tier });
+}
 
 function timeAgo(epoch: number): string {
-  const s = Math.max(0, Date.now() / 1000 - epoch);
-  if (s < 60) return 'ahora';
-  if (s < 3600) return `hace ${Math.floor(s / 60)}m`;
-  if (s < 86400) return `hace ${Math.floor(s / 3600)}h`;
-  return `hace ${Math.floor(s / 86400)}d`;
+  return formatTimeAgo(epoch);
 }
 
 function pct(v: number | undefined | null): string {
@@ -74,7 +74,7 @@ function FireDashboard({ fires }: { fires: AlertFire[] }) {
       const d = new Date(Date.now() - i * 86400_000);
       days.push({
         key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`,
-        label: d.toLocaleDateString('es-ES', { weekday: 'short' }).slice(0, 2),
+        label: d.toLocaleDateString(i18n.language?.startsWith('es') ? 'es-ES' : 'en-US', { weekday: 'short' }).slice(0, 2),
         count: 0,
       });
     }
@@ -106,17 +106,17 @@ function FireDashboard({ fires }: { fires: AlertFire[] }) {
         <div className="flex items-center gap-3 flex-shrink-0">
           <div>
             <div className="text-[13px] font-bold tabular-nums text-foreground leading-none">{stats.today}</div>
-            <div className="text-[7.5px] uppercase tracking-wider text-muted-fg mt-0.5">hoy</div>
+            <div className="text-[7.5px] uppercase tracking-wider text-muted-fg mt-0.5">{i18n.t('aiAlerts.today')}</div>
           </div>
           <div>
             <div className="text-[13px] font-bold tabular-nums text-foreground leading-none">{stats.last7}</div>
-            <div className="text-[7.5px] uppercase tracking-wider text-muted-fg mt-0.5">7 días</div>
+            <div className="text-[7.5px] uppercase tracking-wider text-muted-fg mt-0.5">{i18n.t('aiAlerts.sevenDays')}</div>
           </div>
           <div>
             <div className="text-[13px] font-bold tabular-nums text-foreground leading-none">
               {(stats.last7 / 7).toFixed(1)}
             </div>
-            <div className="text-[7.5px] uppercase tracking-wider text-muted-fg mt-0.5">media/día</div>
+            <div className="text-[7.5px] uppercase tracking-wider text-muted-fg mt-0.5">{i18n.t('aiAlerts.avgPerDay')}</div>
           </div>
         </div>
 
@@ -127,7 +127,7 @@ function FireDashboard({ fires }: { fires: AlertFire[] }) {
               <div
                 className={`w-full rounded-sm ${d.count > 0 ? 'bg-primary/70' : 'bg-surface-hover'}`}
                 style={{ height: `${Math.max(8, (d.count / maxCount) * 100)}%` }}
-                title={`${d.count} disparos`}
+                title={i18n.t('aiAlerts.firesCount', { count: d.count })}
               />
               <span className="text-[6.5px] text-muted-fg leading-none">{d.label}</span>
             </div>
@@ -145,7 +145,7 @@ function FireDashboard({ fires }: { fires: AlertFire[] }) {
             ))}
           </div>
           {stats.lastFire && (
-            <span className="text-[8px] text-muted-fg">último {timeAgo(stats.lastFire)}</span>
+            <span className="text-[8px] text-muted-fg">{i18n.t('aiAlerts.lastPrefix', { time: timeAgo(stats.lastFire) })}</span>
           )}
         </div>
       )}
@@ -183,7 +183,7 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
       setDryResult(res);
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Dry-run falló');
+      setError(e instanceof Error ? e.message : i18n.t('aiAgent.errors.dryRunFailed'));
     } finally {
       setDryRunning(false);
     }
@@ -206,15 +206,15 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
       {/* Fire history */}
       <div>
         <div className="text-[9px] font-semibold text-muted-fg uppercase tracking-wide mb-1">
-          Disparos reales
+          {i18n.t('aiAlerts.realFires')}
         </div>
         {fires === null ? (
           <div className="text-[9.5px] text-muted-fg flex items-center gap-1">
-            <Loader2 className="w-3 h-3 animate-spin" /> Cargando…
+            <Loader2 className="w-3 h-3 animate-spin" /> {i18n.t('aiAlerts.loading')}
           </div>
         ) : fires.length === 0 ? (
           <div className="text-[9.5px] text-muted-fg">
-            Sin disparos todavía{spec.status !== 'armed' ? ' — la alerta no está activa' : ''}.
+            {i18n.t('aiAlerts.noFiresYet')}{spec.status !== 'armed' ? i18n.t('aiAlerts.alertNotArmed') : ''}.
           </div>
         ) : (
           <div className="overflow-x-auto rounded border border-border-subtle">
@@ -222,10 +222,10 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
               <thead>
                 <tr className="bg-surface-hover/60 text-muted-fg text-left">
                   <th className="px-1.5 py-1 font-medium">Ticker</th>
-                  <th className="px-1.5 py-1 font-medium">Evento</th>
-                  <th className="px-1.5 py-1 font-medium text-right">Precio</th>
+                  <th className="px-1.5 py-1 font-medium">{i18n.t('aiAlerts.event')}</th>
+                  <th className="px-1.5 py-1 font-medium text-right">{i18n.t('aiAlerts.price')}</th>
                   <th className="px-1.5 py-1 font-medium text-right">RVOL</th>
-                  <th className="px-1.5 py-1 font-medium text-right">Cuándo</th>
+                  <th className="px-1.5 py-1 font-medium text-right">{i18n.t('aiAlerts.when')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-subtle">
@@ -246,7 +246,7 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
             </table>
             {fires.length > 25 && (
               <div className="px-1.5 py-1 text-[8.5px] text-muted-fg border-t border-border-subtle">
-                Mostrando los 25 más recientes de {fires.length}.
+                {i18n.t('aiAlerts.showingRecent', { count: fires.length })}
               </div>
             )}
           </div>
@@ -262,16 +262,19 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
                      text-primary bg-primary/10 hover:bg-primary/15 disabled:opacity-50 transition-colors"
         >
           {dryRunning
-            ? <><Loader2 className="w-3 h-3 animate-spin" /> Comprobando últimos 5 días…</>
-            : <><FlaskConical className="w-3 h-3" /> ¿Cuándo habría disparado? (5 días)</>}
+            ? <><Loader2 className="w-3 h-3 animate-spin" /> {i18n.t('aiAlerts.checking5d')}</>
+            : <><FlaskConical className="w-3 h-3" /> {i18n.t('aiAlerts.whenWouldFire')}</>}
         </button>
         {error && <div className="text-[9.5px] text-rose-500 mt-1">{error}</div>}
 
         {dryResult && (
           <div className="mt-1.5 rounded border border-border-subtle bg-surface-inset/40 p-1.5 space-y-1">
             <div className="text-[10px] text-foreground/80">
-              <span className="font-bold tabular-nums">{dryResult.total_fires}</span> disparos
-              en {dryResult.days_scanned.length} días · {dryResult.unique_symbols.length} símbolos
+              {i18n.t('aiAlerts.drySummary', {
+                fires: dryResult.total_fires,
+                days: dryResult.days_scanned.length,
+                symbols: dryResult.unique_symbols.length,
+              })}
             </div>
             {evidenceDays.slice(0, 3).map(day => (
               <div key={day.date} className="text-[9.5px]">
@@ -288,7 +291,7 @@ function AlertDetail({ spec, onChanged }: { spec: AlertSpec; onChanged: () => vo
                     </span>
                   );
                 })}
-                {day.count > 5 && <span className="text-muted-fg">+{day.count - 5} más</span>}
+                {day.count > 5 && <span className="text-muted-fg">{i18n.t('aiAlerts.more', { count: day.count - 5 })}</span>}
               </div>
             ))}
             {(dryResult.chart_evidence || []).map(ev => (
@@ -310,7 +313,7 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [actionError, setActionError] = useState('');
 
-  const meta = STATUS_META[spec.status] || STATUS_META.draft;
+  const meta = statusMeta(spec.status);
   const chips = useMemo(() => formatUniverse(spec.universe), [spec.universe]);
 
   const run = async (kind: 'arm' | 'pause' | 'archive', fn: () => Promise<unknown>) => {
@@ -320,7 +323,7 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
       await fn();
       onChanged();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : 'La acción falló');
+      setActionError(e instanceof Error ? e.message : i18n.t('aiAgent.errors.actionFailed'));
     } finally {
       setBusy(null);
       setConfirmArchive(false);
@@ -355,7 +358,7 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
       <div className="flex flex-wrap items-center gap-1 mt-1.5 ml-[18px]">
         <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-[8.5px] font-medium text-primary">
           {spec.tier === 'event_match' ? <Zap className="w-2.5 h-2.5" /> : <Clock className="w-2.5 h-2.5" />}
-          {TIER_LABELS[spec.tier] || spec.tier}
+          {tierLabel(spec.tier)}
         </span>
         {(spec.steps || []).map((s, i) => (
           <span key={i} className="px-1.5 py-0.5 rounded bg-surface-hover text-[8.5px] font-mono text-foreground/60">
@@ -382,7 +385,7 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
         </span>
         {spec.dry_run && (
           <span className="text-[8.5px] text-muted-fg">
-            · dry-run: {spec.dry_run.total_fires} en {spec.dry_run.days_scanned?.length ?? 0}d
+            {i18n.t('aiAlerts.dryRunChip', { fires: spec.dry_run.total_fires, days: spec.dry_run.days_scanned?.length ?? 0 })}
           </span>
         )}
       </div>
@@ -397,7 +400,7 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
                        bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
           >
             {busy === 'arm' ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <CheckCircle2 className="w-2.5 h-2.5" />}
-            Activar
+            {i18n.t('aiAlerts.arm')}
           </button>
         )}
         {spec.status === 'armed' && (
@@ -408,24 +411,24 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
                        bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
           >
             {busy === 'pause' ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Pause className="w-2.5 h-2.5" />}
-            Pausar
+            {i18n.t('aiAlerts.pause')}
           </button>
         )}
         {confirmArchive ? (
           <span className="inline-flex items-center gap-1 text-[9px]">
-            <span className="text-muted-fg">¿Archivar?</span>
+            <span className="text-muted-fg">{i18n.t('aiAlerts.archiveConfirm')}</span>
             <button
               onClick={() => run('archive', () => archiveAlert(getToken, spec.id))}
               disabled={busy !== null}
               className="px-1.5 py-1 rounded font-semibold bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-colors"
             >
-              {busy === 'archive' ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : 'Sí'}
+              {busy === 'archive' ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : i18n.t('aiAlerts.yes')}
             </button>
             <button
               onClick={() => setConfirmArchive(false)}
               className="px-1.5 py-1 rounded text-muted-fg hover:text-foreground transition-colors"
             >
-              No
+              {i18n.t('aiAlerts.no')}
             </button>
           </span>
         ) : (
@@ -435,7 +438,7 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
             className="inline-flex items-center gap-1 px-2 py-1 rounded text-[9px] font-medium
                        text-muted-fg hover:text-rose-500 hover:bg-rose-500/10 disabled:opacity-50 transition-colors"
           >
-            <Archive className="w-2.5 h-2.5" /> Archivar
+            <Archive className="w-2.5 h-2.5" /> {i18n.t('aiAlerts.archive')}
           </button>
         )}
         <span className="ml-auto text-[8.5px] text-muted-fg">{timeAgo(spec.updated_at)}</span>
@@ -452,9 +455,11 @@ function AlertRow({ spec, onChanged }: { spec: AlertSpec; onChanged: () => void 
 const FEED_PREVIEW = 6;
 
 function LiveFeed() {
+  const { t, i18n: i18nInst } = useTranslation();
   const fires = useAIAlertFiresStore((s) => s.fires);
   const connected = useAIAlertFiresStore((s) => s.connected);
   const [expanded, setExpanded] = useState(false);
+  const locale = i18nInst.language?.startsWith('es') ? 'es-ES' : 'en-US';
 
   const rows = expanded ? fires.slice(0, 40) : fires.slice(0, FEED_PREVIEW);
   if (fires.length === 0) {
@@ -462,8 +467,8 @@ function LiveFeed() {
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[9.5px] text-muted-fg border-b border-border">
         <Radio className={`w-3 h-3 ${connected ? 'text-emerald-500' : 'text-muted-fg'}`} />
         {connected
-          ? 'En vivo — los disparos de tus alertas activas aparecerán aquí.'
-          : 'Conectando al feed de disparos…'}
+          ? t('aiAlerts.liveFeed')
+          : i18n.t('aiAgent.connectingFires')}
       </div>
     );
   }
@@ -472,13 +477,13 @@ function LiveFeed() {
     <div className="border-b border-border">
       <div className="flex items-center gap-1.5 px-2.5 pt-1.5 text-[9px] font-semibold text-muted-fg uppercase tracking-wide">
         <Radio className={`w-3 h-3 ${connected ? 'text-emerald-500 animate-pulse' : 'text-muted-fg'}`} />
-        Disparos en vivo
+        {t('aiAlerts.liveFires')}
       </div>
       <div className="px-2.5 py-1.5 space-y-0.5">
         {rows.map((f) => (
           <div key={f.id} className="flex items-center gap-1.5 text-[9.5px]">
             <span className="text-muted-fg tabular-nums flex-shrink-0 w-14">
-              {new Date(f.timestamp * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {new Date(f.timestamp * 1000).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
             <span className="font-semibold text-foreground w-12 flex-shrink-0">{f.symbol}</span>
             <span className="font-mono text-foreground/60 truncate">{f.event_type}</span>
@@ -498,7 +503,9 @@ function LiveFeed() {
           onClick={() => setExpanded(!expanded)}
           className="w-full pb-1.5 text-[9px] text-muted-fg hover:text-foreground transition-colors"
         >
-          {expanded ? 'Ver menos' : `Ver ${Math.min(fires.length, 40) - FEED_PREVIEW} más`}
+          {expanded
+            ? t('aiAlerts.showLess')
+            : t('aiAlerts.showMore', { count: Math.min(fires.length, 40) - FEED_PREVIEW })}
         </button>
       )}
     </div>
@@ -508,6 +515,7 @@ function LiveFeed() {
 // ── Panel ─────────────────────────────────────────────────────────
 
 export function AIAlertsContent() {
+  const { t } = useTranslation();
   const { getToken } = useAuth();
   const [alerts, setAlerts] = useState<AlertSpec[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -524,7 +532,7 @@ export function AIAlertsContent() {
       }
     } catch (e) {
       if (mountedRef.current && !silent) {
-        setLoadError(e instanceof Error ? e.message : 'No se pudieron cargar las alertas');
+        setLoadError(e instanceof Error ? e.message : i18n.t('aiAgent.errors.loadAlerts'));
       }
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -569,20 +577,20 @@ export function AIAlertsContent() {
       <div className="flex items-center justify-between px-3 py-2 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <BellRing className="w-3.5 h-3.5 text-primary" />
-          <span className="text-[11px] font-semibold text-foreground">Alertas IA</span>
+          <span className="text-[11px] font-semibold text-foreground">{t('aiAlerts.title')}</span>
           <span className="flex items-center gap-1.5 text-[9px] text-muted-fg">
             <span className="inline-flex items-center gap-0.5">
               <ShieldCheck className="w-2.5 h-2.5 text-emerald-500" /> {counts.armed}
             </span>
-            <span>· {counts.draft} borrador{counts.draft === 1 ? '' : 'es'}</span>
-            {counts.paused > 0 && <span>· {counts.paused} pausadas</span>}
+            <span>· {t(counts.draft === 1 ? 'aiAlerts.draftCount_one' : 'aiAlerts.draftCount_other', { count: counts.draft })}</span>
+            {counts.paused > 0 && <span>· {t('aiAlerts.pausedCount', { count: counts.paused })}</span>}
           </span>
         </div>
         <div className="flex items-center gap-0.5">
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
             className="p-1 rounded text-muted-fg hover:text-foreground hover:bg-surface-hover transition-colors"
-            title={soundEnabled ? 'Silenciar disparos' : 'Activar sonido'}
+            title={soundEnabled ? t('aiAlerts.muteFires') : t('aiAlerts.enableSound')}
           >
             {soundEnabled ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />}
           </button>
@@ -590,7 +598,7 @@ export function AIAlertsContent() {
             onClick={() => refresh()}
             disabled={loading}
             className="p-1 rounded text-muted-fg hover:text-foreground hover:bg-surface-hover transition-colors"
-            title="Refrescar"
+            title={t('aiAlerts.refresh')}
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -604,7 +612,7 @@ export function AIAlertsContent() {
       <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
         {alerts === null && (
           <div className="flex items-center justify-center h-32 text-[10px] text-muted-fg gap-1.5">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cargando alertas…
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('aiAlerts.loadingAlerts')}
           </div>
         )}
         {loadError && (
@@ -615,11 +623,11 @@ export function AIAlertsContent() {
         {alerts !== null && alerts.length === 0 && !loadError && (
           <div className="flex flex-col items-center justify-center h-48 text-center px-6 gap-2">
             <BellRing className="w-6 h-6 text-muted-fg/50" />
-            <p className="text-[11px] text-foreground/70 font-medium">Todavía no tienes alertas IA</p>
+            <p className="text-[11px] text-foreground/70 font-medium">{t('aiAlerts.emptyTitle')}</p>
             <p className="text-[10px] text-muted-fg leading-relaxed">
-              Pídesela al agente en lenguaje natural, por ejemplo:{' '}
+              {t('aiAlerts.emptyHint')}{' '}
               <span className="text-primary">
-                &ldquo;avísame cuando cualquier acción con RVOL sobre 1.5 cruce el VWAP al alza&rdquo;
+                &ldquo;{t('aiAlerts.emptyExample')}&rdquo;
               </span>
             </p>
           </div>

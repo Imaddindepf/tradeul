@@ -21,6 +21,8 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/lib/i18n';
 import {
   useUserPreferencesStore,
   selectFont,
@@ -152,8 +154,12 @@ const colorForSymbol = (s: string): string => {
   return LOGO_COLORS[h % LOGO_COLORS.length];
 };
 
-const WEEKDAYS_ES = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 const MONTHS_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+function weekdaysShort(): string[] {
+  const days = i18n.t('earnings.weekdaysShort', { returnObjects: true });
+  return Array.isArray(days) ? (days as string[]) : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+}
 
 // ============================================================================
 // UTILS
@@ -193,7 +199,7 @@ const shortDate = (ymd: string): string => {
   const d = parseYmd(ymd);
   return `${d.getDate()} ${MONTHS_ES[d.getMonth()]}`;
 };
-const weekdayOf = (ymd: string): string => WEEKDAYS_ES[parseYmd(ymd).getDay()];
+const weekdayOf = (ymd: string): string => weekdaysShort()[parseYmd(ymd).getDay()];
 
 // Sunday that starts the week containing `ymd`.
 const startOfWeek = (ymd: string): Date => {
@@ -413,6 +419,7 @@ function EventDetailModal({
   down: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<DetailTab>('highlights');
   const [history, setHistory] = useState<EventRow[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(report.event_id);
@@ -596,7 +603,7 @@ function EventDetailModal({
         <div className="flex items-center gap-1 px-4 py-1.5 border-b shrink-0" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.10))' }}>
           {([
             ['highlights', 'Momentos destacados'],
-            ['transcript', 'Transcripción'],
+            ['transcript', t('earnings.transcript')],
             ['documents', 'Documentos'],
           ] as [DetailTab, string][]).map(([id, label]) => (
             <button
@@ -651,7 +658,7 @@ function EventDetailModal({
                 ))}
               </div>
             ) : (
-              <div className="text-[12px] text-foreground/45 pt-6 text-center">Transcripción no disponible todavía.</div>
+              <div className="text-[12px] text-foreground/45 pt-6 text-center">{t('earnings.transcriptUnavailable')}</div>
             )
           )}
 
@@ -700,6 +707,7 @@ function EventDetailModal({
 type ViewMode = 'day' | 'search';
 
 export function EarningsCalendarContent() {
+  const { t } = useTranslation();
   const font = useUserPreferencesStore(selectFont);
   const colors = useUserPreferencesStore(selectColors);
   const tz = useUserPreferencesStore(selectTimezone);
@@ -901,11 +909,11 @@ export function EarningsCalendarContent() {
 
         {view === 'day' && (
           <div className="flex items-center gap-1 p-0.5 rounded-md bg-foreground/[0.05]">
-            <button onClick={() => navDate(-1)} className="w-6 h-6 rounded text-foreground/65 hover:text-foreground hover:bg-foreground/[0.08] text-[12px]" title="Día anterior">‹</button>
+            <button onClick={() => navDate(-1)} className="w-6 h-6 rounded text-foreground/65 hover:text-foreground hover:bg-foreground/[0.08] text-[12px]" title={t('earnings.prevDay')}>‹</button>
             <button onClick={() => setSelectedDate(toYmd(new Date()))} className={cn('px-2 h-6 rounded text-[11px] font-medium', isToday ? 'text-foreground bg-foreground/[0.08]' : 'text-foreground hover:bg-foreground/[0.08]')} title="Hoy">
               {isToday ? 'Hoy' : `${weekdayOf(selectedDate)} ${shortDate(selectedDate)}`}
             </button>
-            <button onClick={() => navDate(1)} className="w-6 h-6 rounded text-foreground/65 hover:text-foreground hover:bg-foreground/[0.08] text-[12px]" title="Día siguiente">›</button>
+            <button onClick={() => navDate(1)} className="w-6 h-6 rounded text-foreground/65 hover:text-foreground hover:bg-foreground/[0.08] text-[12px]" title={t('earnings.nextDay')}>›</button>
           </div>
         )}
       </div>

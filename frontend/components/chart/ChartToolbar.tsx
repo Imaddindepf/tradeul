@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { DrawingTool } from './primitives/types';
 import type { MagnetMode } from './ChartContext';
 import {
@@ -147,7 +148,7 @@ const TrashIcon = ({ className }: { className?: string }) => (
 
 interface ToolDef {
   id: DrawingTool | string;
-  label: string;
+  labelKey: string;
   shortcut?: string;
   icon: React.FC<{ className?: string }>;
   enabled: boolean; // false = visually present but disabled (future)
@@ -163,89 +164,89 @@ const SIDEBAR_CATEGORIES: ToolCategory[] = [
   {
     id: 'cursor',
     tools: [
-      { id: 'none', label: 'Cursor', shortcut: 'Esc', icon: CursorIcon, enabled: true },
-      { id: 'crosshair_mode', label: 'Crosshair', icon: CrosshairIcon, enabled: false },
-      { id: 'dot_mode', label: 'Dot', icon: DotIcon, enabled: false },
+      { id: 'none', labelKey: 'chart.tools.cursor', shortcut: 'Esc', icon: CursorIcon, enabled: true },
+      { id: 'crosshair_mode', labelKey: 'chart.tools.crosshair', icon: CrosshairIcon, enabled: false },
+      { id: 'dot_mode', labelKey: 'chart.tools.dot', icon: DotIcon, enabled: false },
     ],
   },
   // Group 2: Lines
   {
     id: 'lines',
     tools: [
-      { id: 'trendline', label: 'Trend Line', shortcut: 'Alt+T', icon: TrendlineIcon, enabled: true },
-      { id: 'horizontal_line', label: 'Horizontal Line', shortcut: 'Alt+H', icon: HLineIcon, enabled: true },
-      { id: 'vertical_line', label: 'Vertical Line', shortcut: 'Alt+V', icon: VLineIcon, enabled: true },
-      { id: 'ray', label: 'Ray', shortcut: 'Alt+Y', icon: RayIcon, enabled: true },
-      { id: 'extended_line', label: 'Extended Line', shortcut: 'Alt+E', icon: ExtendedLineIcon, enabled: true },
-      { id: 'parallel_channel', label: 'Parallel Channel', icon: ParallelChannelIcon, enabled: true },
+      { id: 'trendline', labelKey: 'chart.tools.trendline', shortcut: 'Alt+T', icon: TrendlineIcon, enabled: true },
+      { id: 'horizontal_line', labelKey: 'chart.tools.horizontalLine', shortcut: 'Alt+H', icon: HLineIcon, enabled: true },
+      { id: 'vertical_line', labelKey: 'chart.tools.verticalLine', shortcut: 'Alt+V', icon: VLineIcon, enabled: true },
+      { id: 'ray', labelKey: 'chart.tools.ray', shortcut: 'Alt+Y', icon: RayIcon, enabled: true },
+      { id: 'extended_line', labelKey: 'chart.tools.extendedLine', shortcut: 'Alt+E', icon: ExtendedLineIcon, enabled: true },
+      { id: 'parallel_channel', labelKey: 'chart.tools.parallelChannel', icon: ParallelChannelIcon, enabled: true },
     ],
   },
   // Group 3: Pitchfork / Gann
   {
     id: 'pitchfork',
     tools: [
-      { id: 'pitchfork', label: 'Pitchfork', icon: PitchforkIcon, enabled: false },
-      { id: 'gann', label: 'Gann Fan', icon: GannIcon, enabled: false },
+      { id: 'pitchfork', labelKey: 'chart.tools.pitchfork', icon: PitchforkIcon, enabled: false },
+      { id: 'gann', labelKey: 'chart.tools.gann', icon: GannIcon, enabled: false },
     ],
   },
   // Group 4: Fibonacci
   {
     id: 'fibonacci',
     tools: [
-      { id: 'fibonacci', label: 'Fib Retracement', shortcut: 'Alt+F', icon: FibIcon, enabled: true },
-      { id: 'fib_extension', label: 'Fib Extension', icon: FibExtIcon, enabled: false },
-      { id: 'fib_fan', label: 'Fib Fan', icon: FibFanIcon, enabled: false },
+      { id: 'fibonacci', labelKey: 'chart.tools.fibonacci', shortcut: 'Alt+F', icon: FibIcon, enabled: true },
+      { id: 'fib_extension', labelKey: 'chart.tools.fibExtension', icon: FibExtIcon, enabled: false },
+      { id: 'fib_fan', labelKey: 'chart.tools.fibFan', icon: FibFanIcon, enabled: false },
     ],
   },
   // Group 5: Text & Annotations
   {
     id: 'text',
     tools: [
-      { id: 'text', label: 'Texto', icon: TextIcon, enabled: true },
-      { id: 'arrow', label: 'Flecha', icon: ArrowMarkerIcon, enabled: true },
-      { id: 'note', label: 'Note', icon: NoteIcon, enabled: false },
-      { id: 'price_label', label: 'Price Label', icon: PriceLabelIcon, enabled: false },
+      { id: 'text', labelKey: 'chart.tools.text', icon: TextIcon, enabled: true },
+      { id: 'arrow', labelKey: 'chart.tools.arrow', icon: ArrowMarkerIcon, enabled: true },
+      { id: 'note', labelKey: 'chart.tools.note', icon: NoteIcon, enabled: false },
+      { id: 'price_label', labelKey: 'chart.tools.priceLabel', icon: PriceLabelIcon, enabled: false },
     ],
   },
   // Group 6: Shapes
   {
     id: 'shapes',
     tools: [
-      { id: 'rectangle', label: 'Rectangle', shortcut: 'Alt+R', icon: RectIcon, enabled: true },
-      { id: 'circle', label: 'Circle', shortcut: 'Alt+C', icon: CircleIcon, enabled: true },
-      { id: 'triangle', label: 'Triangle', icon: TriangleIcon, enabled: true },
+      { id: 'rectangle', labelKey: 'chart.tools.rectangle', shortcut: 'Alt+R', icon: RectIcon, enabled: true },
+      { id: 'circle', labelKey: 'chart.tools.circle', shortcut: 'Alt+C', icon: CircleIcon, enabled: true },
+      { id: 'triangle', labelKey: 'chart.tools.triangle', icon: TriangleIcon, enabled: true },
     ],
   },
   // Group 7: Brush
   {
     id: 'brush',
     tools: [
-      { id: 'brush', label: 'Brush', icon: BrushIcon, enabled: false },
+      { id: 'brush', labelKey: 'chart.tools.brush', icon: BrushIcon, enabled: false },
     ],
   },
   // Group 8: Measurement
   {
     id: 'measure',
     tools: [
-      { id: 'measure', label: 'Measure', shortcut: 'Alt+M', icon: MeasureIcon, enabled: true },
-      { id: 'price_range', label: 'Price Range', icon: PriceRangeIcon, enabled: true },
-      { id: 'date_range', label: 'Date Range', icon: DateRangeIcon, enabled: true },
-      { id: 'ruler', label: 'Ruler', icon: RulerIcon, enabled: false },
+      { id: 'measure', labelKey: 'chart.tools.measure', shortcut: 'Alt+M', icon: MeasureIcon, enabled: true },
+      { id: 'price_range', labelKey: 'chart.tools.priceRange', icon: PriceRangeIcon, enabled: true },
+      { id: 'date_range', labelKey: 'chart.tools.dateRange', icon: DateRangeIcon, enabled: true },
+      { id: 'ruler', labelKey: 'chart.tools.ruler', icon: RulerIcon, enabled: false },
     ],
   },
   // Group 9: Zoom
   {
     id: 'zoom',
     tools: [
-      { id: '_zoomin', label: 'Zoom In', icon: ZoomInIcon, enabled: true },
-      { id: '_zoomout', label: 'Zoom Out', icon: ZoomOutIcon, enabled: true },
+      { id: '_zoomin', labelKey: 'chart.tools.zoomIn', icon: ZoomInIcon, enabled: true },
+      { id: '_zoomout', labelKey: 'chart.tools.zoomOut', icon: ZoomOutIcon, enabled: true },
     ],
   },
   // Group 10: Magnet
   {
     id: 'magnet',
     tools: [
-      { id: 'magnet', label: 'Magnet Mode', icon: MagnetIcon, enabled: false },
+      { id: 'magnet', labelKey: 'chart.tools.magnet', icon: MagnetIcon, enabled: false },
     ],
   },
 ];
@@ -292,6 +293,7 @@ function ChartToolbarComponent({
   magnetMode,
   onCycleMagnet,
 }: ChartToolbarProps) {
+  const { t } = useTranslation();
   const [openFlyout, setOpenFlyout] = useState<string | null>(null);
   const flyoutRef = useRef<HTMLDivElement>(null);
 
@@ -383,7 +385,7 @@ function ChartToolbarComponent({
               <button
                 onClick={onCycleMagnet}
                 className={`${btnBase} ${magnetMode !== 'off' ? 'text-primary bg-primary/10' : btnIdle}`}
-                title={`Magnet: ${magnetMode === 'off' ? 'Off' : magnetMode === 'weak' ? 'Weak' : 'Strong'} (Ctrl to toggle temporarily)`}
+                title={t('chart.magnetMode', { mode: magnetMode === 'off' ? t('chart.magnetOff') : magnetMode === 'weak' ? t('chart.magnetWeak') : t('chart.magnetStrong') })}
               >
                 <MagnetIcon className="w-[18px] h-[18px]" />
                 {magnetMode !== 'off' && <div className="absolute left-0 top-[6px] bottom-[6px] w-[2px] rounded-r bg-blue-600" />}
@@ -391,10 +393,10 @@ function ChartToolbarComponent({
               </button>
             ) : isZoom ? (
               <div className="flex flex-col items-center">
-                <button onClick={zoomIn} className={`${btnBase} ${btnIdle}`} title="Zoom In">
+                <button onClick={zoomIn} className={`${btnBase} ${btnIdle}`} title={t('chart.tools.zoomIn')}>
                   <ZoomInIcon className="w-[18px] h-[18px]" />
                 </button>
-                <button onClick={zoomOut} className={`${btnBase} ${btnIdle}`} title="Zoom Out">
+                <button onClick={zoomOut} className={`${btnBase} ${btnIdle}`} title={t('chart.tools.zoomOut')}>
                   <ZoomOutIcon className="w-[18px] h-[18px]" />
                 </button>
               </div>
@@ -403,7 +405,7 @@ function ChartToolbarComponent({
                 <button
                   onClick={() => handleCatClick(cat)}
                   className={`${btnBase} ${isActive ? btnActive : !displayTool.enabled ? btnDisabled : btnIdle}`}
-                  title={displayTool.label + (displayTool.shortcut ? ` (${displayTool.shortcut})` : '')}
+                  title={t(displayTool.labelKey) + (displayTool.shortcut ? ` (${displayTool.shortcut})` : '')}
                 >
                   <DisplayIcon className="w-[18px] h-[18px]" />
                   {/* Active accent bar */}
@@ -435,9 +437,9 @@ function ChartToolbarComponent({
                           }`}
                         >
                           <ToolIcon className={`w-4 h-4 flex-shrink-0 ${!tool.enabled ? 'opacity-40' : ''}`} />
-                          <span className="flex-1 text-left">{tool.label}</span>
+                          <span className="flex-1 text-left">{t(tool.labelKey)}</span>
                           {tool.shortcut && <span className="text-[10px] text-muted-fg font-mono">{tool.shortcut}</span>}
-                          {!tool.enabled && <span className="text-[9px] text-muted-fg/50 italic">soon</span>}
+                          {!tool.enabled && <span className="text-[9px] text-muted-fg/50 italic">{t('chart.soon')}</span>}
                         </button>
                       );
                     })}

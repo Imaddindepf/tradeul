@@ -11,6 +11,7 @@
 import { memo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Handle, Position, type NodeProps } from 'reactflow';
+import i18n from '@/lib/i18n';
 import type { NodeBlock, WorkflowNodeSpec, WorkflowNodeStatus } from './types';
 import {
   CascadeTable, Chips, LiveFeed, MetricChips, ProgressLine, TypewriterCode,
@@ -18,15 +19,17 @@ import {
 
 export const CARD_W = 236;
 
-const STATUS_LABEL: Record<WorkflowNodeStatus, string> = {
-  pending: 'en cola',
-  running: 'ejecutando',
-  complete: 'listo',
-  error: 'error',
-  live: 'vigilando',
-  paused: 'en pausa',
-  fired: '¡disparó!',
-};
+function statusLabel(status: WorkflowNodeStatus): string {
+  switch (status) {
+    case 'live': return i18n.t('aiAgent.workflow.watching');
+    case 'paused': return i18n.t('aiAgent.workflow.paused');
+    case 'fired': return i18n.t('aiAgent.workflow.fired');
+    case 'pending': return i18n.t('aiAgent.workflow.queued');
+    case 'running': return i18n.t('aiAgent.workflow.executing');
+    case 'complete': return i18n.t('aiAgent.workflow.ready');
+    case 'error': return 'error';
+  }
+}
 
 const STATUS_TEXT: Record<WorkflowNodeStatus, string> = {
   pending: 'text-muted-fg/50',
@@ -165,8 +168,8 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps<Workf
           <button
             onClick={(e) => { e.stopPropagation(); data.onOpen?.(); }}
             className="shrink-0 rounded p-0.5 text-muted-fg/50 transition-colors hover:bg-surface-inset hover:text-foreground nodrag"
-            title="Abrir inspector — datos completos del nodo"
-            aria-label="Abrir inspector del nodo"
+            title={i18n.t('aiAgent.workflow.openInspector')}
+            aria-label={i18n.t('aiAgent.workflow.openInspectorAria')}
           >
             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
@@ -218,7 +221,7 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps<Workf
           {data.footerLabel || 'computation step'}
         </span>
         <span className={`text-[7.5px] font-semibold uppercase tracking-wider ${STATUS_TEXT[status]}`}>
-          {data.badge || STATUS_LABEL[status]}
+          {data.badge || statusLabel(status)}
         </span>
       </div>
 

@@ -46,6 +46,7 @@ import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 import { FinancialAnalystCanvas } from '@/components/financial-analyst';
 import { InsightsPanel } from '@/components/insights';
 import { HeatmapContent } from '@/components/heatmap';
+import { ImapContent } from '@/components/imap';
 import { GlossaryContent } from '@/components/glossary';
 import { PatternRealtimeContent } from '@/components/pattern-realtime';
 import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insider-trading';
@@ -176,6 +177,7 @@ export default function ScannerPage() {
     if (title === 'Insights') return <InsightsPanel />;
     if (title === 'Prediction Markets') return <PredictionMarketsContent />;
     if (title === 'Market Heatmap') return <HeatmapContent />;
+    if (title === 'World Venue Map') return <ImapContent />;
     if (title === 'Indicators') return <GlossaryContent />;
     if (title === 'Pattern Real-Time') return <PatternRealtimeContent />;
     if (title === 'Insider Trading') return <InsiderTradingContent />;

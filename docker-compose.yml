@@ -1069,6 +1069,8 @@ services:
       - XAI_API_KEY=${XAI_API_KEY:-}
       - MCP_GATEWAY_URL=http://mcp_gateway:8050
       - BACKTESTER_URL=http://backtester:8060
+      # MembershipWatcher (alertas de tipo ranking, p.ej. "entra en top 10 gappers")
+      - SCANNER_URL=http://scanner:8005
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       # Checkpoints durables de LangGraph en TimescaleDB (sobreviven reinicios
@@ -1076,6 +1078,8 @@ services:
       - CHECKPOINT_DB_URL=postgresql://${POSTGRES_USER:-tradeul_user}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-tradeul}
       # ai-news-brief en la misma red bridge => alcanzable por DNS del servicio.
       - NEWS_BRIEF_URL=http://ai-news-brief:8072
+      # Fase 3c: rollout de tool-calling nativo por agente (CSV de agentes)
+      - AGENT_NATIVE_TOOLS=financial,dilution
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # NOTA: docker.sock eliminado — el sandbox de code_exec no está implementado

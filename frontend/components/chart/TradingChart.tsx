@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { useLiveChartData } from '@/hooks/useLiveChartData';
 import { useChartDrawings, type Drawing } from '@/hooks/useChartDrawings';
 import {
@@ -76,6 +77,7 @@ function TradingChartComponent({
     onContextValue,
     windowId: explicitWindowId,
 }: TradingChartProps) {
+    const { t } = useTranslation();
     // In layout mode, the parent window owns header and toolbar by default.
     // Callers can still override per-prop if they want to keep the in-chart
     // chrome for an unusual case (we don't currently do this in code).
@@ -676,10 +678,10 @@ function TradingChartComponent({
                             <div className="absolute top-1 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-2 py-1 bg-[color:var(--color-primary)] text-white text-[10px] font-medium rounded shadow-lg">
                                 <span>
                                     {pendingDrawing
-                                        ? 'Click el segundo punto'
+                                        ? t('chart.clickSecondPoint')
                                         : activeTool === 'horizontal_line'
-                                            ? 'Click para colocar la línea'
-                                            : 'Click el primer punto'}
+                                            ? t('chart.clickToPlaceLine')
+                                            : t('chart.clickFirstPoint')}
                                 </span>
                                 <button onClick={cancelDrawing} className="hover:bg-white/10 rounded px-1">✕</button>
                             </div>
@@ -716,14 +718,14 @@ function TradingChartComponent({
                             <div className="absolute inset-0 flex items-center justify-center bg-[color:var(--color-surface)]/90 z-10">
                                 <div className="flex items-center gap-2 text-[color:var(--color-muted-fg)]">
                                     <RefreshIcon className="w-5 h-5 animate-spin text-[color:var(--color-primary)]" />
-                                    <span className="text-sm">Cargando {currentTicker}...</span>
+                                    <span className="text-sm">{t('chart.loading', { ticker: currentTicker })}</span>
                                 </div>
                             </div>
                         )}
                         {error && (
                             <div className="absolute inset-0 flex items-center justify-center bg-[color:var(--color-surface)]/90 z-10">
                                 <div className="text-center">
-                                    <p className="text-[color:var(--color-danger)] text-sm mb-2">No se pudo cargar el gráfico</p>
+                                    <p className="text-[color:var(--color-danger)] text-sm mb-2">{t('chart.loadError')}</p>
                                     <p className="text-[color:var(--color-muted-fg)] text-xs mb-3">{error}</p>
                                     <button onClick={refetch} className="px-4 py-1.5 bg-[color:var(--color-primary)] text-white text-xs rounded-md hover:bg-[color:var(--color-primary-hover)] transition-colors">
                                         Reintentar
@@ -818,18 +820,19 @@ function TradingChartComponent({
 function MinimalHeader({
     onOpenChart, onOpenNews,
 }: { onOpenChart?: () => void; onOpenNews?: () => void }) {
+    const { t } = useTranslation();
     return (
         <div className="flex items-center justify-between px-3 py-1.5 border-b border-[color:var(--color-border)] bg-[color:var(--color-surface-hover)]">
             <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-[color:var(--color-fg)]/80 tracking-wide">PRICE CHART</span>
-                <span className="text-[10px] text-[color:var(--color-muted-fg)]">1 Year</span>
+                <span className="text-xs font-bold text-[color:var(--color-fg)]/80 tracking-wide">{t('chart.priceChart')}</span>
+                <span className="text-[10px] text-[color:var(--color-muted-fg)]">{t('chart.oneYear')}</span>
             </div>
             <div className="flex items-center gap-2">
                 {onOpenChart && (
                     <button
                         onClick={onOpenChart}
                         className="text-xs font-bold text-[color:var(--color-primary)] hover:opacity-80"
-                        title="Abrir gráfico"
+                        title={t('chart.openChart')}
                     >
                         G <span className="font-normal">&gt;</span>
                     </button>
@@ -838,7 +841,7 @@ function MinimalHeader({
                     <button
                         onClick={onOpenNews}
                         className="text-xs font-bold text-[color:var(--color-primary)] hover:opacity-80"
-                        title="Abrir noticias"
+                        title={t('chart.openNews')}
                     >
                         N <span className="font-normal">&gt;</span>
                     </button>

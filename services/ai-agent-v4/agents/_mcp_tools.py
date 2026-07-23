@@ -12,6 +12,10 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MCP_GATEWAY_URL = os.getenv("MCP_GATEWAY_URL", "http://mcp_gateway:8050")
+# Shared secret for the gateway. Safe rollout: only sent when set; the gateway
+# only enforces when it too has the token — so an empty value keeps today's
+# behaviour and both sides can be flipped on together.
+MCP_GATEWAY_TOKEN = os.getenv("MCP_GATEWAY_TOKEN", "").strip()
 _client: httpx.AsyncClient | None = None
 
 
@@ -23,9 +27,11 @@ class MCPToolError(Exception):
 async def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None or _client.is_closed:
+        headers = {"X-MCP-Token": MCP_GATEWAY_TOKEN} if MCP_GATEWAY_TOKEN else None
         _client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=5.0),
             base_url=MCP_GATEWAY_URL,
+            headers=headers,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
     return _client
@@ -81,13 +87,26 @@ async def call_mcp_tool(
 
             if resp.status_code == 404:
                 raise MCPToolError(f"Tool not found: {full_tool_name}")
+            if resp.status_code == 401:
+                raise MCPToolError(f"MCP gateway rejected token for {full_tool_name}")
 
             data = resp.json()
 
             if "error" in data:
                 raise MCPToolError(f"MCP tool {full_tool_name}: {data['error']}")
 
-            return data.get("result", data)
+            result = data.get("result", data)
+
+            # Backend services frequently signal failure with an in-band
+            # `error` field inside a HTTP-200 body (e.g. {"tickers": [],
+            # "error": "..."}). Surface it as a real error instead of letting
+            # the agent treat degraded/empty data as success.
+            if isinstance(result, dict) and result.get("error"):
+                raise MCPToolError(
+                    f"MCP tool {full_tool_name} returned error: {result['error']}"
+                )
+
+            return result
 
         except MCPToolError:
             raise

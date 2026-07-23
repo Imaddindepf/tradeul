@@ -192,7 +192,7 @@ export function InsightsPanel({ initialType }: InsightsPanelProps = {}) {
                         INSIGHTS
                     </h2>
                     <p className="text-[10px] text-muted-fg">
-                        {language === 'es' ? 'Reportes y analisis del mercado' : 'Market reports and analysis'}
+                        {t('insights.subtitle')}
                     </p>
                 </div>
                 <button
@@ -215,7 +215,7 @@ export function InsightsPanel({ initialType }: InsightsPanelProps = {}) {
                             : 'text-foreground/80 hover:bg-surface-hover'
                     }`}
                 >
-                    {language === 'es' ? 'Todos' : 'All'}
+                    {t('insights.all')}
                 </button>
                 {Object.keys(INSIGHT_TYPES).map((type) => (
                     <button
@@ -239,7 +239,7 @@ export function InsightsPanel({ initialType }: InsightsPanelProps = {}) {
                         <div className="text-center">
                             <RefreshCw className="w-5 h-5 mx-auto mb-2 text-primary animate-spin" />
                             <p className="text-[11px] text-muted-fg">
-                                {language === 'es' ? 'Cargando...' : 'Loading...'}
+                                {t('common.loading')}
                             </p>
                         </div>
                     </div>
@@ -248,14 +248,10 @@ export function InsightsPanel({ initialType }: InsightsPanelProps = {}) {
                         <div className="text-center">
                             <FileText className="w-6 h-6 mx-auto mb-2 text-muted-fg/50" />
                             <p className="text-[11px] text-muted-fg">
-                                {language === 'es' 
-                                    ? 'No hay insights disponibles' 
-                                    : 'No insights available'}
+                                {t('insights.noInsights')}
                             </p>
                             <p className="text-[10px] text-muted-fg mt-1">
-                                {language === 'es'
-                                    ? 'El Morning News se genera a las 07:30 ET'
-                                    : 'Morning News is generated at 07:30 ET'}
+                                {t('insights.scheduleNote')}
                             </p>
                         </div>
                     </div>
@@ -264,13 +260,13 @@ export function InsightsPanel({ initialType }: InsightsPanelProps = {}) {
                         <thead className="sticky top-0 bg-surface-inset border-b border-border">
                             <tr>
                                 <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider">
-                                    {language === 'es' ? 'Tipo' : 'Type'}
+                                    {t('insights.type')}
                                 </th>
                                 <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-muted-fg uppercase tracking-wider">
-                                    {language === 'es' ? 'Fecha' : 'Date'}
+                                    {t('insights.date')}
                                 </th>
                                 <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-muted-fg uppercase tracking-wider">
-                                    {language === 'es' ? 'Generado' : 'Generated'}
+                                    {t('insights.generated')}
                                 </th>
                                 <th className="px-3 py-1.5 w-8"></th>
                             </tr>
@@ -308,7 +304,7 @@ export function InsightsPanel({ initialType }: InsightsPanelProps = {}) {
 
             {/* Footer */}
             <div className="flex items-center justify-between px-3 py-1 border-t border-border bg-surface-hover text-[10px] text-muted-fg">
-                <span>{filteredInsights.length} {language === 'es' ? 'reportes' : 'reports'}</span>
+                <span>{filteredInsights.length} {t('insights.reports')}</span>
                 <span>Insights</span>
             </div>
         </div>

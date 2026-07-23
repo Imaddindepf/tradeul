@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useChartContext } from './ChartContext';
 import { ChevronDownIcon, IndicatorsIcon, NewspaperIcon, EarningsBadgeIcon } from './icons';
 import { Tooltip } from './Tooltip';
@@ -10,41 +11,42 @@ interface IndicatorOption {
     label: string;
 }
 
-const GROUPS: { title: string; items: IndicatorOption[] }[] = [
-    {
-        title: 'Overlays',
-        items: [
-            { type: 'sma', label: 'SMA' },
-            { type: 'ema', label: 'EMA' },
-            { type: 'bb', label: 'Bollinger Bands' },
-            { type: 'keltner', label: 'Keltner Channels' },
-            { type: 'vwap', label: 'VWAP' },
-        ],
-    },
-    {
-        title: 'Oscillators',
-        items: [
-            { type: 'rsi', label: 'RSI' },
-            { type: 'macd', label: 'MACD' },
-            { type: 'stoch', label: 'Stochastic' },
-            { type: 'adx', label: 'ADX / DMI' },
-        ],
-    },
-    {
-        title: 'Volatility & Volume',
-        items: [
-            { type: 'atr', label: 'ATR' },
-            { type: 'squeeze', label: 'TTM Squeeze' },
-            { type: 'obv', label: 'OBV' },
-            { type: 'rvol', label: 'RVOL' },
-        ],
-    },
-];
-
 export function ChartIndicatorMenu() {
     const ctx = useChartContext();
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
+
+    const groups = useMemo(() => [
+        {
+            title: t('chart.overlays'),
+            items: [
+                { type: 'sma', label: 'SMA' },
+                { type: 'ema', label: 'EMA' },
+                { type: 'bb', label: 'Bollinger Bands' },
+                { type: 'keltner', label: 'Keltner Channels' },
+                { type: 'vwap', label: 'VWAP' },
+            ] as IndicatorOption[],
+        },
+        {
+            title: t('chart.oscillators'),
+            items: [
+                { type: 'rsi', label: 'RSI' },
+                { type: 'macd', label: 'MACD' },
+                { type: 'stoch', label: 'Stochastic' },
+                { type: 'adx', label: 'ADX / DMI' },
+            ] as IndicatorOption[],
+        },
+        {
+            title: t('chart.volatilityVolume'),
+            items: [
+                { type: 'atr', label: 'ATR' },
+                { type: 'squeeze', label: 'TTM Squeeze' },
+                { type: 'obv', label: 'OBV' },
+                { type: 'rvol', label: 'RVOL' },
+            ] as IndicatorOption[],
+        },
+    ], [t]);
 
     useEffect(() => {
         if (!open) return;
@@ -63,7 +65,7 @@ export function ChartIndicatorMenu() {
 
     return (
         <div className="relative" ref={ref}>
-            <Tooltip content="Indicadores" placement="bottom">
+            <Tooltip content={t('chart.indicators')} placement="bottom">
                 <button
                     onClick={() => setOpen(prev => !prev)}
                     className={`flex items-center gap-1 px-1.5 h-[22px] rounded-[3px] text-[12px] font-medium transition-colors ${
@@ -73,7 +75,7 @@ export function ChartIndicatorMenu() {
                     }`}
                 >
                     <IndicatorsIcon className="w-[14px] h-[14px]" />
-                    <span>Indicadores</span>
+                    <span>{t('chart.indicators')}</span>
                     {ctx.activeIndicatorCount > 0 && (
                         <span className="text-[8.5px] bg-[color:var(--color-primary)] text-white rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none font-bold">
                             {ctx.activeIndicatorCount}
@@ -84,7 +86,7 @@ export function ChartIndicatorMenu() {
             </Tooltip>
             {open && (
                 <div className="absolute top-full left-0 mt-1 bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-md shadow-lg z-50 min-w-[220px] max-h-[440px] overflow-y-auto py-1">
-                    {GROUPS.map(group => (
+                    {groups.map(group => (
                         <div key={group.title}>
                             <GroupHeader title={group.title} />
                             {group.items.map(item => (
@@ -98,22 +100,22 @@ export function ChartIndicatorMenu() {
                             ))}
                         </div>
                     ))}
-                    <GroupHeader title="Markers" />
+                    <GroupHeader title={t('chart.markers')} />
                     <ToggleRow
                         icon={null}
-                        label="Volume"
+                        label={t('chart.volume')}
                         active={ctx.showVolume}
                         onClick={() => ctx.setShowVolume(!ctx.showVolume)}
                     />
                     <ToggleRow
                         icon={<NewspaperIcon className="w-3.5 h-3.5" />}
-                        label="News markers"
+                        label={t('chart.newsMarkers')}
                         active={ctx.showNewsMarkers}
                         onClick={() => ctx.setShowNewsMarkers(!ctx.showNewsMarkers)}
                     />
                     <ToggleRow
                         icon={<EarningsBadgeIcon className="w-3.5 h-3.5" />}
-                        label="Earnings"
+                        label={t('chart.earnings')}
                         active={ctx.showEarningsMarkers}
                         onClick={() => ctx.setShowEarningsMarkers(!ctx.showEarningsMarkers)}
                     />

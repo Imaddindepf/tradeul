@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import { useChartContext } from './ChartContext';
 import { Tooltip } from './Tooltip';
 import {
@@ -19,17 +20,18 @@ import {
  */
 export function ChartReplayBar() {
     const ctx = useChartContext();
+    const { t } = useTranslation();
     const { replayState } = ctx;
 
     if (replayState.mode === 'idle') {
         return (
-            <Tooltip content="Bar Replay" shortcut="" placement="bottom">
+            <Tooltip content={t('chart.barReplay')} shortcut="" placement="bottom">
                 <button
                     onClick={ctx.enterSelectingMode}
                     className="flex items-center gap-1 px-1.5 h-[22px] rounded-[3px] text-[12px] text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)] hover:bg-[color:var(--color-surface-hover)]"
                 >
                     <ReplayIcon className="w-[14px] h-[14px]" />
-                    <span>Replay</span>
+                    <span>{t('chart.replay')}</span>
                 </button>
             </Tooltip>
         );
@@ -39,11 +41,11 @@ export function ChartReplayBar() {
         return (
             <div className="flex items-center gap-1 px-2 h-[22px] rounded-[3px] bg-[color:var(--color-primary)]/12 text-[color:var(--color-primary)] text-[11px] font-medium">
                 <ReplayIcon className="w-[12px] h-[12px]" />
-                <span>Click en el gráfico para elegir punto de inicio</span>
+                <span>{t('chart.replaySelectStart')}</span>
                 <button
                     onClick={ctx.exitReplay}
                     className="ml-1 px-1 rounded hover:bg-[color:var(--color-primary)]/15"
-                    aria-label="Cancelar replay"
+                    aria-label={t('chart.cancelReplay')}
                 >
                     <CloseIcon className="w-3 h-3" />
                 </button>
@@ -56,24 +58,24 @@ export function ChartReplayBar() {
 
     return (
         <div className="flex items-center gap-0.5 px-1 h-[22px] rounded-[3px] bg-[color:var(--color-surface-hover)] border border-[color:var(--color-border)]">
-            <Tooltip content="Step back" shortcut="Shift+←">
+            <Tooltip content={t('chart.stepBack')} shortcut="Shift+←">
                 <button onClick={() => ctx.stepBackward()} className="p-0.5 rounded hover:bg-[color:var(--color-surface-inset)] text-[color:var(--color-fg)]/85">
                     <StepBackIcon className="w-[12px] h-[12px]" />
                 </button>
             </Tooltip>
-            <Tooltip content={replayState.mode === 'playing' ? 'Pause' : 'Play'} shortcut="Shift+↓">
+            <Tooltip content={replayState.mode === 'playing' ? t('chart.pause') : t('chart.play')} shortcut="Shift+↓">
                 <button onClick={ctx.togglePlay} className="p-0.5 rounded hover:bg-[color:var(--color-surface-inset)] text-[color:var(--color-fg)]/85">
                     {replayState.mode === 'playing'
                         ? <PauseIcon className="w-[14px] h-[14px]" />
                         : <PlayIcon className="w-[14px] h-[14px]" />}
                 </button>
             </Tooltip>
-            <Tooltip content="Step forward" shortcut="Shift+→">
+            <Tooltip content={t('chart.stepForward')} shortcut="Shift+→">
                 <button onClick={() => ctx.stepForward()} className="p-0.5 rounded hover:bg-[color:var(--color-surface-inset)] text-[color:var(--color-fg)]/85">
                     <StepForwardIcon className="w-[12px] h-[12px]" />
                 </button>
             </Tooltip>
-            <Tooltip content="Cycle speed">
+            <Tooltip content={t('chart.cycleSpeed')}>
                 <button
                     onClick={ctx.cycleSpeed}
                     className="px-1.5 py-0.5 rounded hover:bg-[color:var(--color-surface-inset)] text-[10px] font-bold tabular-nums text-[color:var(--color-fg)]/85 min-w-[32px]"
@@ -84,11 +86,11 @@ export function ChartReplayBar() {
             <span className="px-1 text-[10px] tabular-nums text-[color:var(--color-muted-fg)]">
                 {bars}/{total}
             </span>
-            <Tooltip content="Exit replay">
+            <Tooltip content={t('chart.exitReplay')}>
                 <button
                     onClick={ctx.exitReplay}
                     className="p-0.5 rounded hover:bg-[color:var(--color-danger)]/12 text-[color:var(--color-danger)]"
-                    aria-label="Salir del replay"
+                    aria-label={t('chart.exitReplay')}
                 >
                     <CloseIcon className="w-[12px] h-[12px]" />
                 </button>

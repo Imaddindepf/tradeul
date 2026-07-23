@@ -15,11 +15,14 @@
  */
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import { useTranslation } from 'react-i18next';
 import { Clock3, GitBranch, ListOrdered, Pause, Play, Zap } from 'lucide-react';
+import i18n from '@/lib/i18n';
 import {
   AlertSpec, armAlert, fmtCooldown, formatPriceLevel, formatUniverse, listAlerts, pauseAlert,
 } from '@/lib/aiAlerts';
 import { useAIAlertFiresStore, type AIAlertFire } from '@/stores/useAIAlertFiresStore';
+import { formatTimeAgo } from '@/lib/relative-time';
 import { WorkflowCanvas, type FocusRequest } from './workflow/WorkflowCanvas';
 import { WorkflowInspector } from './WorkflowInspector';
 import type {
@@ -30,18 +33,17 @@ const POLL_MS = 60_000;
 /** Ventana en la que un disparo se considera "recién llegado" (glow + arista). */
 const FIRE_GLOW_MS = 10_000;
 
-const TIER_LABELS: Record<string, string> = {
-  event_match: 'evento en vivo',
-  sequence: 'secuencia',
-  membership: 'ranking',
-  agentic: 'workflow',
-  scheduled: 'programado',
-};
+function tierLabel(tier: string): string {
+  return i18n.t(`aiAlerts.tier.${tier}`, { defaultValue: tier });
+}
 
 function fmtEvery(seconds: number): string {
-  if (seconds < 60) return `cada ${seconds}s`;
-  if (seconds < 3600) return `cada ${Math.round(seconds / 60)}m`;
-  return `cada ${Math.round(seconds / 3600)}h`;
+  const value = seconds < 60
+    ? `${seconds}s`
+    : seconds < 3600
+      ? `${Math.round(seconds / 60)}m`
+      : `${Math.round(seconds / 3600)}h`;
+  return i18n.t('aiAgent.workflow.every', { value });
 }
 
 function fmtPct(row: Record<string, number | string | undefined>): string {
@@ -82,7 +84,7 @@ function scheduledSpecToNode(
     if (lastSnap) {
       blocks.push({
         kind: 'metrics',
-        items: [{ label: 'última captura', value: timeAgo(lastSnap.timestamp) }],
+        items: [{ label: i18n.t('aiAgent.workflow.lastCapture'), value: timeAgo(lastSnap.timestamp) }],
       });
     }
   } else {
@@ -90,28 +92,24 @@ function scheduledSpecToNode(
       kind: 'text',
       text: armed
         ? 'Esperando la primera captura del intervalo…'
-        : 'Workflow pausado — actívalo para reanudar las capturas.',
+        : i18n.t('aiAgent.workflow.pausedHint'),
     });
   }
 
   return {
     id: spec.id,
     title: spec.name,
-    subtitle: `workflow programado · ${fmtEvery(spec.schedule?.every_seconds || 60)}`,
+    subtitle: i18n.t('aiAgent.workflow.scheduledSubtitle', { every: fmtEvery(spec.schedule?.every_seconds || 60) }),
     status: justFired ? 'fired' : armed ? 'live' : 'paused',
     footerLabel: 'scheduled workflow',
-    badge: armed ? 'capturando' : undefined,
+    badge: armed ? i18n.t('aiAgent.workflow.capturing') : undefined,
     blocks,
     onOpen,
   };
 }
 
 function timeAgo(epoch: number): string {
-  const s = Math.max(0, Date.now() / 1000 - epoch);
-  if (s < 60) return 'ahora';
-  if (s < 3600) return `hace ${Math.floor(s / 60)}m`;
-  if (s < 86400) return `hace ${Math.floor(s / 3600)}h`;
-  return `hace ${Math.floor(s / 86400)}d`;
+  return formatTimeAgo(epoch);
 }
 
 function isToday(epoch: number): boolean {
@@ -124,9 +122,9 @@ function engineSpec(connected: boolean, armedCount: number, firesToday: number):
   return {
     id: '__engine__',
     title: 'Alert Engine',
-    subtitle: '240+ tipos de evento · todo el universo · tiempo real',
+    subtitle: i18n.t('aiAgent.workflow.engineSubtitle'),
     status: connected ? 'live' : 'error',
-    badge: connected ? 'emitiendo' : 'offline',
+    badge: connected ? i18n.t('aiAgent.workflow.emitting') : i18n.t('aiAgent.workflow.offline'),
     footerLabel: 'event stream',
     blocks: [{
       kind: 'metrics',
@@ -160,7 +158,7 @@ function alertSpecToNode(
   const metrics: Array<{ label: string; value: string | number }> = [
     { label: 'hoy', value: firesToday },
   ];
-  if (lastFire) metrics.push({ label: 'último', value: timeAgo(lastFire.timestamp) });
+  if (lastFire) metrics.push({ label: i18n.t('aiAgent.workflow.last'), value: timeAgo(lastFire.timestamp) });
   blocks.push({ kind: 'metrics', items: metrics });
 
   if (fires.length) {
@@ -182,7 +180,7 @@ function alertSpecToNode(
   return {
     id: spec.id,
     title: spec.name,
-    subtitle: `${TIER_LABELS[spec.tier] || spec.tier} · cooldown ${fmtCooldown(spec.lifecycle.cooldown_seconds)}`,
+    subtitle: `${tierLabel(spec.tier)} · cooldown ${fmtCooldown(spec.lifecycle.cooldown_seconds)}`,
     status: justFired ? 'fired' : armed ? 'live' : 'paused',
     footerLabel: 'live workflow',
     blocks,
@@ -209,6 +207,7 @@ function WorkflowRailItem({
   onFocus: () => void;
   onToggle: () => void;
 }) {
+  const { t } = useTranslation();
   const armed = spec.status === 'armed';
   return (
     <div
@@ -242,7 +241,7 @@ function WorkflowRailItem({
         onClick={(e) => { e.stopPropagation(); onToggle(); }}
         disabled={busy}
         className="flex-shrink-0 rounded p-0.5 text-muted-fg opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:opacity-40"
-        title={armed ? 'Pausar workflow' : 'Activar workflow'}
+        title={armed ? t('aiAgent.workflow.pause') : t('aiAgent.workflow.activate')}
       >
         {armed ? <Pause size={10} /> : <Play size={10} />}
       </button>
@@ -257,6 +256,7 @@ interface LiveWorkflowsCanvasProps {
 export const LiveWorkflowsCanvas = memo(function LiveWorkflowsCanvas({
   height = '100%',
 }: LiveWorkflowsCanvasProps) {
+  const { t } = useTranslation();
   const { getToken } = useAuth();
   const [specs, setSpecs] = useState<AlertSpec[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -379,13 +379,7 @@ export const LiveWorkflowsCanvas = memo(function LiveWorkflowsCanvas({
         layers={[]}
         edges={[]}
         height={height}
-        emptyMessage={
-          'No tienes workflows activos todavía.\n\n' +
-          'Pídele uno al agente y actívalo — p. ej.:\n' +
-          '«Avísame cuando cualquier acción con RVOL > 2 cruce el VWAP al alza»\n' +
-          '«Cada minuto, una foto del top after-hours con market cap > 1B»\n\n' +
-          'Aparecerán aquí como nodos vivos con sus disparos y capturas en tiempo real.'
-        }
+        emptyMessage={t('aiAgent.workflow.empty')}
       />
     );
   }
@@ -393,7 +387,7 @@ export const LiveWorkflowsCanvas = memo(function LiveWorkflowsCanvas({
   return (
     <div style={{ height }} className="flex gap-1.5">
       {/* Rail: mis workflows, agrupados por tipo */}
-      <div className="w-[168px] flex-shrink-0 overflow-y-auto rounded-lg border border-border-subtle bg-[#080b12] py-1.5 px-1">
+      <div className="w-[168px] flex-shrink-0 overflow-y-auto rounded-lg border border-border-subtle bg-surface-inset py-1.5 px-1">
         <p className="px-1.5 pb-1 text-[8px] font-semibold uppercase tracking-[0.14em] text-muted-fg/70">
           Mis workflows
         </p>

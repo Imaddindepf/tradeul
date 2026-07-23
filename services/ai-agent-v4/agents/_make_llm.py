@@ -32,11 +32,33 @@ _MODELS = {
     },
 }
 
+# Shared telemetry callback: captures token usage / latency for every LLM call
+# and attributes it to the current run/user/node (see telemetry.py). Built once;
+# survives .with_structured_output()/.bind() chains because it lives on the
+# underlying model. Never fatal — if telemetry can't load we run uninstrumented.
+_TELEMETRY_CB = None
+
+
+def _telemetry_callbacks(kwargs: dict) -> list:
+    global _TELEMETRY_CB
+    if _TELEMETRY_CB is None:
+        try:
+            from telemetry import make_callback_handler
+            _TELEMETRY_CB = make_callback_handler() or False
+        except Exception:  # noqa: BLE001
+            _TELEMETRY_CB = False
+    cbs = list(kwargs.pop("callbacks", []) or [])
+    if _TELEMETRY_CB:
+        cbs.append(_TELEMETRY_CB)
+    return cbs
+
 
 def make_llm(
     tier: str = "fast",
     temperature: float = 0.0,
     max_tokens: int = 4096,
+    json_mode: bool = False,
+    disable_thinking: bool = False,
     **kwargs: Any,
 ) -> Any:
     """
@@ -57,15 +79,28 @@ def make_llm(
     google_key = os.getenv("GOOGLE_API_KEY", "").strip()
     xai_key = os.getenv("XAI_API_KEY", "").strip()
 
+    callbacks = _telemetry_callbacks(kwargs)
+
     if google_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
         model_name = _MODELS["google"].get(tier, _MODELS["google"]["fast"])
         logger.debug("llm_provider=google model=%s", model_name)
+        # JSON mode (constrained decoding): forces syntactically valid JSON
+        # output — no ```fences, no trailing prose, no truncated-mid-object.
+        if json_mode:
+            kwargs.setdefault("response_mime_type", "application/json")
+        # Disable extended thinking for mechanical tasks (routing/classify):
+        # Gemini 2.5 Flash's thinking tokens are drawn from the output budget,
+        # so they can starve a JSON response and truncate it. A router needs a
+        # decision, not a monologue.
+        if disable_thinking:
+            kwargs.setdefault("thinking_budget", 0)
         return ChatGoogleGenerativeAI(
             model=model_name,
             temperature=temperature,
             max_output_tokens=max_tokens,
             google_api_key=google_key,
+            callbacks=callbacks,
             **kwargs,
         )
 
@@ -73,12 +108,15 @@ def make_llm(
         from langchain_openai import ChatOpenAI
         model_name = _MODELS["xai"].get(tier, _MODELS["xai"]["fast"])
         logger.debug("llm_provider=xai model=%s", model_name)
+        if json_mode:
+            kwargs.setdefault("response_format", {"type": "json_object"})
         return ChatOpenAI(
             model=model_name,
             base_url="https://api.x.ai/v1",
             api_key=xai_key,
             temperature=temperature,
             max_tokens=max_tokens,
+            callbacks=callbacks,
             **kwargs,
         )
 

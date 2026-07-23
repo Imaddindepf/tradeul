@@ -93,7 +93,7 @@ export function CatalystAlertsPopup() {
               <div className="flex items-center gap-3 text-[10px] text-muted-fg">
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  {formatTime(alert.triggeredAt)} ago
+                  {t('common.ago', { time: formatTime(alert.triggeredAt) })}
                 </span>
                 {alert.metrics.rvol && alert.metrics.rvol > 0 && (
                   <span className="flex items-center gap-1">

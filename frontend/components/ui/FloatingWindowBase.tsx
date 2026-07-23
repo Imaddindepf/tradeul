@@ -3,6 +3,12 @@
 import { useState, useRef, ReactNode, MouseEvent, useCallback, memo, useEffect } from 'react';
 import { floatingZIndexManager, floatingFocusManager, Z_INDEX } from '@/lib/z-index';
 
+// Alturas del chrome del dashboard que el modo maximizado debe respetar.
+// Navbar: h-11 (44px) — mismo valor que usan los límites de drag de abajo.
+// Barra inferior de layouts (WorkspaceTabs): h-7 (28px).
+const NAVBAR_HEIGHT = 44;
+const BOTTOM_TABS_HEIGHT = 28;
+
 export interface FloatingWindowBaseProps {
   children: ReactNode;
   /** Id de la ventana en el contexto, usado para el foco global */
@@ -81,6 +87,11 @@ function FloatingWindowBaseComponent({
   const [isFocused, setIsFocused] = useState(
     () => windowId !== undefined && floatingFocusManager.getCurrent() === windowId,
   );
+  // Modo "página completa" (doble click en la barra de título): la ventana
+  // ocupa todo el dashboard entre navbar y barra de layouts. La geometría
+  // flotante previa se guarda para restaurarla con otro doble click.
+  const [isMaximized, setIsMaximized] = useState(false);
+  const prevBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
 
   const isDraggingRef = useRef(false);
   const isResizingRef = useRef(false);
@@ -146,9 +157,43 @@ function FloatingWindowBaseComponent({
     }
   }, [windowId]);
 
+  // Maximizar/restaurar (doble click en el drag handle). El lock de
+  // movimiento no lo bloquea: maximizar no es "mover" la ventana.
+  const isMaximizedRef = useRef(isMaximized);
+  isMaximizedRef.current = isMaximized;
+
+  const toggleMaximize = useCallback(() => {
+    if (isMaximizedRef.current) {
+      const prev = prevBoundsRef.current;
+      if (prev) {
+        const pos = { x: prev.x, y: prev.y };
+        const sz = { width: prev.width, height: prev.height };
+        setPosition(pos);
+        setSize(sz);
+        onPositionChangeRef.current?.(pos);
+        onSizeChangeRef.current?.(sz);
+      }
+      setIsMaximized(false);
+    } else {
+      prevBoundsRef.current = { ...positionRef.current, ...sizeRef.current };
+      setIsMaximized(true);
+      bringToFront();
+    }
+  }, [bringToFront]);
+
+  const handleDoubleClick = useCallback((e: MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (!target.closest(`.${dragHandleClassName}`)) return;
+    // No maximizar al hacer doble click sobre controles de la barra
+    if (target.closest('button, input, select, a')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleMaximize();
+  }, [dragHandleClassName, toggleMaximize]);
+
   // Drag: estado local en mousemove; persistir posición al soltar.
   const handleDragStart = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    if (lockMovement) return;
+    if (lockMovement || isMaximizedRef.current) return;
     const target = e.target as HTMLElement;
     if (!target.closest(`.${dragHandleClassName}`)) return;
 
@@ -200,7 +245,7 @@ function FloatingWindowBaseComponent({
 
   // Resize: estado local en mousemove; persistir tamaño al soltar.
   const handleResizeStart = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    if (lockMovement) return;
+    if (lockMovement || isMaximizedRef.current) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -254,7 +299,16 @@ function FloatingWindowBaseComponent({
   return (
     <div
       ref={containerRef}
-      style={{
+      style={isMaximized ? {
+        // Página completa dentro del dashboard: respeta navbar y barra de
+        // layouts. calc() absorbe los resize del viewport sin listeners.
+        position: 'fixed',
+        top: `${NAVBAR_HEIGHT}px`,
+        left: 0,
+        width: '100vw',
+        height: `calc(100vh - ${NAVBAR_HEIGHT + BOTTOM_TABS_HEIGHT}px)`,
+        zIndex: zIndex,
+      } : {
         position: 'fixed',
         top: `${position.y}px`,
         left: `${position.x}px`,
@@ -262,15 +316,16 @@ function FloatingWindowBaseComponent({
         height: `${size.height}px`,
         zIndex: zIndex,
       }}
-      className={`rounded-lg shadow-md border transition-shadow flex flex-col ${isFocused ? 'border-primary shadow-sm' : 'border-border'
+      className={`shadow-md border transition-shadow flex flex-col ${isMaximized ? 'rounded-none' : 'rounded-lg'} ${isFocused ? 'border-primary shadow-sm' : 'border-border'
         } ${className}`}
       onMouseDown={handleDragStart}
+      onDoubleClick={handleDoubleClick}
     >
       <div className="h-full w-full overflow-hidden flex flex-col">
         {children}
       </div>
 
-      {enableResizing && !lockMovement && (
+      {enableResizing && !lockMovement && !isMaximized && (
         <div
           onMouseDown={handleResizeStart}
           className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize hover:bg-primary/20 transition-colors z-[100]"

@@ -1,10 +1,14 @@
 """
 Enhanced Memory Manager - Conversation persistence, market insight storage,
-and keyword-based memory search via Redis.
+and keyword-based memory search.
 
-Storage layout:
-  - memory:conversations:{user_id}:{thread_id}  (list of messages)
-  - memory:threads:{user_id}                     (sorted set by timestamp)
+Historial de conversaciones: Postgres es la fuente de verdad (ver
+memory/conversation_store.py) y Redis actúa como caché caliente y fallback
+si Postgres no está disponible. Los insights de mercado viven solo en Redis.
+
+Redis layout:
+  - memory:conversations:{user_id}:{thread_id}  (list of messages — cache)
+  - memory:threads:{user_id}                     (sorted set by timestamp — cache)
   - memory:insights:{symbol}                     (sorted set by timestamp)
 """
 from __future__ import annotations
@@ -17,18 +21,35 @@ from typing import Any, Optional
 import orjson
 import redis.asyncio as aioredis
 
+from memory.conversation_store import ConversationStore, get_conversation_store
+
 logger = logging.getLogger(__name__)
 
 
 class MemoryManager:
-    """Async Redis-backed memory manager with conversation history,
-    market insights, and keyword-based memory search."""
+    """Async memory manager: historial en Postgres (con caché/fallback Redis),
+    market insights y keyword search."""
 
-    def __init__(self, redis_url: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        redis_url: Optional[str] = None,
+        conversation_store: Optional[ConversationStore] = None,
+    ) -> None:
         self._redis_url = redis_url or os.getenv("REDIS_URL", "redis://redis:6379/5")
         self._redis: Optional[aioredis.Redis] = None
+        self._conv_store = conversation_store or get_conversation_store()
 
     # ── lifecycle ────────────────────────────────────────────────
+
+    async def init(self) -> None:
+        """Abre el store Postgres y ejecuta (una sola vez) el backfill
+        del historial que vivía en Redis."""
+        await self._conv_store.init()
+        if self._conv_store.available:
+            try:
+                await self._conv_store.backfill_from_redis(await self._get_redis())
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Conversation backfill skipped: %s", exc)
 
     async def _get_redis(self) -> aioredis.Redis:
         if self._redis is None:
@@ -42,6 +63,7 @@ class MemoryManager:
         if self._redis is not None:
             await self._redis.aclose()
             self._redis = None
+        await self._conv_store.close()
 
     # ══════════════════════════════════════════════════════════════
     # Conversation Memory
@@ -60,8 +82,9 @@ class MemoryManager:
     ) -> None:
         """Append a query/response pair to a conversation thread.
 
-        Each entry is stored as a JSON blob in a Redis list, enabling
-        ordered retrieval without score collisions.
+        Escribe primero en Postgres (fuente de verdad, sin caps) y después
+        en Redis (caché caliente para el memory-context y fallback). Un fallo
+        en Postgres no impide la escritura en Redis, y viceversa.
 
         Args:
             user_id:               User identifier.
@@ -74,46 +97,59 @@ class MemoryManager:
                                    (enables follow-up context resolution).
             intent:                Classified intent for this turn.
         """
-        r = await self._get_redis()
         now = time.time()
 
-        entry_data: dict[str, Any] = {
-            "query": query,
-            "response": response,
-            "agent_results_summary": agent_results_summary or {},
-            "timestamp": now,
-        }
-        if tickers:
-            entry_data["tickers"] = tickers
-        if intent:
-            entry_data["intent"] = intent
-        if structured_response:
-            entry_data["structured_response"] = structured_response
+        await self._conv_store.store_turn(
+            user_id, thread_id, query, response,
+            ts=now,
+            agent_results_summary=agent_results_summary,
+            structured_response=structured_response,
+            tickers=tickers,
+            intent=intent,
+        )
 
-        entry = orjson.dumps(entry_data)
+        try:
+            r = await self._get_redis()
 
-        conv_key = f"memory:conversations:{user_id}:{thread_id}"
-        await r.rpush(conv_key, entry)
+            entry_data: dict[str, Any] = {
+                "query": query,
+                "response": response,
+                "agent_results_summary": agent_results_summary or {},
+                "timestamp": now,
+            }
+            if tickers:
+                entry_data["tickers"] = tickers
+            if intent:
+                entry_data["intent"] = intent
+            if structured_response:
+                entry_data["structured_response"] = structured_response
 
-        # Cap the list at 200 messages to prevent unbounded growth
-        await r.ltrim(conv_key, -200, -1)
+            entry = orjson.dumps(entry_data)
 
-        # Update the thread index (sorted set keyed by latest timestamp)
-        thread_key = f"memory:threads:{user_id}"
-        thread_meta = orjson.dumps({
-            "thread_id": thread_id,
-            "last_query": query[:200],  # truncate for summary
-            "updated_at": now,
-        })
+            conv_key = f"memory:conversations:{user_id}:{thread_id}"
+            await r.rpush(conv_key, entry)
 
-        # Remove old entry for this thread_id (if any) before re-adding
-        old_entries = [
-            m for m in await r.zrange(thread_key, 0, -1)
-            if _extract_thread_id(m) == thread_id
-        ]
-        if old_entries:
-            await r.zrem(thread_key, *old_entries)
-        await r.zadd(thread_key, {thread_meta: now})
+            # Cap the list at 200 messages to prevent unbounded growth
+            await r.ltrim(conv_key, -200, -1)
+
+            # Update the thread index (sorted set keyed by latest timestamp)
+            thread_key = f"memory:threads:{user_id}"
+            thread_meta = orjson.dumps({
+                "thread_id": thread_id,
+                "last_query": query[:200],  # truncate for summary
+                "updated_at": now,
+            })
+
+            # Remove old entry for this thread_id (if any) before re-adding
+            old_entries = [
+                m for m in await r.zrange(thread_key, 0, -1)
+                if _extract_thread_id(m) == thread_id
+            ]
+            if old_entries:
+                await r.zrem(thread_key, *old_entries)
+            await r.zadd(thread_key, {thread_meta: now})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Redis conversation cache write failed: %s", exc)
 
         logger.debug(
             "Stored conversation entry for user=%s thread=%s", user_id, thread_id,
@@ -127,6 +163,9 @@ class MemoryManager:
     ) -> list[dict[str, Any]]:
         """Retrieve the most recent messages in a conversation thread.
 
+        Lee de Postgres (fuente de verdad); si no está disponible, degrada
+        a la caché Redis.
+
         Args:
             user_id:   User identifier.
             thread_id: Conversation thread identifier.
@@ -135,6 +174,10 @@ class MemoryManager:
         Returns:
             List of dicts ``{query, response, agent_results_summary, timestamp}``.
         """
+        from_pg = await self._conv_store.get_history(user_id, thread_id, limit)
+        if from_pg is not None:
+            return from_pg
+
         r = await self._get_redis()
         conv_key = f"memory:conversations:{user_id}:{thread_id}"
 
@@ -156,6 +199,9 @@ class MemoryManager:
     ) -> list[dict[str, Any]]:
         """Return the most recent conversation thread summaries.
 
+        Lee de Postgres (fuente de verdad); si no está disponible, degrada
+        a la caché Redis.
+
         Args:
             user_id: User identifier.
             limit:   Maximum number of threads to return.
@@ -164,6 +210,10 @@ class MemoryManager:
             List of dicts ``{thread_id, last_query, updated_at}``,
             ordered newest-first.
         """
+        from_pg = await self._conv_store.list_threads(user_id, limit)
+        if from_pg is not None:
+            return from_pg
+
         r = await self._get_redis()
         thread_key = f"memory:threads:{user_id}"
 
@@ -176,6 +226,26 @@ class MemoryManager:
             except Exception:
                 logger.warning("Skipping malformed thread index entry")
         return results
+
+    async def delete_thread(self, user_id: str, thread_id: str) -> None:
+        """Delete a conversation thread everywhere (Postgres + Redis cache)."""
+        await self._conv_store.delete_thread(user_id, thread_id)
+
+        try:
+            r = await self._get_redis()
+            conv_key = f"memory:conversations:{user_id}:{thread_id}"
+            thread_key = f"memory:threads:{user_id}"
+
+            await r.delete(conv_key)
+
+            stale = [
+                m for m in await r.zrange(thread_key, 0, -1)
+                if _extract_thread_id(m) == thread_id
+            ]
+            if stale:
+                await r.zrem(thread_key, *stale)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Redis conversation cache delete failed: %s", exc)
 
     async def build_memory_context(
         self,
@@ -205,10 +275,13 @@ class MemoryManager:
             history = []
 
         for entry in history:
+            # 1200 chars: los turnos de "context brief" (noticia + TL;DR) son
+            # largos y el planner necesita ese contexto para resolver
+            # follow-ups tras un handoff brief→grafo.
             context.append({
                 "source": "thread",
                 "query": (entry.get("query") or "")[:300],
-                "response_snippet": (entry.get("response") or "")[:400],
+                "response_snippet": (entry.get("response") or "")[:1200],
                 "tickers": entry.get("tickers") or [],
                 "intent": entry.get("intent") or "",
                 "timestamp": entry.get("timestamp", 0),
@@ -324,25 +397,30 @@ class MemoryManager:
 
         scored: list[tuple[float, dict[str, Any]]] = []
 
-        # ── Search conversations ─────────────────────────────────
-        threads = await self.get_recent_threads(user_id, limit=20)
-        for thread in threads:
-            thread_id = thread.get("thread_id", "")
-            history = await self.get_conversation_history(user_id, thread_id, limit=30)
-            for entry in history:
-                text = f"{entry.get('query', '')} {entry.get('response', '')}".lower()
-                text_tokens = set(text.split())
-                overlap = len(query_tokens & text_tokens)
-                if overlap > 0:
-                    score = overlap / len(query_tokens)
-                    scored.append((score, {
-                        "source": "conversation",
-                        "thread_id": thread_id,
-                        "content": entry.get("query", "")[:300],
-                        "response_snippet": entry.get("response", "")[:300],
-                        "score": round(score, 3),
-                        "timestamp": entry.get("timestamp", 0),
-                    }))
+        # ── Search conversations (Postgres; fallback: escaneo Redis) ──
+        pg_hits = await self._conv_store.search_messages(user_id, query, limit)
+        if pg_hits is not None:
+            for hit in pg_hits:
+                scored.append((hit.get("score", 0.0), hit))
+        else:
+            threads = await self.get_recent_threads(user_id, limit=20)
+            for thread in threads:
+                thread_id = thread.get("thread_id", "")
+                history = await self.get_conversation_history(user_id, thread_id, limit=30)
+                for entry in history:
+                    text = f"{entry.get('query', '')} {entry.get('response', '')}".lower()
+                    text_tokens = set(text.split())
+                    overlap = len(query_tokens & text_tokens)
+                    if overlap > 0:
+                        score = overlap / len(query_tokens)
+                        scored.append((score, {
+                            "source": "conversation",
+                            "thread_id": thread_id,
+                            "content": entry.get("query", "")[:300],
+                            "response_snippet": entry.get("response", "")[:300],
+                            "score": round(score, 3),
+                            "timestamp": entry.get("timestamp", 0),
+                        }))
 
         # ── Search insights ──────────────────────────────────────
         # We don't know which symbols to search, so scan recent keys
@@ -388,7 +466,10 @@ class MemoryManager:
     # ══════════════════════════════════════════════════════════════
 
     async def cleanup_old_memories(self, days: int = 30) -> int:
-        """Remove conversation and insight entries older than *days*.
+        """Remove conversation-cache and insight entries older than *days*.
+
+        Solo afecta a Redis: el historial durable en Postgres
+        (agent_conversations / agent_conv_messages) nunca se toca aquí.
 
         Returns:
             Total number of entries removed.

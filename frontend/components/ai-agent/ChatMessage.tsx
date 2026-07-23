@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import {
   Loader2, CheckCircle2, AlertCircle, ArrowRight, User, HelpCircle, PenLine, Send,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ interface ChatMessageProps {
  * - Clarification: options as buttons when system needs disambiguation
  */
 export const ChatMessage = memo(function ChatMessage({ message, onClarificationChoice }: ChatMessageProps) {
+  const { t } = useTranslation();
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
@@ -109,7 +111,7 @@ export const ChatMessage = memo(function ChatMessage({ message, onClarificationC
           {message.status === 'error' && !message.steps?.length && (
             <div className="flex items-center gap-2 text-[11px] text-red-500 pl-1">
               <AlertCircle className="w-3.5 h-3.5" />
-              <span>{message.content || 'Error al procesar'}</span>
+              <span>{message.content || t('aiAgent.errors.processFailed')}</span>
             </div>
           )}
         </div>

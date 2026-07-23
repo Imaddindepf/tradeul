@@ -96,6 +96,11 @@ class FMPEndpoints:
     
     # Market holidays
     MARKET_HOLIDAYS = f"{BASE_V3}/market-holidays"
+
+    # Stable exchange hours (IMAP)
+    ALL_EXCHANGE_MARKET_HOURS = f"{BASE_STABLE}/all-exchange-market-hours"
+    EXCHANGE_MARKET_HOURS = f"{BASE_STABLE}/exchange-market-hours"
+    HOLIDAYS_BY_EXCHANGE = f"{BASE_STABLE}/holidays-by-exchange"
     
     # =============================================
     # HELPER METHODS

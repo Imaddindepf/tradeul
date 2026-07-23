@@ -16,8 +16,10 @@ import logging
 import time
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+
+from auth import request_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ router = APIRouter(prefix="/api", tags=["agent-v4"])
 # ── Request / Response models ────────────────────────────────────
 
 class QueryRequest(BaseModel):
-    query: str = Field(..., min_length=1, description="User query text")
+    query: str = Field(..., min_length=1, max_length=8000, description="User query text")
     thread_id: Optional[str] = Field(None, description="Conversation thread ID")
     mode: str = Field("auto", description="Execution mode: auto, quick, deep")
     language: Optional[str] = Field(None, description="Response language: en, es")
@@ -60,8 +62,10 @@ class ToolInfo(BaseModel):
 
 
 class BacktestSubmitNaturalRequest(BaseModel):
-    prompt: str = Field(..., min_length=1)
+    prompt: str = Field(..., min_length=1, max_length=8000)
     tickers: list[str] = Field(..., min_length=1, max_length=3)
+    # NOTE: identity is taken from the authenticated token, never from the body.
+    # This field is ignored (kept for backward-compatible request shape).
     user_id: Optional[str] = None
 
 
@@ -72,25 +76,55 @@ class BacktestSubmitNaturalResponse(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.post("/query", response_model=QueryResponse)
-async def run_query(request: QueryRequest, http_request: Request) -> QueryResponse:
+async def run_query(
+    request: QueryRequest,
+    http_request: Request,
+    user_id: str = Depends(request_user_id),
+) -> QueryResponse:
     """Execute a query through the full LangGraph agent pipeline."""
     from graph.orchestrator import get_graph
+    from limits import check_rate, RateLimitExceeded
 
     thread_id = request.thread_id or f"rest-{int(time.time() * 1000)}"
 
     # ── Conversational memory: recent turns + cross-thread recall ──
     memory = getattr(http_request.app.state, "memory", None)
+
+    # Per-user throttle (same ceiling as the WS path).
+    if memory is not None:
+        try:
+            await check_rate(await memory._get_redis(), user_id)
+        except RateLimitExceeded as rl:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded; retry after {rl.retry_after}s",
+                headers={"Retry-After": str(rl.retry_after)},
+            )
     memory_context: list[dict[str, Any]] = []
     if memory:
         try:
             memory_context = await memory.build_memory_context(
-                user_id="default", thread_id=thread_id, query=request.query,
+                user_id=user_id, thread_id=thread_id, query=request.query,
             )
         except Exception as exc:
             logger.warning("memory_context load failed: %s", exc)
 
+    # ── Persisted run (parity with the WS path: telemetry + traceability) ──
+    import uuid as _uuid
+    from runs.store import get_run_store
+    run_id = _uuid.uuid4().hex[:16]
+    run_store = get_run_store()
+    try:
+        await run_store.create_run(
+            run_id, user_id=user_id, thread_id=thread_id, query=request.query,
+        )
+    except Exception as exc:
+        logger.warning("REST create_run failed: %s", exc)
+
     initial_state: dict[str, Any] = {
         "messages": [{"role": "user", "content": request.query}],
+        "user_id": user_id,
+        "run_id": run_id,
         "query": request.query,
         "language": request.language or "en",
         "mode": request.mode if request.mode in ("auto", "quick", "deep") else "auto",
@@ -114,7 +148,7 @@ async def run_query(request: QueryRequest, http_request: Request) -> QueryRespon
         "error": None,
     }
 
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": f"{user_id}:{thread_id}"}}
     graph = get_graph()
 
     start_time = time.time()
@@ -130,11 +164,16 @@ async def run_query(request: QueryRequest, http_request: Request) -> QueryRespon
     exec_meta = final_state.get("execution_metadata", {})
     exec_meta["total_elapsed_ms"] = elapsed_ms
 
+    try:
+        await run_store.finish_run(run_id, "complete")
+    except Exception as exc:
+        logger.warning("REST finish_run failed: %s", exc)
+
     # ── Persist the turn so follow-ups have context (parity with WS) ──
     if memory:
         try:
             await memory.store_conversation(
-                user_id="default",
+                user_id=user_id,
                 thread_id=thread_id,
                 query=request.query,
                 response=(final_state.get("final_response") or "")[:15000],
@@ -155,14 +194,22 @@ async def run_query(request: QueryRequest, http_request: Request) -> QueryRespon
 
 
 @router.post("/backtest/submit-natural", response_model=BacktestSubmitNaturalResponse)
-async def submit_backtest_natural_endpoint(body: BacktestSubmitNaturalRequest) -> BacktestSubmitNaturalResponse:
-    """Parse natural language strategy, enqueue on backtester, return job_id for polling."""
+async def submit_backtest_natural_endpoint(
+    body: BacktestSubmitNaturalRequest,
+    user_id: str = Depends(request_user_id),
+) -> BacktestSubmitNaturalResponse:
+    """Parse natural language strategy, enqueue on backtester, return job_id for polling.
+
+    Identity comes from the verified Clerk token — the request body's user_id
+    is ignored (previously it was trusted, allowing jobs to be attributed to
+    another user).
+    """
     from agents.backtest import submit_backtest_natural
     try:
         out = await submit_backtest_natural(
             prompt=body.prompt,
             tickers=body.tickers,
-            user_id=body.user_id,
+            user_id=user_id,
         )
         job_id = out.get("job_id") or ""
         if not job_id:
@@ -253,7 +300,7 @@ async def get_graph_state(thread_id: str) -> dict[str, Any]:
 @router.get("/sessions")
 async def list_sessions(
     request: Request,
-    user_id: str = "default",
+    user_id: str = Depends(request_user_id),
     limit: int = 30,
 ) -> dict[str, Any]:
     """List recent conversation sessions."""
@@ -266,7 +313,7 @@ async def list_sessions(
 async def get_session_messages(
     session_id: str,
     request: Request,
-    user_id: str = "default",
+    user_id: str = Depends(request_user_id),
     limit: int = 100,
 ) -> dict[str, Any]:
     """Load messages for a specific session."""
@@ -279,27 +326,31 @@ async def get_session_messages(
 async def delete_session(
     session_id: str,
     request: Request,
-    user_id: str = "default",
+    user_id: str = Depends(request_user_id),
 ) -> dict[str, Any]:
-    """Delete a session and its messages from Redis."""
+    """Delete a session and its messages (Postgres + Redis cache)."""
     memory = request.app.state.memory
-    r = await memory._get_redis()
-    conv_key = f"memory:conversations:{user_id}:{session_id}"
-    thread_key = f"memory:threads:{user_id}"
-
-    # Remove the conversation list
-    await r.delete(conv_key)
-
-    # Remove from the sorted set index (need to find the matching entry)
-    raw_entries = await r.zrange(thread_key, 0, -1)
-    import orjson
-    for raw in raw_entries:
-        try:
-            data = orjson.loads(raw)
-            if data.get("thread_id") == session_id:
-                await r.zrem(thread_key, raw)
-                break
-        except Exception:
-            pass
-
+    await memory.delete_thread(user_id, session_id)
     return {"deleted": True}
+
+
+# ── Cost / telemetry ─────────────────────────────────────────────
+
+@router.get("/runs/{run_id}/cost")
+async def run_cost(
+    run_id: str,
+    user_id: str = Depends(request_user_id),
+) -> dict[str, Any]:
+    """LLM token/cost/latency breakdown for a run (by node and model)."""
+    from telemetry import get_telemetry
+    return await get_telemetry().run_summary(run_id)
+
+
+@router.get("/usage")
+async def usage(
+    user_id: str = Depends(request_user_id),
+    days: int = 7,
+) -> dict[str, Any]:
+    """The caller's own LLM spend over the last `days` (by model)."""
+    from telemetry import get_telemetry
+    return await get_telemetry().user_summary(user_id, days=days)

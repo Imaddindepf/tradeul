@@ -30,6 +30,7 @@ import { FinancialAnalystCanvas } from '@/components/financial-analyst';
 import { AIAgentContent } from '@/components/ai-agent';
 import { InsightsPanel } from '@/components/insights';
 import { HeatmapContent } from '@/components/heatmap';
+import { ImapContent } from '@/components/imap';
 import { MarketPulseContent } from '@/components/market-pulse';
 import { AnalystRatingsContent } from '@/components/analyst-ratings';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
@@ -120,7 +121,7 @@ export function useCommandExecutor() {
             return null;
         }
 
-        const title = `Events: ${category.name}`;
+        const title = `${t('commands.evn.name')}: ${category.name}`;
 
         // Calcular posición escalonada
         const baseX = 150;
@@ -233,9 +234,9 @@ export function useCommandExecutor() {
         const category = getScannerCategory(categoryId);
         if (!category) return false;
 
-        const title = `Scanner: ${category.name}`;
+        const title = `${t('commands.sc.name')}: ${category.name}`;
         return windows.some(w => w.title === title);
-    }, [windows, getScannerCategory]);
+    }, [windows, getScannerCategory, t]);
 
     /**
      * Ejecutar un comando
@@ -248,7 +249,7 @@ export function useCommandExecutor() {
         switch (commandId) {
             case 'settings':
                 openWindow({
-                    title: 'Settings',
+                    title: t('commands.settings.name'),
                     content: <SettingsContent />,
                     width: 280,
                     height: 260,
@@ -266,7 +267,7 @@ export function useCommandExecutor() {
                 // Track categoryId across multiple onCreateAlertWindow calls
                 let activeCategoryId: string | null = null;
                 openWindow({
-                    title: 'Strategy Builder',
+                    title: t('commands.build.name'),
                     content: (
                         <ConfigWindow
                             onCreateAlertWindow={(config: AlertWindowConfig) => {
@@ -290,7 +291,7 @@ export function useCommandExecutor() {
                                         eventTypes: config.eventTypes,
                                     };
                                     const winId = openWindow({
-                                        title: `Events: ${config.name}`,
+                                        title: `${t('commands.evn.name')}: ${config.name}`,
                                         content: (
                                             <EventTableContent
                                                 categoryId={activeCategoryId}
@@ -312,7 +313,7 @@ export function useCommandExecutor() {
                             }}
                             onBacktestStrategy={(data: BacktestFromConfigData) => {
                                 openWindow({
-                                    title: 'OddsMaker — Backtester',
+                                    title: t('commands.backtest.name'),
                                     content: (
                                         <BacktestPanelContent
                                             initialEvents={data.eventTypes}
@@ -338,7 +339,7 @@ export function useCommandExecutor() {
                                     scanId: savedFilter.id,
                                 };
                                 const winId = openWindow({
-                                    title: `Scanner: ${savedFilter.name}`,
+                                    title: `${t('commands.sc.name')}: ${savedFilter.name}`,
                                     content: (
                                         <ScannerTableContent
                                             categoryId={categoryId}
@@ -370,7 +371,7 @@ export function useCommandExecutor() {
 
             case 'dt':
                 openWindow({
-                    title: 'Dilution Tracker',
+                    title: t('commands.dt.name'),
                     content: <DilutionTrackerContent />,
                     width: 900,
                     height: 600,
@@ -383,7 +384,7 @@ export function useCommandExecutor() {
 
             case 'sec':
                 openWindow({
-                    title: 'SEC Filings',
+                    title: t('commands.sec.name'),
                     content: <SECFilingsContent />,
                     width: 1000,
                     height: 650,
@@ -396,7 +397,7 @@ export function useCommandExecutor() {
 
             case 'news':
                 openWindow({
-                    title: 'News',
+                    title: t('commands.news.name'),
                     content: <NewsContent />,
                     width: 900,
                     height: 600,
@@ -409,7 +410,7 @@ export function useCommandExecutor() {
 
             case 'ins':
                 openWindow({
-                    title: 'Insights',
+                    title: t('commands.ins.name'),
                     content: <InsightsPanel />,
                     width: 700,
                     height: 600,
@@ -422,7 +423,7 @@ export function useCommandExecutor() {
 
             case 'alerts':
                 openWindow({
-                    title: 'Catalyst Alerts',
+                    title: t('commands.alerts.name'),
                     content: <CatalystAlertsConfig />,
                     width: 420,
                     height: 520,
@@ -438,7 +439,7 @@ export function useCommandExecutor() {
                 // Abrimos el Agent y pedimos la pestaña de workflows.
                 window.dispatchEvent(new CustomEvent('tradeul:ai-agent-show-workflows'));
                 openWindow({
-                    title: 'AI Agent',
+                    title: t('commands.ai.name'),
                     content: <AIAgentContent />,
                     width: 1100,
                     height: 700,
@@ -451,7 +452,7 @@ export function useCommandExecutor() {
 
             case 'fa':
                 openWindow({
-                    title: 'Financial Analysis',
+                    title: t('commands.fa.name'),
                     content: <FinancialsContent />,
                     width: 700,
                     height: 550,
@@ -479,7 +480,7 @@ export function useCommandExecutor() {
 
             case 'ipo':
                 openWindow({
-                    title: 'IPOs',
+                    title: t('commands.ipo.name'),
                     content: <IPOContent />,
                     width: 850,
                     height: 500,
@@ -492,7 +493,7 @@ export function useCommandExecutor() {
 
             case 'earnings':
                 openWindow({
-                    title: 'Earnings Calendar',
+                    title: t('commands.earnings.name'),
                     content: <EarningsCalendarContent />,
                     width: 900,
                     height: 450,
@@ -505,7 +506,7 @@ export function useCommandExecutor() {
 
             case 'predict':
                 openWindow({
-                    title: 'Prediction Markets',
+                    title: t('commands.predict.name'),
                     content: <PredictionMarketsContent />,
                     width: 650,
                     height: 550,
@@ -519,7 +520,7 @@ export function useCommandExecutor() {
             case 'heatmap':
             case 'hm':
                 openWindow({
-                    title: 'Market Heatmap',
+                    title: t('commands.heatmap.name'),
                     content: <HeatmapContent />,
                     width: 1100,
                     height: 750,
@@ -530,9 +531,22 @@ export function useCommandExecutor() {
                 });
                 return null;
 
+            case 'imap':
+                openWindow({
+                    title: t('commands.imap.name'),
+                    content: <ImapContent />,
+                    width: 1200,
+                    height: 720,
+                    x: Math.max(40, screenWidth / 2 - 600),
+                    y: Math.max(60, screenHeight / 2 - 360),
+                    minWidth: 860,
+                    minHeight: 520,
+                });
+                return null;
+
             case 'watchlist':
                 openWindow({
-                    title: 'Quote Monitor',
+                    title: t('commands.wl.name'),
                     content: <QuoteMonitorContent />,
                     width: 900,
                     height: 500,
@@ -545,7 +559,7 @@ export function useCommandExecutor() {
 
             case 'chat':
                 openWindow({
-                    title: 'Community Chat',
+                    title: t('commands.chat.name'),
                     content: <ChatContent />,
                     width: 700,
                     height: 500,
@@ -558,7 +572,7 @@ export function useCommandExecutor() {
 
             case 'notes':
                 openWindow({
-                    title: 'Notes',
+                    title: t('commands.notes.name'),
                     content: <NotesContent />,
                     width: 500,
                     height: 450,
@@ -572,7 +586,7 @@ export function useCommandExecutor() {
             case 'glossary':
             case 'indicators':
                 openWindow({
-                    title: 'Indicators',
+                    title: t('commands.glossary.name'),
                     content: <GlossaryContent />,
                     width: 280,
                     height: 400,
@@ -586,7 +600,7 @@ export function useCommandExecutor() {
             case 'patterns':
             case 'pm':
                 openWindow({
-                    title: 'Pattern Matching',
+                    title: t('commands.patterns.name'),
                     content: <PatternMatchingContent />,
                     width: 700,
                     height: 650,
@@ -601,7 +615,7 @@ export function useCommandExecutor() {
             case 'pattern-realtime':
             case 'patternscan':
                 openWindow({
-                    title: 'Pattern Real-Time',
+                    title: t('commands.patternsRealtime.name'),
                     content: <PatternRealtimeContent />,
                     width: 900,
                     height: 650,
@@ -615,7 +629,7 @@ export function useCommandExecutor() {
             case 'ratio':
             case 'gr':
                 openWindow({
-                    title: 'Ratio Analysis',
+                    title: t('commands.ratio.name'),
                     content: <RatioAnalysisContent />,
                     width: 800,
                     height: 750,
@@ -629,7 +643,7 @@ export function useCommandExecutor() {
             case 'screener':
             case 'screen':
                 openWindow({
-                    title: 'Stock Screener',
+                    title: t('commands.screener.name'),
                     content: <ScreenerContent />,
                     width: 900,
                     height: 650,
@@ -644,7 +658,7 @@ export function useCommandExecutor() {
             case 'compare':
             case 'multiple':
                 openWindow({
-                    title: 'Historical Multiple Security',
+                    title: t('commands.mp.name'),
                     content: <HistoricalMultipleSecurityContent />,
                     width: 950,
                     height: 600,
@@ -659,7 +673,7 @@ export function useCommandExecutor() {
             case 'insiders':
             case 'form4':
                 openWindow({
-                    title: 'Insider Trading',
+                    title: t('commands.insider.name'),
                     content: <InsiderTradingContent />,
                     width: 700,
                     height: 500,
@@ -673,7 +687,7 @@ export function useCommandExecutor() {
             case 'insider-glossary':
             case 'insider-help':
                 openWindow({
-                    title: 'Insider Trading Guide',
+                    title: t('commands.insiderGuide.name'),
                     content: <InsiderGlossaryContent />,
                     width: 380,
                     height: 450,
@@ -687,7 +701,7 @@ export function useCommandExecutor() {
             case 'desc':
             case 'fan':
                 openWindow({
-                    title: 'Financial Analyst',
+                    title: t('commands.financialAnalyst.name'),
                     content: <FinancialAnalystCanvas />,
                     width: 1180,
                     height: 780,
@@ -700,7 +714,7 @@ export function useCommandExecutor() {
 
             case 'ai':
                 openWindow({
-                    title: 'AI Agent',
+                    title: t('commands.ai.name'),
                     content: <AIAgentContent />,
                     width: 1100,
                     height: 700,
@@ -714,7 +728,7 @@ export function useCommandExecutor() {
             case 'hds':
             case 'holders':
                 openWindow({
-                    title: 'Institutional Holdings',
+                    title: t('commands.hds.name'),
                     content: <InstitutionalHoldingsContent />,
                     width: 850,
                     height: 550,
@@ -728,7 +742,7 @@ export function useCommandExecutor() {
             case 'pulse':
             case 'market-pulse':
                 openWindow({
-                    title: 'Market Pulse',
+                    title: t('commands.pulse.name'),
                     content: <MarketPulseContent onOpenTicker={(sym) => executeTickerCommand(sym, 'chart')} />,
                     width: 820,
                     height: 620,
@@ -743,7 +757,7 @@ export function useCommandExecutor() {
             case 'rtn':
             case 'ratings':
                 openWindow({
-                    title: 'Analyst Ratings',
+                    title: t('commands.rtn.name'),
                     content: <AnalystRatingsContent />,
                     width: 680,
                     height: 560,
@@ -757,7 +771,7 @@ export function useCommandExecutor() {
             case 'backtest':
             case 'bt':
                 openWindow({
-                    title: 'OddsMaker — Backtester',
+                    title: t('commands.backtest.name'),
                     content: <BacktestPanelContent />,
                     width: 900,
                     height: 750,
@@ -770,7 +784,7 @@ export function useCommandExecutor() {
 
             case 'opn':
                 openWindow({
-                    title: 'Openul — Breaking News',
+                    title: t('commands.opn.name'),
                     content: <OpenULContent />,
                     width: 480,
                     height: 650,
@@ -783,7 +797,7 @@ export function useCommandExecutor() {
 
             case 'api':
                 openWindow({
-                    title: 'API — Developer Access',
+                    title: t('commands.api.name'),
                     content: <APIContent />,
                     width: 680,
                     height: 560,
@@ -822,7 +836,7 @@ export function useCommandExecutor() {
 
         console.warn(`Unknown command: ${commandId}`);
         return null;
-    }, [openWindow, openScannerTable, getScannerCategory, openEventTable, getEventCategory]);
+    }, [openWindow, openScannerTable, getScannerCategory, openEventTable, getEventCategory, t]);
 
     /**
      * Ejecutar un comando con ticker específico
@@ -841,7 +855,7 @@ export function useCommandExecutor() {
             case 'graph':
             case 'chart': // Alias para graph
                 openWindow({
-                    title: 'Chart',
+                    title: t('commands.chart.name'),
                     content: <ChartContent ticker={normalizedTicker} exchange={exchange} />,
                     width: 900,
                     height: 600,
@@ -856,7 +870,7 @@ export function useCommandExecutor() {
             case 'description': // Legacy: redirect to FAN
             case 'des': // Alias
                 openWindow({
-                    title: 'Financial Analyst',
+                    title: t('commands.financialAnalyst.name'),
                     content: <FinancialAnalystCanvas initialTicker={normalizedTicker} />,
                     width: 1180,
                     height: 780,
@@ -869,7 +883,7 @@ export function useCommandExecutor() {
 
             case 'dilution-tracker':
                 openWindow({
-                    title: 'Dilution Tracker',
+                    title: t('commands.dt.name'),
                     content: <DilutionTrackerContent initialTicker={normalizedTicker} />,
                     width: 900,
                     height: 600,
@@ -882,7 +896,7 @@ export function useCommandExecutor() {
 
             case 'financials':
                 openWindow({
-                    title: 'Financials',
+                    title: t('commands.financials.name'),
                     content: <FinancialsContent initialTicker={normalizedTicker} />,
                     width: 700,
                     height: 550,
@@ -895,7 +909,7 @@ export function useCommandExecutor() {
 
             case 'sec-filings':
                 openWindow({
-                    title: 'SEC Filings',
+                    title: t('commands.sec.name'),
                     content: <SECFilingsContent initialTicker={normalizedTicker} />,
                     width: 1000,
                     height: 650,
@@ -908,7 +922,7 @@ export function useCommandExecutor() {
 
             case 'news':
                 openWindow({
-                    title: 'News',
+                    title: t('commands.news.name'),
                     content: <NewsContent initialTicker={normalizedTicker} />,
                     width: 900,
                     height: 600,
@@ -923,7 +937,7 @@ export function useCommandExecutor() {
             case 'span':
                 // Mostrar precio real-time del ticker en tira compacta
                 openWindow({
-                    title: 'Quote',
+                    title: t('commands.quote.name'),
                     content: (
                         <TickerStripWrapper
                             symbol={normalizedTicker}
@@ -945,7 +959,7 @@ export function useCommandExecutor() {
             case 'pm':
                 // Pattern Matching con ticker específico
                 openWindow({
-                    title: 'Pattern Matching',
+                    title: t('commands.patterns.name'),
                     content: <PatternMatchingContent initialTicker={normalizedTicker} />,
                     width: 700,
                     height: 650,
@@ -959,7 +973,7 @@ export function useCommandExecutor() {
             case 'fan':
                 // Financial Analyst con ticker específico
                 openWindow({
-                    title: 'Financial Analyst',
+                    title: t('commands.financialAnalyst.name'),
                     content: <FinancialAnalystCanvas initialTicker={normalizedTicker} />,
                     width: 1180,
                     height: 780,
@@ -974,7 +988,7 @@ export function useCommandExecutor() {
             case 'holders':
                 // Institutional Holdings con ticker específico
                 openWindow({
-                    title: 'Institutional Holdings',
+                    title: t('commands.hds.name'),
                     content: <InstitutionalHoldingsContent initialTicker={normalizedTicker} />,
                     width: 850,
                     height: 550,
@@ -988,7 +1002,7 @@ export function useCommandExecutor() {
             case 'rtn':
             case 'ratings':
                 openWindow({
-                    title: 'Analyst Ratings',
+                    title: t('commands.rtn.name'),
                     content: <AnalystRatingsContent initialTicker={normalizedTicker} />,
                     width: 680,
                     height: 560,
@@ -1014,7 +1028,7 @@ export function useCommandExecutor() {
         const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
 
         openWindow({
-            title: 'News',  // Siempre "News" - el ticker se persiste en componentState
+            title: t('commands.news.name'),  // Siempre "News" - el ticker se persiste en componentState
             content: <NewsContent initialTicker={ticker} highlightArticleId={articleId} />,
             width: 900,
             height: 600,

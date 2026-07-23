@@ -15,6 +15,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FolderOpen } from 'lucide-react';
 import { useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import {
@@ -30,6 +31,7 @@ import type { SyncFlags } from './multichart/types';
 import { HeaderDivider } from './HeaderDivider';
 
 export function HeaderLayoutControls() {
+    const { t } = useTranslation();
     const windowId = useCurrentWindowId?.() ?? null;
     const win = useChartLayoutStore(selectWindow(windowId));
     const savedLayouts = useChartLayoutStore(selectSavedLayouts);
@@ -59,8 +61,9 @@ export function HeaderLayoutControls() {
                 <button
                     ref={layoutBtnRef}
                     type="button"
-                    title={`Layout · ${tpl.label}`}
-                    aria-label="Choose chart layout and sync"
+                    title={`${t('chart.layout')} · ${tpl.label}`}
+                    aria-label={t('chart.chooseLayout')}
+
                     onClick={() => { setShowLayout((v) => !v); setShowSaved(false); }}
                     className={`inline-flex items-center justify-center h-[22px] w-[26px] rounded-[3px] transition-colors ${
                         showLayout
@@ -74,8 +77,9 @@ export function HeaderLayoutControls() {
                 <button
                     ref={savedBtnRef}
                     type="button"
-                    title="Saved layouts"
-                    aria-label="Saved layouts"
+                    title={t('chart.savedLayouts')}
+                    aria-label={t('chart.savedLayouts')}
+
                     onClick={() => { setShowSaved((v) => !v); setShowLayout(false); }}
                     className={`inline-flex items-center gap-0.5 h-[22px] px-1.5 rounded-[3px] transition-colors ${
                         showSaved

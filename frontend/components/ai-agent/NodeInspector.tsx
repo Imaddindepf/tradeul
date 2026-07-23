@@ -18,6 +18,7 @@ import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@clerk/nextjs';
+import i18n from '@/lib/i18n';
 import { getNodeArtifacts } from '@/lib/agentRuns';
 import { getOverlayRoot } from '@/lib/overlayRoot';
 import type { Artifact } from './types';
@@ -34,7 +35,7 @@ export interface InspectTarget {
 /* ── Formato de celdas (los artifacts llevan valores crudos) ── */
 function fmtCell(v: string | number | boolean | null): string {
   if (v == null) return '—';
-  if (typeof v === 'boolean') return v ? 'sí' : 'no';
+  if (typeof v === 'boolean') return v ? i18n.t('aiAgent.node.yes') : i18n.t('aiAgent.node.no');
   if (typeof v === 'number') {
     if (Number.isInteger(v) && Math.abs(v) < 10_000) return String(v);
     if (Math.abs(v) >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}B`;
@@ -48,13 +49,15 @@ function fmtCell(v: string | number | boolean | null): string {
 /* ── Agrupación de artifacts en tabs ── */
 type TabId = 'resumen' | 'codigo' | 'datos' | 'charts' | 'raw';
 
-const TAB_LABELS: Record<TabId, string> = {
-  resumen: 'Resumen',
-  codigo: 'Código',
-  datos: 'Output',
-  charts: 'Charts',
-  raw: 'Raw',
-};
+function tabLabel(id: TabId): string {
+  switch (id) {
+    case 'codigo': return i18n.t('aiAgent.node.code');
+    case 'resumen': return 'Resumen';
+    case 'datos': return 'Output';
+    case 'charts': return 'Charts';
+    case 'raw': return 'Raw';
+  }
+}
 
 const TAB_OF_KIND: Record<Artifact['kind'], TabId> = {
   summary: 'resumen',
@@ -111,7 +114,7 @@ const ChipsArt = ({ art }: { art: Extract<Artifact, { kind: 'chips' }> }) => (
 const CodeArt = ({ art }: { art: Extract<Artifact, { kind: 'code' }> }) => (
   <section>
     <div className="mb-1 flex items-center justify-between">
-      <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-fg">{art.title || 'Código'}</h4>
+      <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-fg">{art.title || i18n.t('aiAgent.node.code')}</h4>
       {art.language && <span className="font-mono text-[9px] text-muted-fg/60">{art.language}</span>}
     </div>
     <pre className="max-h-[420px] overflow-auto rounded-lg border border-border-subtle bg-surface-inset p-3 font-mono text-[10.5px] leading-relaxed text-foreground/90">
@@ -296,7 +299,7 @@ export const InspectorModal = memo(function InspectorModal({
                         : 'text-muted-fg hover:text-foreground'
                     }`}
                   >
-                    {TAB_LABELS[t]}
+                    {tabLabel(t)}
                   </button>
                 ))}
               </div>
@@ -379,7 +382,7 @@ export const NodeInspector = memo(function NodeInspector({ target, onClose }: No
         await new Promise(r => setTimeout(r, 350 * (attempt + 1)));
       }
       if (!cancelled && lastErr) {
-        setError(lastErr instanceof Error ? lastErr.message : 'Error cargando artifacts');
+        setError(lastErr instanceof Error ? lastErr.message : i18n.t('aiAgent.errors.loadArtifacts'));
       }
     };
     void load();

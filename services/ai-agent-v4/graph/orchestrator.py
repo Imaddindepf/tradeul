@@ -12,6 +12,7 @@ Context enricher auto-injects sector/industry/theme context.
 Synthesizer produces the final response from merged results.
 """
 from __future__ import annotations
+import asyncio
 import logging
 import os
 
@@ -31,11 +32,90 @@ from agents.dilution import dilution_node
 from agents.strategy_scanner import strategy_scanner_node
 from agents.alert_compiler import alert_compiler_node
 from agents.alert_manager import alert_manager_node
+from agents.news_brief import news_brief_node
 from agents.context_enricher import context_enricher_node
 
-ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener", "backtest", "dilution", "strategy_scanner", "alert_compiler", "alert_manager"]
+ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener", "backtest", "dilution", "strategy_scanner", "alert_compiler", "alert_manager", "news_brief"]
 
 logger = logging.getLogger(__name__)
+
+# Per-node wall-clock budget. Generous — the goal is to bound a hung MCP call
+# or provider stall, not to clip legitimately slow work (research/backtest can
+# be 60-90s). Overridable via env for tuning without a code change.
+_NODE_TIMEOUT_S = float(os.getenv("AGENT_NODE_TIMEOUT_S", "150"))
+_ENRICHER_TIMEOUT_S = float(os.getenv("AGENT_ENRICHER_TIMEOUT_S", "30"))
+# El motor de briefs (Opus vía ai-news-brief) tarda 30-180s legítimamente;
+# su cliente httpx ya corta a 240s, así que el guard va justo por encima.
+_BRIEF_TIMEOUT_S = float(os.getenv("AGENT_BRIEF_NODE_TIMEOUT_S", "250"))
+
+
+def _set_ctx(name: str, state):
+    """Fija el contexto de telemetría (run/user/node) para las llamadas LLM
+    de este nodo. Devuelve un token a restaurar, o None si no hay telemetría."""
+    try:
+        from telemetry import set_call_context
+        return set_call_context(
+            run_id=state.get("run_id", "") if isinstance(state, dict) else "",
+            user_id=state.get("user_id", "") if isinstance(state, dict) else "",
+            node=name,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _reset_ctx(token) -> None:
+    if token is None:
+        return
+    try:
+        from telemetry import reset_call_context
+        reset_call_context(token)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _instrument(name: str, fn):
+    """Wrap a node so its LLM calls are attributed to run/user/node in
+    telemetry. No timeout / no error capture — for planner & synthesizer,
+    which have their own fallbacks."""
+    async def wrapped(state):
+        token = _set_ctx(name, state)
+        try:
+            return await fn(state)
+        finally:
+            _reset_ctx(token)
+
+    wrapped.__name__ = getattr(fn, "__name__", name)
+    return wrapped
+
+
+def _guard(name: str, fn, timeout: float):
+    """Wrap an agent node so a timeout or crash becomes a captured, visible
+    error in `agent_results` instead of hanging the fan-out barrier forever,
+    and its LLM calls are attributed to run/user/node in telemetry.
+
+    The synthesizer reads these status markers, so a failed specialist yields
+    "los datos de X no estaban disponibles" rather than a silent omission or
+    an indefinitely stalled run.
+    """
+    async def wrapped(state):
+        token = _set_ctx(name, state)
+        try:
+            return await asyncio.wait_for(fn(state), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.error("node %s exceeded %.0fs budget — captured as tool_error", name, timeout)
+            status = {"status": "tool_error", "error": f"{name} timed out after {timeout:.0f}s"}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("node %s crashed — captured as tool_error", name)
+            status = {"status": "tool_error", "error": f"{name} failed: {type(exc).__name__}: {exc}"}
+        finally:
+            _reset_ctx(token)
+        return {
+            "agent_results": {name: status},
+            "execution_metadata": {name: {"status": status["status"]}},
+        }
+
+    wrapped.__name__ = getattr(fn, "__name__", name)
+    return wrapped
 
 
 def build_graph(checkpointer=None) -> StateGraph:
@@ -43,20 +123,27 @@ def build_graph(checkpointer=None) -> StateGraph:
         checkpointer = MemorySaver()
     graph = StateGraph(AgentState)
 
-    graph.add_node("query_planner", query_planner_node)
-    graph.add_node("market_data", market_data_node)
-    graph.add_node("news_events", news_events_node)
-    graph.add_node("financial", financial_node)
-    graph.add_node("research", research_node)
-    graph.add_node("code_exec", code_exec_node)
-    graph.add_node("screener", screener_node)
-    graph.add_node("backtest", backtest_node)
-    graph.add_node("dilution", dilution_node)
-    graph.add_node("strategy_scanner", strategy_scanner_node)
-    graph.add_node("alert_compiler", alert_compiler_node)
-    graph.add_node("alert_manager", alert_manager_node)
-    graph.add_node("context_enricher", context_enricher_node)
-    graph.add_node("synthesizer", synthesizer_node)
+    _AGENT_NODES = {
+        "market_data": market_data_node,
+        "news_events": news_events_node,
+        "financial": financial_node,
+        "research": research_node,
+        "code_exec": code_exec_node,
+        "screener": screener_node,
+        "backtest": backtest_node,
+        "dilution": dilution_node,
+        "strategy_scanner": strategy_scanner_node,
+        "alert_compiler": alert_compiler_node,
+        "alert_manager": alert_manager_node,
+        "news_brief": news_brief_node,
+    }
+    _NODE_TIMEOUTS = {"news_brief": _BRIEF_TIMEOUT_S}
+
+    graph.add_node("query_planner", _instrument("query_planner", query_planner_node))
+    for _name, _fn in _AGENT_NODES.items():
+        graph.add_node(_name, _guard(_name, _fn, _NODE_TIMEOUTS.get(_name, _NODE_TIMEOUT_S)))
+    graph.add_node("context_enricher", _guard("context_enricher", context_enricher_node, _ENRICHER_TIMEOUT_S))
+    graph.add_node("synthesizer", _instrument("synthesizer", synthesizer_node))
 
     graph.add_edge(START, "query_planner")
 

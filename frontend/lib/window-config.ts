@@ -24,6 +24,7 @@ export const WINDOW_TYPES: Record<string, string> = {
   'Earnings Calendar': 'earnings',
   'Prediction Markets': 'predict',
   'Market Heatmap': 'heatmap',
+  'World Venue Map': 'imap',
   'Strategy Builder': 'strategy_builder',
   'Institutional Holdings': 'hds',
   'Market Pulse': 'pulse',

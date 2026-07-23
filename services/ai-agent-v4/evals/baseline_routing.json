@@ -1,0 +1,457 @@
+{
+  "01/01/26": {
+    "active_agents": [],
+    "intent": "GREETING"
+  },
+  "Analyze the candle at 2026-01-02 for MU": {
+    "active_agents": [
+      "market_data",
+      "news_events"
+    ],
+    "intent": "CHART_ANALYSIS"
+  },
+  "Analyze the candle at 2026-01-08 for APLD": {
+    "active_agents": [
+      "market_data",
+      "news_events"
+    ],
+    "intent": "CHART_ANALYSIS"
+  },
+  "Analyze the candle at 2026-02-02 for PEP": {
+    "active_agents": [
+      "market_data",
+      "news_events"
+    ],
+    "intent": "CHART_ANALYSIS"
+  },
+  "Analyze the candle at 2026-03-09 for FIGR": {
+    "active_agents": [
+      "market_data",
+      "news_events"
+    ],
+    "intent": "CHART_ANALYSIS"
+  },
+  "Analyze the candle at 2026-06-23 for TSLA": {
+    "active_agents": [
+      "market_data",
+      "news_events"
+    ],
+    "intent": "CHART_ANALYSIS"
+  },
+  "Compara AMD vs NVDA: precio, RSI, cambio del dia": {
+    "active_agents": [
+      "market_data"
+    ],
+    "intent": "DATA_LOOKUP"
+  },
+  "Cual es la situación macroeconomica actual? favorable para el QQQ o no? que ha cambiado en estos ultimos dias?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "MARKET_PULSE"
+  },
+  "Por que cayó ayer TTD casi un 11%?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Que deberiamos esperar hoy para la nfp, escenarios para nasdaq": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "MARKET_PULSE"
+  },
+  "Why did ADBE move like this on 2026-04-13?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did AMD move like this on 2026-05-06?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did AMZN move like this on 2026-04-24?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did AVAV move like this on 2026-03-03?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did BBWI move like this on 2026-03-30?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did CAR move like this on 2026-04-14?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did COHR move like this on 2026-06-02?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did CRDO move like this on 2026-05-19?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did DELL move like this on 2026-05-28?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did FLY move like this on 2026-03-25?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did FRMI move like this on 2026-04-20?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did GL move like this on 2024-04-11?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did HIMS move like this on 2026-03-20?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did INTC move like this on 2026-01-21?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did IREN move like this on 2025-08-25?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did LEU move like this on 2026-02-11?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did LITE move like this on 2026-02-17?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did MELI move like this on 2026-01-05?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did MSFT move like this on 2026-01-29?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did MTSI move like this on 2026-01-12?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did MU move like this on 2026-06-25?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did NOW move like this on 2026-04-08?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did NVDA move like this on 2024-03-08?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did NVDA move like this on 2026-05-06?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did OKTA move like this on 2026-04-10?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did PANW move like this on 2026-02-18?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did PYPL move like this on 2026-02-03?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did QXO move like this on 2026-04-21?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did RIVN move like this on 2025-11-05?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did SMCI move like this on 2024-02-16?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did SNDK move like this on 2026-03-23?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did STX move like this on 2026-01-06?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did TMUS move like this on 2026-02-11?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did TTMI move like this on 2026-03-23?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did UPS move like this on 2025-07-29?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "Why did XXI move like this on 2025-04-24?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CHART_ANALYSIS"
+  },
+  "a que sector pertenece?": {
+    "active_agents": [],
+    "intent": "DATA_LOOKUP"
+  },
+  "ahora mismo los mercados están un poco estancados. ¿a que se debe que haya poco movimiento? ¿Qué acciones deberíamos vigilar hoy y qué sector?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "por que se movió AMD el 29/7/25?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "por qué se movió CNC el 2/7/25?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "porqué se vendió TEMPUS AI el día 28/5/25?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "que acciones pueden verse afectadas?": {
+    "active_agents": [],
+    "intent": "GREETING"
+  },
+  "qué movió a ALHC el 9/7/26?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "qué movió a QCOM el 30/4/26?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "sabrias decirme que acciones fueron las que mas subidas tuvieron el 2 de enero de 2026": {
+    "active_agents": [
+      "market_data"
+    ],
+    "intent": "RANKING"
+  },
+  "te pregunté por noticias no por mobimientos": {
+    "active_agents": [
+      "news_events"
+    ],
+    "intent": "NEWS"
+  },
+  "which was the previous Bernstein price target for RCL": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "DEEP_RESEARCH"
+  },
+  "why is HUT moving?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "why is NTCL moving down so hard?": {
+    "active_agents": [
+      "market_data",
+      "news_events",
+      "research"
+    ],
+    "intent": "CAUSAL"
+  },
+  "¿Qué acciones ademas de TTD subió mas del 10% en el mismo sector de TTD?": {
+    "active_agents": [
+      "market_data"
+    ],
+    "intent": "RANKING"
+  }
+}

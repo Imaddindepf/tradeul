@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import { useChartContext } from './ChartContext';
 import { CloseIcon } from './icons';
 
@@ -10,6 +11,7 @@ import { CloseIcon } from './icons';
  */
 export function ChartSettingsDialog() {
     const ctx = useChartContext();
+    const { t } = useTranslation();
     if (!ctx.settingsOpen) return null;
 
     return (
@@ -18,42 +20,46 @@ export function ChartSettingsDialog() {
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[320px] bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-lg shadow-xl">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--color-border-subtle)]">
                     <span className="text-[13px] font-semibold text-[color:var(--color-fg)]">
-                        Configuración del gráfico
+                        {t('chart.settingsDialog.title')}
                     </span>
                     <button
                         onClick={ctx.closeSettings}
                         className="text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)]"
-                        aria-label="Cerrar"
+                        aria-label={t('common.close')}
                     >
                         <CloseIcon className="w-4 h-4" />
                     </button>
                 </div>
 
                 <div className="px-4 py-3 flex flex-col gap-2.5">
-                    <Section title="Apariencia">
+                    <Section title={t('chart.settingsDialog.appearance')}>
                         <Toggle
-                            label="Mostrar cuadrícula"
+                            label={t('chart.settingsDialog.showGrid')}
                             checked={ctx.gridVisible}
                             onChange={ctx.setGridVisible}
                         />
                         <Toggle
-                            label="Marca de agua del ticker"
+                            label={t('chart.settingsDialog.watermark')}
                             checked={ctx.watermarkVisible}
                             onChange={ctx.setWatermarkVisible}
                         />
                     </Section>
-                    <Section title="Escala">
+                    <Section title={t('chart.settingsDialog.scale')}>
                         <Toggle
-                            label="Escala logarítmica"
+                            label={t('chart.settingsDialog.logScale')}
                             checked={ctx.logScale}
                             onChange={ctx.setLogScale}
                         />
                     </Section>
-                    <Section title="Imán (snap a OHLC)">
+                    <Section title={t('chart.settingsDialog.magnet')}>
                         <div className="grid grid-cols-3 gap-1">
                             {(['off', 'weak', 'strong'] as const).map(m => {
                                 const isActive = ctx.magnetMode === m;
-                                const labels = { off: 'Off', weak: 'Débil', strong: 'Fuerte' };
+                                const labels = {
+                                    off: t('chart.magnetOff'),
+                                    weak: t('chart.magnetWeak'),
+                                    strong: t('chart.magnetStrong'),
+                                };
                                 return (
                                     <button
                                         key={m}

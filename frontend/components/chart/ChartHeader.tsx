@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import { useChartContext } from './ChartContext';
 import { ChartTimeframeTabs } from './ChartTimeframeTabs';
 import { CandleStyleDropdown } from './CandleStyleDropdown';
@@ -39,6 +40,7 @@ import {
  */
 export function ChartHeader() {
     const ctx = useChartContext();
+    const { t } = useTranslation();
 
     return (
         <div
@@ -46,14 +48,14 @@ export function ChartHeader() {
             style={{ fontFamily: ctx.fontFamily }}
         >
             {/* 1. Compare / add symbol */}
-            <Tooltip content="Comparar o añadir símbolo (próximamente)">
+            <Tooltip content={t('chart.compareTooltip')}>
                 <button
                     disabled
                     className="flex items-center gap-1 px-1.5 h-[22px] rounded-[3px] text-[12px] text-[color:var(--color-muted-fg)]/60 cursor-not-allowed"
-                    aria-label="Comparar"
+                    aria-label={t('chart.compare')}
                 >
                     <CompareIcon className="w-[14px] h-[14px]" />
-                    <span>Comparar</span>
+                    <span>{t('chart.compare')}</span>
                 </button>
             </Tooltip>
             <HeaderDivider />
@@ -80,14 +82,14 @@ export function ChartHeader() {
             <HeaderLayoutControls />
 
             {/* 6. Alerts */}
-            <Tooltip content="Crear alerta (próximamente)">
+            <Tooltip content={t('chart.alertTooltip')}>
                 <button
                     disabled
                     className="flex items-center gap-1 px-1.5 h-[22px] rounded-[3px] text-[12px] text-[color:var(--color-muted-fg)]/60 cursor-not-allowed"
-                    aria-label="Alertas"
+                    aria-label={t('chart.alert')}
                 >
                     <AlertIcon className="w-[14px] h-[14px]" />
-                    <span>Alerta</span>
+                    <span>{t('chart.alert')}</span>
                 </button>
             </Tooltip>
 
@@ -98,20 +100,20 @@ export function ChartHeader() {
 
             {/* 8. Undo / Redo */}
             <HeaderIconBtn
-                tooltip="Deshacer"
+                tooltip={t('chart.undo')}
                 shortcut="Ctrl+Z"
                 disabled={!ctx.canUndo}
                 onClick={ctx.undo}
-                ariaLabel="Deshacer"
+                ariaLabel={t('chart.undo')}
             >
                 <UndoIcon className="w-3.5 h-3.5" />
             </HeaderIconBtn>
             <HeaderIconBtn
-                tooltip="Rehacer"
+                tooltip={t('chart.redo')}
                 shortcut="Ctrl+Shift+Z"
                 disabled={!ctx.canRedo}
                 onClick={ctx.redo}
-                ariaLabel="Rehacer"
+                ariaLabel={t('chart.redo')}
             >
                 <RedoIcon className="w-3.5 h-3.5" />
             </HeaderIconBtn>
@@ -119,20 +121,20 @@ export function ChartHeader() {
 
             {/* 9. Lock / Visibility (drawings) */}
             <HeaderIconBtn
-                tooltip={ctx.drawingsLocked ? 'Desbloquear dibujos' : 'Bloquear dibujos'}
+                tooltip={ctx.drawingsLocked ? t('chart.unlockDrawings') : t('chart.lockDrawings')}
                 onClick={ctx.toggleDrawingsLocked}
                 active={ctx.drawingsLocked}
-                ariaLabel="Bloquear dibujos"
+                ariaLabel={t('chart.lockDrawings')}
             >
                 {ctx.drawingsLocked
                     ? <LockIcon className="w-3.5 h-3.5" />
                     : <UnlockIcon className="w-3.5 h-3.5" />}
             </HeaderIconBtn>
             <HeaderIconBtn
-                tooltip={ctx.drawingsVisible ? 'Ocultar dibujos' : 'Mostrar dibujos'}
+                tooltip={ctx.drawingsVisible ? t('chart.hideDrawings') : t('chart.showDrawings')}
                 onClick={ctx.toggleDrawingsVisibility}
                 active={!ctx.drawingsVisible}
-                ariaLabel="Visibilidad de dibujos"
+                ariaLabel={t('chart.hideDrawings')}
             >
                 {ctx.drawingsVisible
                     ? <EyeIcon className="w-3.5 h-3.5" />
@@ -142,27 +144,27 @@ export function ChartHeader() {
 
             {/* 10. Chart settings */}
             <HeaderIconBtn
-                tooltip="Configuración"
+                tooltip={t('chart.settings')}
                 onClick={ctx.openSettings}
-                ariaLabel="Configuración"
+                ariaLabel={t('chart.settings')}
             >
                 <SettingsIcon className="w-3.5 h-3.5" />
             </HeaderIconBtn>
 
             {/* 11. Screenshot */}
             <HeaderIconBtn
-                tooltip="Captura del gráfico"
+                tooltip={t('chart.screenshot')}
                 onClick={ctx.takeScreenshot}
-                ariaLabel="Captura"
+                ariaLabel={t('chart.screenshot')}
             >
                 <CameraIcon className="w-3.5 h-3.5" />
             </HeaderIconBtn>
 
             {/* 12. Fullscreen */}
             <HeaderIconBtn
-                tooltip={ctx.isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+                tooltip={ctx.isFullscreen ? t('chart.exitFullscreen') : t('chart.fullscreen')}
                 onClick={ctx.toggleFullscreen}
-                ariaLabel="Pantalla completa"
+                ariaLabel={t('chart.fullscreen')}
             >
                 {ctx.isFullscreen
                     ? <MinimizeIcon className="w-3.5 h-3.5" />

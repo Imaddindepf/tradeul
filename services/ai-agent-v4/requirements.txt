@@ -7,6 +7,7 @@ langchain-openai>=0.3.0
 # RediSearch/RedisJSON modules that langgraph-checkpoint-redis requires)
 langgraph-checkpoint-postgres>=2.0.0
 psycopg[binary]>=3.1.0
+psycopg-pool>=3.2.0
 
 # Retry/backoff for LLM calls (used by agents/_llm_retry.py)
 tenacity>=8.2.0

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useChartContext } from './ChartContext';
 import { useDisplayBar } from './hoveredBarStore';
 import { ChevronDownIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, SettingsIcon, TrashIcon } from './icons';
@@ -93,6 +94,7 @@ function LegendRow({
     onSettings: (e: React.MouseEvent) => void;
     onRemove: () => void;
 }) {
+    const { t } = useTranslation();
     return (
         <div
             className={`pointer-events-auto group flex items-center gap-1.5 px-1.5 py-0.5 rounded text-[11px] cursor-pointer transition-opacity ${
@@ -123,11 +125,11 @@ function LegendRow({
                 ))}
             </span>
             <div className="ml-1 flex items-center gap-0.5">
-                <Tooltip content={visible ? 'Ocultar' : 'Mostrar'} placement="top">
+                <Tooltip content={visible ? t('chart.hide') : t('chart.show')} placement="top">
                     <button
                         onClick={(e) => { e.stopPropagation(); onToggleVisible(); }}
                         className="text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)]"
-                        aria-label={visible ? 'Ocultar indicador' : 'Mostrar indicador'}
+                        aria-label={visible ? t('chart.hide') : t('chart.show')}
                     >
                         {visible
                             ? <EyeIcon className="w-3 h-3" />
@@ -135,20 +137,20 @@ function LegendRow({
                     </button>
                 </Tooltip>
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Tooltip content="Configurar" placement="top">
+                    <Tooltip content={t('chart.configure')} placement="top">
                         <button
                             onClick={(e) => { e.stopPropagation(); onSettings(e); }}
                             className="text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-fg)]"
-                            aria-label="Configurar indicador"
+                            aria-label={t('chart.configure')}
                         >
                             <SettingsIcon className="w-3 h-3" />
                         </button>
                     </Tooltip>
-                    <Tooltip content="Eliminar" placement="top">
+                    <Tooltip content={t('chart.drawing.delete')} placement="top">
                         <button
                             onClick={(e) => { e.stopPropagation(); onRemove(); }}
                             className="text-[color:var(--color-muted-fg)] hover:text-[color:var(--color-danger)]"
-                            aria-label="Eliminar indicador"
+                            aria-label={t('chart.drawing.delete')}
                         >
                             <TrashIcon className="w-3 h-3" />
                         </button>

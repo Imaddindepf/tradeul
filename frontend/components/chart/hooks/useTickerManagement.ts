@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { MutableRefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useFloatingWindowActions, useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { useLinkGroupSubscription } from '@/hooks/useLinkGroup';
 import { useMarketSessionStore, selectSession, selectIsTrading } from '@/stores/useMarketSessionStore';
@@ -20,6 +21,7 @@ export function useTickerManagement(
     options?: { inLayoutMode?: boolean },
 ) {
     const inLayoutMode = options?.inLayoutMode ?? false;
+    const { t } = useTranslation();
     const { state: windowState, updateState: updateWindowState } = useWindowState<ChartWindowState>();
     const windowId = useCurrentWindowId?.();
     const { openWindow, updateWindow } = useFloatingWindowActions();
@@ -68,9 +70,9 @@ export function useTickerManagement(
     // Update floating window title
     useEffect(() => {
         if (windowId) {
-            updateWindow(windowId, { title: "Chart" });
+            updateWindow(windowId, { title: t('chart.title') });
         }
-    }, [windowId, updateWindow]);
+    }, [windowId, updateWindow, t]);
 
     // Sync when windowState.ticker arrives late (store hydration race condition).
     // Disabled in layout mode.

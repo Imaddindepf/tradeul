@@ -91,14 +91,15 @@ export function MorningNewsContent({ initialData }: MorningNewsContentProps = {}
     const formatGeneratedTime = (isoString: string) => {
         try {
             const d = new Date(isoString);
+            const locale = userLang === 'es' ? 'es-ES' : 'en-US';
             return {
-                date: d.toLocaleDateString('es-ES', {
+                date: d.toLocaleDateString(locale, {
                     weekday: 'long',
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric'
                 }),
-                time: d.toLocaleTimeString('es-ES', {
+                time: d.toLocaleTimeString(locale, {
                     hour: '2-digit',
                     minute: '2-digit',
                     timeZoneName: 'short'

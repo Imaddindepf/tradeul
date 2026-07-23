@@ -364,7 +364,7 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
                     <div className="text-center">
                         <RefreshCw className="w-5 h-5 mx-auto mb-2 text-blue-600 animate-spin" />
                         <p className="text-[11px] text-muted-fg">
-                            {language === 'es' ? 'Cargando...' : 'Loading...'}
+                            {t('common.loading')}
                         </p>
                     </div>
                 </div>

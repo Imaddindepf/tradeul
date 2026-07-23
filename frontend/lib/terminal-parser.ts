@@ -277,6 +277,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.HM.description',
         shortcut: 'Ctrl+H'
     },
+    IMAP: {
+        id: 'imap',
+        label: 'IMAP',
+        name: 'World Venue Map',
+        descriptionKey: 'terminalCommands.globalCommands.IMAP.description',
+        shortcut: null
+    },
     SB: {
         id: 'sb',
         label: 'SB',

@@ -29,6 +29,10 @@ class AgentState(TypedDict):
     # ── Conversation ──
     messages: Annotated[list[BaseMessage], add_messages]
 
+    # ── Identity ──
+    user_id: str                         # Authenticated Clerk user (sub claim); owner of alerts/memory
+    run_id: str                          # Per-turn run id (telemetry + run/artifact attribution)
+
     # ── Query ──
     query: str                           # Original user query
     language: str                        # Detected language (es/en)
@@ -73,6 +77,10 @@ class AgentState(TypedDict):
 
     # ── Chart Analysis ──
     chart_context: Optional[dict]        # Chart snapshot from frontend (ticker, bars, indicators, drawings)
+
+    # ── Brief threads (Fase 3b: news-brief engine as a graph node) ──
+    news_context: Optional[dict]         # Original news this thread was born from (brief threads only)
+    brief_history: Optional[list]        # Prior brief-thread turns as [{role, content}] for the news_brief node
 
     # ── Control ──
     mode: str                            # Execution mode: "auto" | "quick" | "deep"

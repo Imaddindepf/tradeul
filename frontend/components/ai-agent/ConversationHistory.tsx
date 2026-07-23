@@ -3,6 +3,9 @@
 import { memo, useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Trash2, Search, MessageSquare } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/lib/i18n';
+import { formatTimeAgo } from '@/lib/relative-time';
 import type { SessionSummary } from './types';
 
 interface ConversationHistoryProps {
@@ -14,31 +17,34 @@ interface ConversationHistoryProps {
   onClose: () => void;
 }
 
+type TimeGroupId = 'today' | 'yesterday' | 'thisWeek' | 'older';
+
+const TIME_GROUP_ORDER: TimeGroupId[] = ['today', 'yesterday', 'thisWeek', 'older'];
+
+const TIME_GROUP_KEYS: Record<TimeGroupId, string> = {
+  today: 'common.today',
+  yesterday: 'common.yesterdayLabel',
+  thisWeek: 'common.thisWeek',
+  older: 'common.older',
+};
+
 // ── Time grouping helpers ──
 
-function getTimeGroup(ts: number): string {
+function getTimeGroup(ts: number): TimeGroupId {
   const now = Date.now() / 1000;
   const diff = now - ts;
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
   const dayStartTs = dayStart.getTime() / 1000;
 
-  if (ts >= dayStartTs) return 'Hoy';
-  if (ts >= dayStartTs - 86400) return 'Ayer';
-  if (diff < 7 * 86400) return 'Esta semana';
-  return 'Anteriores';
+  if (ts >= dayStartTs) return 'today';
+  if (ts >= dayStartTs - 86400) return 'yesterday';
+  if (diff < 7 * 86400) return 'thisWeek';
+  return 'older';
 }
 
 function relativeTime(ts: number): string {
-  const now = Date.now() / 1000;
-  const diff = now - ts;
-
-  if (diff < 60) return 'ahora';
-  if (diff < 3600) return `hace ${Math.floor(diff / 60)}m`;
-  if (diff < 86400) return `hace ${Math.floor(diff / 3600)}h`;
-  if (diff < 172800) return 'ayer';
-  if (diff < 604800) return `hace ${Math.floor(diff / 86400)}d`;
-  return new Date(ts * 1000).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  return formatTimeAgo(ts);
 }
 
 // ── Session Entry ──
@@ -54,6 +60,7 @@ const SessionEntry = memo(function SessionEntry({
   onSelect: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -84,7 +91,7 @@ const SessionEntry = memo(function SessionEntry({
         <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${isActive ? 'text-primary' : 'text-muted-fg/50'}`} />
         <div className="flex-1 min-w-0">
           <p className={`text-[11px] leading-snug truncate ${isActive ? 'text-primary font-medium' : 'text-foreground'}`}>
-            {session.last_query || 'Sin título'}
+            {session.last_query || t('aiAgent.history.untitled')}
           </p>
           <span className="text-[9px] text-muted-fg mt-0.5 block">
             {relativeTime(session.updated_at)}
@@ -98,7 +105,7 @@ const SessionEntry = memo(function SessionEntry({
                 ? 'text-red-500 hover:text-red-600'
                 : 'text-muted-fg/50 hover:text-muted-fg'
             }`}
-            title={confirmDelete ? 'Confirmar eliminación' : 'Eliminar'}
+            title={confirmDelete ? t('aiAgent.history.confirmDelete') : t('aiAgent.history.delete')}
           >
             <Trash2 className="w-3 h-3" />
           </button>
@@ -118,12 +125,13 @@ export const ConversationHistory = memo(function ConversationHistory({
   onDeleteSession,
   onClose,
 }: ConversationHistoryProps) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => searchRef.current?.focus(), 200);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => searchRef.current?.focus(), 200);
+    return () => clearTimeout(timer);
   }, []);
 
   const filtered = useMemo(() => {
@@ -133,19 +141,22 @@ export const ConversationHistory = memo(function ConversationHistory({
   }, [sessions, search]);
 
   const grouped = useMemo(() => {
-    const groups: Record<string, SessionSummary[]> = {};
-    const order = ['Hoy', 'Ayer', 'Esta semana', 'Anteriores'];
+    const groups: Partial<Record<TimeGroupId, SessionSummary[]>> = {};
 
     for (const s of filtered) {
       const g = getTimeGroup(s.updated_at);
       if (!groups[g]) groups[g] = [];
-      groups[g].push(s);
+      groups[g]!.push(s);
     }
 
-    return order
+    return TIME_GROUP_ORDER
       .filter(g => groups[g]?.length)
-      .map(g => ({ label: g, sessions: groups[g] }));
-  }, [filtered]);
+      .map(g => ({
+        id: g,
+        label: i18n.t(TIME_GROUP_KEYS[g]),
+        sessions: groups[g]!,
+      }));
+  }, [filtered, t]);
 
   return (
     <motion.div
@@ -197,13 +208,13 @@ export const ConversationHistory = memo(function ConversationHistory({
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <MessageSquare className="w-6 h-6 text-muted-fg/50 mb-2" />
             <p className="text-[10px] text-muted-fg">
-              {search ? 'Sin resultados' : 'No hay conversaciones'}
+              {search ? t('aiAgent.history.noResults') : t('aiAgent.history.noConversations')}
             </p>
           </div>
         ) : (
           <div className="space-y-2">
             {grouped.map(group => (
-              <div key={group.label}>
+              <div key={group.id}>
                 <div className="px-2 py-1">
                   <span className="text-[9px] font-medium text-muted-fg uppercase tracking-wider">
                     {group.label}
