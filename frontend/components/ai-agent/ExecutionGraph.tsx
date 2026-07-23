@@ -168,7 +168,16 @@ export const ExecutionGraph = memo(function ExecutionGraph({
 
     const planner = [...byName.keys()].find(n => PLANNERS.has(n));
     const synth = [...byName.keys()].find(n => FINALS.has(n));
-    const agents = [...byName.keys()].filter(n => !PLANNERS.has(n) && !FINALS.has(n));
+    const started = [...byName.keys()].filter(n => !PLANNERS.has(n) && !FINALS.has(n));
+
+    // Plan visible desde el segundo 1: los agentes que el planner enrutó
+    // (card routing del supervisor) se pre-renderizan como nodos "pending"
+    // aunque su node_started aún no haya llegado — el grafo completo aparece
+    // al instante y los nodos se van encendiendo según ejecutan. El orden del
+    // plan manda; los que arrancan sin estar en el plan se añaden detrás.
+    const routed = (planner ? byName.get(planner)?.data?.routing ?? [] : [])
+      .filter(n => !PLANNERS.has(n) && !FINALS.has(n));
+    const agents = [...new Set([...routed, ...started])];
 
     let stepCounter = 0;
     const mkSpec = (name: string, step?: AgentStep): WorkflowNodeSpec => {

@@ -1271,7 +1271,14 @@
     "executionShowsLive": "shows live",
     "chartLoadFailed": "Could not load the chart — reload the page (there is a new app version).",
     "showMoreRows": "Show more ({{count}} more rows)",
-    "canvasEmptyHelp": "<strong>Execution</strong> shows live what the agent does with your query: the nodes it builds, their real data and each step's timing.\n\nRun a query to see it. Your armed alerts and captures live in <strong>My workflows</strong>."
+    "canvasEmptyHelp": "<strong>Execution</strong> shows live what the agent does with your query: the nodes it builds, their real data and each step's timing.\n\nRun a query to see it. Your armed alerts and captures live in <strong>My workflows</strong>.",
+    "canvas": {
+      "replayingPrevious": "Previous run",
+      "backToLive": "Back to live"
+    },
+    "steps": {
+      "viewInCanvas": "View this run in the canvas"
+    }
   },
   "earnings": {
     "weekdaysShort": [

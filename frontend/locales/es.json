@@ -1271,7 +1271,14 @@
     "executionShowsLive": "muestra en vivo",
     "chartLoadFailed": "No se pudo cargar el gráfico — recarga la página (hay una versión nueva de la app).",
     "showMoreRows": "Mostrar más ({{count}} filas más)",
-    "canvasEmptyHelp": "<strong>Ejecución</strong> muestra en vivo lo que el agente hace con tu consulta: los nodos que va montando, sus datos reales y los tiempos de cada paso.\n\nLanza una consulta para verlo. Tus alertas y capturas activas viven en <strong>Mis workflows</strong>."
+    "canvasEmptyHelp": "<strong>Ejecución</strong> muestra en vivo lo que el agente hace con tu consulta: los nodos que va montando, sus datos reales y los tiempos de cada paso.\n\nLanza una consulta para verlo. Tus alertas y capturas activas viven en <strong>Mis workflows</strong>.",
+    "canvas": {
+      "replayingPrevious": "Ejecución anterior",
+      "backToLive": "Volver al directo"
+    },
+    "steps": {
+      "viewInCanvas": "Ver esta ejecución en el canvas"
+    }
   },
   "earnings": {
     "weekdaysShort": [

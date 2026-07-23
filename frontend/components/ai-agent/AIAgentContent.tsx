@@ -4,7 +4,7 @@ import { memo, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import { useTranslation } from 'react-i18next';
-import { BellRing, History, Sparkles } from 'lucide-react';
+import { BellRing, History, Sparkles, Workflow } from 'lucide-react';
 
 const LazyExecutionGraph = dynamic(
   () => import('./ExecutionGraph').then(m => m.ExecutionGraph),
@@ -192,12 +192,49 @@ export const AIAgentContent = memo(function AIAgentContent({
     return entries;
   }, [messages, resultBlocks]);
 
-  // Última ejecución CON pasos: así el canvas de ejecución no se queda en
-  // blanco cuando llega un mensaje posterior sin pasos (aclaraciones, etc.).
+  // ── Canvas de ejecución: en vivo por defecto, con replay de runs pasados ──
+  // Por defecto muestra la última ejecución CON pasos (así no se queda en
+  // blanco cuando llega un mensaje posterior sin pasos: aclaraciones, etc.).
+  // El usuario puede FIJAR un run anterior desde su chip de pasos en el chat;
+  // lanzar una consulta nueva vuelve automáticamente al directo.
+  const [pinnedMsgId, setPinnedMsgId] = useState<string | null>(null);
+
+  const latestStepsMsgId = useMemo(
+    () => [...messages].reverse().find(m => m.role === 'assistant' && m.steps?.length)?.id ?? null,
+    [messages],
+  );
+
   const activeSteps = useMemo(() => {
-    const last = [...messages].reverse().find(m => m.role === 'assistant' && m.steps?.length);
-    return last?.steps || [];
-  }, [messages]);
+    const sourceId = pinnedMsgId ?? latestStepsMsgId;
+    const msg = sourceId ? messages.find(m => m.id === sourceId) : undefined;
+    return msg?.steps || [];
+  }, [messages, pinnedMsgId, latestStepsMsgId]);
+
+  // Un run fijado que además es el último no es un replay: trátalo como directo.
+  const isReplaying = pinnedMsgId !== null && pinnedMsgId !== latestStepsMsgId;
+
+  // Etiqueta del replay: la pregunta del usuario que originó ese run.
+  const pinnedQuery = useMemo(() => {
+    if (!isReplaying) return null;
+    const entry = timeline.find(e => e.assistantMessage?.id === pinnedMsgId);
+    return entry?.userMessage.content ?? '';
+  }, [isReplaying, pinnedMsgId, timeline]);
+
+  const unpinRun = useCallback(() => setPinnedMsgId(null), []);
+
+  const pinRun = useCallback((msgId: string) => {
+    setPinnedMsgId(msgId);
+    setShowPipeline(true);
+    // El sidebar escucha este evento y salta a la pestaña de ejecución.
+    window.dispatchEvent(new Event('tradeul:ai-agent-show-execution'));
+  }, []);
+
+  // Consulta nueva → volver al directo (cubre todos los caminos de envío).
+  const wasLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    if (isLoading && !wasLoadingRef.current) setPinnedMsgId(null);
+    wasLoadingRef.current = isLoading;
+  }, [isLoading]);
 
   // ── Submit handler ──
   const handleSubmit = useCallback((e?: React.FormEvent) => {
@@ -390,6 +427,8 @@ export const AIAgentContent = memo(function AIAgentContent({
                       onClarificationChoice={sendClarificationChoice}
                       onToggleCode={toggleCodeVisibility}
                       onSendMessage={sendMessage}
+                      onPinRun={pinRun}
+                      pinnedMsgId={isReplaying ? pinnedMsgId : null}
                     />
                   ))}
                 </div>
@@ -474,7 +513,12 @@ export const AIAgentContent = memo(function AIAgentContent({
         {/* PIPELINE SIDEBAR */}
         <AnimatePresence>
           {showPipeline && !isNarrow && (
-            <PipelineSidebar steps={activeSteps} isLoading={isLoading} />
+            <PipelineSidebar
+              steps={activeSteps}
+              isLoading={isLoading}
+              replayQuery={pinnedQuery}
+              onBackToLive={unpinRun}
+            />
           )}
         </AnimatePresence>
       </div>
@@ -581,11 +625,15 @@ const TimelineItem = memo(function TimelineItem({
   onClarificationChoice,
   onToggleCode,
   onSendMessage,
+  onPinRun,
+  pinnedMsgId,
 }: {
   entry: TimelineEntry;
   onClarificationChoice: (oq: string, rw: string) => void;
   onToggleCode: (id: string) => void;
   onSendMessage: (msg: string) => void;
+  onPinRun: (msgId: string) => void;
+  pinnedMsgId: string | null;
 }) {
   return (
     <motion.div
@@ -602,6 +650,8 @@ const TimelineItem = memo(function TimelineItem({
           onClarificationChoice={onClarificationChoice}
           onToggleCode={onToggleCode}
           onSendMessage={onSendMessage}
+          onPinRun={onPinRun}
+          isPinned={pinnedMsgId === entry.assistantMessage.id}
         />
       )}
     </motion.div>
@@ -641,22 +691,47 @@ const UserBubble = memo(function UserBubble({ message }: { message: Message }) {
    ================================================================ */
 
 /* Resumen plegado de los pasos ya completados: menos ruido bajo cada respuesta */
-const CollapsedSteps = memo(function CollapsedSteps({ steps }: { steps: AgentStep[] }) {
+const CollapsedSteps = memo(function CollapsedSteps({
+  steps,
+  onShowInCanvas,
+  isPinned,
+}: {
+  steps: AgentStep[];
+  onShowInCanvas?: () => void;
+  isPinned?: boolean;
+}) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const totalS = steps.reduce((acc, s) => acc + (s.duration || 0), 0);
   const hasErr = steps.some(s => s.status === 'error');
 
   return (
     <div>
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 text-[9.5px] text-muted-fg hover:text-foreground/80 transition-colors py-0.5"
-      >
-        <span className={`transition-transform duration-200 inline-block ${open ? 'rotate-90' : ''}`}>›</span>
-        <span className={hasErr ? 'text-red-400' : 'text-emerald-500'}>{hasErr ? '×' : '✓'}</span>
-        <span>{steps.length} pasos</span>
-        {totalS > 0 && <span className="tabular-nums font-mono">· {totalS < 1 ? `${Math.round(totalS * 1000)}ms` : `${totalS.toFixed(1)}s`}</span>}
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="flex items-center gap-1.5 text-[9.5px] text-muted-fg hover:text-foreground/80 transition-colors py-0.5"
+        >
+          <span className={`transition-transform duration-200 inline-block ${open ? 'rotate-90' : ''}`}>›</span>
+          <span className={hasErr ? 'text-red-400' : 'text-emerald-500'}>{hasErr ? '×' : '✓'}</span>
+          <span>{steps.length} pasos</span>
+          {totalS > 0 && <span className="tabular-nums font-mono">· {totalS < 1 ? `${Math.round(totalS * 1000)}ms` : `${totalS.toFixed(1)}s`}</span>}
+        </button>
+        {onShowInCanvas && (
+          <button
+            onClick={onShowInCanvas}
+            title={t('aiAgent.steps.viewInCanvas')}
+            aria-label={t('aiAgent.steps.viewInCanvas')}
+            className={`p-0.5 rounded transition-colors ${
+              isPinned
+                ? 'text-primary bg-primary/10'
+                : 'text-muted-fg/60 hover:text-primary hover:bg-primary/10'
+            }`}
+          >
+            <Workflow className="w-3 h-3" />
+          </button>
+        )}
+      </div>
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
@@ -684,12 +759,16 @@ const AgentResponse = memo(function AgentResponse({
   onClarificationChoice,
   onToggleCode,
   onSendMessage,
+  onPinRun,
+  isPinned,
 }: {
   message: Message;
   results: ResultBlockData[];
   onClarificationChoice: (oq: string, rw: string) => void;
   onToggleCode: (id: string) => void;
   onSendMessage: (msg: string) => void;
+  onPinRun?: (msgId: string) => void;
+  isPinned?: boolean;
 }) {
   const { t } = useTranslation();
   const isThinking = message.status === 'thinking';
@@ -762,8 +841,14 @@ const AgentResponse = memo(function AgentResponse({
 
     return (
       <div className="space-y-2">
-        {/* Pasos completados: una línea discreta, expandible */}
-        {hasSteps && <CollapsedSteps steps={message.steps!} />}
+        {/* Pasos completados: una línea discreta, expandible + replay en canvas */}
+        {hasSteps && (
+          <CollapsedSteps
+            steps={message.steps!}
+            onShowInCanvas={onPinRun ? () => onPinRun(message.id) : undefined}
+            isPinned={isPinned}
+          />
+        )}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1033,9 +1118,14 @@ const LiveWorkflowsBadge = memo(function LiveWorkflowsBadge() {
 const PipelineSidebar = memo(function PipelineSidebar({
   steps,
   isLoading,
+  replayQuery,
+  onBackToLive,
 }: {
   steps: AgentStep[];
   isLoading: boolean;
+  /** Pregunta del run fijado cuando el canvas muestra un replay (null = directo). */
+  replayQuery: string | null;
+  onBackToLive: () => void;
 }) {
   const { t } = useTranslation();
   const completedCount = steps.filter(s => s.status === 'complete').length;
@@ -1067,11 +1157,18 @@ const PipelineSidebar = memo(function PipelineSidebar({
       userPickedRef.current = false;
       setTab('workflows');
     };
+    // Replay: fijar un run desde el chat trae el canvas a la ejecución.
+    const goExecution = () => {
+      userPickedRef.current = false;
+      setTab('execution');
+    };
     window.addEventListener('tradeul:ai-alerts-changed', goWorkflows);
     window.addEventListener('tradeul:ai-agent-show-workflows', goWorkflows);
+    window.addEventListener('tradeul:ai-agent-show-execution', goExecution);
     return () => {
       window.removeEventListener('tradeul:ai-alerts-changed', goWorkflows);
       window.removeEventListener('tradeul:ai-agent-show-workflows', goWorkflows);
+      window.removeEventListener('tradeul:ai-agent-show-execution', goExecution);
     };
   }, []);
 
@@ -1184,6 +1281,25 @@ const PipelineSidebar = memo(function PipelineSidebar({
           </div>
         ) : (
           <div className="flex-1 min-h-0 flex flex-col">
+            {/* Replay: el canvas muestra un run anterior fijado desde el chat */}
+            {replayQuery !== null && (
+              <div className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-border-subtle bg-amber-500/[0.07]">
+                <span className="relative inline-flex h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-400" />
+                <span className="text-[8.5px] font-semibold uppercase tracking-wider text-amber-500 flex-shrink-0">
+                  {t('aiAgent.canvas.replayingPrevious')}
+                </span>
+                <span className="text-[9.5px] text-muted-fg truncate min-w-0 flex-1" title={replayQuery}>
+                  {replayQuery}
+                </span>
+                <button
+                  onClick={onBackToLive}
+                  className="flex-shrink-0 text-[9px] font-semibold text-primary hover:text-primary/80 transition-colors"
+                >
+                  {t('aiAgent.canvas.backToLive')}
+                </button>
+              </div>
+            )}
+
             {/* Barra de progreso fina pegada al header */}
             <div className="h-[2px] bg-surface-inset flex-shrink-0">
               <motion.div
