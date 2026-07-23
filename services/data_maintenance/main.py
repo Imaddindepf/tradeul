@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
     # Event Lake archiver (Backtester v2 Fase 0): market_events tiene retención
     # de 3 días — este loop horario archiva a Parquet antes de la purga.
     from lake_archiver_scheduler import LakeArchiverScheduler
-    lake_archiver = LakeArchiverScheduler(timescale_client)
+    lake_archiver = LakeArchiverScheduler(timescale_client, redis_client)
     lake_archiver_task = asyncio.create_task(lake_archiver.run())
 
     logger.info("=" * 60)

@@ -46,9 +46,17 @@ from shared.utils.timescale_client import TimescaleClient
 logger = get_logger(__name__)
 
 ET = ZoneInfo("America/New_York")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 BATCH_ROWS = 100_000
 TABLE = "market_events"
+
+# Columnas EXCLUIDAS del archivo. `context` es un JSON de ~50 campos con el
+# estado completo del ticker repetido en cada evento: medido en producción
+# (2026-07-22) era el 95% del peso del día (20 de 23 GB) y es redundante —
+# price/rvol/float/mcap/vwap/sector ya son columnas planas del evento, y los
+# high/low históricos se reconstruyen desde las barras del lake. `details`
+# (payload específico del evento, ~16 MB/día) SÍ se conserva.
+EXCLUDED_COLUMNS = {"context"}
 
 # Solo caracteres seguros en nombres de partición (los event_type vienen de
 # un enum interno, pero el path del filesystem no confía en nadie).
@@ -109,10 +117,11 @@ class ArchiveMarketEventsTask:
             WHERE table_schema = 'public' AND table_name = $1
             ORDER BY ordinal_position
             """,
-            TABLE,
+            TABLE, timeout=300.0,
         )
         if not rows:
             raise RuntimeError(f"tabla {TABLE} no encontrada")
+        rows = [r for r in rows if r["column_name"] not in EXCLUDED_COLUMNS]
         columns = [r["column_name"] for r in rows]
         fields = [
             pa.field(r["column_name"], _PG_TO_ARROW.get(r["data_type"], pa.string()))
@@ -123,7 +132,9 @@ class ArchiveMarketEventsTask:
     # ── Selección de días ─────────────────────────────────────────────────
 
     async def _closed_days_in_db(self) -> list[date]:
-        row = await self.db.fetchrow(f"SELECT min(ts) AS lo, max(ts) AS hi FROM {TABLE}")
+        row = await self.db.fetchrow(
+            f"SELECT min(ts) AS lo, max(ts) AS hi FROM {TABLE}", timeout=300.0
+        )
         if not row or row["lo"] is None:
             return []
         today_et = datetime.now(ET).date()

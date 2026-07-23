@@ -18,9 +18,11 @@ import sys
 sys.path.append('/app')
 
 from shared.utils.logger import get_logger
+from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from tasks.archive_market_events import ArchiveMarketEventsTask
 from tasks.archive_reference_snapshots import ArchiveReferenceSnapshotsTask
+from tasks.archive_scanner_categories import ArchiveScannerCategoriesTask
 
 logger = get_logger(__name__)
 
@@ -30,9 +32,10 @@ INTERVAL_SECONDS = 3600
 class LakeArchiverScheduler:
     """Pasada de archivado cada hora, con pasada inicial al arrancar."""
 
-    def __init__(self, timescale_client: TimescaleClient):
+    def __init__(self, timescale_client: TimescaleClient, redis_client: RedisClient):
         self.events_task = ArchiveMarketEventsTask(timescale_client)
         self.reference_task = ArchiveReferenceSnapshotsTask(timescale_client)
+        self.categories_task = ArchiveScannerCategoriesTask(redis_client)
 
     async def run(self) -> None:
         logger.info("lake_archiver_scheduler started (interval=%ss)", INTERVAL_SECONDS)
@@ -54,4 +57,9 @@ class LakeArchiverScheduler:
                 await self.reference_task.execute()
             except Exception as exc:  # noqa: BLE001
                 logger.error("lake_archiver reference pass failed: %s", exc)
+            try:
+                # Categorías del scanner: 1×/hora en horario de mercado ET.
+                await self.categories_task.execute()
+            except Exception as exc:  # noqa: BLE001
+                logger.error("lake_archiver categories pass failed: %s", exc)
             await asyncio.sleep(INTERVAL_SECONDS)
