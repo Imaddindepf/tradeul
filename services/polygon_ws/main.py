@@ -22,6 +22,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from shared.config.settings import settings
+from shared.config.index_symbols import is_index_symbol
 
 NUM_ALERT_PARTITIONS = int(os.environ.get("NUM_ALERT_PARTITIONS", "4"))
 from shared.utils.redis_client import RedisClient
@@ -929,8 +930,14 @@ async def manage_quote_subscriptions():
                     for message_id, data in stream_messages:
                         symbol = data.get('symbol', '').upper()
                         action = data.get('action', '').lower()
-                        
+
                         if not symbol or not action:
+                            message_ids_to_ack.append(message_id)
+                            continue
+
+                        # Índices (SPX, VIX, ^GDAXI...) no existen en Polygon:
+                        # su realtime lo publica fmp_indices. Ignorar aquí.
+                        if is_index_symbol(symbol):
                             message_ids_to_ack.append(message_id)
                             continue
                         

@@ -9,7 +9,46 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 import orjson
 
+from shared.config.index_symbols import normalize_index_symbol
+
 router = APIRouter(prefix="/api/v1/realtime", tags=["realtime"])
+
+
+async def _get_index_realtime(symbol: str):
+    """
+    Índices bursátiles: leer del hash snapshot:indices:latest (fmp_indices).
+    Devuelve el mismo shape que el endpoint de equities para que el frontend
+    no distinga fuentes.
+    """
+    raw = await redis_client.client.hget("snapshot:indices:latest", symbol)
+    if not raw:
+        raise HTTPException(status_code=404, detail=f"Index {symbol} not found in snapshot")
+    q = orjson.loads(raw)
+    price = q.get("price") or 0
+    return {
+        "symbol": symbol,
+        "timestamp": q.get("updated_at"),
+        "minute": {
+            "time": q.get("updated_at", 0),
+            "open": price, "high": price, "low": price, "close": price,
+            "volume": 0,
+            "volume_accumulated": q.get("volume", 0),
+        },
+        "day": {
+            "open": q.get("open", 0),
+            "high": q.get("day_high", 0),
+            "low": q.get("day_low", 0),
+            "close": q.get("previous_close", 0),
+            "volume": q.get("volume", 0),
+        },
+        "last_price": price,
+        "intraday_high": q.get("day_high"),
+        "intraday_low": q.get("day_low"),
+        "change": q.get("change"),
+        "change_percent": q.get("change_percent"),
+        "asset_type": "index",
+        "delayed": False,
+    }
 
 # Redis client will be injected from main.py
 redis_client = None
@@ -29,14 +68,19 @@ async def get_realtime_ticker(symbol: str):
     """
     if not redis_client:
         raise HTTPException(status_code=503, detail="Redis not available")
-    
+
+    # Índices (SPX, VIX, ^GDAXI...): fuente propia, hash de fmp_indices
+    index_symbol = normalize_index_symbol(symbol)
+    if index_symbol:
+        return await _get_index_realtime(index_symbol)
+
     try:
         # Read ONLY this ticker from the hash (HGET = ~500 bytes vs GET = ~7MB)
         ticker_json = await redis_client.client.hget("snapshot:enriched:latest", symbol.upper())
-        
+
         if not ticker_json:
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail=f"Ticker {symbol} not found in snapshot"
             )
         

@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from shared.config.settings import settings
 from shared.config.fmp_endpoints import FMPEndpoints
+from shared.config.index_symbols import normalize_index_symbol, to_fmp as index_to_fmp
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import configure_logging, get_logger
@@ -3995,6 +3996,7 @@ async def _stitch_live_bar(
     symbol: str,
     interval: str,
     is_latest_request: bool,
+    allow_hydrate: bool = True,
 ) -> List[dict]:
     """
     Append/merge the in-formation bar from bars:{tf}min:current onto chart_data.
@@ -4028,6 +4030,10 @@ async def _stitch_live_bar(
         return chart_data
 
     if not live_bar or not isinstance(live_bar, dict):
+        if not allow_hydrate:
+            # Índices y otros símbolos sin snapshot en Polygon: hydrate no
+            # aplica (bar_builder se alimenta de stream:realtime:aggregates).
+            return chart_data
         # Cold ticker: no live bar yet. Hydrate synchronously with a short
         # timeout so the very first chart load doesn't miss the in-formation
         # bar. After hydrate completes, bar_builder has already flushed the
@@ -4182,6 +4188,211 @@ async def _get_internal_index_chart(
         "cached": False,
         "fetched_at": datetime.now().isoformat(),
     }
+
+
+# ── Índices bursátiles via FMP ──────────────────────────────────────────────
+# Intervalos que FMP sirve nativos en /stable/historical-chart
+_FMP_NATIVE_INTRADAY = {"1min", "5min", "15min", "30min", "1hour", "4hour"}
+# Derivados: se construyen agregando el intervalo base de FMP
+_FMP_DERIVED_INTRADAY = {"2min": ("1min", 120), "12hour": ("4hour", 43200)}
+# EOD y superiores se agregan desde 1day (bucket por calendario)
+_FMP_EOD_INTERVALS = {"1day", "1week", "1month", "3month", "1year"}
+
+# Días naturales a pedir por página según densidad de barras del intervalo
+_FMP_INTRADAY_DAYS = {
+    "1min": 8, "2min": 14, "5min": 30, "15min": 60,
+    "30min": 90, "1hour": 150, "4hour": 365, "12hour": 730,
+}
+
+
+def _bucket_eod(bars: List[dict], interval: str) -> List[dict]:
+    """Agrega barras diarias a 1week/1month/3month/1year por calendario."""
+    if interval == "1day":
+        return bars
+    from datetime import datetime as dt, timezone as tz
+    out: List[dict] = []
+    current_key = None
+    for b in bars:
+        d = dt.fromtimestamp(b["time"], tz=tz.utc)
+        if interval == "1week":
+            key = (d.isocalendar().year, d.isocalendar().week)
+        elif interval == "1month":
+            key = (d.year, d.month)
+        elif interval == "3month":
+            key = (d.year, (d.month - 1) // 3)
+        else:  # 1year
+            key = d.year
+        if key != current_key:
+            out.append(dict(b))
+            current_key = key
+        else:
+            agg = out[-1]
+            agg["high"] = max(agg["high"], b["high"])
+            agg["low"] = min(agg["low"], b["low"])
+            agg["close"] = b["close"]
+            agg["volume"] += b["volume"]
+    return out
+
+
+def _bucket_intraday(bars: List[dict], bucket_secs: int) -> List[dict]:
+    """Agrega barras intradía a un bucket mayor (2min desde 1min, etc.)."""
+    out: List[dict] = []
+    current_bucket = None
+    for b in bars:
+        bucket = (b["time"] // bucket_secs) * bucket_secs
+        if bucket != current_bucket:
+            nb = dict(b)
+            nb["time"] = bucket
+            out.append(nb)
+            current_bucket = bucket
+        else:
+            agg = out[-1]
+            agg["high"] = max(agg["high"], b["high"])
+            agg["low"] = min(agg["low"], b["low"])
+            agg["close"] = b["close"]
+            agg["volume"] += b["volume"]
+    return out
+
+
+async def _get_fmp_index_chart(
+    symbol: str,
+    interval: str,
+    before: Optional[int],
+    after: Optional[int],
+    to: Optional[int],
+    bars_limit: int,
+    force_refresh: bool = False,
+):
+    """
+    Chart de índices bursátiles (SPX, VIX, ^GDAXI...) desde FMP.
+
+    - EOD (1day+): historical-price-full (S&P desde 1950), agregado por
+      calendario para 1week/1month/3month/1year.
+    - Intradía: /stable/historical-chart (1min desde ~2022). 2min y 12hour
+      se derivan del intervalo nativo inferior.
+    - Vela viva: la stitchea bar_builder desde stream:realtime:aggregates
+      (publicado por fmp_indices) — sin hydrate (eso es solo Polygon).
+
+    `symbol` llega ya en forma interna canónica; a FMP se le habla en la suya.
+    """
+    from datetime import datetime as dt, timedelta
+
+    fmp_symbol = index_to_fmp(symbol)
+    is_latest_request = before is None and to is None
+
+    config = CHART_INTERVALS.get(interval)
+    if config is None:
+        raise HTTPException(status_code=400, detail=f"Invalid interval {interval}")
+
+    range_key = f"after:{after}" if after else (f"to:{to}" if to else (before or "latest"))
+    cache_key = f"chart:idx:{symbol}:{interval}:{range_key}:{bars_limit}"
+
+    if not force_refresh and redis_client:
+        try:
+            cached = await redis_client.get(cache_key)
+        except Exception:
+            cached = None
+        if cached:
+            data = await _stitch_live_bar(
+                cached.get("data", []), symbol, interval, is_latest_request,
+                allow_hydrate=False,
+            )
+            return {**cached, "data": data, "count": len(data), "cached": True}
+
+    # Fecha tope de la página, siempre en ET
+    if before:
+        to_dt = dt.fromtimestamp(before - 1, tz=ET_TZ)
+    elif to:
+        to_dt = dt.fromtimestamp(to, tz=ET_TZ)
+    else:
+        to_dt = datetime.now(tz=ET_TZ)
+    to_date = to_dt.strftime("%Y-%m-%d")
+
+    bars: List[dict] = []
+    try:
+        if interval in _FMP_EOD_INTERVALS:
+            # Factor de barras diarias necesarias por barra agregada
+            factor = {"1day": 1, "1week": 5, "1month": 21, "3month": 63, "1year": 252}[interval]
+            daily, _ = await fetch_fmp_chunk(fmp_symbol, to_date, limit=min(bars_limit * factor, 20000))
+            bars = _bucket_eod(daily, interval)
+        else:
+            base_interval, bucket_secs = (
+                _FMP_DERIVED_INTRADAY[interval]
+                if interval in _FMP_DERIVED_INTRADAY
+                else (interval, None)
+            )
+            if base_interval not in _FMP_NATIVE_INTRADAY:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Interval {interval} not supported for index {symbol}",
+                )
+            days = _FMP_INTRADAY_DAYS.get(interval, 30)
+            from_date = (to_dt - timedelta(days=days)).strftime("%Y-%m-%d")
+            raw = await http_clients.fmp.get_intraday_chart(
+                fmp_symbol, base_interval, from_date, to_date
+            )
+            # FMP devuelve descendente con date "YYYY-MM-DD HH:MM:SS" en ET
+            for r in reversed(raw or []):
+                try:
+                    naive = dt.strptime(r["date"], "%Y-%m-%d %H:%M:%S")
+                    t = int(naive.replace(tzinfo=ET_TZ).timestamp())
+                    bars.append({
+                        "time": t,
+                        "open": float(r["open"]),
+                        "high": float(r["high"]),
+                        "low": float(r["low"]),
+                        "close": float(r["close"]),
+                        "volume": int(r.get("volume") or 0),
+                    })
+                except (KeyError, ValueError):
+                    continue
+            if bucket_secs:
+                bars = _bucket_intraday(bars, bucket_secs)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("fmp_index_chart_error", symbol=symbol, interval=interval, error=str(e))
+        raise HTTPException(status_code=502, detail="Index data unavailable")
+
+    # Filtros de paginación exactos
+    if before:
+        bars = [b for b in bars if b["time"] < before]
+    if to:
+        bars = [b for b in bars if b["time"] <= to]
+    if after:
+        bars = [b for b in bars if b["time"] > after]
+
+    full_count = len(bars)
+    if len(bars) > bars_limit:
+        bars = bars[-bars_limit:]
+
+    oldest_time = bars[0]["time"] if bars else None
+    # EOD de índices llega hasta 1950; intradía FMP cubre años: dejamos que
+    # el frontend pare cuando una página vuelva vacía.
+    has_more = len(bars) > 0
+
+    result = {
+        "symbol": symbol,
+        "interval": interval,
+        "source": "fmp_index",
+        "data": bars,
+        "count": len(bars),
+        "oldest_time": oldest_time,
+        "has_more": has_more,
+        "cached": False,
+        "fetched_at": datetime.now().isoformat(),
+    }
+
+    if redis_client and bars:
+        try:
+            await redis_client.set(cache_key, result, ttl=config["cache_ttl"])
+        except Exception:
+            pass
+
+    data = await _stitch_live_bar(
+        bars, symbol, interval, is_latest_request, allow_hydrate=False
+    )
+    return {**result, "data": data, "count": len(data)}
 
 
 async def _recycled_symbol_floor(symbol: str, head: str) -> Optional[int]:
@@ -4391,6 +4602,14 @@ async def get_chart_data(
     # no existen en Polygon — histórico desde nuestra tabla minute_bars
     if symbol.startswith("TRDL:"):
         return await _get_internal_index_chart(symbol, interval, before, after, to, bars_limit)
+
+    # Índices bursátiles (SPX, VIX, ^GDAXI...): histórico desde FMP.
+    # Acepta alias interno (SPX) y forma FMP (^GSPC) — normaliza al interno.
+    index_symbol = normalize_index_symbol(symbol)
+    if index_symbol:
+        return await _get_fmp_index_chart(
+            index_symbol, interval, before, after, to, bars_limit, force_refresh
+        )
     
     # Fechas SIEMPRE en ET: un timestamp de las 19:30 ET es "hoy" para el
     # mercado aunque en UTC ya sea mañana.

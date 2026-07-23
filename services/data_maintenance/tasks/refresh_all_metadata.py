@@ -164,6 +164,9 @@ class RefreshAllMetadataTask:
                 SELECT symbol
                 FROM tickers_unified
                 WHERE is_actively_trading = true
+                  -- Índices (market='indices'): metadata propia de fmp_indices,
+                  -- no existen en Polygon/perfiles de equities
+                  AND COALESCE(market, '') != 'indices'
                 ORDER BY symbol
             """
             rows = await self.db.fetch(query)

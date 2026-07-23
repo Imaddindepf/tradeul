@@ -159,6 +159,9 @@ class EnrichMetadataTask:
                 SELECT symbol
                 FROM tickers_unified
                 WHERE is_actively_trading = true
+                  -- Índices (market='indices'): metadata la mantiene
+                  -- fmp_indices; los perfiles de equities no aplican
+                  AND COALESCE(market, '') != 'indices'
                   AND (
                     company_name IS NULL OR company_name = ''
                     OR exchange IS NULL OR exchange = ''

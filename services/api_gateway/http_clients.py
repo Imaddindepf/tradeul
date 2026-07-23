@@ -319,6 +319,30 @@ class FMPClient:
         response.raise_for_status()
         return response.json()
 
+    async def get_intraday_chart(
+        self,
+        symbol: str,
+        interval: str,
+        from_date: str,
+        to_date: str,
+    ) -> List[Dict]:
+        """
+        Velas intradía (/stable/historical-chart/{interval}).
+        interval: 1min | 5min | 15min | 30min | 1hour | 4hour.
+        Usado para índices (^GSPC...); FMP devuelve descendente.
+        """
+        response = await self._client.get(
+            f"/stable/historical-chart/{interval}",
+            params={
+                "symbol": symbol,
+                "from": from_date,
+                "to": to_date,
+                "apikey": self.api_key,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def get_all_exchange_market_hours(self) -> List[Dict]:
         """Horarios de todas las bolsas (/stable/all-exchange-market-hours)."""
         response = await self._client.get(

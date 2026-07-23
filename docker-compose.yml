@@ -271,6 +271,31 @@ services:
         reservations:
           memory: 512M
 
+  fmp_indices:
+    build:
+      context: .
+      dockerfile: services/fmp_indices/Dockerfile
+    container_name: tradeul_fmp_indices
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8030:8030"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
+
   analytics:
     build:
       context: .

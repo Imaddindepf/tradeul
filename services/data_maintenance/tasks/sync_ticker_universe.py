@@ -279,9 +279,12 @@ class SyncTickerUniverseTask:
                 """
                 SELECT symbol FROM tickers_unified
                 WHERE is_active = true
-                  -- Índices sintéticos propios (TRDL:TICK...) no existen en
-                  -- Polygon: excluirlos para que no se marquen como delistados
+                  -- Índices sintéticos propios (TRDL:TICK...) e índices
+                  -- bursátiles (market='indices', seed de fmp_indices) no
+                  -- existen en Polygon: excluirlos para que no se marquen
+                  -- como delistados
                   AND COALESCE(exchange, '') != 'TRDL INDEX'
+                  AND COALESCE(market, '') != 'indices'
                 """
             )
             return {row['symbol'] for row in rows}

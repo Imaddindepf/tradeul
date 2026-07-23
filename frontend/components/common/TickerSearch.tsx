@@ -11,7 +11,15 @@ type TickerResult = {
     name: string;
     exchange: string;
     type: string;
+    asset_type?: 'index' | 'etf' | 'equity';
     displayName: string;
+};
+
+// Badge estilo terminal (Bloomberg): IDX azul para índices, ETF neutro.
+// Las equities no llevan badge — son el caso común y el ruido visual sobra.
+const ASSET_BADGES: Record<string, { label: string; className: string }> = {
+    index: { label: 'IDX', className: 'bg-blue-600/20 text-blue-500 border-blue-600/40' },
+    etf: { label: 'ETF', className: 'bg-muted text-muted-fg border-border' },
 };
 
 type TickerSearchProps = {
@@ -309,6 +317,11 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
                                 }`}
                         >
                             <div className="flex items-center gap-2">
+                                {ticker.asset_type && ASSET_BADGES[ticker.asset_type] && (
+                                    <span className={`text-[9px] font-mono font-bold px-1 py-px rounded border ${ASSET_BADGES[ticker.asset_type].className}`}>
+                                        {ASSET_BADGES[ticker.asset_type].label}
+                                    </span>
+                                )}
                                 <span className="font-mono font-semibold text-blue-600 min-w-[50px]">
                                     {ticker.symbol}
                                 </span>

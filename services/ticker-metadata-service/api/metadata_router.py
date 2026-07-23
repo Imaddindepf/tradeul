@@ -52,7 +52,7 @@ async def search_tickers(
         return {"query": q, "results": [], "total": 0}
     
     # Cache key para Redis (opcional)
-    cache_key = f"ticker_search:{query_upper}:{limit}"
+    cache_key = f"ticker_search:v2:{query_upper}:{limit}"
     
     # Intentar obtener de caché (si Redis está disponible)
     try:
@@ -65,31 +65,36 @@ async def search_tickers(
     
     # Query optimizado con priorización inteligente
     sql = """
-        SELECT 
-            symbol, 
-            company_name, 
-            exchange, 
-            sector, 
-            is_actively_trading
+        SELECT
+            symbol,
+            company_name,
+            exchange,
+            sector,
+            is_actively_trading,
+            market,
+            type,
+            is_etf
         FROM tickers_unified
-        WHERE 
-            -- Operables + índices sintéticos propios (TRDL:TICK, TRDL:ADD...)
-            (is_actively_trading = true OR exchange = 'TRDL INDEX')
+        WHERE
+            -- Operables + índices (bursátiles market='indices' y sintéticos TRDL)
+            (is_actively_trading = true OR exchange = 'TRDL INDEX' OR market = 'indices')
             AND (
                 -- Búsqueda por símbolo (más común, más rápida)
                 symbol ILIKE $1 || '%'
-                OR 
+                OR
                 -- Búsqueda por nombre de empresa (con operador ~~* para índice GIN)
                 company_name ILIKE '%' || $1 || '%'
             )
-        ORDER BY 
+        ORDER BY
             -- Priorización: exacto > prefijo > contains
-            CASE 
+            CASE
                 WHEN symbol = $1 THEN 0           -- Match exacto (máxima prioridad)
                 WHEN symbol ILIKE $1 || '%' THEN 1  -- Symbol empieza con query
                 WHEN company_name ILIKE $1 || '%' THEN 2  -- Company name empieza con query
                 ELSE 3                             -- Contains en cualquier parte
             END,
+            -- Dentro del mismo tier, índices primero (estilo terminal Bloomberg)
+            CASE WHEN market = 'indices' THEN 0 ELSE 1 END,
             -- Desempate alfabético
             symbol ASC
         LIMIT $2
@@ -107,12 +112,21 @@ async def search_tickers(
         elapsed_ms = (__import__('time').time() - start_time) * 1000
         
         # Formatear resultados
+        def _asset_type(row) -> str:
+            if row["market"] == "indices" or row["exchange"] == "TRDL INDEX":
+                return "index"
+            if row["is_etf"] or (row["type"] or "").upper() in ("ETF", "ETN", "ETS", "ETV"):
+                return "etf"
+            return "equity"
+
         tickers = [
             {
                 "symbol": row["symbol"],
                 "name": row["company_name"] or "",
                 "exchange": row["exchange"] or "UNKNOWN",
                 "type": row["sector"] or "N/A",
+                "asset_type": _asset_type(row),
+                "security_type": row["type"] or None,
                 "displayName": f"{row['symbol']} - {row['company_name']}" if row['company_name'] else row['symbol']
             }
             for row in results

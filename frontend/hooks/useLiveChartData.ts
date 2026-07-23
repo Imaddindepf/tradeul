@@ -289,7 +289,7 @@ export function useLiveChartData(
     const epoch = fetchEpochRef.current;
 
     try {
-      let url = `${API_URL}/api/v1/chart/${ticker}?interval=${interval}`;
+      let url = `${API_URL}/api/v1/chart/${encodeURIComponent(ticker)}?interval=${interval}`;
       if (replayTo) url += `&to=${replayTo}`;
 
       const response = await fetch(url, { signal: abort.signal });
@@ -387,7 +387,7 @@ export function useLiveChartData(
 
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/chart/${tickerRef.current}?interval=${intervalRef.current}&before=${oldestTimeRef.current}`
+        `${API_URL}/api/v1/chart/${encodeURIComponent(tickerRef.current)}?interval=${intervalRef.current}&before=${oldestTimeRef.current}`
       );
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -434,7 +434,7 @@ export function useLiveChartData(
     const epoch = fetchEpochRef.current;
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/chart/${tickerRef.current}?interval=${intervalRef.current}&after=${newestTime}`
+        `${API_URL}/api/v1/chart/${encodeURIComponent(tickerRef.current)}?interval=${intervalRef.current}&after=${newestTime}`
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
@@ -468,7 +468,7 @@ export function useLiveChartData(
     const epoch = fetchEpochRef.current;
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/chart/${tickerRef.current}?interval=${intervalRef.current}&after=${sinceTime}`
+        `${API_URL}/api/v1/chart/${encodeURIComponent(tickerRef.current)}?interval=${intervalRef.current}&after=${sinceTime}`
       );
       if (!response.ok) return;
       const result = await response.json();
