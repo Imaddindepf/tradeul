@@ -8,6 +8,7 @@ Gateway principal para el frontend web:
 """
 
 import asyncio
+import json as _json
 import os
 import uuid
 from datetime import datetime
@@ -1921,6 +1922,43 @@ async def get_ticker_description(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _get_index_snapshot_response(symbol: str) -> JSONResponse:
+    """
+    Snapshot estilo Polygon para un índice, construido desde
+    snapshot:indices:latest (fmp_indices). Un índice no tiene NBBO: se
+    publica bid = ask = valor del índice (mid exacto, spread 0).
+    """
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis not available")
+    raw = await redis_client.client.hget("snapshot:indices:latest", symbol)
+    if not raw:
+        raise HTTPException(status_code=404, detail=f"Index {symbol} snapshot not available")
+    q = _json.loads(raw)
+    price = q.get("price") or 0
+    ts_ms = int(q.get("updated_at") or 0)
+    ts_ns = ts_ms * 1_000_000
+    prev_close = q.get("previous_close") or 0
+    ticker = {
+        "ticker": symbol,
+        "todaysChange": q.get("change") or 0,
+        "todaysChangePerc": q.get("change_percent") or 0,
+        "updated": ts_ns,
+        "day": {
+            "o": q.get("open") or 0, "h": q.get("day_high") or 0,
+            "l": q.get("day_low") or 0, "c": price,
+            "v": q.get("volume") or 0, "vw": price,
+        },
+        "prevDay": {"o": 0, "h": 0, "l": 0, "c": prev_close, "v": 0, "vw": 0},
+        "lastQuote": {"p": price, "P": price, "s": 0, "S": 0, "t": ts_ns},
+        "lastTrade": {"p": price, "s": 0, "t": ts_ns, "c": [], "i": "", "x": 0},
+        "min": {
+            "av": q.get("volume") or 0, "o": price, "h": price,
+            "l": price, "c": price, "v": 0, "t": ts_ms,
+        },
+    }
+    return JSONResponse(content={"status": "OK", "ticker": ticker})
+
+
 @app.get("/api/v1/ticker/{symbol}/snapshot", response_model=PolygonSingleTickerSnapshotResponse)
 async def get_ticker_snapshot(
     symbol: str,
@@ -1943,6 +1981,14 @@ async def get_ticker_snapshot(
     """
     global redis_client
     symbol = symbol.upper()
+
+    # Índices (SPX, VIX, ^GDAXI...): snapshot sintetizado desde el hash de
+    # fmp_indices con la MISMA forma que el snapshot de Polygon, para que
+    # useRealtimeQuote/QuoteMonitor no distingan fuentes.
+    index_snap_symbol = normalize_index_symbol(symbol)
+    if index_snap_symbol:
+        return await _get_index_snapshot_response(index_snap_symbol)
+
     cache_key = f"ticker_snapshot:{symbol}"
     cache_ttl = 300  # 5 minutes
     
@@ -1996,6 +2042,19 @@ async def get_ticker_prev_close(
     """
     global redis_client
     symbol = symbol.upper()
+
+    # Índices: previous_close desde el hash de fmp_indices
+    index_pc_symbol = normalize_index_symbol(symbol)
+    if index_pc_symbol:
+        if not redis_client:
+            raise HTTPException(status_code=503, detail="Redis not available")
+        raw = await redis_client.client.hget("snapshot:indices:latest", index_pc_symbol)
+        if raw:
+            pc = _json.loads(raw).get("previous_close")
+            if pc:
+                return {"symbol": index_pc_symbol, "close": pc, "c": pc, "cached": False}
+        raise HTTPException(status_code=404, detail=f"Previous close not available for {index_pc_symbol}")
+
     cache_key = f"ticker_prev_close:{symbol}"
     cache_ttl = 3600  # 1 hora (prev_close no cambia durante el día)
     

@@ -186,6 +186,28 @@ async def process_quote(q: dict, source: str) -> None:
     except Exception as e:
         logger.debug("index_stream_publish_error", symbol=symbol, error=str(e))
 
+    # ── Quote → canal QUOTE del websocket_server (QuoteMonitor/TickerSpan) ──
+    # Un índice no tiene NBBO: bid = ask = valor (mid exacto, spread 0),
+    # mismo shape que publica polygon_ws para que el fan-out no distinga.
+    try:
+        await redis_client.publish_to_stream(
+            "stream:realtime:quotes",
+            {
+                "symbol": symbol,
+                "bid_price": str(price),
+                "bid_size": "0",
+                "ask_price": str(price),
+                "ask_size": "0",
+                "bid_exchange": "",
+                "ask_exchange": "",
+                # ms, como los quotes de polygon_ws (el frontend formatea el reloj)
+                "timestamp": str(now_ms),
+                "tape": "",
+            },
+        )
+    except Exception as e:
+        logger.debug("index_quote_publish_error", symbol=symbol, error=str(e))
+
     # ── Hash de snapshot → REST /realtime/ticker ──
     # El batch REST viene en formato corto (sin changesPercentage ni day
     # high/low): derivar lo derivable para que los tooltips no queden vacíos.
