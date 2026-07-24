@@ -125,13 +125,20 @@ const QuoteRow = memo(function QuoteRow({ ticker, quote, onRemove, onRowClick, o
         </span>
       </td>
 
-      {/* Latency */}
+      {/* Latency — clamp: valores fuera de [0, 60s) no se muestran (p.ej.
+          timestamps en unidades inesperadas romperían el layout) */}
       <td className="w-[40px] px-1.5 py-0 text-right">
-        <span className={`font-mono text-[10px] tabular-nums ${(quote?._latency?.latencyMs || 0) < 100 ? 'text-green-600' :
-          (quote?._latency?.latencyMs || 0) < 500 ? 'text-yellow-600' : 'text-red-600'
-          }`}>
-          {quote?._latency?.latencyMs ? `${quote._latency.latencyMs}` : '-'}
-        </span>
+        {(() => {
+          const lat = quote?._latency?.latencyMs;
+          const sane = typeof lat === 'number' && lat >= 0 && lat < 60_000;
+          return (
+            <span className={`font-mono text-[10px] tabular-nums ${!sane ? 'text-muted-fg' :
+              lat < 100 ? 'text-green-600' : lat < 500 ? 'text-yellow-600' : 'text-red-600'
+              }`}>
+              {sane ? `${lat}` : '-'}
+            </span>
+          );
+        })()}
       </td>
 
       {/* Actions */}

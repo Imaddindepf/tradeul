@@ -95,19 +95,26 @@ function TickerStripComponent({ symbol, exchange = 'US', previousClose, onClose 
         changeRef.current.className = `text-xs font-mono ${change >= 0 ? 'text-green-600' : 'text-red-600'}`;
       }
 
-      // Actualizar bid/ask
+      // Actualizar bid/ask — los índices no tienen libro (size 0): omitir el xN
       if (bidRef.current) {
-        bidRef.current.textContent = `B${formatPrice(quote.bidPrice)}x${formatVolume(quote.bidSize)}`;
+        const sizePart = quote.bidSize > 0 ? `x${formatVolume(quote.bidSize)}` : '';
+        bidRef.current.textContent = `B${formatPrice(quote.bidPrice)}${sizePart}`;
       }
       if (askRef.current) {
-        askRef.current.textContent = `${formatPrice(quote.askPrice)}x${formatVolume(quote.askSize)}A`;
+        const sizePart = quote.askSize > 0 ? `x${formatVolume(quote.askSize)}` : '';
+        askRef.current.textContent = `${formatPrice(quote.askPrice)}${sizePart}A`;
       }
 
       // Actualizar timestamp y latencia
       if (timeRef.current) {
         const latencyInfo = (quote as any)._latency;
-        if (latencyInfo && latencyInfo.latencyMs !== null) {
-          const endToEndLatency = Date.now() - latencyInfo.polygonTs;
+        // Clamp defensivo: un timestamp en unidades inesperadas (p.ej. ns)
+        // produciría una latencia absurda que rompe el layout — fuera de
+        // [0, 60s) se omite y solo se muestra la hora.
+        const endToEndLatency = latencyInfo && latencyInfo.latencyMs !== null
+          ? Date.now() - latencyInfo.polygonTs
+          : null;
+        if (endToEndLatency !== null && endToEndLatency >= 0 && endToEndLatency < 60_000) {
           timeRef.current.textContent = `${formatTime(quote.lastUpdate)} | ${endToEndLatency}ms`;
         } else {
           timeRef.current.textContent = `At: ${formatTime(quote.lastUpdate)}`;
