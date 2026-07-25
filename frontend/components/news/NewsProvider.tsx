@@ -16,11 +16,14 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '@clerk/nextjs';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useSquawk } from '@/contexts/SquawkContext';
 import { useCatalystDetector } from '@/hooks/useCatalystDetector';
 import { useNewsStore, NewsArticle } from '@/stores/useNewsStore';
 import { useNewsTickersStore } from '@/stores/useNewsTickersStore';
+import { loadNewsFiltersFromBackend } from '@/stores/useNewsFiltersStore';
+import { authFetchStandalone } from '@/hooks/useAuthFetch';
 
 import { decodeHtmlEntities } from '@/lib/html-utils';
 
@@ -33,6 +36,15 @@ export function NewsProvider({ children }: NewsProviderProps) {
 
   // WebSocket (ya autenticado desde AuthWebSocketProvider)
   const ws = useWebSocket();
+
+  // Filtros globales de News: cargar los de la cuenta al iniciar sesión
+  const { userId, getToken } = useAuth();
+  const filtersLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!userId || filtersLoadedRef.current) return;
+    filtersLoadedRef.current = true;
+    loadNewsFiltersFromBackend((url, options) => authFetchStandalone(url, getToken, options));
+  }, [userId, getToken]);
 
   // Squawk Service (contexto global)
   const squawk = useSquawk();

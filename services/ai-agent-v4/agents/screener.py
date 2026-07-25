@@ -179,13 +179,75 @@ User: "Bollinger squeeze with trending ADX"
 
 
 async def screener_node(state: dict) -> dict:
-    """Translate natural language to screener filters and run the screen."""
+    """Translate natural language to screener filters and run the screen.
+
+    Fase 3c (flag AGENT_NATIVE_TOOLS incluye "screener"): un selector LLM
+    decide primero qué tools del roster tocan. Recupera las 3 huérfanas:
+    get_available_filters ("¿por qué campos puedo filtrar?"),
+    list_available_themes ("¿qué temáticas tenéis?") y get_daily_indicators
+    (indicadores diarios de tickers concretos). Si elige run_screen, se
+    reutiliza la traducción de filtros de siempre. Fallo del selector →
+    flujo histórico completo (fail-safe).
+    """
     llm = _get_llm()
     start_time = time.time()
 
     query = state.get("query", "")
     results: dict[str, Any] = {}
     errors: list[str] = []
+
+    from agents._tool_selector import native_tools_enabled
+    selected: list[str] = []
+    if native_tools_enabled("screener"):
+        try:
+            from agents._tool_selector import select_tools
+            selected = await select_tools(
+                "screener", state.get("agent_task") or query)
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).exception(
+                "screener native selector failed — full heuristic flow")
+            selected = []
+
+        if selected:
+            tickers = list(state.get("tickers", []))[:10]
+            meta_results: dict[str, Any] = {}
+            try:
+                if "screener.get_available_filters" in selected:
+                    meta_results["available_filters"] = \
+                        await MCP.screener.get_available_filters({})
+                if "screener.list_available_themes" in selected:
+                    meta_results["available_themes"] = \
+                        await MCP.screener.list_available_themes({})
+                if "screener.get_daily_indicators" in selected:
+                    args = {"symbols": tickers} if tickers else {}
+                    meta_results["daily_indicators"] = \
+                        await MCP.screener.get_daily_indicators(args)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"screener meta-tool: {exc}")
+
+            # Solo meta-tools (sin screen): responde con eso, sin inventar
+            # un screen que el usuario no pidió.
+            if meta_results and "screener.run_screen" not in selected:
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                out = {"native_tools": selected, **meta_results}
+                if errors:
+                    out["_errors"] = errors
+                return {
+                    "agent_results": {"screener": out},
+                    "execution_metadata": {
+                        **(state.get("execution_metadata", {})),
+                        "screener": {
+                            "elapsed_ms": elapsed_ms,
+                            "native": True,
+                            "tools": selected,
+                            "error_count": len(errors),
+                        },
+                    },
+                }
+            results.update(meta_results)
+            if selected:
+                results["native_tools"] = selected
 
     # ── Step 1: Convert query → filter objects via Gemini ────────
     messages = [

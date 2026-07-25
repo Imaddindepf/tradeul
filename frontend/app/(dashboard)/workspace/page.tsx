@@ -59,6 +59,12 @@ import { ConfigWindow, type AlertWindowConfig } from '@/components/config/Config
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { BugReportsAdminContent } from '@/components/dashboard-toolbar/BugReportsAdminContent';
+import { TimeAndSalesContent } from '@/components/tape/TimeAndSalesContent';
+import { FuturesMonitorContent } from '@/components/markets/FuturesMonitorContent';
+import { ForexMonitorContent } from '@/components/markets/ForexMonitorContent';
+import { TopNewsContent } from '@/components/news/TopNewsContent';
+import { BacktestPanelContent } from '@/components/backtest-floating/BacktestFloatingWindow';
+import { APIContent } from '@/components/floating-window/APIContent';
 import { useAuth } from '@clerk/nextjs';
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
@@ -188,6 +194,16 @@ export default function ScannerPage() {
     if (title === 'Market Pulse') return <MarketPulseContent onOpenTicker={(sym) => executeTickerCommand(sym, 'chart')} />;
     if (title === 'Openul — Breaking News') return <OpenULContent />;
     if (title === 'Bug Reports Admin') return <BugReportsAdminContent />;
+    if (title === 'Time & Sales') return <TimeAndSalesContent />;
+    if (title === 'Futures' || title === 'Futuros') return <FuturesMonitorContent />;
+    if (title === 'Forex') return <ForexMonitorContent />;
+    if (title === 'Top News') return <TopNewsContent />;
+    if (title === 'OddsMaker — Backtester') return <BacktestPanelContent />;
+    if (title === 'API — Developer Access' || title === 'API — Acceso desarrollador') return <APIContent />;
+    // Alias ES de Indicators (el título guardado depende del idioma activo)
+    if (title === 'Indicadores') return <GlossaryContent />;
+    // Alias del título actual del comando MP
+    if (title === 'Multi-Security') return <HistoricalMultipleSecurityContent />;
     if (title === 'Chart') return <ChartContent ticker={(componentState?.ticker as string) || 'AAPL'} />;
     // Strategy Builder - restore with full callbacks for creating event/scanner windows
     if (title === 'Strategy Builder') return (
@@ -257,6 +273,11 @@ export default function ScannerPage() {
     if (title.startsWith('Patterns: ')) {
       const ticker = title.replace('Patterns: ', '');
       return <PatternMatchingContent initialTicker={ticker} />;
+    }
+    // Time & Sales: TICKER (comando TAPE)
+    if (title.startsWith('Time & Sales: ')) {
+      const ticker = title.replace('Time & Sales: ', '');
+      return <TimeAndSalesContent initialSymbol={ticker} />;
     }
     // Quote: TICKER (tira de precio) - NO restauramos porque es muy específico
 

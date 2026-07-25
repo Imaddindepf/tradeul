@@ -11,9 +11,10 @@
  *   MSFT NEWS  → Noticias de Microsoft
  */
 
-// US-style symbols: 1–5 letters, optional class suffix (.B / -A) for names like BRK.B
+// US-style symbols: 1–6 letters (5 equities + 6 para futuros ESUSD/pares
+// forex EURAUD), optional class suffix (.B / -A) for names like BRK.B
 // + índices sintéticos propios (TRDL:TICK, TRDL:TICKC, TRDL:ADD)
-const TICKER_REGEX = /^([A-Z]{1,5}([.-][A-Z]{1,2})?|TRDL:[A-Z]{1,6})$/;
+const TICKER_REGEX = /^([A-Z]{1,6}([.-][A-Z]{1,2})?|TRDL:[A-Z]{1,6})$/;
 export const TICKER_LIKE_REGEX = TICKER_REGEX;
 
 // Comandos disponibles que pueden aplicarse a un ticker
@@ -54,11 +55,11 @@ export const TICKER_COMMANDS = {
         descriptionKey: 'terminalCommands.tickerCommands.SEC.description',
         shortcut: 'Ctrl+F'
     },
-    NEWS: {
+    N: {
         id: 'news',
-        label: 'NEWS',
+        label: 'N',
         name: 'News',
-        descriptionKey: 'terminalCommands.tickerCommands.NEWS.description',
+        descriptionKey: 'terminalCommands.tickerCommands.N.description',
         shortcut: 'Ctrl+N'
     },
     PM: {
@@ -87,6 +88,13 @@ export const TICKER_COMMANDS = {
         label: 'RTN',
         name: 'Analyst Ratings',
         descriptionKey: 'terminalCommands.tickerCommands.RTN.description',
+        shortcut: null
+    },
+    TAS: {
+        id: 'tape',
+        label: 'TAS',
+        name: 'Time & Sales',
+        descriptionKey: 'terminalCommands.tickerCommands.TAS.description',
         shortcut: null
     },
 } as const;
@@ -128,12 +136,40 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.SEC.description',
         shortcut: 'Ctrl+F'
     },
-    NEWS: {
+    N: {
         id: 'news',
-        label: 'NEWS',
+        label: 'N',
         name: 'News',
-        descriptionKey: 'terminalCommands.globalCommands.NEWS.description',
+        descriptionKey: 'terminalCommands.globalCommands.N.description',
         shortcut: 'Ctrl+N'
+    },
+    TOP: {
+        id: 'top',
+        label: 'TOP',
+        name: 'Top News',
+        descriptionKey: 'terminalCommands.globalCommands.TOP.description',
+        shortcut: null
+    },
+    FUT: {
+        id: 'fut',
+        label: 'FUT',
+        name: 'Futures Monitor',
+        descriptionKey: 'terminalCommands.globalCommands.FUT.description',
+        shortcut: null
+    },
+    FX: {
+        id: 'fx',
+        label: 'FX',
+        name: 'Forex Monitor',
+        descriptionKey: 'terminalCommands.globalCommands.FX.description',
+        shortcut: null
+    },
+    TAS: {
+        id: 'tas',
+        label: 'TAS',
+        name: 'Time & Sales',
+        descriptionKey: 'terminalCommands.globalCommands.TAS.description',
+        shortcut: null
     },
     INS: {
         id: 'ins',

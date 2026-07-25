@@ -14,13 +14,13 @@ from shared.config.index_symbols import normalize_index_symbol
 router = APIRouter(prefix="/api/v1/realtime", tags=["realtime"])
 
 
-async def _get_index_realtime(symbol: str):
+async def _get_index_realtime(symbol: str, hash_key: str = "snapshot:indices:latest"):
     """
-    Índices bursátiles: leer del hash snapshot:indices:latest (fmp_indices).
+    Índices/futuros (hash de fmp_indices) o forex (hash de fmp_forex).
     Devuelve el mismo shape que el endpoint de equities para que el frontend
     no distinga fuentes.
     """
-    raw = await redis_client.client.hget("snapshot:indices:latest", symbol)
+    raw = await redis_client.client.hget(hash_key, symbol)
     if not raw:
         raise HTTPException(status_code=404, detail=f"Index {symbol} not found in snapshot")
     q = orjson.loads(raw)
@@ -46,7 +46,7 @@ async def _get_index_realtime(symbol: str):
         "intraday_low": q.get("day_low"),
         "change": q.get("change"),
         "change_percent": q.get("change_percent"),
-        "asset_type": "index",
+        "asset_type": q.get("asset_class", "index"),
         "delayed": False,
     }
 
@@ -56,6 +56,103 @@ redis_client = None
 def set_redis_client(client):
     global redis_client
     redis_client = client
+
+
+@router.get("/class/{asset_class}")
+async def get_realtime_class(asset_class: str):
+    """
+    Snapshot completo de una clase de activo del hash de fmp_indices:
+    'future' (40 futuros continuos) o 'forex' (set curado de pares).
+    Alimenta las ventanas de monitor (FUT/FX) con 1 request.
+    """
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis not available")
+    if asset_class not in ("future", "forex"):
+        raise HTTPException(status_code=400, detail="asset_class must be 'future' or 'forex'")
+    try:
+        # forex tiene hash propio (servicio fmp_forex); los futuros viven en
+        # el hash de fmp_indices (comparten el WS de índices)
+        hash_key = "snapshot:forex:latest" if asset_class == "forex" else "snapshot:indices:latest"
+        raw = await redis_client.client.hgetall(hash_key)
+        out = []
+        for _, v in raw.items():
+            try:
+                entry = orjson.loads(v)
+            except Exception:
+                continue
+            if entry.get("asset_class") == asset_class:
+                out.append(entry)
+        out.sort(key=lambda e: e.get("symbol") or "")
+        return {"count": len(out), "results": out}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/quotes")
+async def get_realtime_quotes(symbols: str):
+    """
+    Batch de mini-quotes (precio + cambio del día) para la paleta de comandos.
+
+    Un solo HMGET sobre snapshot:enriched:latest para todos los símbolos
+    (equities; los índices se resuelven contra snapshot:indices:latest).
+    Devuelve {} para símbolos sin datos — el frontend simplemente no pinta quote.
+    """
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis not available")
+
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:20]
+    if not syms:
+        return {"quotes": {}}
+
+    quotes = {}
+    try:
+        raw = await redis_client.client.hmget("snapshot:enriched:latest", syms)
+        for sym, ticker_json in zip(syms, raw):
+            if not ticker_json:
+                continue
+            try:
+                d = orjson.loads(ticker_json)
+            except Exception:
+                continue
+            price = d.get("current_price") or (d.get("lastTrade") or {}).get("p") or 0
+            if not price:
+                continue
+            quotes[sym] = {
+                "price": price,
+                "change_percent": d.get("todaysChangePerc"),
+                "change": d.get("todaysChange"),
+            }
+
+        # Índices (SPX, VIX...) y futuros (ESUSD...) — hash de fmp_indices —
+        # y forex (EURUSD...) — hash de fmp_forex. Futuros/forex viven con su
+        # símbolo FMP tal cual, así que tras el alias se intenta el directo.
+        missing = [s for s in syms if s not in quotes]
+        for sym in missing:
+            index_symbol = normalize_index_symbol(sym) or sym
+            idx_raw = await redis_client.client.hget("snapshot:indices:latest", index_symbol)
+            if not idx_raw:
+                idx_raw = await redis_client.client.hget("snapshot:forex:latest", sym)
+            if not idx_raw:
+                continue
+            try:
+                q = orjson.loads(idx_raw)
+            except Exception:
+                continue
+            if not q.get("price"):
+                continue
+            quotes[sym] = {
+                "price": q.get("price"),
+                "change_percent": q.get("change_percent"),
+                "change": q.get("change"),
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"quotes": quotes}
 
 
 @router.get("/ticker/{symbol}")
@@ -79,6 +176,14 @@ async def get_realtime_ticker(symbol: str):
         ticker_json = await redis_client.client.hget("snapshot:enriched:latest", symbol.upper())
 
         if not ticker_json:
+            # Futuros (ESUSD...): hash de fmp_indices con símbolo FMP directo.
+            # Forex (EURUSD...): hash propio de fmp_forex.
+            fut_raw = await redis_client.client.hget("snapshot:indices:latest", symbol.upper())
+            if fut_raw:
+                return await _get_index_realtime(symbol.upper())
+            fx_raw = await redis_client.client.hget("snapshot:forex:latest", symbol.upper())
+            if fx_raw:
+                return await _get_index_realtime(symbol.upper(), "snapshot:forex:latest")
             raise HTTPException(
                 status_code=404,
                 detail=f"Ticker {symbol} not found in snapshot"

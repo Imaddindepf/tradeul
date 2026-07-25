@@ -129,6 +129,25 @@ _DATE_NUMERIC_RE = re.compile(
 )
 _ISO_DATE_RE = re.compile(r'(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})')
 
+_MONTH_NAMES = {
+    "enero": 1, "january": 1, "jan": 1,
+    "febrero": 2, "february": 2, "feb": 2,
+    "marzo": 3, "march": 3, "mar": 3,
+    "abril": 4, "april": 4, "apr": 4,
+    "mayo": 5, "may": 5,
+    "junio": 6, "june": 6, "jun": 6,
+    "julio": 7, "july": 7, "jul": 7,
+    "agosto": 8, "august": 8, "aug": 8,
+    "septiembre": 9, "setiembre": 9, "september": 9, "sep": 9, "sept": 9,
+    "octubre": 10, "october": 10, "oct": 10,
+    "noviembre": 11, "november": 11, "nov": 11,
+    "diciembre": 12, "december": 12, "dec": 12,
+}
+# "18 de julio [de 2026]" / "18 julio"
+_DATE_TEXT_ES_RE = re.compile(r'\b(\d{1,2})\s+(?:de\s+)?([a-zá-ú]{3,12})(?:\s+(?:de\s+|del\s+)?(\d{4}))?\b')
+# "july 18[, 2026]" / "jul 18th"
+_DATE_TEXT_EN_RE = re.compile(r'\b([a-z]{3,9})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b')
+
 
 def _extract_date_reference(q: str, language: str = "en") -> tuple[str | None, str | None]:
     """Extract date_from and date_to from natural language references."""
@@ -159,6 +178,26 @@ def _extract_date_reference(q: str, language: str = "en") -> tuple[str | None, s
             try:
                 target = datetime(y, m, d)
                 return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+    # Fechas con mes textual: "18 de julio [de 2026]", "july 18[, 2026]",
+    # "aug 5". Sin año explícito: año actual, o el anterior si quedaría en
+    # el futuro (se pregunta por el pasado).
+    for m, d_i, mo_i, y_i in (
+        (_DATE_TEXT_ES_RE.search(ql), 1, 2, 3),
+        (_DATE_TEXT_EN_RE.search(ql), 2, 1, 3),
+    ):
+        if m and m.group(mo_i) in _MONTH_NAMES:
+            try:
+                day = int(m.group(d_i))
+                month = _MONTH_NAMES[m.group(mo_i)]
+                year = int(m.group(y_i)) if m.group(y_i) else today.year
+                target = datetime(year, month, day)
+                if not m.group(y_i) and target > today + timedelta(days=1):
+                    target = datetime(year - 1, month, day)
+                return (target.strftime("%Y-%m-%d"),
+                        (target + timedelta(days=1)).strftime("%Y-%m-%d"))
             except ValueError:
                 pass
 
@@ -320,6 +359,150 @@ def _clean_upcoming_earnings(raw: Any) -> dict:
 
 # -- Main node --
 
+# ── Native tool-calling path (Fase 3c) ──────────────────────────────
+
+async def _news_events_node_native(state: dict, start_time: float) -> dict | None:
+    """Ruta nativa: el selector LLM elige del roster de 14 tools; los args
+    salen del estado (tickers, fechas, tipo de evento) de forma determinista.
+    Recupera las 4 huérfanas: get_recent_events (eventos AHORA sin ticker),
+    get_catalyst_alerts, get_available_event_types y get_earnings_by_date.
+    Devuelve None si no aplica (candle forense) o si el selector falla — el
+    caller cae a la ruta heurística (fail-safe)."""
+    from agents._tool_selector import select_tools
+
+    # El flujo forense de un candle (chart) tiene su propia orquestación
+    # determinista (fechas ±2 días, cross-ref de earnings) — se queda como está.
+    cc = state.get("chart_context")
+    if cc and cc.get("targetCandle"):
+        return None
+
+    query = state.get("query", "")
+    task = state.get("agent_task") or query
+    language = state.get("language", "en")
+    tickers = list(state.get("tickers", []))[:5]
+
+    selected = await select_tools("news_events", task)
+    if not selected:
+        return None
+
+    date_from, date_to = _extract_date_reference(task, language)
+    if not date_from and task != query:
+        date_from, date_to = _extract_date_reference(query, language)
+    event_type = _detect_event_type(task) or _detect_event_type(query)
+
+    results: dict[str, Any] = {}
+    errors: list[str] = []
+
+    async def _exec(tool: str) -> None:
+        try:
+            if tool == "scanner.get_market_session":
+                results["market_session"] = await MCP.scanner.get_market_session({})
+            elif tool == "news.get_latest_news":
+                raw = await MCP.news.get_latest_news({"count": 15})
+                results["latest_news"] = _clean_news(raw)
+            elif tool == "news.get_news_by_ticker":
+                for t in tickers:
+                    raw = await MCP.news.get_news_by_ticker({"symbol": t, "count": 10})
+                    results.setdefault("ticker_news", {})[t] = _clean_news(raw)
+            elif tool == "news.get_catalyst_alerts":
+                raw = await MCP.news.get_catalyst_alerts({"count": 20})
+                results["catalyst_alerts"] = raw
+            elif tool == "events.get_recent_events":
+                params: dict[str, Any] = {"count": 50}
+                if event_type:
+                    params["event_type"] = event_type
+                if len(tickers) == 1:
+                    params["symbol"] = tickers[0]
+                raw = await MCP.events.get_recent_events(params)
+                results["recent_events"] = _clean_events(raw)
+            elif tool == "events.get_events_by_ticker":
+                for t in tickers:
+                    raw = await MCP.events.get_events_by_ticker({"symbol": t, "count": 20})
+                    results.setdefault("ticker_events", {})[t] = _clean_events(raw)
+            elif tool == "events.query_historical_events":
+                if tickers:
+                    for t in tickers[:3]:
+                        params = {"symbol": t, "date_from": date_from,
+                                  "date_to": date_to, "limit": 50}
+                        if event_type:
+                            params["event_type"] = event_type
+                        raw = await MCP.events.query_historical_events(params)
+                        results.setdefault("historical_events", {})[t] = _clean_events(raw)
+                else:
+                    params = {"date_from": date_from, "date_to": date_to, "limit": 100}
+                    if event_type:
+                        params["event_type"] = event_type
+                    raw = await MCP.events.query_historical_events(params)
+                    results["historical_events"] = _clean_events(raw)
+            elif tool == "events.get_event_stats":
+                raw = await MCP.events.get_event_stats(
+                    {"date": date_from} if date_from else {})
+                results["event_stats"] = raw
+            elif tool == "events.get_available_event_types":
+                results["event_types"] = await MCP.events.get_available_event_types({})
+            elif tool == "earnings.get_today_earnings":
+                raw = await MCP.earnings.get_today_earnings({})
+                results["today_earnings"] = _clean_today_earnings(raw)
+            elif tool == "earnings.get_upcoming_earnings":
+                raw = await MCP.earnings.get_upcoming_earnings(
+                    {"days": _extract_days(task or query), "min_importance": 3, "limit": 100})
+                results["upcoming_earnings"] = _clean_upcoming_earnings(raw)
+            elif tool == "earnings.get_earnings_by_ticker":
+                for t in tickers:
+                    raw = await MCP.earnings.get_earnings_by_ticker({"ticker": t})
+                    results.setdefault("ticker_earnings", {})[t] = _clean_earnings(raw)
+            elif tool == "earnings.get_earnings_by_date":
+                if date_from:
+                    raw = await MCP.earnings.get_earnings_by_date({"date": date_from})
+                    results["earnings_by_date"] = {"date": date_from,
+                                                   "earnings": _clean_earnings(raw)}
+                else:
+                    errors.append("earnings_by_date: no date detected in query")
+            elif tool == "sec.search_filings":
+                for t in tickers[:3]:
+                    params = {"ticker": t, "page_size": 10}
+                    if date_from:
+                        params["date_from"] = date_from
+                    if date_to:
+                        params["date_to"] = date_to
+                    raw = await MCP.sec.search_filings(params)
+                    filings = raw.get("results", raw.get("filings", []))
+                    results.setdefault("sec_filings", {})[t] = filings if isinstance(filings, list) else []
+            else:
+                errors.append(f"unknown tool {tool}")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{tool}: {exc}")
+
+    await asyncio.gather(*[_exec(t) for t in selected])
+
+    if not results:
+        return None  # nada ejecutable — que responda la heurística
+
+    if errors:
+        results["_errors"] = errors
+
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    return {
+        "agent_results": {
+            "news_events": {
+                "tickers_detected": tickers,
+                "native_tools": selected,
+                **results,
+            },
+        },
+        "execution_metadata": {
+            **(state.get("execution_metadata", {})),
+            "news_events": {
+                "elapsed_ms": elapsed_ms,
+                "tickers": tickers,
+                "native": True,
+                "tools": selected,
+                "error_count": len(errors),
+            },
+        },
+    }
+
+
 async def news_events_node(state: dict) -> dict:
     """Fetch news, events, and earnings via MCP tools.
 
@@ -331,6 +514,17 @@ async def news_events_node(state: dict) -> dict:
       - Only fetch what the user actually asked for (don't mix irrelevant data)
     """
     start_time = time.time()
+
+    # ── Fase 3c: ruta nativa tras el flag; cualquier fallo cae a la heurística ──
+    from agents._tool_selector import native_tools_enabled
+    if native_tools_enabled("news_events"):
+        try:
+            native = await _news_events_node_native(state, start_time)
+            if native is not None:
+                return native
+            logger.info("news_events native: sin selección — ruta heurística")
+        except Exception:  # noqa: BLE001
+            logger.exception("news_events native path failed — falling back to heuristic")
 
     query = state.get("query", "")
     tickers = list(state.get("tickers", []))

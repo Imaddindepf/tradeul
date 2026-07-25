@@ -38,6 +38,8 @@ WORLD_VENUES: Dict[str, tuple] = {
     'XSGO': (-33.4426, -70.6516, 'America/Santiago', 'Latin America', '09:30', '16:00', None, None, None, 'Santiago Stock Exchange', 'Santiago', 'CL'),
     'XBOG': (4.6545, -74.0562, 'America/Bogota', 'Latin America', '09:30', '15:55', None, None, None, 'Bolsa De Valores De Colombia', 'Bogota', 'CO'),
     'XLIM': (-12.0948, -77.036, 'America/Lima', 'Latin America', '09:00', '16:00', None, None, None, 'Bolsa De Valores De Lima', 'Lima', 'PE'),
+    'XBNV': (9.9386, -84.1848, 'America/Costa_Rica', 'Latin America', '08:00', '16:00', None, None, None, 'Bolsa Nacional De Valores, S.A.', 'San Jose', 'CR'),
+    'XSVA': (13.6731, -89.2406, 'America/El_Salvador', 'Latin America', '08:30', '14:00', None, None, None, 'Bolsa De Valores De El Salvador', 'San Salvador', 'SV'),
     'XLON': (51.515, -0.0991, 'Europe/London', 'Europe', '08:00', '16:30', None, None, None, 'London Stock Exchange', 'London', 'GB'),
     'XPAR': (48.8566, 2.3522, 'Europe/Paris', 'Europe', '09:00', '17:30', None, None, None, 'Euronext - Euronext Paris', 'Paris', 'FR'),
     'XAMS': (52.3676, 4.9041, 'Europe/Amsterdam', 'Europe', '09:00', '17:30', None, None, None, 'Euronext - Euronext Amsterdam', 'Amsterdam', 'NL'),

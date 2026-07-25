@@ -12,9 +12,12 @@ Data cleaning:
 """
 from __future__ import annotations
 import asyncio
+import logging
 import re
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from agents.mcp_catalog import MCP
 
@@ -184,6 +187,150 @@ def _extract_query_filters(query: str) -> list[dict[str, Any]]:
                 value *= _AMOUNT_SUFFIX[m.group(2)]
             filters.append({"field": field, "op": op, "value": value})
     return filters
+
+
+# ── Native tool-calling path (Fase 3c) ──────────────────────────────
+
+# Tools cuyo flujo determinista actual es superior al selector: si el selector
+# las elige, la ruta nativa se retira y responde la heurística completa.
+_NATIVE_BAILOUT_TOOLS = {
+    "scanner.get_scanner_snapshot",     # rankings por categoría (mapping propio)
+    "scanner.apply_dynamic_filter",     # screens (spec del planner)
+    "patterns.find_similar_patterns",   # forecast de patrones (necesita contexto de barras)
+    "market_pulse.analyze_market",      # pulse (spec del planner)
+    "market_pulse.get_market_regime",
+    "screener.search_by_theme",         # temáticas (theme_tags del planner)
+    "screener.enrich_with_classification",
+}
+
+
+async def _market_data_node_native(state: dict, start_time: float) -> dict | None:
+    """Ruta nativa para queries ticker-céntricas y lookups simples.
+
+    Recupera las huérfanas: get_enriched_ticker, search_scanner,
+    get_all_categories, get_rvol(_batch), get_price/volume_windows,
+    get_top_movers (fechas pasadas) y available_dates.
+
+    Los flujos estructurados (screen/temáticas/pulse/chart/rankings live)
+    siguen en la ruta heurística — el planner ya los especifica de forma
+    determinista y el selector no aporta. Devuelve None para delegar.
+    """
+    from agents._tool_selector import select_tools
+
+    if state.get("screen") or state.get("theme_tags") or state.get("pulse_queries") \
+            or state.get("chart_context"):
+        return None
+
+    query = state.get("query", "")
+    task = state.get("agent_task") or query
+    language = state.get("language", "en")
+    tickers = list(state.get("tickers", []))[:10]
+
+    selected = await select_tools("market_data", task)
+    if not selected:
+        return None
+    if any(t in _NATIVE_BAILOUT_TOOLS for t in selected):
+        logger.info("market_data native: bailout tools selected (%s) — heurística",
+                    [t for t in selected if t in _NATIVE_BAILOUT_TOOLS])
+        return None
+
+    # Fecha para movers/bars históricos (reutiliza el parser de news_events).
+    from agents.news_events import _extract_date_reference
+    date_from, _date_to = _extract_date_reference(task, language)
+    q_low = f"{task} {query}".lower()
+    direction = "down" if re.search(
+        r"\b(losers?|perdedor\w*|bajaron|cayeron|caídas?|down)\b", q_low) else "up"
+
+    results: dict[str, Any] = {}
+    errors: list[str] = []
+
+    async def _exec(tool: str) -> None:
+        try:
+            if tool == "scanner.get_market_session":
+                results["market_session"] = await MCP.scanner.get_market_session({})
+            elif tool in ("scanner.get_enriched_ticker", "scanner.get_enriched_batch"):
+                if tickers and "enriched" not in results:
+                    raw = await MCP.scanner.get_enriched_batch({"symbols": tickers})
+                    results["enriched"] = _clean_enriched(raw)
+            elif tool == "analytics.get_technical_snapshot":
+                for t in tickers[:5]:
+                    raw = await MCP.analytics.get_technical_snapshot({"symbol": t})
+                    results.setdefault("technical_snapshot", {})[t] = raw
+            elif tool in ("analytics.get_rvol", "analytics.get_rvol_batch"):
+                if len(tickers) > 1:
+                    results["rvol"] = await MCP.analytics.get_rvol_batch({"symbols": tickers})
+                elif tickers:
+                    results["rvol"] = await MCP.analytics.get_rvol({"symbol": tickers[0]})
+            elif tool == "analytics.get_price_windows":
+                for t in tickers[:5]:
+                    raw = await MCP.analytics.get_price_windows({"symbol": t})
+                    results.setdefault("price_windows", {})[t] = raw
+            elif tool == "analytics.get_volume_windows":
+                for t in tickers[:5]:
+                    raw = await MCP.analytics.get_volume_windows({"symbol": t})
+                    results.setdefault("volume_windows", {})[t] = raw
+            elif tool == "historical.get_top_movers":
+                raw = await MCP.historical.get_top_movers({
+                    "date": date_from or "today", "direction": direction, "limit": 20,
+                })
+                results["historical_top_movers"] = {
+                    "date": date_from or "today", "direction": direction, **(
+                        raw if isinstance(raw, dict) else {"data": raw}),
+                }
+            elif tool == "historical.available_dates":
+                results["available_dates"] = await MCP.historical.available_dates({})
+            elif tool == "historical.get_day_bars":
+                raw = await MCP.historical.get_day_bars({
+                    "date": date_from or "today",
+                    **({"symbols": tickers} if tickers else {}),
+                    "limit": 50,
+                })
+                results["day_bars"] = raw
+            elif tool == "historical.get_minute_bars":
+                for t in tickers[:2]:
+                    raw = await MCP.historical.get_minute_bars({
+                        "date": date_from or "today", "symbol": t,
+                    })
+                    results.setdefault("minute_bars", {})[t] = raw
+            elif tool == "scanner.get_all_categories":
+                results["scanner_categories"] = await MCP.scanner.get_all_categories({})
+            elif tool == "scanner.search_scanner":
+                if tickers:
+                    results["scanner_matches"] = await MCP.scanner.search_scanner(
+                        {"symbols": tickers})
+            else:
+                errors.append(f"unknown tool {tool}")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{tool}: {exc}")
+
+    await asyncio.gather(*[_exec(t) for t in selected])
+
+    if not results:
+        return None
+
+    if errors:
+        results["_errors"] = errors
+
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    return {
+        "agent_results": {
+            "market_data": {
+                "tickers_analyzed": tickers,
+                "native_tools": selected,
+                **results,
+            },
+        },
+        "execution_metadata": {
+            **(state.get("execution_metadata", {})),
+            "market_data": {
+                "elapsed_ms": elapsed_ms,
+                "tickers": tickers,
+                "native": True,
+                "tools": selected,
+                "error_count": len(errors),
+            },
+        },
+    }
 
 
 async def _run_universe_screen(screen: dict) -> tuple[dict[str, Any], list[str]]:
@@ -453,6 +600,17 @@ def _normalize_sector(sic_desc: str) -> str:
 async def market_data_node(state: dict) -> dict:
     """Fetch market data via MCP scanner tools."""
     start_time = time.time()
+
+    # ── Fase 3c: ruta nativa tras el flag (solo queries ticker-céntricas;
+    # screens/temáticas/pulse/chart/rankings delegan siempre en la heurística).
+    from agents._tool_selector import native_tools_enabled
+    if native_tools_enabled("market_data"):
+        try:
+            native = await _market_data_node_native(state, start_time)
+            if native is not None:
+                return native
+        except Exception:  # noqa: BLE001
+            logger.exception("market_data native path failed — falling back to heuristic")
 
     query = state.get("query", "")
     tickers = state.get("tickers", [])
@@ -784,6 +942,27 @@ async def market_data_node(state: dict) -> dict:
         if screen_results:
             results.update(screen_results)
             categories = []
+
+            # Top-N pequeño → upgrade de las filas con el snapshot enriquecido
+            # completo (RSI, VWAP, ADX, 52W, float...). Las filas del filtro
+            # traen una proyección fija mínima; sin esto, un ticker destacado
+            # por el synthesizer sale con el card lleno de N/A (caso JNJ
+            # 2026-07-24: "why didn't you include JNJ" pintó RSI/VWAP/float
+            # como N/A porque JNJ solo existía como fila del screen).
+            screen_syms = [
+                r.get("symbol") for r in results["universe_screen"].get("tickers", [])
+                if isinstance(r, dict) and r.get("symbol")
+            ]
+            if 0 < len(screen_syms) <= 20:
+                try:
+                    raw = await MCP.scanner.get_enriched_batch({"symbols": screen_syms})
+                    full = _clean_enriched(raw)
+                    if full:
+                        merged = dict(results.get("enriched") or {})
+                        merged.update(full)
+                        results["enriched"] = merged
+                except Exception as exc:
+                    errors.append(f"screen_enrich: {exc}")
 
     # 4b. After-hours / premarket movers — keyword fallback when the planner
     # didn't emit a screen. Replaces the dead post_market category.

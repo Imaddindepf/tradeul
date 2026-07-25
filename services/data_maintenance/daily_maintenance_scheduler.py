@@ -89,6 +89,8 @@ class DailyMaintenanceScheduler:
         self.today_bars_cleanup_minute = 0
         self.metadata_refresh_hour = 1      # 1:00 AM ET - Refresh metadata
         self.metadata_refresh_minute = 0
+        self.incremental_classifier_hour = 1    # 1:30 AM ET - Clasificar tickers nuevos/reciclados
+        self.incremental_classifier_minute = 30
         self.maintenance_hour = 3           # 3:00 AM ET - Mantenimiento principal
         self.maintenance_minute = 0
         self.baselines_refresh_hour = 3     # 3:15 AM ET - Refresh baselines (SIEMPRE en días de trading)
@@ -121,6 +123,7 @@ class DailyMaintenanceScheduler:
         self.last_earnings_bmo_date: Optional[date] = None  # Último earnings BMO collect
         self.last_earnings_amc_date: Optional[date] = None  # Último earnings AMC collect
         self.last_ticker_chain_date: Optional[date] = None  # Último ticker chain build (semanal)
+        self.last_incremental_classifier_date: Optional[date] = None  # Última clasificación incremental
         self._holidays_cache: Dict[str, bool] = {}
         self._holidays_cache_date: Optional[date] = None  # Fecha del cache para invalidación diaria
     
@@ -266,6 +269,12 @@ class DailyMaintenanceScheduler:
             if last_metadata:
                 self.last_metadata_refresh_date = date.fromisoformat(last_metadata)
                 logger.info("loaded_last_metadata_refresh_date", date=str(self.last_metadata_refresh_date))
+
+            # Estado de clasificador incremental
+            last_incremental = await self.redis.get("maintenance:last_incremental_classifier")
+            if last_incremental:
+                self.last_incremental_classifier_date = date.fromisoformat(last_incremental)
+                logger.info("loaded_last_incremental_classifier_date", date=str(self.last_incremental_classifier_date))
             
             # Estado de data load
             last_data = await self.redis.get("maintenance:last_data_load")
@@ -342,6 +351,19 @@ class DailyMaintenanceScheduler:
             # Ticker chain build: weekly on Sundays at 1:00 AM ET
             if current_date.weekday() == 6 and self.last_ticker_chain_date != current_date:
                 await self._execute_ticker_chain_build(current_date)
+
+        # =============================================
+        # 0.5. CLASIFICADOR INCREMENTAL (1:30 AM ET)
+        # Clasifica tickers nuevos (IPOs) y reciclados (CIK cambiado)
+        # + sanity check de market_cap entre clases de acción
+        # =============================================
+        is_incremental_classifier_time = (
+            current_hour == self.incremental_classifier_hour and
+            self.incremental_classifier_minute <= current_minute <= self.incremental_classifier_minute + 5
+        )
+
+        if is_incremental_classifier_time and self.last_incremental_classifier_date != current_date:
+            await self._execute_incremental_classifier(current_date)
         
         # =============================================
         # 1. CARGA DE DATOS HISTÓRICOS (3:00 AM ET)
@@ -1100,6 +1122,33 @@ class DailyMaintenanceScheduler:
         except Exception as e:
             return {"success": False, "error": str(e), "target_date": str(target_date)}
     
+    async def _execute_incremental_classifier(self, current_date: date):
+        """Clasificar tickers nuevos/reciclados + sanity check de market_cap (diario)"""
+        try:
+            logger.info("incremental_classifier_starting", date=str(current_date))
+
+            from tasks.incremental_classifier import IncrementalClassifierTask
+            task = IncrementalClassifierTask(db_pool=self.db.pool)
+            result = await task.execute()
+
+            if result.get("success"):
+                self.last_incremental_classifier_date = current_date
+                await self.redis.set(
+                    "maintenance:last_incremental_classifier", current_date.isoformat()
+                )
+                logger.info(
+                    "✅ incremental_classifier_completed",
+                    classified=result.get("classified", 0),
+                    themes=result.get("themes_assigned", 0),
+                    recycled=result.get("recycled_reclassified", []),
+                    market_cap_nulled=result.get("market_cap_nulled", []),
+                )
+            else:
+                logger.error("❌ incremental_classifier_failed", result=result)
+
+        except Exception as e:
+            logger.error("incremental_classifier_error", error=str(e))
+
     async def _execute_ticker_chain_build(self, current_date: date):
         """Build ticker chain map (weekly)"""
         try:

@@ -10,6 +10,7 @@
  * Espejo server-side: services/websocket_server/src/index.js
  *   - chart_aggregate  → broadcastChartAggregate() y handler chart:trades:*
  *   - chart_bar_sealed → handler chart:sealed:* (velas de bar_builder)
+ *   - tape_trades      → handler tape:trades:* (prints crudos para Time & Sales)
  *   - connected        → welcome message en la conexión
  *   - market_session_change / trading_day_changed → subscribeToSessionChangeEvents
  * Si cambias un campo aquí, cámbialo allí (y viceversa).
@@ -61,6 +62,33 @@ export interface ChartBarSealedMsg {
     symbol: string;
     data: SealedBarData;
     seq?: number;
+    timestamp?: string;
+}
+
+/**
+ * Print crudo del tape (mismas claves compactas que el evento T de Polygon).
+ * t/pt/trft en Unix ms. c = condition IDs numéricos, x = exchange ID numérico
+ * (se decodifican con el reference data de /api/v1/tape/reference).
+ * trfi presente ⇔ print off-exchange (FINRA TRF / dark pool).
+ */
+export interface TapePrint {
+    p: number;       // precio
+    s: number;       // size
+    t: number;       // SIP timestamp (Unix ms)
+    x?: number;      // exchange ID
+    c?: number[];    // condition IDs
+    q?: number;      // sequence number (orden estable dentro del mismo ms)
+    i?: string;      // trade ID
+    z?: number;      // tape (1=A, 2=B, 3=C)
+    pt?: number;     // participant timestamp (ms)
+    trfi?: number;   // TRF ID (201/202/203) — dark pool
+    trft?: number;   // TRF timestamp (ms)
+}
+
+export interface TapeTradesMsg {
+    type: 'tape_trades';
+    symbol: string;
+    data: TapePrint[];
     timestamp?: string;
 }
 
@@ -144,6 +172,17 @@ export function isChartBarSealedMsg(msg: any): msg is ChartBarSealedMsg {
         && isFiniteNum(d.volume)
         && d.open > 0;
     return ok || reject('chart_bar_sealed');
+}
+
+export function isTapeTradesMsg(msg: any): msg is TapeTradesMsg {
+    if (msg?.type !== 'tape_trades') return false;
+    const ok = typeof msg.symbol === 'string'
+        && Array.isArray(msg.data)
+        && msg.data.length > 0
+        && msg.data.every((p: any) =>
+            p != null && isFiniteNum(p.p) && p.p > 0 && isFiniteNum(p.s) && isFiniteNum(p.t) && p.t > 0
+        );
+    return ok || reject('tape_trades');
 }
 
 const SESSIONS: ReadonlySet<string> = new Set(['PRE_MARKET', 'MARKET_OPEN', 'POST_MARKET', 'CLOSED']);

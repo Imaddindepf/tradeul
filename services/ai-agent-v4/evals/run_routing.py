@@ -69,6 +69,11 @@ async def _plan(query: str, extra_state: dict | None = None) -> dict:
         "confidence": out.get("confidence", None),
         "clarification": bool(out.get("clarification")),
         "plan": (out.get("plan") or "")[:200],
+        "theme_tags": sorted(out.get("theme_tags") or []),
+        "screen_fields": sorted({
+            f.get("field", "") for f in ((out.get("screen") or {}).get("filters") or [])
+            if isinstance(f, dict)
+        }),
     }
 
 
@@ -135,6 +140,12 @@ async def run(sample: int, update_baseline: bool) -> int:
             if bad:
                 ok = False
                 reasons.append(f"plan adopted forbidden referent {bad}")
+        if "screen_fields_any" in c and not (set(c["screen_fields_any"]) & set(d.get("screen_fields", []))):
+            ok = False
+            reasons.append(f"screen_fields={d.get('screen_fields')} ∩ {c['screen_fields_any']} = ∅")
+        if "themes_max" in c and len(d.get("theme_tags", [])) > c["themes_max"]:
+            ok = False
+            reasons.append(f"{len(d['theme_tags'])} theme_tags > max {c['themes_max']}: {d['theme_tags'][:5]}")
         curated_failed += (not ok)
         curated_results.append({"id": c["id"], "ok": ok, "got": d, "why": reasons})
         mark = "PASS" if ok else "FAIL"

@@ -260,6 +260,7 @@ class PolygonTrade(BaseModel):
     c: Optional[List[int]] = Field(None, description="Trade conditions")
     t: int = Field(..., description="SIP timestamp (Unix MS)")
     q: int = Field(..., description="Sequence number")
+    pt: Optional[int] = Field(None, description="Participant/Exchange timestamp (Unix MS)")
     trfi: Optional[int] = Field(None, description="Trade Reporting Facility ID")
     trft: Optional[int] = Field(None, description="TRF timestamp (Unix MS)")
     

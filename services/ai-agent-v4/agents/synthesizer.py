@@ -18,7 +18,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── Structured schema ────────────────────────────────────────────
-from agents.synthesizer_schema import SynthesizerResponse
+from agents.synthesizer_schema import MetricsCard, SynthesizerResponse
 
 # ── Lazy GenAI client singleton ──────────────────────────────────
 _genai_client = None
@@ -59,6 +59,27 @@ You MUST return a JSON object matching the provided schema. Every field you popu
 <tool_status>
 If a "tool_status" object is present, each listed agent FAILED to return data (timeout or error) — its absence is a tool failure, NOT an absence of market activity. Never present missing data as if it were a finding (e.g. do not conclude "no hay movers" when the scanner failed). State briefly that that data source was temporarily unavailable, and answer with what you do have.
 </tool_status>
+
+<data_freshness>
+TODAY IS {current_date}. The most recent COMPLETED fiscal year is typically {last_fy}.
+When agent data contains multiple periods/years, LEAD with the most recent full fiscal
+year plus any current-year YTD data, and label every figure with its period — never
+present an older year's figures as "the latest". If web-research numbers conflict with
+the internal financial data (XBRL/statements from agent_results.financial), the internal
+data WINS: it is authoritative and fresher than SEO pages, which often lag by a year.
+</data_freshness>
+
+<past_answer_questions>
+When the user questions a PREVIOUS answer ("why didn't you include X?", "por qué no
+incluiste X?", "isn't this wrong?"), you only see the current data — you do NOT know
+how the previous list was actually built. NEVER invent a justification for the earlier
+result (e.g. "it didn't rank high enough" without proof). If the current data actually
+CONTRADICTS the previous answer (e.g. X's market cap clearly beats members of the
+previous ranking), acknowledge plainly that the previous selection appears to have
+missed it — likely due to the filter/classification used — and give the corrected
+picture from the data you have now. Honesty about a prior mistake beats a fabricated
+rationalization, always.
+</past_answer_questions>
 
 <language>
 {language_instruction}
@@ -441,7 +462,13 @@ async def _synthesize_structured(
     if chart_context:
         user_payload["chart_context"] = chart_context
 
-    system_prompt = STRUCTURED_PROMPT.format(language_instruction=language_instruction)
+    from datetime import datetime, timezone
+    _now = datetime.now(timezone.utc)
+    system_prompt = STRUCTURED_PROMPT.format(
+        language_instruction=language_instruction,
+        current_date=_now.strftime("%B %d, %Y"),
+        last_fy=_now.year - 1,
+    )
     user_content = json.dumps(user_payload, ensure_ascii=False, default=str)
 
     config = types.GenerateContentConfig(
@@ -486,8 +513,12 @@ async def _synthesize_fallback(
     language_instruction = _build_language_instruction(language)
 
     # Use the legacy prompt inline (simplified)
+    from datetime import datetime, timezone
+    _now = datetime.now(timezone.utc)
     system_prompt = (
         "You are a premium stock trading analyst for Tradeul. "
+        f"Today is {_now.strftime('%B %d, %Y')}; the most recent completed fiscal year is "
+        f"typically {_now.year - 1} — lead with the newest data and label every figure's period. "
         "Respond with structured markdown. Use ## headers, tables, bullet points. "
         f"{language_instruction} "
         "ONLY use data from agent_results. NEVER hallucinate. Keep response under 2000 words."
@@ -674,6 +705,71 @@ async def synthesizer_node(state: dict) -> dict:
     structured_response: SynthesizerResponse | None = None
     used_fallback = False
 
+    def _fmt_compact(n) -> str:
+        if n is None:
+            return ""
+        try:
+            n = float(n)
+        except (TypeError, ValueError):
+            return str(n)
+        a = abs(n)
+        for div, suf in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")):
+            if a >= div:
+                return f"{n / div:.2f}{suf}"
+        return f"{n:,.0f}"
+
+    def _deterministic_metrics_card() -> MetricsCard | None:
+        """Garantía del KPI card del ticker: el LLM a veces omite `metrics`
+        cuando el payload viene dominado por fundamentales (visto 2026-07-24,
+        'JNJ que ingresos tiene'). Si el run analizó UN ticker y market_data
+        trajo su snapshot enriquecido, el card se construye por código —
+        determinista, no a discreción del modelo."""
+        intent = (state.get("intent") or "").upper()
+        if intent in ("RANKING", "CHART_ANALYSIS", "MARKET_PULSE", "GREETING"):
+            return None
+        tickers = state.get("tickers") or []
+        if len(tickers) != 1:
+            return None
+        sym = tickers[0]
+        md = agent_results.get("market_data")
+        enriched = md.get("enriched") if isinstance(md, dict) else None
+        d = (enriched or {}).get(sym)
+        if not isinstance(d, dict):
+            return None
+        info = (ticker_info or {}).get(sym, {})
+
+        def fmt(key: str, spec: str = "{:.2f}", prefix: str = "", suffix: str = "") -> str:
+            v = d.get(key)
+            if v is None:
+                return ""
+            try:
+                return prefix + spec.format(float(v)) + suffix
+            except (TypeError, ValueError):
+                return ""
+
+        week52 = ""
+        if d.get("low_52w") is not None and d.get("high_52w") is not None:
+            try:
+                week52 = f"${float(d['low_52w']):,.2f} - ${float(d['high_52w']):,.2f}"
+            except (TypeError, ValueError):
+                week52 = ""
+        mcap = _fmt_compact(d.get("market_cap"))
+        return MetricsCard(
+            ticker=sym,
+            company_name=info.get("company_name") or str(d.get("company_name") or ""),
+            sector=info.get("sector") or "",
+            price=fmt("current_price", "{:,.2f}", "$"),
+            change=fmt("todaysChangePerc", "{:+.2f}", "", "%"),
+            volume=_fmt_compact(d.get("current_volume")),
+            rvol=fmt("rvol", "{:.2f}", "", "x"),
+            rsi=fmt("rsi_14"),
+            vwap_dist=fmt("dist_from_vwap", "{:+.2f}", "", "%"),
+            adx=fmt("adx_14"),
+            week52_range=week52,
+            float_shares=_fmt_compact(d.get("float_shares")),
+            market_cap=f"${mcap}" if mcap else "",
+        )
+
     thread_conversation = [
         e for e in (state.get("memory_context") or []) if e.get("source") == "thread"
     ]
@@ -692,6 +788,15 @@ async def synthesizer_node(state: dict) -> dict:
     except Exception as exc:
         logger.warning("Synthesizer: structured output failed, falling back to markdown: %s", exc)
         used_fallback = True
+
+    if structured_response is not None and structured_response.metrics is None:
+        try:
+            card = _deterministic_metrics_card()
+            if card:
+                structured_response.metrics = card
+                logger.info("Synthesizer: metrics card built deterministically for %s", card.ticker)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Synthesizer: deterministic metrics card failed: %s", exc)
 
     # ── Build final_response ──
     if structured_response:

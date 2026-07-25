@@ -33,6 +33,7 @@ import {
   Radio,
   KeyRound,
   Map,
+  Rows3,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -54,7 +55,10 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'watchlist', label: 'WL', description: 'commands.wl.description', icon: List, shortcut: 'Ctrl+W' },
   { id: 'dt', label: 'DT', description: 'commands.dt.description', icon: BarChart3, shortcut: 'Ctrl+D' },
   { id: 'sec', label: 'SEC', description: 'commands.sec.description', icon: FileText },
-  { id: 'news', label: 'NEWS', description: 'commands.news.description', icon: Newspaper, shortcut: 'Ctrl+N' },
+  { id: 'news', label: 'N', description: 'commands.news.description', icon: Newspaper, shortcut: 'Ctrl+N' },
+  { id: 'top', label: 'TOP', description: 'commands.top.description', icon: Radio, isNew: true },
+  { id: 'fut', label: 'FUT', description: 'commands.fut.description', icon: TrendingUp, isNew: true },
+  { id: 'fx', label: 'FX', description: 'commands.fx.description', icon: Globe, isNew: true },
   { id: 'ins', label: 'INS', description: 'commands.ins.description', icon: FileText, isNew: true },
   { id: 'alerts', label: 'ALERTS', description: 'commands.alerts.description', icon: Zap },
   { id: 'fa', label: 'FA', description: 'commands.fa.description', icon: DollarSign },
@@ -74,6 +78,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'predict', label: 'PREDICT', description: 'commands.predict.description', icon: Globe, isNew: true },
   { id: 'heatmap', label: 'HM', description: 'commands.heatmap.description', icon: Grid3X3, shortcut: 'Ctrl+H', isNew: true },
   { id: 'imap', label: 'IMAP', description: 'commands.imap.description', icon: Map, isNew: true },
+  { id: 'tas', label: 'TAS', description: 'commands.tas.description', icon: Rows3, isNew: true },
   { id: 'hds', label: 'HDS', description: 'commands.hds.description', icon: Users, isNew: true },
   { id: 'evn', label: 'EVN', description: 'commands.evn.description', icon: Activity, isNew: true },
   { id: 'build', label: 'BUILD', description: 'commands.build.description', icon: Zap },

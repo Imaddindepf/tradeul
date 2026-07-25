@@ -71,7 +71,7 @@ function WorldMapSvgInner({
         {showNight && (
           <polygon
             points={terminator!.nightPoints}
-            fill="var(--color-background)"
+            fill="var(--color-bg)"
             fillOpacity={0.55}
             pointerEvents="none"
           />

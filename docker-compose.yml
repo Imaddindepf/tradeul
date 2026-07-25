@@ -733,6 +733,96 @@ services:
         reservations:
           memory: 256M
 
+  fmp_forex:
+    build:
+      context: .
+      dockerfile: services/fmp_forex/Dockerfile
+    container_name: tradeul_fmp_forex
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8032:8031" # 8031 del host lo ocupa otro servicio
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  fmp-news:
+    build:
+      context: ./services/fmp-news
+      dockerfile: Dockerfile
+    container_name: tradeul_fmp_news
+    env_file:
+      - .env
+    environment:
+      # Feeds de noticias FMP (stock, press releases, general, forex, articles)
+      - FMP_API_KEY=${FMP_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - SERVICE_PORT=8017
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8017:8017" # Solo interno - noticias pasan por API Gateway/WebSocket
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  polygon-news:
+    build:
+      context: ./services/polygon-news
+      dockerfile: Dockerfile
+    container_name: tradeul_polygon_news
+    env_file:
+      - .env
+    environment:
+      # Noticias agregadas de Polygon /v2/reference/news (con sentiment por ticker)
+      - POLYGON_API_KEY=${POLYGON_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - SERVICE_PORT=8018
+      - POLL_INTERVAL_SECONDS=60
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8018:8018" # Solo interno - noticias pasan por API Gateway/WebSocket
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 128M
+
   # ============================================================================
   # OPENUL STREAM - Ultra-low-latency breaking news
   # ============================================================================

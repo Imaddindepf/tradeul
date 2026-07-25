@@ -249,7 +249,14 @@ async def handle_trade(trade: PolygonTrade):
                 'exchange': str(trade.x),
                 'trade_id': trade.i,
                 'timestamp': str(trade.t),
-                'tape': str(trade.z) if trade.z else ''
+                'tape': str(trade.z) if trade.z else '',
+                # Campos para Time & Sales: orden estable y etiquetado dark pool.
+                # trfi presente ⇔ print off-exchange (FINRA TRF); pt = hora de
+                # ejecución en el exchange (t es la hora de consolidación SIP).
+                'seq': str(trade.q),
+                'pt': str(trade.pt) if trade.pt else '',
+                'trf_id': str(trade.trfi) if trade.trfi else '',
+                'trf_ts': str(trade.trft) if trade.trft else ''
             }
         )
         

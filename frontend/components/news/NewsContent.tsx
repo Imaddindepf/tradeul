@@ -19,10 +19,24 @@ import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
 import { TickerSearch } from '@/components/common/TickerSearch';
-import { ExternalLink, Search, ArrowLeft, X, Loader2 } from 'lucide-react';
+import { ExternalLink, ArrowLeft, Loader2, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
 import { useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { decodeHtmlEntities } from '@/lib/html-utils';
+import {
+  NewsFiltersPanel,
+  NewsWindowFilters,
+  EMPTY_WINDOW_FILTERS,
+  countWindowFilters,
+  isServerSearch,
+  PublisherEntry,
+} from '@/components/news/NewsFiltersPanel';
+import {
+  useNewsFiltersStore,
+  matchesGlobalFilters,
+  countGlobalFilters,
+  NewsGlobalFilters,
+} from '@/stores/useNewsFiltersStore';
 
 // Mapeo de fuentes a font-family CSS
 const FONT_FAMILIES: Record<string, string> = {
@@ -34,6 +48,7 @@ const FONT_FAMILIES: Record<string, string> = {
 
 interface NewsWindowState {
   ticker?: string;
+  search?: string;
   [key: string]: unknown;
 }
 
@@ -52,17 +67,6 @@ interface SearchFilters {
 }
 
 const EMPTY_FILTERS: SearchFilters = { tickers: '', channels: '', tags: '', author: '', dateFrom: '', dateTo: '' };
-
-// Quick date range helpers
-function getQuickDateRange(days: number): { from: string; to: string } {
-  const today = new Date();
-  const to = today.toISOString().split('T')[0];
-  if (days === 0) return { from: to, to };
-  if (days === -1) return { from: `${today.getFullYear()}-01-01`, to }; // YTD
-  const from = new Date();
-  from.setDate(from.getDate() - days);
-  return { from: from.toISOString().split('T')[0], to };
-}
 
 function stripHtml(raw: string): string {
   return raw
@@ -88,6 +92,14 @@ function buildNewsSnippet(article: NewsArticle, maxChars = 190): string {
 
 // Row height for virtualization
 const ROW_HEIGHT = 24;
+
+// Badge de sentimiento (insights de la fuente, p. ej. Polygon)
+function SentimentBadge({ sentiment }: { sentiment?: string }) {
+  if (sentiment === 'positive') return <span className="text-emerald-500">▲</span>;
+  if (sentiment === 'negative') return <span className="text-rose-500">▼</span>;
+  if (sentiment === 'neutral') return <span className="text-muted-fg">•</span>;
+  return null;
+}
 
 export function NewsContent({ initialTicker, highlightArticleId }: NewsContentProps = {}) {
   const { t } = useTranslation();
@@ -139,8 +151,8 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const [highlightedId, setHighlightedId] = useState<string | null>(highlightArticleId || null);
 
   // Column visibility & context menu
-  const NEWS_COLS = ['ticker', 'headline', 'date', 'time', 'source'] as const;
-  const COL_LABELS: Record<string, string> = { ticker: t('news.ticker'), headline: t('news.headline'), date: t('news.date'), time: t('news.time'), source: t('news.source') };
+  const NEWS_COLS = ['headline', 'sentiment', 'date', 'time', 'ticker', 'source'] as const;
+  const COL_LABELS: Record<string, string> = { ticker: t('news.ticker'), headline: t('news.headline'), sentiment: t('news.sentiment'), date: t('news.date'), time: t('news.time'), source: t('news.source') };
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set());
   const [newsMenu, setNewsMenu] = useState<{ x: number; y: number } | null>(null);
   const [colPanel, setColPanel] = useState<{ x: number; y: number } | null>(null);
@@ -161,21 +173,76 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchExecuted, setSearchExecuted] = useState(false);
 
-  // Persist ticker changes
+  // ================================================================
+  // FILTROS: capa por-ventana + capa global (store persistido)
+  // ================================================================
+  const [windowFilters, setWindowFilters] = useState<NewsWindowFilters>(EMPTY_WINDOW_FILTERS);
+  const [searchText, setSearchText] = useState<string>(windowState.search || '');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const gFeeds = useNewsFiltersStore(s => s.feeds);
+  const gPubInc = useNewsFiltersStore(s => s.publishersInclude);
+  const gPubExc = useNewsFiltersStore(s => s.publishersExclude);
+  const gIncludes = useNewsFiltersStore(s => s.includes);
+  const gExcludes = useNewsFiltersStore(s => s.excludes);
+  const gClassAction = useNewsFiltersStore(s => s.classAction);
+  const globalFilters: NewsGlobalFilters = useMemo(() => ({
+    feeds: gFeeds,
+    publishersInclude: gPubInc,
+    publishersExclude: gPubExc,
+    includes: gIncludes,
+    excludes: gExcludes,
+    classAction: gClassAction,
+  }), [gFeeds, gPubInc, gPubExc, gIncludes, gExcludes, gClassAction]);
+
+  const activeFilterCount = countGlobalFilters(globalFilters) + countWindowFilters(windowFilters);
+
+  // "/" enfoca la búsqueda (si no estás escribiendo en otro input)
   useEffect(() => {
-    updateWindowState({ ticker: tickerFilter });
-  }, [tickerFilter, updateWindowState]);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/') return;
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      e.preventDefault();
+      searchInputRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Persist ticker + search changes
+  useEffect(() => {
+    updateWindowState({ ticker: tickerFilter, search: searchText });
+  }, [tickerFilter, searchText, updateWindowState]);
 
   // ================================================================
   // LIVE MODE: filtrado memoizado
   // ================================================================
   const filteredNews = useMemo(() => {
-    if (!tickerFilter) return articles;
     const upperFilter = tickerFilter.toUpperCase();
-    return articles.filter(article =>
-      article.tickers?.some(t => t.toUpperCase() === upperFilter)
-    );
-  }, [articles, tickerFilter]);
+    const textFilter = searchText.trim().toLowerCase();
+    return articles.filter(article => {
+      if (tickerFilter && !article.tickers?.some(t => t.toUpperCase() === upperFilter)) return false;
+      if (!matchesGlobalFilters(article, globalFilters)) return false;
+      if (textFilter && !article.title.toLowerCase().includes(textFilter)) return false;
+      return true;
+    });
+  }, [articles, tickerFilter, searchText, globalFilters]);
+
+  // Publishers observados en el feed cargado (para el panel de filtros)
+  const publisherEntries: PublisherEntry[] = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const a of articles) {
+      const name = (a.author || '').trim();
+      if (!name) continue;
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [articles]);
 
   const liveCount = useMemo(() =>
     articles.filter(a => a.isLive).length
@@ -187,7 +254,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   // ================================================================
   // SEARCH HANDLERS
   // ================================================================
-  const handleSearch = useCallback(async () => {
+  const handleSearch = useCallback(async (sf: SearchFilters) => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     setSearchLoading(true);
     setSearchError(null);
@@ -195,12 +262,12 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
     try {
       const params = new URLSearchParams();
-      if (searchFilters.tickers) params.set('tickers', searchFilters.tickers.toUpperCase());
-      if (searchFilters.channels) params.set('channels', searchFilters.channels);
-      if (searchFilters.tags) params.set('tags', searchFilters.tags);
-      if (searchFilters.author) params.set('author', searchFilters.author);
-      if (searchFilters.dateFrom) params.set('published_after', searchFilters.dateFrom);
-      if (searchFilters.dateTo) params.set('published_before', searchFilters.dateTo);
+      if (sf.tickers) params.set('tickers', sf.tickers.toUpperCase());
+      if (sf.channels) params.set('channels', sf.channels);
+      if (sf.tags) params.set('tags', sf.tags);
+      if (sf.author) params.set('author', sf.author);
+      if (sf.dateFrom) params.set('published_after', sf.dateFrom);
+      if (sf.dateTo) params.set('published_before', sf.dateTo);
       params.set('limit', '200');
 
       const response = await fetch(`${apiUrl}/news/api/v1/news/search?${params}`);
@@ -216,7 +283,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     } finally {
       setSearchLoading(false);
     }
-  }, [searchFilters]);
+  }, []);
 
   const handleLoadMoreSearch = useCallback(async () => {
     if (!searchNextUrl || searchLoadingMore) return;
@@ -248,16 +315,39 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
   const handleEnterSearch = useCallback(() => {
     setIsSearchMode(true);
+    setShowFilters(true);
   }, []);
 
-  const updateSearchFilter = useCallback((key: keyof SearchFilters, value: string) => {
-    setSearchFilters(prev => ({ ...prev, [key]: value }));
-  }, []);
+  // Aplicar configuración del panel de filtros (capa por-ventana;
+  // la capa global la guarda el propio panel en el store)
+  const handleApplyFilters = useCallback((next: NewsWindowFilters) => {
+    setWindowFilters(next);
+    setShowFilters(false);
+    if (isServerSearch(next)) {
+      const sf: SearchFilters = {
+        tickers: tickerFilter,
+        channels: next.channels,
+        tags: next.tags,
+        author: next.author,
+        dateFrom: next.dateFrom,
+        dateTo: next.dateTo,
+      };
+      setSearchFilters(sf);
+      setIsSearchMode(true);
+      handleSearch(sf);
+    } else if (isSearchMode) {
+      handleExitSearch();
+    }
+  }, [tickerFilter, isSearchMode, handleSearch, handleExitSearch]);
 
-  const handleQuickDate = useCallback((days: number) => {
-    const { from, to } = getQuickDateRange(days);
-    setSearchFilters(prev => ({ ...prev, dateFrom: from, dateTo: to }));
-  }, []);
+  // Limpia la capa por-ventana (los filtros globales se mantienen)
+  const handleClearAll = useCallback(() => {
+    setTickerInputValue('');
+    setTickerFilter('');
+    setSearchText('');
+    setWindowFilters(EMPTY_WINDOW_FILTERS);
+    if (isSearchMode) handleExitSearch();
+  }, [isSearchMode, handleExitSearch]);
 
   // ================================================================
   // LIVE MODE: Infinite scroll
@@ -442,7 +532,33 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                   {selectedArticle.channels.join(', ')}
                 </span>
               )}
+              {selectedArticle.sentiment && (
+                <span className="flex items-center gap-1">
+                  <SentimentBadge sentiment={selectedArticle.sentiment} />
+                  <span className="capitalize">{selectedArticle.sentiment}</span>
+                </span>
+              )}
             </div>
+
+            {/* Sentimiento por ticker (insights de la fuente) */}
+            {selectedArticle.insights && selectedArticle.insights.length > 0 && (
+              <div className="mb-4 border border-border rounded-lg p-3 bg-surface-hover/50">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-fg mb-2">
+                  {t('news.sentimentByTicker')}
+                </div>
+                <div className="space-y-1.5">
+                  {selectedArticle.insights.map((ins, i) => (
+                    <div key={`${ins.ticker}-${i}`} className="text-xs">
+                      <span className="font-mono font-semibold text-primary mr-1.5">{ins.ticker}</span>
+                      <SentimentBadge sentiment={ins.sentiment} />
+                      {ins.reasoning && (
+                        <span className="text-foreground/75 ml-1.5">{ins.reasoning}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {hasBody ? (
               <div
@@ -476,7 +592,18 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   // MAIN VIEW
   // ================================================================
   return (
-    <div className="flex flex-col h-full bg-surface" style={{ fontFamily }}>
+    <div className="relative flex flex-col h-full bg-surface" style={{ fontFamily }}>
+      {/* Filters panel overlay */}
+      {showFilters && (
+        <NewsFiltersPanel
+          windowValue={windowFilters}
+          publishers={publisherEntries}
+          fontFamily={fontFamily}
+          onApply={handleApplyFilters}
+          onCancel={() => setShowFilters(false)}
+        />
+      )}
+
       {/* Title bar toggle via portal */}
       {portalTarget && createPortal(
         <div className="flex items-center bg-muted rounded p-0.5 mr-1.5" style={{ fontFamily }}>
@@ -499,55 +626,78 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
       {/* Header Row 1 */}
       <div className={`flex items-center justify-between px-2 py-1 border-b border-border bg-surface-hover`}>
         <div className="flex items-center gap-2">
-          {!isSearchMode ? (
-            <>
-              {/* Live mode controls */}
-              <div className="flex items-center gap-1">
-                <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-muted'}`} />
-                <span className={`text-[10px] ${isConnected ? 'text-emerald-600' : 'text-muted-fg'}`} style={{ fontFamily }}>
-                  {isConnected ? t('common.live') : t('common.offline')}
-                </span>
-              </div>
+          {/* Ticker Filter (nuestro buscador, se mantiene tal cual) */}
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleApplyFilter(); }}
+            className="flex items-center gap-1"
+          >
+            <TickerSearch
+              value={tickerInputValue}
+              onChange={(value) => { setTickerInputValue(value); if (!value) setTickerFilter(''); }}
+              onSelect={(ticker) => { setTickerInputValue(ticker.symbol); setTickerFilter(ticker.symbol.toUpperCase()); }}
+              placeholder={t('news.ticker')}
+              className="w-20"
+            />
+            <button type="submit" className="px-2 py-0.5 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-700 transition-colors" style={{ fontFamily }}>
+              {t('common.filter')}
+            </button>
+          </form>
 
-              <StreamPauseButton isPaused={isPaused} onToggle={handleTogglePause} size="sm" />
+          {/* Búsqueda de texto (por ventana): "/" para enfocar, Esc limpia */}
+          <div className="flex items-center gap-0.5 ml-1 pl-2 border-l border-border">
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape') { setSearchText(''); (e.target as HTMLInputElement).blur(); } }}
+              placeholder={t('news.filters.searchPlaceholder')}
+              className="w-36 px-1.5 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-blue-400 bg-surface text-foreground"
+              style={{ fontFamily }}
+            />
+            {searchText && (
+              <button onClick={() => setSearchText('')}
+                className="p-0.5 text-muted-fg hover:text-foreground/80" title={t('common.clear')}>
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+          </div>
 
-              <SquawkButton
-                isEnabled={squawk.isEnabled}
-                isSpeaking={squawk.isSpeaking}
-                queueSize={squawk.queueSize}
-                onToggle={squawk.toggleEnabled}
-                size="sm"
-              />
-
-              {isPaused && pausedBuffer.length > 0 && (
-                <span className="text-muted-fg text-[10px]" style={{ fontFamily }}>(+{pausedBuffer.length})</span>
-              )}
-
-              {/* Ticker Filter (live mode) */}
-              <form
-                onSubmit={(e) => { e.preventDefault(); handleApplyFilter(); }}
-                className="flex items-center gap-1 ml-2 pl-2 border-l border-border"
-              >
-                <TickerSearch
-                  value={tickerInputValue}
-                  onChange={(value) => { setTickerInputValue(value); if (!value) setTickerFilter(''); }}
-                  onSelect={(ticker) => { setTickerInputValue(ticker.symbol); setTickerFilter(ticker.symbol.toUpperCase()); }}
-                  placeholder={t('news.ticker')}
-                  className="w-20"
-                />
-                <button type="submit" className="px-2 py-0.5 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-700 transition-colors" style={{ fontFamily }}>
-                  {t('common.filter')}
-                </button>
-              </form>
-            </>
-          ) : (
-            <span className="text-[10px] text-muted-fg" style={{ fontFamily }}>
-              {searchExecuted ? `${searchResults.length} ${t('news.searchResults').toLowerCase()}` : ''}
-            </span>
+          {(tickerFilter || searchText || countWindowFilters(windowFilters) > 0 || isSearchMode) && (
+            <button onClick={handleClearAll}
+              className="px-1.5 py-0.5 text-[10px] rounded border border-border text-foreground/80 hover:bg-surface-hover transition-colors"
+              style={{ fontFamily }}>
+              {t('common.clear')}
+            </button>
           )}
+
+          <div className="flex items-center gap-1 ml-1 pl-2 border-l border-border">
+            <StreamPauseButton isPaused={isPaused} onToggle={handleTogglePause} size="sm" />
+            <SquawkButton
+              isEnabled={squawk.isEnabled}
+              isSpeaking={squawk.isSpeaking}
+              queueSize={squawk.queueSize}
+              onToggle={squawk.toggleEnabled}
+              size="sm"
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowFilters(v => !v)}
+            className={`flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border transition-colors ${
+              activeFilterCount > 0
+                ? 'border-blue-500/50 text-blue-600 dark:text-blue-400 bg-blue-500/10'
+                : 'border-border text-foreground/80 hover:bg-surface-hover'
+            }`}
+            style={{ fontFamily }}
+            title={t('news.filters.title')}
+          >
+            <SlidersHorizontal className="w-3 h-3" />
+            {activeFilterCount > 0 ? `${activeFilterCount} ${t('news.filters.filters')}` : t('news.filters.filters')}
+          </button>
+
           <div className="flex items-center bg-muted rounded p-0.5">
             <button
               onClick={() => setNewsViewMode('table')}
@@ -567,18 +717,6 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             </button>
           </div>
 
-          {!isSearchMode && (
-            <div className="flex items-center gap-1.5 text-[10px]" style={{ fontFamily }}>
-              {tickerFilter && (
-                <span className="px-1 py-0.5 bg-blue-500/15 text-blue-700 dark:text-blue-400 rounded">{tickerFilter}</span>
-              )}
-              <span className="text-foreground/80">
-                {filteredNews.length}{tickerFilter ? ` / ${articles.length}` : ''}
-              </span>
-              {liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
-            </div>
-          )}
-
           <button ref={menuBtnRef} onClick={handleNewsMenuBtn}
             className="p-0.5 rounded text-muted-fg hover:text-foreground/80 hover:bg-surface-hover transition-colors" title="Menu">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
@@ -588,118 +726,24 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
         </div>
       </div>
 
-      {/* Search Filters Row (only in search mode) */}
+      {/* Search summary row (only in search mode) */}
       {isSearchMode && (
-        <div className="px-2 py-1.5 bg-surface-hover border-b border-border">
-          <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="flex flex-wrap items-center gap-1.5">
-            {/* Ticker */}
-            <input
-              type="text"
-              value={searchFilters.tickers}
-              onChange={(e) => updateSearchFilter('tickers', e.target.value)}
-              placeholder={t('news.ticker')}
-              className="w-16 px-1.5 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-blue-400 bg-surface"
-              style={{ fontFamily }}
-            />
-
-            {/* Date From */}
-            <div className="flex items-center gap-0.5">
-              <span className="text-[9px] text-muted-fg">{t('news.dateFrom')}</span>
-              <input
-                type="date"
-                value={searchFilters.dateFrom}
-                onChange={(e) => updateSearchFilter('dateFrom', e.target.value)}
-                className="w-[105px] px-1 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-blue-400 bg-surface"
-                style={{ fontFamily }}
-              />
-            </div>
-
-            {/* Date To */}
-            <div className="flex items-center gap-0.5">
-              <span className="text-[9px] text-muted-fg">{t('news.dateTo')}</span>
-              <input
-                type="date"
-                value={searchFilters.dateTo}
-                onChange={(e) => updateSearchFilter('dateTo', e.target.value)}
-                className="w-[105px] px-1 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-blue-400 bg-surface"
-                style={{ fontFamily }}
-              />
-            </div>
-
-            {/* Quick dates */}
-            <div className="flex items-center gap-0.5">
-              {[
-                { label: t('news.today'), days: 0 },
-                { label: '7d', days: 7 },
-                { label: '30d', days: 30 },
-                { label: '90d', days: 90 },
-                { label: 'YTD', days: -1 },
-              ].map(r => (
-                <button key={r.label} type="button" onClick={() => handleQuickDate(r.days)}
-                  className="px-1.5 py-0.5 text-[9px] text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:border-blue-500/50 hover:bg-blue-500/10 rounded transition-colors"
-                  style={{ fontFamily }}>
-                  {r.label}
-                </button>
-              ))}
-              {(searchFilters.dateFrom || searchFilters.dateTo) && (
-                <button type="button" onClick={() => setSearchFilters(prev => ({ ...prev, dateFrom: '', dateTo: '' }))}
-                  className="p-0.5 text-muted-fg hover:text-foreground/80">
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-
-            <span className="text-muted-fg/50">|</span>
-
-            {/* Tags */}
-            <input
-              type="text"
-              value={searchFilters.tags}
-              onChange={(e) => updateSearchFilter('tags', e.target.value)}
-              placeholder={t('news.tags')}
-              className="w-20 px-1.5 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-primary bg-surface"
-              style={{ fontFamily }}
-            />
-
-            {/* Channels */}
-            <input
-              type="text"
-              value={searchFilters.channels}
-              onChange={(e) => updateSearchFilter('channels', e.target.value)}
-              placeholder={t('news.channels')}
-              className="w-20 px-1.5 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-primary bg-surface"
-              style={{ fontFamily }}
-            />
-
-            {/* Author */}
-            <input
-              type="text"
-              value={searchFilters.author}
-              onChange={(e) => updateSearchFilter('author', e.target.value)}
-              placeholder={t('news.author')}
-              className="w-20 px-1.5 py-0.5 text-[10px] border border-border rounded focus:outline-none focus:border-primary bg-surface"
-              style={{ fontFamily }}
-            />
-
-            {/* Search button */}
-            <button
-              type="submit"
-              disabled={searchLoading}
-              className="flex items-center gap-1 px-2.5 py-0.5 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              style={{ fontFamily }}
-            >
-              {searchLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
-              {t('common.search')}
-            </button>
-
-            {/* Clear filters */}
-            {searchExecuted && (
-              <button type="button" onClick={() => { setSearchFilters(EMPTY_FILTERS); setSearchResults([]); setSearchNextUrl(null); setSearchExecuted(false); }}
-                className="px-1.5 py-0.5 text-[10px] text-muted-fg hover:text-foreground" style={{ fontFamily }}>
-                {t('common.clear')}
-              </button>
-            )}
-          </form>
+        <div className="flex items-center gap-1.5 flex-wrap px-2 py-1 bg-surface-hover border-b border-border text-[10px]" style={{ fontFamily }}>
+          <span className="text-foreground/80">
+            {searchLoading ? t('news.searching') : `${searchResults.length} ${t('news.filters.results')}`}
+          </span>
+          {(searchFilters.dateFrom || searchFilters.dateTo) && (
+            <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">
+              {searchFilters.dateFrom || '…'} → {searchFilters.dateTo || '…'}
+            </span>
+          )}
+          {searchFilters.tags && <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">{searchFilters.tags}</span>}
+          {searchFilters.author && <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">{searchFilters.author}</span>}
+          {searchFilters.channels && <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">{searchFilters.channels}</span>}
+          <button onClick={() => setShowFilters(true)}
+            className="ml-1 px-1.5 py-0.5 rounded border border-border text-foreground/80 hover:bg-surface transition-colors">
+            {t('news.filters.editFilters')}
+          </button>
         </div>
       )}
 
@@ -727,7 +771,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           style={{ left: colPanel.x, top: colPanel.y }}>
           <div className="px-3 py-1.5 border-b border-border-subtle flex items-center justify-between">
             <span className="text-[11px] font-medium text-foreground">Columns</span>
-            <span className="text-[10px] text-muted-fg">{5 - hiddenCols.size}/5</span>
+            <span className="text-[10px] text-muted-fg">{NEWS_COLS.length - hiddenCols.size}/{NEWS_COLS.length}</span>
           </div>
           <div className="py-1">
             {NEWS_COLS.map(col => (
@@ -752,21 +796,23 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
       {/* Search: loading/error/empty states */}
       {isSearchMode && searchLoading && (
-        <div className="flex items-center justify-center py-8 bg-surface">
+        <div className="flex flex-1 items-center justify-center bg-surface">
           <Loader2 className="w-6 h-6 animate-spin text-muted-fg mr-2" />
           <span className="text-sm text-muted-fg">{t('news.searching')}</span>
         </div>
       )}
 
       {isSearchMode && searchError && (
-        <div className="flex items-center justify-center py-8 bg-surface">
+        <div className="flex flex-1 items-center justify-center bg-surface">
           <span className="text-sm text-red-500">{searchError}</span>
         </div>
       )}
 
-      {isSearchMode && searchExecuted && !searchLoading && !searchError && searchResults.length === 0 && (
-        <div className="flex items-center justify-center py-8 bg-surface">
-          <span className="text-sm text-muted-fg">{t('news.noSearchResults')}</span>
+      {isSearchMode && !searchLoading && !searchError && searchResults.length === 0 && (
+        <div className="flex flex-1 items-center justify-center bg-surface">
+          <span className="text-sm text-muted-fg">
+            {searchExecuted ? t('news.noSearchResults') : t('news.filters.noSearchYet')}
+          </span>
         </div>
       )}
 
@@ -782,10 +828,11 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               endReached={isSearchMode ? undefined : handleEndReached}
               fixedHeaderContent={() => (
                 <tr className="text-left uppercase tracking-wide text-foreground/80 bg-surface-inset">
-                  {!hiddenCols.has('ticker') && <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>}
                   <th className="px-1.5 py-1 font-medium text-[11px]" style={{ fontFamily }}>{t('news.headline')}</th>
+                  {!hiddenCols.has('sentiment') && <th className="px-1 py-1 font-medium w-10 text-center text-[11px]" style={{ fontFamily }} title={t('news.sentiment')}>{t('news.sentiment')}</th>}
                   {!hiddenCols.has('date') && <th className="px-1.5 py-1 font-medium w-20 text-center text-[11px]" style={{ fontFamily }}>{t('news.date')}</th>}
                   {!hiddenCols.has('time') && <th className="px-1.5 py-1 font-medium w-16 text-center text-[11px]" style={{ fontFamily }}>{t('news.time')}</th>}
+                  {!hiddenCols.has('ticker') && <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>}
                   {!hiddenCols.has('source') && <th className="px-1.5 py-1 font-medium w-28 text-[11px]" style={{ fontFamily }}>{t('news.source')}</th>}
                 </tr>
               )}
@@ -800,18 +847,6 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
                 return (
                   <>
-                    {!hiddenCols.has('ticker') && (
-                      <td
-                        className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
-                        style={{ fontFamily, height: ROW_HEIGHT }}
-                        onClick={() => setSelectedArticle(article)}
-                      >
-                        <span className="text-primary font-semibold">
-                          {displayTicker}
-                          {hasMultipleTickers && <span className="text-foreground/60 dark:text-foreground/85 text-[9px] ml-0.5">+{(article.tickers?.length || 1) - 1}</span>}
-                        </span>
-                      </td>
-                    )}
                     <td
                       className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
                       style={{ fontFamily, height: ROW_HEIGHT }}
@@ -822,6 +857,13 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                         <span className="text-foreground truncate" style={{ maxWidth: '450px' }}>{decodeHtmlEntities(article.title)}</span>
                       </div>
                     </td>
+                    {!hiddenCols.has('sentiment') && (
+                      <td className={`px-1 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
+                        style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}
+                        title={article.sentiment || undefined}>
+                        <SentimentBadge sentiment={article.sentiment} />
+                      </td>
+                    )}
                     {!hiddenCols.has('date') && (
                       <td className={`px-1.5 py-0.5 text-center text-foreground/70 dark:text-foreground/90 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
                         style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
@@ -832,6 +874,18 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                       <td className={`px-1.5 py-0.5 text-center text-foreground/70 dark:text-foreground/90 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
                         style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
                         {dt.time}
+                      </td>
+                    )}
+                    {!hiddenCols.has('ticker') && (
+                      <td
+                        className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-500/15' : article.isLive ? 'bg-emerald-500/10' : ''}`}
+                        style={{ fontFamily, height: ROW_HEIGHT }}
+                        onClick={() => setSelectedArticle(article)}
+                      >
+                        <span className="text-primary font-semibold">
+                          {displayTicker}
+                          {hasMultipleTickers && <span className="text-foreground/60 dark:text-foreground/85 text-[9px] ml-0.5">+{(article.tickers?.length || 1) - 1}</span>}
+                        </span>
                       </td>
                     )}
                     {!hiddenCols.has('source') && (
@@ -858,7 +912,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                     {/* Live mode: loading more */}
                     {!isSearchMode && isLoadingMore && (
                       <tr>
-                        <td colSpan={5 - hiddenCols.size} className="text-center py-2 text-xs text-muted-fg" style={{ fontFamily }}>
+                        <td colSpan={NEWS_COLS.length - hiddenCols.size} className="text-center py-2 text-xs text-muted-fg" style={{ fontFamily }}>
                           Loading more...
                         </td>
                       </tr>
@@ -866,7 +920,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                     {/* Search mode: load more button */}
                     {isSearchMode && searchNextUrl && (
                       <tr>
-                        <td colSpan={5 - hiddenCols.size} className="text-center py-2">
+                        <td colSpan={NEWS_COLS.length - hiddenCols.size} className="text-center py-2">
                           <button
                             onClick={handleLoadMoreSearch}
                             disabled={searchLoadingMore}
@@ -952,6 +1006,68 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           )}
         </div>
       )}
+
+      {/* Info panel: auditoría de filtros activos (por ventana vs globales) */}
+      {showInfo && (
+        <div className="absolute bottom-8 left-2 z-10 bg-surface border border-border rounded-lg shadow-xl p-3 w-80 text-[10px] space-y-2" style={{ fontFamily }}>
+          <div>
+            <div className="font-semibold text-foreground mb-1 uppercase tracking-wide text-[9px]">{t('news.filters.thisWindow')}</div>
+            <div className="space-y-0.5 text-foreground/80">
+              <div>{t('common.search')}: {searchText || '—'}</div>
+              <div>{t('news.ticker')}: {tickerFilter || '—'}</div>
+              <div>{t('news.filters.dateRange')}: {(windowFilters.dateFrom || windowFilters.dateTo) ? `${windowFilters.dateFrom || '…'} → ${windowFilters.dateTo || '…'}` : t('news.filters.all')}</div>
+              {windowFilters.tags && <div>{t('news.tags')}: {windowFilters.tags}</div>}
+              {windowFilters.author && <div>{t('news.author')}: {windowFilters.author}</div>}
+              {windowFilters.channels && <div>{t('news.channels')}: {windowFilters.channels}</div>}
+            </div>
+          </div>
+          <div className="border-t border-border-subtle pt-1.5">
+            <div className="font-semibold text-foreground mb-1 uppercase tracking-wide text-[9px]">{t('news.filters.global')}</div>
+            <div className="space-y-0.5 text-foreground/80">
+              <div>{t('news.filters.sources')}: {globalFilters.feeds.length ? globalFilters.feeds.join(', ') : t('news.filters.all')}</div>
+              <div>
+                {t('news.filters.publishers')}: {(globalFilters.publishersInclude.length || globalFilters.publishersExclude.length)
+                  ? [...globalFilters.publishersInclude.map(p => `✓ ${p}`), ...globalFilters.publishersExclude.map(p => `✗ ${p}`)].join(', ')
+                  : t('news.filters.all')}
+              </div>
+              <div>{t('news.filters.includesLabel')}: {globalFilters.includes.join(', ') || '—'}</div>
+              <div>{t('news.filters.excludesLabel')}: {globalFilters.excludes.join(', ') || '—'}</div>
+              <div>{t('news.filters.classAction')}: {
+                globalFilters.classAction === 'show' ? t('news.filters.caShow')
+                  : globalFilters.classAction === 'hide' ? t('news.filters.caHide')
+                    : t('news.filters.caOnly')
+              }</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer: estado + resultados */}
+      <div className="flex items-center justify-between px-2 py-1 border-t border-border bg-surface-hover text-[10px] shrink-0" style={{ fontFamily }}>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowInfo(v => !v)}
+            className={`px-1.5 py-0.5 rounded border transition-colors ${showInfo ? 'border-blue-500/50 text-blue-600 dark:text-blue-400 bg-blue-500/10' : 'border-border text-foreground/80 hover:bg-surface'}`}>
+            Info {showInfo ? '˅' : '˄'}
+          </button>
+          <div className="flex items-center gap-1">
+            <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-muted'}`} />
+            <span className={isConnected ? 'text-emerald-600' : 'text-muted-fg'}>
+              {isConnected ? t('common.live') : t('common.offline')}
+            </span>
+          </div>
+          {!isSearchMode && liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
+          {isPaused && pausedBuffer.length > 0 && (
+            <span className="text-muted-fg">(+{pausedBuffer.length})</span>
+          )}
+          {tickerFilter && (
+            <span className="px-1 py-0.5 bg-blue-500/15 text-blue-700 dark:text-blue-400 rounded">{tickerFilter}</span>
+          )}
+        </div>
+        <span className="text-foreground/80">
+          {t('news.filters.showing', { n: displayedArticles.length })}
+          {!isSearchMode && (tickerFilter || activeFilterCount > 0) ? ` / ${articles.length}` : ''}
+        </span>
+      </div>
     </div>
   );
 }

@@ -179,6 +179,18 @@
       "name": "News",
       "description": "Noticias"
     },
+    "top": {
+      "name": "Top News",
+      "description": "Titulares principales de Reuters"
+    },
+    "fut": {
+      "name": "Futuros",
+      "description": "Monitor de futuros en tiempo real"
+    },
+    "fx": {
+      "name": "Forex",
+      "description": "Monitor de forex en tiempo real"
+    },
     "ins": {
       "name": "Insights",
       "description": "Análisis de mercado"
@@ -318,6 +330,10 @@
     "imap": {
       "name": "World Venue Map",
       "description": "Horarios y estado de bolsas globales"
+    },
+    "tas": {
+      "name": "Time & Sales",
+      "description": "Cinta en vivo: cada print con precio, tamaño, venue y condición"
     }
   },
   "scanner": {
@@ -369,15 +385,58 @@
     },
     "tablesLegend": "Leyenda:"
   },
+  "markets": {
+    "instrument": "Instrumento",
+    "last": "Último",
+    "chg": "Cambio",
+    "chgPct": "Cambio %",
+    "instruments": "instrumentos"
+  },
+  "topNews": {
+    "subtitle": "Top News — Reuters",
+    "empty": "Sin titulares todavía",
+    "error": "Error al cargar titulares"
+  },
   "news": {
     "title": "Noticias",
+    "filters": {
+      "title": "Configurar Filtros",
+      "filters": "Filtros",
+      "sources": "Fuentes",
+      "dateRange": "Rango de fechas",
+      "advanced": "Avanzado",
+      "clearFilters": "Limpiar filtros",
+      "all": "Todas",
+      "recommended": "Ajuste recomendado",
+      "publishers": "Publishers",
+      "publishersHint": "Click para alternar: ✓ solo incluir → ✗ excluir → quitar. Conteos del feed cargado.",
+      "keywords": "Keywords",
+      "includesLabel": "Términos incluidos",
+      "includesHint": "El titular debe contener al menos uno (máx. 20).",
+      "excludesLabel": "Términos excluidos",
+      "excludesHint": "Se oculta cualquier titular que contenga alguno (máx. 20).",
+      "classAction": "Class Action",
+      "caShow": "Mostrar class actions",
+      "caHide": "Ocultar class actions",
+      "caOnly": "Solo class actions",
+      "caHint": "Notas de prensa de litigios class-action (recordatorios de bufetes, plazos de lead plaintiff…). La mayoría prefiere ocultarlas.",
+      "thisWindow": "Esta ventana",
+      "global": "Global (todas las ventanas News)",
+      "searchPlaceholder": "Buscar…  ( / )",
+      "sourcesHint": "Sin marcar = todas las fuentes. Marca una o más para restringir el feed.",
+      "serverHint": "Estos filtros lanzan una búsqueda histórica en el archivo de noticias.",
+      "editFilters": "Editar filtros",
+      "results": "resultados",
+      "showing": "Mostrando {{n}} resultados",
+      "noSearchYet": "Configura filtros y guarda para lanzar una búsqueda"
+    },
     "loadingNews": "Cargando noticias...",
     "errorLoading": "Error al cargar noticias",
     "newsFor": "Noticia de {{ticker}}",
-    "readMore": "Leer artículo completo en Benzinga",
+    "readMore": "Leer artículo completo",
     "openOriginal": "Abrir Original",
     "fullContentNotAvailable": "Contenido del artículo no disponible",
-    "openOnBenzinga": "Abrir en Benzinga",
+    "openOnBenzinga": "Abrir artículo original",
     "noNewsForTicker": "No hay noticias de {{ticker}} hoy",
     "headline": "Título",
     "date": "Fecha",
@@ -659,7 +718,7 @@
       "SEC": {
         "description": "Filings SEC"
       },
-      "NEWS": {
+      "N": {
         "description": "Noticias"
       },
       "PM": {
@@ -673,6 +732,9 @@
       },
       "RTN": {
         "description": "Ratings de analistas y targets"
+      },
+      "TAS": {
+        "description": "Time & Sales del ticker"
       }
     },
     "globalCommands": {
@@ -691,8 +753,17 @@
       "SEC": {
         "description": "Filings de la SEC"
       },
-      "NEWS": {
+      "N": {
         "description": "Noticias"
+      },
+      "TOP": {
+        "description": "Titulares principales de Reuters"
+      },
+      "FUT": {
+        "description": "Monitor de futuros en tiempo real"
+      },
+      "FX": {
+        "description": "Monitor de forex en tiempo real"
       },
       "INS": {
         "description": "Análisis de mercado"
@@ -786,6 +857,9 @@
       },
       "API": {
         "description": "Gestionar claves API del stream de breaking news"
+      },
+      "TAS": {
+        "description": "Cinta de Time & Sales"
       }
     }
   },
@@ -1294,5 +1368,34 @@
     "transcriptUnavailable": "Transcripción no disponible todavía.",
     "prevDay": "Día anterior",
     "nextDay": "Día siguiente"
+  },
+  "tape": {
+    "colTicker": "Ticker",
+    "colTime": "Hora",
+    "colPrice": "Precio",
+    "colSize": "Tamaño",
+    "colMarket": "Mkt",
+    "colCondition": "Cond",
+    "symbol": "Símbolo",
+    "live": "En vivo",
+    "waiting": "Esperando prints…",
+    "disconnected": "Desconectado",
+    "settings": "Ajustes del tape",
+    "flash": "Flash en filas nuevas",
+    "showMs": "Mostrar milisegundos",
+    "dimNoUpdate": "Atenuar prints que no actualizan el last",
+    "minSize": "Tamaño mín.",
+    "hideOddLots": "Ocultar odd lots",
+    "darkPoolOnly": "Solo dark pool",
+    "loading": "Cargando cinta…",
+    "empty": "Aún no hay prints",
+    "backfillFailed": "Histórico no disponible — solo tiempo real",
+    "resume": "Volver al directo",
+    "resumeWithCount": "Volver al directo · {{count}} nuevos",
+    "paused": "En pausa (scroll)",
+    "printCount": "{{count}} prints",
+    "timezone": "Hora NY",
+    "loadingMore": "Cargando prints anteriores…",
+    "dayStart": "inicio del día"
   }
 }

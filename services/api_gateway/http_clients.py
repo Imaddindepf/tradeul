@@ -156,6 +156,73 @@ class PolygonClient:
         response.raise_for_status()
         return response.json()
     
+    async def get_trades(
+        self,
+        symbol: str,
+        limit: int = 200,
+        timestamp_gte: Optional[str] = None,
+        timestamp_lte: Optional[str] = None,
+        timestamp_lt: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Obtiene trades individuales (Time & Sales backfill).
+
+        Endpoint: GET /v3/trades/{ticker}
+        Timestamps en NANOSEGUNDOS (a diferencia del WebSocket, que da ms).
+        Orden desc para obtener los prints más recientes primero.
+        timestamp_lt permite paginar hacia atrás (cursor exclusivo).
+        """
+        url = f"/v3/trades/{symbol.upper()}"
+        params = {
+            "limit": str(min(limit, 50000)),
+            "sort": "timestamp",
+            "order": "desc",
+            "apiKey": self.api_key
+        }
+        if timestamp_gte:
+            params["timestamp.gte"] = timestamp_gte
+        if timestamp_lte:
+            params["timestamp.lte"] = timestamp_lte
+        if timestamp_lt:
+            params["timestamp.lt"] = timestamp_lt
+        response = await self._client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_trade_conditions(self) -> Dict[str, Any]:
+        """Obtiene el catálogo de condition codes de stocks.
+
+        Endpoint: GET /v3/reference/conditions
+        OJO: el limit por defecto de Polygon es 10 — siempre pedir 1000.
+        Incluye sip_mapping (letra CTA/UTP) y update_rules por condición.
+        """
+        url = "/v3/reference/conditions"
+        params = {
+            "asset_class": "stocks",
+            "data_type": "trade",
+            "limit": "1000",
+            "apiKey": self.api_key
+        }
+        response = await self._client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_exchanges(self) -> Dict[str, Any]:
+        """Obtiene el catálogo de exchanges/market centers de stocks.
+
+        Endpoint: GET /v3/reference/exchanges
+        Mapea el exchange id numérico de cada trade a participant_id (letra
+        SIP), nombre y MIC. El id 4 aparece en varias filas (FINRA TRFs).
+        """
+        url = "/v3/reference/exchanges"
+        params = {
+            "asset_class": "stocks",
+            "locale": "us",
+            "apiKey": self.api_key
+        }
+        response = await self._client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
     async def get_financial_ratios(self, symbol: str) -> Dict[str, Any]:
         """Obtiene ratios financieros TTM desde Polygon.
         
@@ -1019,6 +1086,26 @@ class BenzingaNewsClient(InternalServiceClient):
         return response.json()
 
 
+class FMPNewsClient(InternalServiceClient):
+    """Cliente para fmp-news service (feeds FMP + Top News)"""
+
+    def __init__(self, host: str = "fmp-news", port: int = 8017, timeout: float = 10.0):
+        super().__init__(
+            service_name="fmp_news",
+            base_url=f"http://{host}:{port}",
+            timeout=timeout
+        )
+
+    async def get_top_news(self, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+        """Top News (Reuters), más recientes primero"""
+        params = {"limit": limit}
+        if offset > 0:
+            params["offset"] = offset
+        response = await self.get("/api/v1/news/top", params=params)
+        response.raise_for_status()
+        return response.json()
+
+
 class FinancialsClient(InternalServiceClient):
     """
     Cliente para financials service.
@@ -1361,6 +1448,7 @@ class HTTPClientManager:
         self.market_session: Optional[MarketSessionClient] = None
         self.ticker_metadata: Optional[TickerMetadataClient] = None
         self.benzinga_news: Optional[BenzingaNewsClient] = None
+        self.fmp_news: Optional[FMPNewsClient] = None
         self.financials: Optional[FinancialsClient] = None
         self._initialized = False
     
@@ -1390,6 +1478,7 @@ class HTTPClientManager:
         self.market_session = MarketSessionClient()
         self.ticker_metadata = TickerMetadataClient()
         self.benzinga_news = BenzingaNewsClient()
+        self.fmp_news = FMPNewsClient()
         self.financials = FinancialsClient()
         
         # SEC EDGAR (gratis, sin API key - para detección SPAC)
@@ -1408,6 +1497,7 @@ class HTTPClientManager:
             self.market_session,
             self.ticker_metadata,
             self.benzinga_news,
+            self.fmp_news,
             self.financials,
         ]
         

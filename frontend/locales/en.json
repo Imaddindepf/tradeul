@@ -179,6 +179,18 @@
       "name": "News",
       "description": "Market news"
     },
+    "top": {
+      "name": "Top News",
+      "description": "Top headlines from Reuters"
+    },
+    "fut": {
+      "name": "Futures",
+      "description": "Real-time futures monitor"
+    },
+    "fx": {
+      "name": "Forex",
+      "description": "Real-time forex monitor"
+    },
     "ins": {
       "name": "Insights",
       "description": "Market insights"
@@ -318,6 +330,10 @@
     "imap": {
       "name": "World Venue Map",
       "description": "Global exchange hours & status"
+    },
+    "tas": {
+      "name": "Time & Sales",
+      "description": "Live tape: every print with price, size, venue and condition"
     }
   },
   "scanner": {
@@ -369,15 +385,58 @@
     },
     "tablesLegend": "Legend:"
   },
+  "markets": {
+    "instrument": "Instrument",
+    "last": "Last",
+    "chg": "Chg",
+    "chgPct": "Chg%",
+    "instruments": "instruments"
+  },
+  "topNews": {
+    "subtitle": "Top News — Reuters",
+    "empty": "No headlines yet",
+    "error": "Error loading headlines"
+  },
   "news": {
     "title": "News",
+    "filters": {
+      "title": "Configure Filters",
+      "filters": "Filters",
+      "sources": "Sources",
+      "dateRange": "Date Range",
+      "advanced": "Advanced",
+      "clearFilters": "Clear Filters",
+      "all": "All",
+      "recommended": "Set to Recommended",
+      "publishers": "Publishers",
+      "publishersHint": "Click to cycle: ✓ include only → ✗ exclude → clear. Counts from the loaded feed.",
+      "keywords": "Keywords",
+      "includesLabel": "Include terms",
+      "includesHint": "Headlines must match at least one term (max 20).",
+      "excludesLabel": "Exclude terms",
+      "excludesHint": "Headlines matching any term are hidden (max 20).",
+      "classAction": "Class Action",
+      "caShow": "Show class actions",
+      "caHide": "Hide class actions",
+      "caOnly": "Only class actions",
+      "caHint": "Class-action litigation press releases (law firm reminders, lead plaintiff deadlines…). Most users want them hidden.",
+      "thisWindow": "This window",
+      "global": "Global (all News windows)",
+      "searchPlaceholder": "Search…  ( / )",
+      "sourcesHint": "Unchecked = all sources included. Check one or more to restrict the live feed.",
+      "serverHint": "These filters run a historical search on the news archive.",
+      "editFilters": "Edit Filters",
+      "results": "results",
+      "showing": "Showing {{n}} Results",
+      "noSearchYet": "Set filters and save to run a search"
+    },
     "loadingNews": "Loading news...",
     "errorLoading": "Error loading news",
     "newsFor": "News for {{ticker}}",
-    "readMore": "Read full article on Benzinga",
+    "readMore": "Read full article",
     "openOriginal": "Open Original",
     "fullContentNotAvailable": "Full article content not available",
-    "openOnBenzinga": "Open on Benzinga",
+    "openOnBenzinga": "Open original article",
     "noNewsForTicker": "No news found for {{ticker}} today",
     "headline": "Headline",
     "date": "Date",
@@ -659,7 +718,7 @@
       "SEC": {
         "description": "SEC filings"
       },
-      "NEWS": {
+      "N": {
         "description": "News"
       },
       "PM": {
@@ -673,6 +732,9 @@
       },
       "RTN": {
         "description": "Analyst ratings & targets"
+      },
+      "TAS": {
+        "description": "Time & Sales for ticker"
       }
     },
     "globalCommands": {
@@ -691,8 +753,17 @@
       "SEC": {
         "description": "SEC filings feed"
       },
-      "NEWS": {
+      "N": {
         "description": "Market news"
+      },
+      "TOP": {
+        "description": "Top headlines from Reuters"
+      },
+      "FUT": {
+        "description": "Real-time futures monitor"
+      },
+      "FX": {
+        "description": "Real-time forex monitor"
       },
       "INS": {
         "description": "Market insights"
@@ -786,6 +857,9 @@
       },
       "API": {
         "description": "Manage API keys for the breaking news stream"
+      },
+      "TAS": {
+        "description": "Time & Sales tape"
       }
     }
   },
@@ -1294,5 +1368,34 @@
     "transcriptUnavailable": "Transcript not available yet.",
     "prevDay": "Previous day",
     "nextDay": "Next day"
+  },
+  "tape": {
+    "colTicker": "Ticker",
+    "colTime": "Time",
+    "colPrice": "Price",
+    "colSize": "Size",
+    "colMarket": "Mkt",
+    "colCondition": "Cond",
+    "symbol": "Symbol",
+    "live": "Live",
+    "waiting": "Waiting for prints…",
+    "disconnected": "Disconnected",
+    "settings": "Tape settings",
+    "flash": "Flash new rows",
+    "showMs": "Show milliseconds",
+    "dimNoUpdate": "Dim non-last-updating prints",
+    "minSize": "Min size",
+    "hideOddLots": "Hide odd lots",
+    "darkPoolOnly": "Dark pool only",
+    "loading": "Loading tape…",
+    "empty": "No prints yet",
+    "backfillFailed": "History unavailable — showing live only",
+    "resume": "Back to live",
+    "resumeWithCount": "Back to live · {{count}} new",
+    "paused": "Paused (scrolled)",
+    "printCount": "{{count}} prints",
+    "timezone": "NY time",
+    "loadingMore": "Loading earlier prints…",
+    "dayStart": "start of day"
   }
 }

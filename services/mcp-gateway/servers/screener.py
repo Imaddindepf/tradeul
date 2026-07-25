@@ -5,7 +5,7 @@ Includes thematic search via GICS classification and 124-theme taxonomy in Times
 """
 from fastmcp import FastMCP
 from clients.http_client import service_get, service_post
-from clients.db_client import db_fetch
+from clients.db_client import db_fetch, get_share_class_roots, dedupe_by_root
 from config import config
 from typing import Optional
 import logging
@@ -139,7 +139,9 @@ async def search_by_theme(
     glp1_weight_loss, diabetes, neuroscience, rare_disease, medical_devices,
     digital_health, fintech, digital_payments, neobanking, insurtech,
     defense_contractors, defense_tech, space_technology, drones, shipping,
-    e_commerce, streaming, esports_gaming, travel_tech, agriculture_agtech.
+    e_commerce, streaming, esports_gaming, travel_tech, agriculture_agtech,
+    digital_advertising, data_center_hardware, ai_agents_inference, ai_data_centers,
+    bitcoin_mining, nuclear_power_ai, humanoid_robotics.
     """
     if not themes:
         return {"error": "No themes provided", "results": [], "count": 0}
@@ -177,10 +179,13 @@ async def search_by_theme(
     """
 
     try:
-        rows = await db_fetch(query, themes, min_relevance, limit)
+        # Over-fetch so the post-dedupe cut still fills `limit` rows.
+        rows = await db_fetch(query, themes, min_relevance, limit * 2)
     except Exception as e:
         logger.error("search_by_theme error: %s", e)
         return {"error": str(e), "results": [], "count": 0}
+
+    rows = dedupe_by_root(rows, await get_share_class_roots())[:limit]
 
     results = []
     for r in rows:

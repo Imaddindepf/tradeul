@@ -703,7 +703,11 @@ def _build_company_block(companies: List[Dict]) -> str:
 # LLM BATCH PROCESSING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-GOOGLE_API_KEY = os.getenv('GOOGL_API_KEY', os.getenv('GOOGLE_API_KEY', ''))
+GOOGLE_API_KEY = (
+    os.getenv('GOOGL_API_KEY')
+    or os.getenv('GOOGLE_API_KEY')
+    or os.getenv('GEMINI_TRADEUL_AGENT', '')
+)
 
 TAXONOMY_TEXT = _build_taxonomy_text()
 THEMES_TEXT = _build_themes_text()
@@ -791,7 +795,21 @@ async def _classify_batch(companies: List[Dict], genai_client) -> List[Dict]:
             logger.warning("classifier_unexpected_format: type=%s", type(result).__name__)
             return []
 
-        return _validate_results(result)
+        validated = _validate_results(result)
+
+        # Map returned symbols back to the batch's exact spelling (preferred
+        # tickers use lowercase "p": ABRpD, but the LLM/validator uppercases)
+        # and drop anything the LLM invented outside the batch.
+        batch_by_upper = {c["symbol"].upper(): c["symbol"] for c in companies}
+        reconciled = []
+        for item in validated:
+            original = batch_by_upper.get(item["symbol"].upper())
+            if original is None:
+                logger.warning("classifier_symbol_not_in_batch: %s", item["symbol"])
+                continue
+            item["symbol"] = original
+            reconciled.append(item)
+        return reconciled
 
     except json.JSONDecodeError as e:
         logger.error("classifier_json_error: %s", str(e))

@@ -33,6 +33,9 @@ export interface NewsArticle {
   url: string;
   tickers?: string[];
   channels?: string[];
+  source?: string;
+  sentiment?: string;   // positive | negative | neutral (Polygon insights)
+  insights?: { ticker?: string; sentiment?: string; reasoning?: string }[];
   teaser?: string;
   body?: string;
   isLive?: boolean;
@@ -96,6 +99,9 @@ function compactArticle(a: NewsArticle): NewsArticle {
     published: a.published,
     url: a.url,
     tickers: a.tickers,
+    channels: a.channels,
+    source: a.source,
+    sentiment: a.sentiment,
     isLive: a.isLive,
     receivedAt: a.receivedAt,
     tickerPrices: a.tickerPrices,

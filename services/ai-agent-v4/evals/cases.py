@@ -178,4 +178,25 @@ CURATED += [
         "expect_clarification": True,
         "plan_not_contains": ["arancel", "tariff", "farmac", "pharma"],
     },
+    {
+        # Caso real (2026-07-24): "top 13 pharma by enterprise value" se
+        # aproximó con la unión de 14 temáticas nicho → JNJ ($615B) quedó
+        # fuera y EW (equipamiento) se coló. Regla 7 de universe_screen:
+        # industria amplia → filtro por campo industry/sector del universo
+        # completo, no temáticas.
+        "id": "broad_industry_screen",
+        "query": "Give me top 13 pharma enterprises by enterprise value",
+        "intent_in": {"RANKING", "THEMATIC", "SCREENING"},
+        "agents_any": ["market_data", "screener"],
+        "screen_fields_any": ["industry", "sector"],
+        "themes_max": 0,
+    },
+    {
+        # La contraparte: las temáticas nicho siguen siendo la vía correcta
+        # para verticales que la clasificación GICS/SIC no captura.
+        "id": "niche_theme_still_themes",
+        "query": "dame acciones de computación cuántica",
+        "intent_in": {"THEMATIC"},
+        "agents_any": ["market_data"],
+    },
 ]

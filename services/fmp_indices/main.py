@@ -1,5 +1,5 @@
 """
-FMP Indices Connector — índices bursátiles en tiempo real vía FMP.
+FMP Indices Connector — índices bursátiles y futuros en tiempo real vía FMP.
 
 Fuente primaria: WebSocket wss://socket.financialmodelingprep.com, stream
 `fmp-index-stream` (firehose global de ~425 índices; cada mensaje es un
@@ -45,6 +45,8 @@ from shared.contracts.realtime import build_realtime_aggregate_payload
 from shared.utils.logger import configure_logging, get_logger
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
+
+import futures  # futuros FMP: módulo local (comparte el WS único de la cuenta)
 
 configure_logging(service_name="fmp_indices")
 logger = get_logger(__name__)
@@ -139,6 +141,8 @@ async def process_quote(q: dict, source: str) -> None:
     st.last_volume = volume
     stats["last_data_ts"] = time.time()
 
+    is_future = futures.touch(fmp_symbol, source)
+
     now_ms = int(time.time() * 1000)
     epoch_min = now_ms // 60_000
 
@@ -222,6 +226,7 @@ async def process_quote(q: dict, source: str) -> None:
         entry = orjson.dumps({
             "symbol": symbol,
             "fmp_symbol": fmp_symbol,
+            "asset_class": "future" if is_future else "index",
             "name": q.get("name"),
             "price": price,
             "change": change,
@@ -321,6 +326,9 @@ async def _ws_session(ws) -> None:
     await ws.send(json.dumps({"event": "subscribe", "data": {"stream": FMP_STREAM}}))
     stats["ws_connected"] = True
     logger.info("fmp_ws_subscribed", stream=FMP_STREAM)
+
+    # Futuros: 2ª suscripción sobre la MISMA conexión (única por cuenta)
+    await futures.subscribe(ws)
 
     while True:
         msg = await asyncio.wait_for(ws.recv(), timeout=STALE_WS_SECS + 30)
@@ -470,6 +478,8 @@ async def lifespan(app: FastAPI):
     await db.connect()
 
     await seed_index_metadata()
+    if futures.ENABLED:
+        await futures.seed_metadata(db)
 
     # Prime del snapshot: un batch REST inicial deja los 425 índices
     # disponibles en el hash desde el segundo cero (el firehose WS solo
@@ -481,14 +491,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("index_snapshot_prime_error", error=str(e))
 
+    if futures.ENABLED:
+        try:
+            primed_fut = await futures.poll_once(process_quote)
+            logger.info("futures_snapshot_primed", quotes=primed_fut)
+        except Exception as e:
+            logger.warning("futures_snapshot_prime_error", error=str(e))
+
     ws_task = asyncio.create_task(ws_consumer_loop())
     poll_task = asyncio.create_task(rest_fallback_loop())
     flush_task = asyncio.create_task(flush_bars_loop())
+    futures_task = asyncio.create_task(futures.rest_loop(process_quote)) if futures.ENABLED else None
 
     yield
 
-    for t in (ws_task, poll_task, flush_task):
-        t.cancel()
+    for t in (ws_task, poll_task, flush_task, futures_task):
+        if t:
+            t.cancel()
     await db.disconnect()
     await redis_client.disconnect()
     logger.info("fmp_indices_stopped")
@@ -505,6 +524,7 @@ async def health():
         "ws_connected": stats["ws_connected"],
         "last_data_age_secs": round(age, 1) if age else None,
         **{k: v for k, v in stats.items() if k != "last_data_ts"},
+        **{k: v for k, v in futures.stats.items() if k != "last_futures_data_ts"},
     }
 
 
@@ -513,3 +533,17 @@ async def list_current():
     """Snapshot actual de todos los índices trackeados."""
     raw = await redis_client.client.hgetall(INDICES_HASH_KEY)
     return {k: orjson.loads(v) for k, v in raw.items()}
+
+
+@app.get("/futures")
+async def list_futures():
+    """Snapshot actual de los futuros trackeados (asset_class=future)."""
+    raw = await redis_client.client.hgetall(INDICES_HASH_KEY)
+    out = {}
+    for k, v in raw.items():
+        entry = orjson.loads(v)
+        if entry.get("asset_class") == "future":
+            out[k] = entry
+    return out
+
+

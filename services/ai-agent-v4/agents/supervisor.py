@@ -269,7 +269,7 @@ Example: "What's NVAX's dilution risk and cash runway?" = DILUTION_ANALYSIS → 
 
 5. DILUTION queries use the dilution agent exclusively — it queries our own database with no internet needed. Keywords: warrants, ATM, shelf, s-3, cash runway, burn rate, dilution risk, shares outstanding, PIPE, registered direct, offering history, convertible note, equity line, price protection, ratchet, baby-shelf, overhead supply. Do NOT route dilution queries to financial or research agents. Always add market_data alongside dilution for current price context.
 
-7. THEMATIC queries ask for stocks by theme, sector, or industry vertical. Route to market_data ONLY — it resolves themes via the classification database (124 pre-computed themes, no LLM needed at query time). You MUST populate the "theme_tags" field with canonical tags from the thematic catalog below. Map the user's natural language to one or more canonical tags. Examples: "robótica" → ["robotics"], "chips de memoria" → ["memory_chips"], "IA generativa" → ["generative_ai"], "cybersecurity zero trust" → ["cybersecurity", "identity_zero_trust"].
+7. THEMATIC queries ask for stocks by theme, sector, or industry vertical. Route to market_data ONLY — it resolves themes via the classification database (124 pre-computed themes, no LLM needed at query time). You MUST populate the "theme_tags" field with canonical tags from the thematic catalog below. Map the user's natural language to one or more canonical tags. Examples: "robótica" → ["robotics"], "chips de memoria" → ["memory_chips"], "IA generativa" → ["generative_ai"], "cybersecurity zero trust" → ["cybersecurity", "identity_zero_trust"]. CAVEAT: themes are for NICHE verticals that GICS/SIC classification does not capture. When the user names a BROAD industry (pharma, banks, semiconductors, insurers, oil...), use a universe screen with an "industry"/"sector" field filter instead (see universe_screen rule 7) — NEVER approximate a broad industry with a union of niche themes: diversified large caps (e.g. JNJ) are not tagged in niche themes and get silently dropped.
 
 8. Write the plan field in the same language the user used in their query.
 
@@ -313,24 +313,37 @@ Rules:
 4. Numeric suffixes: 500m = 500000000, 1.5b = 1500000000, 300k = 300000.
 5. Percent fields are plain numbers: "gap over 5%" → {{"field":"gap_percent","op":"gte","value":5}}.
 6. Set "screen" to null when the query is a plain category ranking with no constraints and no custom sort.
+7. BROAD INDUSTRY/SECTOR company lists ("top pharma companies", "biggest banks",
+   "semiconductor companies by market cap", "las mayores aseguradoras") → filter by
+   the "industry" (or "sector") FIELD with op "contains" and a short stem, sorted by
+   the requested metric. Industry values are SIC-style ("PHARMACEUTICAL PREPARATIONS",
+   "BIOLOGICAL PRODUCTS", "STATE COMMERCIAL BANKS", "SEMICONDUCTORS & RELATED DEVICES");
+   "contains" matches case-insensitively, so use stems: "Pharma", "Biological",
+   "Bank", "Semiconductor", "Insurance", "Oil", "Gold". Do NOT use theme_tags for
+   broad industries — themes are niche verticals and their union misses diversified
+   large caps (documented failure: "top pharma" via 14 niche themes omitted JNJ, $615B).
+   Skip the liquidity floor of rule 3 for these pure size rankings.
+8. There is NO enterprise_value field. If the user asks for EV (or another
+   unavailable metric), sort by the nearest available one (market_cap) and SAY SO
+   in "plan" so the synthesizer can state the substitution.
 </universe_screen>
 
 <thematic_catalog>
 When intent is THEMATIC, you MUST set "theme_tags" to one or more of these canonical tags:
 
 SEMICONDUCTORS: semiconductors, semiconductor_equipment, memory_chips, gpu_accelerators, cpu_processors, analog_mixed_signal, networking_chips, rf_wireless_chips, chip_foundry, power_semiconductors, eda_chip_design
-AI & SOFTWARE: artificial_intelligence, generative_ai, machine_learning, data_infrastructure, cloud_computing, edge_computing, saas, enterprise_software, crm_marketing_tech, developer_tools, big_data_analytics, cybersecurity, identity_zero_trust, endpoint_network_security, ar_vr
+AI & SOFTWARE: artificial_intelligence, generative_ai, machine_learning, ai_agents_inference, ai_data_centers, data_center_hardware, data_infrastructure, cloud_computing, edge_computing, saas, enterprise_software, crm_marketing_tech, developer_tools, big_data_analytics, cybersecurity, identity_zero_trust, endpoint_network_security, ar_vr
 CONNECTIVITY: 5g_iot, satellite_internet, fiber_optics
-ROBOTICS: robotics, surgical_robotics, industrial_automation, autonomous_vehicles, lidar, drones, 3d_printing
-FRONTIER: quantum_computing, blockchain_crypto, crypto_exchange, space_technology
+ROBOTICS: robotics, humanoid_robotics, surgical_robotics, industrial_automation, autonomous_vehicles, lidar, drones, 3d_printing
+FRONTIER: quantum_computing, blockchain_crypto, crypto_exchange, bitcoin_mining, space_technology
 FINTECH: fintech, digital_payments, buy_now_pay_later, neobanking, insurtech, lending_platforms, wealthtech, payroll_hr_tech, online_gambling
 BIOTECH & PHARMA: biotech, genomics, gene_editing_crispr, mrna_therapeutics, cell_gene_therapy, immunotherapy, oncology, glp1_weight_loss, diabetes, neuroscience, cardiovascular, rare_disease, vaccines, psychedelics, cannabis
 MEDTECH: digital_health, telehealth, medical_devices, diagnostics, medical_imaging, dental, animal_health, cro_cdmo, aging_population
 OIL & GAS: oil_exploration, oil_refining, oil_services, midstream_pipelines, natural_gas
-CLEAN ENERGY: clean_energy, solar, wind, nuclear_energy, uranium, hydrogen_fuel_cells, battery_storage, lithium, carbon_capture, smart_grid
+CLEAN ENERGY: clean_energy, solar, wind, nuclear_energy, nuclear_power_ai, uranium, hydrogen_fuel_cells, battery_storage, lithium, carbon_capture, smart_grid
 TRANSPORTATION: electric_vehicles, ev_charging, ride_sharing, shipping, rails_freight, airlines
 MINING: gold_mining, silver_mining, copper, rare_earths, steel, aluminum, agriculture_agtech
-CONSUMER DIGITAL: e_commerce, social_media, streaming, esports_gaming, food_delivery, education_tech
+CONSUMER DIGITAL: e_commerce, social_media, digital_advertising, streaming, esports_gaming, food_delivery, education_tech
 CONSUMER LIFESTYLE: travel_tech, gig_economy, luxury_brands, restaurant_tech, pet_economy, athleisure_wellness
 DEFENSE: defense_contractors, defense_tech, commercial_aerospace, hypersonics_missiles, border_surveillance
 INFRASTRUCTURE: construction_engineering, water_treatment, waste_management

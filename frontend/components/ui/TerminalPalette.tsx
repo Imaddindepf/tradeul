@@ -10,6 +10,42 @@ import { useUserFilters } from '@/hooks/useUserFilters';
 import { useAlertStrategies, type AlertStrategy } from '@/hooks/useAlertStrategies';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 import type { UserFilter } from '@/lib/types/scannerFilters';
+import { useNewsStore, selectArticles, NewsArticle } from '@/stores/useNewsStore';
+import { decodeHtmlEntities } from '@/lib/html-utils';
+
+// Mini-quote en vivo del snapshot propio (pipeline Polygon interno)
+type MiniQuote = { price: number; change_percent: number | null; change: number | null };
+
+// Chip por tipo de instrumento
+function instrumentChip(type?: string): { label: string; cls: string } {
+    const tp = (type || '').toUpperCase();
+    if (tp.includes('ETF') || tp.includes('ETN') || tp.includes('FUND')) {
+        return { label: 'ETF', cls: 'border-violet-500/40 text-violet-600 dark:text-violet-400 bg-violet-500/10' };
+    }
+    if (tp.includes('INDEX') || tp.includes('IDX')) {
+        return { label: 'IDX', cls: 'border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-500/10' };
+    }
+    if (tp.includes('FUTURE')) {
+        return { label: 'FUT', cls: 'border-orange-500/40 text-orange-600 dark:text-orange-400 bg-orange-500/10' };
+    }
+    if (tp === 'FX' || tp === 'FOREX') {
+        return { label: 'FX', cls: 'border-cyan-500/40 text-cyan-600 dark:text-cyan-400 bg-cyan-500/10' };
+    }
+    if (tp.includes('ADR')) {
+        return { label: 'ADR', cls: 'border-sky-500/40 text-sky-600 dark:text-sky-400 bg-sky-500/10' };
+    }
+    return { label: 'EQ', cls: 'border-blue-500/40 text-blue-600 dark:text-blue-400 bg-blue-500/10' };
+}
+
+function formatPaletteTime(published: string): string {
+    const d = new Date(published);
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) {
+        return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 interface TerminalPaletteProps {
     open: boolean;
@@ -26,6 +62,7 @@ type TickerResult = {
     name: string;
     exchange: string;
     type: string;
+    security_type?: string;   // FX / FUTURE / INDEX... (más fiable que `type`)
     displayName: string;
 };
 
@@ -68,7 +105,13 @@ export function TerminalPalette({
     const [selectedTicker, setSelectedTicker] = useState<TickerResult | null>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
-    const { executeCommand, openScannerTable, openUserScanTable, openEventTable, openUserStrategyTable } = useCommandExecutor();
+    const { executeCommand, openScannerTable, openUserScanTable, openEventTable, openUserStrategyTable, openNewsWithArticle } = useCommandExecutor();
+
+    // Quotes en vivo para los instrumentos listados (batch, polling suave)
+    const [quotes, setQuotes] = useState<Record<string, MiniQuote>>({});
+
+    // Noticias en memoria (NewsStore global) para la sección News Stories
+    const allArticles = useNewsStore(selectArticles);
 
     // User scans - refrescar cada vez que se abre el palette
     const { filters: userScans, loading: userScansLoading, refreshFilters } = useUserFilters();
@@ -163,13 +206,46 @@ export function TerminalPalette({
         }
     }, [search, looksLikeTicker, open]);
 
+    // Quotes: 1 request batch por cambio de resultados + refresco cada 4s
+    useEffect(() => {
+        if (!open || tickerResults.length === 0) {
+            setQuotes({});
+            return;
+        }
+        let cancelled = false;
+        const symbols = tickerResults.map(r => r.symbol).join(',');
+        const fetchQuotes = async () => {
+            try {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+                const res = await fetch(`${apiUrl}/api/v1/realtime/quotes?symbols=${encodeURIComponent(symbols)}`);
+                if (res.ok && !cancelled) {
+                    const data = await res.json();
+                    setQuotes(data.quotes || {});
+                }
+            } catch { /* sin quote no pasa nada: la fila se pinta sin precio */ }
+        };
+        fetchQuotes();
+        const interval = setInterval(fetchQuotes, 4000);
+        return () => { cancelled = true; clearInterval(interval); };
+    }, [open, tickerResults]);
+
+    // News stories del ticker tecleado (desde el store en memoria: 0 requests)
+    const newsMatches = useMemo(() => {
+        if (!open || !looksLikeTicker || selectedTicker) return [];
+        const exact = allArticles.filter(a => a.tickers?.some(tk => tk.toUpperCase() === searchUpper));
+        if (exact.length > 0) return exact.slice(0, 4);
+        const top = tickerResults[0]?.symbol?.toUpperCase();
+        if (!top) return [];
+        return allArticles.filter(a => a.tickers?.some(tk => tk.toUpperCase() === top)).slice(0, 4);
+    }, [open, looksLikeTicker, selectedTicker, allArticles, searchUpper, tickerResults]);
+
     // Generar items a mostrar (memoizado para estabilidad de referencia)
     const items = useMemo(
         () => getDisplayItems(
             parseTerminalCommand(search, t),
-            hasScPrefix, hasEvnPrefix, search, tickerResults, selectedTicker, t, userScans, userStrategies,
+            hasScPrefix, hasEvnPrefix, search, tickerResults, selectedTicker, t, userScans, userStrategies, newsMatches,
         ),
-        [search, hasScPrefix, hasEvnPrefix, tickerResults, selectedTicker, t, userScans, userStrategies],
+        [search, hasScPrefix, hasEvnPrefix, tickerResults, selectedTicker, t, userScans, userStrategies, newsMatches],
     );
 
     // ── Selección estable ──────────────────────────────────────────────
@@ -391,8 +467,18 @@ export function TerminalPalette({
                 setSelectedTicker(null);
                 onOpenChange(false);
                 break;
+
+            case 'news':
+                if (item.newsData) {
+                    const articleId = String(item.newsData.benzinga_id || item.newsData.id || '');
+                    openNewsWithArticle(articleId, item.newsData.tickers?.[0]);
+                }
+                setSearch('');
+                setSelectedTicker(null);
+                onOpenChange(false);
+                break;
         }
-    }, [executeCommand, openScannerTable, openUserScanTable, openEventTable, openUserStrategyTable, onOpenChange, onOpenHelp, onExecuteTickerCommand, setSearch, selectedTicker]);
+    }, [executeCommand, openScannerTable, openUserScanTable, openEventTable, openUserStrategyTable, openNewsWithArticle, onOpenChange, onOpenHelp, onExecuteTickerCommand, setSearch, selectedTicker]);
     handleSelectRef.current = handleSelect;
 
     if (!open) return null;
@@ -418,9 +504,9 @@ export function TerminalPalette({
                 style={{
                     zIndex: Z_INDEX.MODAL_BASE + 1,
                     maxHeight: 'calc(100vh - 80px)',
-                    width: 'calc(40% - 2rem)',
-                    minWidth: '450px',
-                    maxWidth: '600px',
+                    width: 'calc(42% - 2rem)',
+                    minWidth: '480px',
+                    maxWidth: '640px',
                 }}
             >
                 <div className="border border-border bg-surface shadow-xl overflow-hidden">
@@ -430,7 +516,7 @@ export function TerminalPalette({
                             {selectedTicker ? (
                                 <>
                                     <span className="text-[10px] text-muted-fg uppercase tracking-wide font-mono">Commands for</span>
-                                    <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-primary/15 text-primary rounded">
+                                    <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold border border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded">
                                         {selectedTicker.symbol}
                                     </span>
                                 </>
@@ -464,65 +550,114 @@ export function TerminalPalette({
                                 {loadingTickers ? t('common.loading') : t('common.noResults')}
                             </div>
                         ) : (
-                            <div className="py-1">
-                                {items.map((item, index) => (
-                                    <div
-                                        key={item.id}
-                                        data-index={index}
-                                        onClick={() => handleSelect(item)}
-                                        // onMouseMove (no onMouseEnter): si el scroll por
-                                        // teclado desplaza filas bajo un cursor quieto, el
-                                        // ratón no roba la selección.
-                                        onMouseMove={() => { if (selectedIndex !== index) moveSelection(index); }}
-                                        className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors
-                                        ${index === selectedIndex ? 'bg-primary/10' : ''}`}
-                                    >
-                                        {/* Instrument row */}
-                                        {item.type === 'instrument' && item.tickerData && (
-                                            <>
-                                                <span className="px-1 py-0.5 text-[9px] font-bold bg-primary text-white rounded">
-                                                    EQ
-                                                </span>
-                                                <span className="text-[11px] font-mono font-semibold text-foreground w-12">
-                                                    {item.tickerData.symbol}
-                                                </span>
-                                                <span className="text-[9px] text-muted-fg font-mono w-6">
-                                                    {item.tickerData.exchange?.slice(0, 2) || 'US'}
-                                                </span>
-                                                <span className="text-[10px] text-foreground/80 flex-1 truncate">
-                                                    {item.tickerData.name}
-                                                </span>
-                                            </>
-                                        )}
+                            <div className="pb-1">
+                                {items.map((item, index) => {
+                                    const quote = item.type === 'instrument' && item.tickerData
+                                        ? quotes[item.tickerData.symbol]
+                                        : undefined;
+                                    const chip = item.type === 'instrument'
+                                        ? instrumentChip(item.tickerData?.security_type || item.tickerData?.type)
+                                        : null;
+                                    const showSectionHeader = index === 0 || items[index - 1].section !== item.section;
 
-                                        {/* Command row */}
-                                        {item.type !== 'instrument' && (
-                                            <>
-                                                <span className={`px-1.5 py-0.5 text-[10px] font-mono font-semibold border rounded min-w-[60px] text-center ${
-                                                    item.type === 'user-strategy' ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10' :
-                                                    item.isUserScan ? 'border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10' :
-                                                    'border-border text-foreground'
-                                                }`}>
-                                                    {item.label}
-                                                </span>
-                                                <span className="text-[10px] text-muted-fg flex-1 truncate">
-                                                    {item.description}
-                                                </span>
-                                                {item.isUserScan && (
-                                                    <span className="text-[9px] text-muted-fg font-mono">(scan)</span>
+                                    return (
+                                        <div key={item.id}>
+                                            {showSectionHeader && (
+                                                <div className="px-3 py-[3px] text-[9px] font-mono font-semibold uppercase tracking-[0.15em] text-muted-fg bg-surface-inset border-y border-border-subtle select-none">
+                                                    {item.section}
+                                                </div>
+                                            )}
+                                            <div
+                                                data-index={index}
+                                                onClick={() => handleSelect(item)}
+                                                // onMouseMove (no onMouseEnter): si el scroll por
+                                                // teclado desplaza filas bajo un cursor quieto, el
+                                                // ratón no roba la selección.
+                                                onMouseMove={() => { if (selectedIndex !== index) moveSelection(index); }}
+                                                className={`flex items-center gap-2 pl-2.5 pr-3 py-[5px] cursor-pointer border-l-2 transition-colors ${
+                                                    index === selectedIndex
+                                                        ? 'border-l-blue-500 bg-blue-500/[0.07]'
+                                                        : 'border-l-transparent hover:bg-foreground/[0.03]'
+                                                }`}
+                                            >
+                                                {/* Instrument row */}
+                                                {item.type === 'instrument' && item.tickerData && chip && (
+                                                    <>
+                                                        <span className={`px-1 py-0.5 text-[9px] font-mono font-bold border rounded ${chip.cls}`}>
+                                                            {chip.label}
+                                                        </span>
+                                                        <span className="text-[11px] font-mono font-bold text-foreground w-14">
+                                                            {item.tickerData.symbol}
+                                                        </span>
+                                                        <span className="text-[9px] text-muted-fg font-mono w-7 uppercase">
+                                                            {item.tickerData.exchange?.slice(0, 3) || 'US'}
+                                                        </span>
+                                                        <span className="text-[10px] text-foreground/75 flex-1 truncate">
+                                                            {item.tickerData.name}
+                                                        </span>
+                                                        {quote && quote.price > 0 && (
+                                                            <span className="flex items-center gap-1.5 font-mono text-[10px] tabular-nums shrink-0">
+                                                                <span className="text-foreground font-semibold">
+                                                                    ${quote.price >= 1000 ? quote.price.toFixed(0) : quote.price.toFixed(2)}
+                                                                </span>
+                                                                {quote.change_percent != null && (
+                                                                    <span className={quote.change_percent >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
+                                                                        {quote.change_percent >= 0 ? '▲' : '▼'}{Math.abs(quote.change_percent).toFixed(2)}%
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                        )}
+                                                    </>
                                                 )}
-                                                {item.type === 'user-strategy' && (
-                                                    <span className="text-[9px] text-emerald-500 font-mono">(strategy)</span>
+
+                                                {/* News row */}
+                                                {item.type === 'news' && item.newsData && (
+                                                    <>
+                                                        <span className="text-[9px] font-mono text-muted-fg w-10 shrink-0 tabular-nums">
+                                                            {formatPaletteTime(item.newsData.published)}
+                                                        </span>
+                                                        {item.newsData.isLive && (
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                                        )}
+                                                        <span className="text-[10px] text-foreground/90 flex-1 truncate italic">
+                                                            {decodeHtmlEntities(item.newsData.title)}
+                                                        </span>
+                                                        <span className="text-[9px] text-muted-fg truncate max-w-[90px] shrink-0">
+                                                            {item.newsData.author}
+                                                        </span>
+                                                    </>
                                                 )}
-                                                {item.shortcut && (
-                                                    <span className="text-[9px] text-muted-fg font-mono">
-                                                        {item.shortcut}
-                                                    </span>
+
+                                                {/* Command row */}
+                                                {item.type !== 'instrument' && item.type !== 'news' && (
+                                                    <>
+                                                        <span className={`px-1.5 py-0.5 text-[10px] font-mono font-semibold border rounded min-w-[60px] text-center ${
+                                                            item.type === 'user-strategy' ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10' :
+                                                            item.isUserScan ? 'border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10' :
+                                                            'border-border text-foreground bg-surface-inset/50'
+                                                        }`}>
+                                                            {item.label}
+                                                        </span>
+                                                        <span className="text-[10px] text-muted-fg flex-1 truncate">
+                                                            {item.description}
+                                                        </span>
+                                                        {item.isUserScan && (
+                                                            <span className="text-[9px] text-muted-fg font-mono">(scan)</span>
+                                                        )}
+                                                        {item.type === 'user-strategy' && (
+                                                            <span className="text-[9px] text-emerald-500 font-mono">(strategy)</span>
+                                                        )}
+                                                        {item.shortcut && (
+                                                            <span className="text-[9px] text-muted-fg font-mono">
+                                                                {item.shortcut}
+                                                            </span>
+                                                        )}
+                                                    </>
                                                 )}
-                                            </>
-                                        )}
-                                    </div>
-                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -534,6 +669,7 @@ export function TerminalPalette({
                             <span>Tab complete</span>
                             <span>Enter select</span>
                             <span>Esc back</span>
+                            {items.length > 0 && <span className="text-foreground/60">{items.length} results</span>}
                         </div>
                         <button
                             onClick={onOpenHelp}
@@ -551,7 +687,8 @@ export function TerminalPalette({
 // Types
 interface DisplayItem {
     id: string;
-    type: 'instrument' | 'ticker-command' | 'global-command' | 'scanner' | 'user-scanner' | 'event' | 'user-strategy';
+    type: 'instrument' | 'ticker-command' | 'global-command' | 'scanner' | 'user-scanner' | 'event' | 'user-strategy' | 'news';
+    section: string;
     label: string;
     description: string;
     shortcut?: string | null;
@@ -564,6 +701,7 @@ interface DisplayItem {
     userFilter?: UserFilter;
     isUserScan?: boolean;
     strategyData?: { id: number; name: string; eventTypes: string[]; filters: Record<string, any> };
+    newsData?: NewsArticle;
 }
 
 function getDisplayItems(
@@ -575,7 +713,8 @@ function getDisplayItems(
     selectedTicker: TickerResult | null,
     t: (key: string) => string,
     userScans: UserFilter[] = [],
-    userStrategies: AlertStrategy[] = []
+    userStrategies: AlertStrategy[] = [],
+    newsMatches: NewsArticle[] = []
 ): DisplayItem[] {
     // Contexto de ticker: bien un instrumento ya seleccionado, bien un ticker
     // tecleado en una sola línea ("AAPL FA"). En ambos casos mostramos los
@@ -592,6 +731,7 @@ function getDisplayItems(
         return list.map(([key, cmd]) => ({
             id: `cmd-${cmd.id}`,
             type: 'ticker-command' as const,
+            section: 'COMMANDS',
             label: key,
             description: t(cmd.descriptionKey),
             shortcut: cmd.shortcut,
@@ -611,6 +751,7 @@ function getDisplayItems(
             .map(cat => ({
                 id: `event-${cat.id}`,
                 type: 'event' as const,
+                section: 'EVENTS',
                 label: cat.label,
                 description: cat.description,
                 eventId: cat.id,
@@ -623,6 +764,7 @@ function getDisplayItems(
             .map(s => ({
                 id: `user-strategy-${s.id}`,
                 type: 'user-strategy' as const,
+                section: 'MY STRATEGIES',
                 label: s.name,
                 description: `${s.eventTypes.length} alerts · ${s.category || 'custom'}`,
                 strategyData: { id: s.id, name: s.name, eventTypes: s.eventTypes, filters: s.filters as Record<string, any> },
@@ -642,6 +784,7 @@ function getDisplayItems(
             .map(cmd => ({
                 id: `scanner-${cmd.id}`,
                 type: 'scanner' as const,
+                section: 'SCANNER',
                 label: cmd.label,
                 description: cmd.description,
                 scannerId: cmd.id,
@@ -657,6 +800,7 @@ function getDisplayItems(
                 return {
                     id: `user-scanner-${scan.id}`,
                     type: 'user-scanner' as const,
+                    section: 'MY SCANS',
                     label: scan.name,
                     description: scan.enabled ? `${activeFilters} filters` : '(disabled)',
                     userFilter: scan,
@@ -677,6 +821,7 @@ function getDisplayItems(
             matchingCommands.push({
                 id: `global-${cmd.id}`,
                 type: 'global-command' as const,
+                section: 'COMMANDS',
                 label: key,
                 description: t(cmd.descriptionKey),
                 shortcut: 'shortcut' in cmd ? cmd.shortcut : undefined,
@@ -686,28 +831,29 @@ function getDisplayItems(
         }
     });
 
-    // Si hay resultados de búsqueda de tickers, combinarlos con comandos
-    if (tickerResults.length > 0) {
-        const tickerItems = tickerResults.map(ticker => ({
-            id: `ticker-${ticker.symbol}-${ticker.exchange}`,
-            type: 'instrument' as const,
-            label: ticker.symbol,
-            description: ticker.name,
-            tickerData: ticker,
-            autocomplete: ticker.symbol + ' ',
-        }));
+    // Instrumentos (con quote en vivo pintado en el render)
+    const tickerItems: DisplayItem[] = tickerResults.map(ticker => ({
+        id: `ticker-${ticker.symbol}-${ticker.exchange}`,
+        type: 'instrument' as const,
+        section: 'INSTRUMENTS',
+        label: ticker.symbol,
+        description: ticker.name,
+        tickerData: ticker,
+        autocomplete: ticker.symbol + ' ',
+    }));
 
-        // Si hay comandos que coinciden, mostrarlos primero, luego los tickers
-        if (matchingCommands.length > 0) {
-            return [...matchingCommands, ...tickerItems];
-        }
+    // News stories del ticker (desde el NewsStore en memoria)
+    const newsItems: DisplayItem[] = newsMatches.map(article => ({
+        id: `news-${article.benzinga_id || article.id}`,
+        type: 'news' as const,
+        section: 'NEWS STORIES',
+        label: article.tickers?.[0] || '',
+        description: article.title,
+        newsData: article,
+    }));
 
-        // Si no hay comandos, solo mostrar tickers
-        return tickerItems;
-    }
-
-    // Si no hay tickers, mostrar comandos globales
-    return matchingCommands;
+    // Orden: comandos → instrumentos → noticias
+    return [...matchingCommands, ...tickerItems, ...newsItems];
 }
 
 export default TerminalPalette;

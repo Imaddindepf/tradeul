@@ -7,8 +7,12 @@ import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG, PredictionMarketsContent } from '@/components/floating-window';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { NewsContent } from '@/components/news/NewsContent';
+import { TopNewsContent } from '@/components/news/TopNewsContent';
+import { FuturesMonitorContent } from '@/components/markets/FuturesMonitorContent';
+import { ForexMonitorContent } from '@/components/markets/ForexMonitorContent';
 import { CatalystAlertsConfig } from '@/components/catalyst-alerts';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
+import { TimeAndSalesContent } from '@/components/tape';
 import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
@@ -405,6 +409,58 @@ export function useCommandExecutor() {
                     y: screenHeight / 2 - 300,
                     minWidth: 700,
                     minHeight: 450,
+                });
+                return null;
+
+            case 'top':
+                openWindow({
+                    title: t('commands.top.name'),
+                    content: <TopNewsContent />,
+                    width: 520,
+                    height: 640,
+                    x: screenWidth / 2 - 260,
+                    y: screenHeight / 2 - 320,
+                    minWidth: 400,
+                    minHeight: 400,
+                });
+                return null;
+
+            case 'tas':
+                openWindow({
+                    title: t('commands.tas.name'),
+                    content: <TimeAndSalesContent />,
+                    width: 380,
+                    height: 560,
+                    x: screenWidth / 2 - 190,
+                    y: screenHeight / 2 - 280,
+                    minWidth: 280,
+                    minHeight: 320,
+                });
+                return null;
+
+            case 'fut':
+                openWindow({
+                    title: t('commands.fut.name'),
+                    content: <FuturesMonitorContent />,
+                    width: 560,
+                    height: 700,
+                    x: screenWidth / 2 - 280,
+                    y: Math.max(60, screenHeight / 2 - 350),
+                    minWidth: 440,
+                    minHeight: 400,
+                });
+                return null;
+
+            case 'fx':
+                openWindow({
+                    title: t('commands.fx.name'),
+                    content: <ForexMonitorContent />,
+                    width: 560,
+                    height: 700,
+                    x: screenWidth / 2 - 240,
+                    y: Math.max(60, screenHeight / 2 - 330),
+                    minWidth: 440,
+                    minHeight: 400,
                 });
                 return null;
 
@@ -878,6 +934,19 @@ export function useCommandExecutor() {
                     y: Math.max(60, screenHeight / 2 - 390),
                     minWidth: 720,
                     minHeight: 560,
+                });
+                break;
+
+            case 'tape':
+                openWindow({
+                    title: `${t('commands.tas.name')}: ${normalizedTicker}`,
+                    content: <TimeAndSalesContent initialSymbol={normalizedTicker} />,
+                    width: 380,
+                    height: 560,
+                    x: Math.max(50, screenWidth / 2 - 190),
+                    y: Math.max(80, screenHeight / 2 - 280),
+                    minWidth: 280,
+                    minHeight: 320,
                 });
                 break;
 

@@ -713,7 +713,7 @@ const HERO_MAIN_COMMANDS: HeroCommand[] = [
   { id: 'WL',      label: 'WL',      description: 'Watchlist' },
   { id: 'DT',      label: 'DT',      description: 'Dilution Tracker' },
   { id: 'SEC',     label: 'SEC',     description: 'SEC filings in real-time' },
-  { id: 'NEWS',    label: 'NEWS',    description: 'Breaking news feed' },
+  { id: 'NEWS',    label: 'N',    description: 'Breaking news feed' },
   { id: 'INS',     label: 'INS',     description: 'Insider transactions', isNew: true },
   { id: 'ALERTS',  label: 'ALERTS',  description: 'Rules engine · alerts' },
   { id: 'FA',      label: 'FA',      description: 'Fundamental Analysis' },

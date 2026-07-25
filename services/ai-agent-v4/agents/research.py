@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -91,9 +92,23 @@ async def _research_with_gemini_grounding(
             "Be specific with dates and figures when available."
         )
 
+    # Sin fecha explícita el modelo asume que "el último año fiscal" es el de
+    # su cutoff de entrenamiento (visto 2026-07-24: respondió FY2024 teniendo
+    # FY2025 y H1-2026 disponibles) y sus búsquedas arrastran años viejos.
+    from datetime import datetime, timezone
+    _now = datetime.now(timezone.utc)
+    date_context = (
+        f"TODAY IS {_now.strftime('%B %d, %Y')}. The most recent COMPLETED fiscal "
+        f"year for most companies is {_now.year - 1}. Prefer sources from the last "
+        f"12 months; include explicit years in your search queries (e.g. '{_now.year}', "
+        f"'FY{_now.year - 1}') and NEVER present figures from an older year as the "
+        f"'latest' — label every figure with its year."
+    )
+
     prompt = (
         f"You are a financial research analyst. Search the web for information "
         f"about {ticker_context}.\n\n"
+        f"{date_context}\n\n"
         f"CRITICAL: The ticker(s) and company name(s) above are VERIFIED from our database. "
         f"Use the exact company name provided. Do NOT confuse with other companies "
         f"that may share similar ticker symbols.\n\n"
@@ -268,6 +283,74 @@ async def research_node(state: dict) -> dict:
     if use_grok:
         tasks.append(_run_grok())
 
+    # ── Fase 3c: mercados de predicción (Polymarket), aditivos a la web ──
+    # El selector decide si la pregunta pide probabilidades de eventos
+    # (Fed, elecciones, macro). Corre en paralelo con la búsqueda web y sus
+    # resultados se adjuntan; cualquier fallo se ignora (no es crítico).
+    prediction_data: dict[str, Any] | None = None
+
+    async def _run_predictions() -> None:
+        nonlocal prediction_data
+        try:
+            from agents._tool_selector import native_tools_enabled, select_tools
+            if not native_tools_enabled("research"):
+                return
+            selected = await select_tools("research", agent_task or query)
+            if not any(t.startswith("predictions.") for t in selected):
+                return
+            from agents.mcp_catalog import MCP
+            q_low = (agent_task or query).lower()
+            category = None
+            if any(w in q_low for w in ("fed", "tipos", "rate", "inflac", "inflation",
+                                        "recession", "recesión", "gdp", "pib", "cpi")):
+                category = "economics"
+            elif any(w in q_low for w in ("elecc", "election", "president", "trump", "congress")):
+                category = "politics"
+            elif any(w in q_low for w in ("bitcoin", "btc", "eth", "crypto", "cripto")):
+                category = "crypto"
+            params: dict[str, Any] = {"active": True, "limit": 50}
+            if category:
+                params["category"] = category
+            raw = await MCP.predictions.get_prediction_events(params)
+            events = raw.get("events", raw.get("results", [])) if isinstance(raw, dict) else []
+            if not isinstance(events, list) or not events:
+                return
+            # Relevancia: solapamiento de palabras con la query, expandiendo
+            # términos macro es→en (los títulos de Polymarket son en inglés).
+            _ES_EN = {
+                "tipos": ["rate", "rates"], "bajada": ["cut", "cuts"],
+                "subida": ["hike", "hikes"], "recortes": ["cut", "cuts"],
+                "elecciones": ["election"], "eleccion": ["election"],
+                "inflacion": ["inflation", "cpi"], "recesion": ["recession"],
+                "enero": ["january"], "febrero": ["february"], "marzo": ["march"],
+                "abril": ["april"], "mayo": ["may"], "junio": ["june"],
+                "julio": ["july"], "agosto": ["august"], "septiembre": ["september"],
+                "octubre": ["october"], "noviembre": ["november"], "diciembre": ["december"],
+            }
+            words = set()
+            for w in re.findall(r"[a-záéíóúñ]{3,}", q_low):
+                plain = (w.replace("á", "a").replace("é", "e").replace("í", "i")
+                          .replace("ó", "o").replace("ú", "u"))
+                words.add(plain)
+                words.update(_ES_EN.get(plain, []))
+            def _score(ev: dict) -> int:
+                title = str(ev.get("title", "") or ev.get("question", "")).lower()
+                return sum(1 for w in words if w in title)
+            ranked = sorted((e for e in events if isinstance(e, dict)),
+                            key=_score, reverse=True)
+            top = ranked[:5]
+            prediction_data = {"events": top, "category": category}
+            if "predictions.get_prediction_price_history" in selected and top:
+                ev_id = str(top[0].get("id") or top[0].get("event_id") or "")
+                if ev_id:
+                    hist = await MCP.predictions.get_prediction_price_history(
+                        {"event_id": ev_id, "interval": "max"})
+                    prediction_data["price_history"] = hist
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Research: prediction markets fetch failed (non-critical): %s", exc)
+
+    tasks.append(_run_predictions())
+
     try:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -309,6 +392,10 @@ async def research_node(state: dict) -> dict:
             "citations": [],
             "error": "Both Gemini grounding and Grok failed.",
         }
+
+    if prediction_data:
+        research_result["prediction_markets"] = prediction_data
+        sources_used.append("polymarket")
 
     elapsed_ms = int((time.time() - start_time) * 1000)
     logger.info(

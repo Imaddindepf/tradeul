@@ -63,6 +63,7 @@ from routes.perplexity_financials import router as perplexity_financials_router
 from routes.developer import router as developer_router, set_redis_client as set_developer_redis
 from routes.bug_reports import router as bug_reports_router, set_redis_client as set_bug_reports_redis
 from routes.imap import router as imap_router
+from routes.tape import router as tape_router
 from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
@@ -276,6 +277,7 @@ app.include_router(perplexity_financials_router)  # Balance Sheet + Cash Flow (P
 app.include_router(developer_router)               # Trader API key management (Openul stream)
 app.include_router(bug_reports_router)             # Dashboard bug report submissions
 app.include_router(imap_router)                    # World Venue Map (IMAP) — FMP exchange hours
+app.include_router(tape_router)                    # Time & Sales: backfill + reference (conditions/exchanges)
 
 
 # ============================================================================
@@ -2264,6 +2266,26 @@ async def proxy_news_latest(limit: int = Query(50, ge=1, le=200)):
         raise HTTPException(status_code=e.response.status_code, detail="Service error")
     except Exception as e:
         logger.error("benzinga_latest_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/news/api/v1/news/top")
+async def proxy_news_top(
+    limit: int = Query(100, ge=1, le=300),
+    offset: int = Query(0, ge=0, le=300)
+):
+    """Proxy para Top News (Reuters) del servicio fmp-news"""
+    try:
+        # Usar cliente con connection pooling
+        return await http_clients.fmp_news.get_top_news(limit, offset)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Service timeout")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Service unavailable")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Service error")
+    except Exception as e:
+        logger.error("news_top_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -83,7 +83,7 @@ export const WORKSPACE_LAYOUTS: WorkspaceLayoutPreset[] = [
       { label: 'GAP UP', preview: 'table', rect: { x: 0, y: 0, w: 0.4, h: 0.5 }, kind: { type: 'scanner', categoryId: 'gappers_up' } },
       { label: 'MOMENTUM', preview: 'table', rect: { x: 0, y: 0.5, w: 0.4, h: 0.5 }, kind: { type: 'scanner', categoryId: 'momentum_up' } },
       { label: 'EVENTS', preview: 'table', rect: { x: 0.4, y: 0, w: 0.34, h: 0.5 }, kind: { type: 'event', categoryId: 'evt_high_vol_runners' } },
-      { label: 'NEWS', preview: 'feed', rect: { x: 0.4, y: 0.5, w: 0.34, h: 0.5 }, kind: { type: 'module', moduleId: 'news' }, tickerAware: true },
+      { label: 'N', preview: 'feed', rect: { x: 0.4, y: 0.5, w: 0.34, h: 0.5 }, kind: { type: 'module', moduleId: 'news' }, tickerAware: true },
       { label: 'PULSE', preview: 'pulse', rect: { x: 0.74, y: 0, w: 0.26, h: 1 }, kind: { type: 'module', moduleId: 'pulse' } },
     ],
   },
@@ -105,7 +105,7 @@ export const WORKSPACE_LAYOUTS: WorkspaceLayoutPreset[] = [
     descKey: 'workspace.layouts.newsCatalysts.desc',
     audienceKey: 'workspace.layouts.newsCatalysts.audience',
     tiles: [
-      { label: 'NEWS', preview: 'feed', rect: { x: 0, y: 0, w: 0.46, h: 1 }, kind: { type: 'module', moduleId: 'news' }, tickerAware: true },
+      { label: 'N', preview: 'feed', rect: { x: 0, y: 0, w: 0.46, h: 1 }, kind: { type: 'module', moduleId: 'news' }, tickerAware: true },
       { label: 'BREAKING', preview: 'live', rect: { x: 0.46, y: 0, w: 0.24, h: 1 }, kind: { type: 'module', moduleId: 'opn' } },
       { label: 'TICKERS', preview: 'table', rect: { x: 0.7, y: 0, w: 0.3, h: 0.55 }, kind: { type: 'scanner', categoryId: 'with_news' } },
       { label: 'EARNINGS', preview: 'calendar', rect: { x: 0.7, y: 0.55, w: 0.3, h: 0.45 }, kind: { type: 'module', moduleId: 'earnings' } },

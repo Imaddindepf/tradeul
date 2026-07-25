@@ -33,7 +33,7 @@ const SCANNER_TILES: ScannerTile[] = [
 ];
 
 const MODULE_TILES: ModuleTile[] = [
-  { id: 'news', label: 'NEWS', descKey: 'workspace.modules.news' },
+  { id: 'news', label: 'N', descKey: 'workspace.modules.news' },
   { id: 'dt', label: 'DT', descKey: 'workspace.modules.dt' },
   { id: 'evt_all', label: 'EVN', descKey: 'workspace.modules.evn' },
   { id: 'ai', label: 'AI', descKey: 'workspace.modules.ai' },

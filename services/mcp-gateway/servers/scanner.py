@@ -11,6 +11,7 @@ Architecture:
 from fastmcp import FastMCP
 from clients.redis_client import redis_get_json, get_redis
 from clients.http_client import service_get
+from clients.db_client import get_share_class_roots, dedupe_by_root
 from config import config
 from typing import Optional
 import logging
@@ -304,6 +305,10 @@ async def apply_dynamic_filter(
     reverse = sort_order == "desc"
     matched.sort(key=lambda pair: _sort_key(pair[0]), reverse=reverse)
     rows = [row for _, row in matched]
+
+    # One row per company: drop secondary share classes (GOOG vs GOOGL,
+    # when-issued duplicates like SKHYV) keeping the best-ranked one.
+    rows = dedupe_by_root(rows, await get_share_class_roots())
 
     return {
         "tickers": rows[:limit],

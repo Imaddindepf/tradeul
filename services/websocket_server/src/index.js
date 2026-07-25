@@ -1761,6 +1761,64 @@ function nextChartSeq(symbol) {
 const chartRefCount = new Map();
 
 // =============================================
+// TAPE (Time & Sales): suscripciones al flujo crudo de prints
+// =============================================
+// Mapeo ticker → Set<connectionId> (quién tiene un Time & Sales abierto)
+const tapeSubscribers = new Map();
+// Ref count de clientes de tape por ticker
+const tapeRefCount = new Map();
+
+// La suscripción T.{SYM} en polygon_ws es COMPARTIDA entre chart y tape:
+// este contador cuenta "features" (chart abierto=1, tape abierto=1) para que
+// cerrar el chart no mate el feed de trades mientras el tape siga abierto,
+// y viceversa. Solo cuando llega a 0 se manda unsubscribe a polygon_ws.
+const tradeFeedHolders = new Map(); // symbol → int
+
+async function acquireTradeFeed(symbol) {
+  const current = tradeFeedHolders.get(symbol) || 0;
+  tradeFeedHolders.set(symbol, current + 1);
+  if (current > 0) return;
+  try {
+    await redisCommands.xadd(
+      "polygon_ws:trade_subscriptions",
+      "*",
+      "action", "subscribe",
+      "symbol", symbol
+    );
+    tradeSubscribedSymbols.add(symbol);
+    logger.info({ symbol }, "🎞️ Trade feed acquired - notified polygon_ws (T.*)");
+  } catch (err) {
+    logger.error({ err, symbol }, "Error subscribing trade feed in polygon_ws");
+  }
+}
+
+async function releaseTradeFeed(symbol) {
+  const current = tradeFeedHolders.get(symbol) || 0;
+  const next = Math.max(0, current - 1);
+  if (next === 0) {
+    tradeFeedHolders.delete(symbol);
+    // Mismo criterio conservador que el chart: si el scanner mantiene el
+    // símbolo en alguna lista, no tocamos las suscripciones de polygon_ws.
+    if (!symbolToLists.has(symbol)) {
+      try {
+        await redisCommands.xadd(
+          "polygon_ws:trade_subscriptions",
+          "*",
+          "action", "unsubscribe",
+          "symbol", symbol
+        );
+        tradeSubscribedSymbols.delete(symbol);
+        logger.info({ symbol }, "🎞️ Trade feed released - notified polygon_ws (T.*)");
+      } catch (err) {
+        logger.error({ err, symbol }, "Error unsubscribing trade feed in polygon_ws");
+      }
+    }
+  } else {
+    tradeFeedHolders.set(symbol, next);
+  }
+}
+
+// =============================================
 // QUOTES: Suscripciones por ticker para datos individuales
 // =============================================
 // Mapeo ticker → Set<connectionId> (quién quiere quotes de este ticker)
@@ -2820,14 +2878,8 @@ async function subscribeClientToChart(connectionId, symbol) {
         "action", "subscribe",
         "symbol", symbolUpper
       );
-      // Also subscribe to trades for tick-by-tick real-time
-      await redisCommands.xadd(
-        "polygon_ws:trade_subscriptions",
-        "*",
-        "action", "subscribe",
-        "symbol", symbolUpper
-      );
-      tradeSubscribedSymbols.add(symbolUpper);
+      // Also subscribe to trades for tick-by-tick real-time (shared with tape)
+      await acquireTradeFeed(symbolUpper);
       logger.info({ symbol: symbolUpper }, " Chart: First subscriber - notified polygon_ws (A.* + T.*)");
     } catch (err) {
       logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for chart");
@@ -2876,19 +2928,14 @@ async function unsubscribeClientFromChart(connectionId, symbol) {
           "action", "unsubscribe",
           "symbol", symbolUpper
         );
-        // Also unsubscribe from trades
-        await redisCommands.xadd(
-          "polygon_ws:trade_subscriptions",
-          "*",
-          "action", "unsubscribe",
-          "symbol", symbolUpper
-        );
-        tradeSubscribedSymbols.delete(symbolUpper);
-        logger.info({ symbol: symbolUpper }, " Chart: Last subscriber gone - notified polygon_ws (A.* + T.*)");
+        logger.info({ symbol: symbolUpper }, " Chart: Last subscriber gone - notified polygon_ws (A.*)");
       } catch (err) {
         logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for chart unsubscription");
       }
     }
+    // Also release trades feed (shared with tape — only unsubscribes T.* if
+    // no other feature still holds it)
+    await releaseTradeFeed(symbolUpper);
   }
   
   logger.info({
@@ -2913,6 +2960,85 @@ async function unsubscribeClientFromAllCharts(connectionId) {
   
   for (const symbol of tickersToUnsubscribe) {
     await unsubscribeClientFromChart(connectionId, symbol);
+  }
+}
+
+// =============================================
+// TAPE (Time & Sales) SUBSCRIPTION MANAGEMENT
+// =============================================
+
+/**
+ * Suscribir cliente al tape (prints crudos) de un ticker.
+ * Los prints llegan en lotes desde chart_aggregator vía tape:trades:{SYM}.
+ */
+async function subscribeClientToTape(connectionId, symbol) {
+  const symbolUpper = symbol.toUpperCase();
+
+  if (!tapeSubscribers.has(symbolUpper)) {
+    tapeSubscribers.set(symbolUpper, new Set());
+  }
+  tapeSubscribers.get(symbolUpper).add(connectionId);
+
+  const currentCount = tapeRefCount.get(symbolUpper) || 0;
+  tapeRefCount.set(symbolUpper, currentCount + 1);
+
+  if (currentCount === 0) {
+    await acquireTradeFeed(symbolUpper);
+  }
+
+  logger.info({
+    connectionId,
+    symbol: symbolUpper,
+    totalSubscribers: tapeSubscribers.get(symbolUpper).size,
+    refCount: tapeRefCount.get(symbolUpper)
+  }, "🎞️ Client subscribed to tape");
+
+  return true;
+}
+
+/**
+ * Desuscribir cliente del tape de un ticker
+ */
+async function unsubscribeClientFromTape(connectionId, symbol) {
+  const symbolUpper = symbol.toUpperCase();
+
+  const subscribers = tapeSubscribers.get(symbolUpper);
+  if (!subscribers || !subscribers.has(connectionId)) return;
+
+  subscribers.delete(connectionId);
+
+  const currentCount = tapeRefCount.get(symbolUpper) || 0;
+  const newCount = Math.max(0, currentCount - 1);
+  tapeRefCount.set(symbolUpper, newCount);
+
+  if (newCount === 0) {
+    tapeSubscribers.delete(symbolUpper);
+    tapeRefCount.delete(symbolUpper);
+    await releaseTradeFeed(symbolUpper);
+  }
+
+  logger.info({
+    connectionId,
+    symbol: symbolUpper,
+    remainingSubscribers: subscribers.size,
+    refCount: newCount
+  }, "🎞️ Client unsubscribed from tape");
+}
+
+/**
+ * Desuscribir cliente de todos los tapes (al desconectar)
+ */
+async function unsubscribeClientFromAllTapes(connectionId) {
+  const tickersToUnsubscribe = [];
+
+  tapeSubscribers.forEach((subscribers, symbol) => {
+    if (subscribers.has(connectionId)) {
+      tickersToUnsubscribe.push(symbol);
+    }
+  });
+
+  for (const symbol of tickersToUnsubscribe) {
+    await unsubscribeClientFromTape(connectionId, symbol);
   }
 }
 
@@ -4113,6 +4239,7 @@ async function removeConnection(connectionId) {
     eventRateLimiters.delete(connectionId);
     await unsubscribeClientFromAllQuotes(connectionId);
     await unsubscribeClientFromAllCharts(connectionId);
+    await unsubscribeClientFromAllTapes(connectionId);
   } catch (err) {
     logger.error({ connectionId, err }, "Error during connection cleanup");
   } finally {
@@ -4760,10 +4887,57 @@ wss.on("connection", async (ws, req) => {
         }
         
         await unsubscribeClientFromChart(connectionId, symbol);
-        
+
         sendMessage(connectionId, {
           type: "unsubscribed",
           channel: "CHART",
+          symbol: symbol.toUpperCase()
+        });
+      }
+
+      // =============================================
+      // SUBSCRIBE TO TAPE (Time & Sales)
+      // =============================================
+      else if (action === "subscribe_tape") {
+        const symbol = data.symbol;
+
+        if (!symbol) {
+          sendMessage(connectionId, {
+            type: "error",
+            message: "Missing 'symbol' parameter for tape subscription"
+          });
+          return;
+        }
+
+        await subscribeClientToTape(connectionId, symbol);
+
+        sendMessage(connectionId, {
+          type: "subscribed",
+          channel: "TAPE",
+          symbol: symbol.toUpperCase(),
+          message: `Subscribed to time & sales for ${symbol.toUpperCase()}`
+        });
+      }
+
+      // =============================================
+      // UNSUBSCRIBE FROM TAPE
+      // =============================================
+      else if (action === "unsubscribe_tape") {
+        const symbol = data.symbol;
+
+        if (!symbol) {
+          sendMessage(connectionId, {
+            type: "error",
+            message: "Missing 'symbol' parameter for tape unsubscription"
+          });
+          return;
+        }
+
+        await unsubscribeClientFromTape(connectionId, symbol);
+
+        sendMessage(connectionId, {
+          type: "unsubscribed",
+          channel: "TAPE",
           symbol: symbol.toUpperCase()
         });
       }
@@ -5059,6 +5233,9 @@ redisChartTrades.on("connect", () => {
   logger.info("Redis Chart Trades PubSub connected — subscribing to chart:trades:* + chart:sealed:*");
   redisChartTrades.psubscribe("chart:trades:*", (err) => {
     if (err) logger.error({ err }, "Failed to psubscribe chart:trades:*");
+  });
+  redisChartTrades.psubscribe("tape:trades:*", (err) => {
+    if (err) logger.error({ err }, "Failed to psubscribe tape:trades:*");
     else logger.info("✅ Subscribed to chart:trades:* pattern");
   });
   // Velas SELLADAS de bar_builder (autoritativas al cierre de cada bucket).
@@ -5130,6 +5307,44 @@ function sendToChartSubscribers(symbol, payload) {
 
 redisChartTrades.on("pmessage", (pattern, channel, message) => {
   try {
+    if (pattern === "tape:trades:*") {
+      const symbol = channel.slice(12); // "tape:trades:".length = 12
+      const subscribers = tapeSubscribers.get(symbol);
+      if (!subscribers || subscribers.size === 0) return;
+
+      // Lote de prints crudos de chart_aggregator: [{p,s,t,x,c,q,i,z,pt,trfi,trft}, ...]
+      const prints = JSON.parse(message);
+      if (!Array.isArray(prints) || prints.length === 0) return;
+
+      const payload = JSON.stringify({
+        type: "tape_trades",
+        symbol: symbol,
+        data: prints,
+        timestamp: new Date().toISOString()
+      });
+
+      const disconnected = [];
+      subscribers.forEach((connectionId) => {
+        const conn = connections.get(connectionId);
+        if (!conn || conn.ws.readyState !== 1) {
+          disconnected.push(connectionId);
+          return;
+        }
+        // Backpressure: si el cliente va saturado, descartar el lote — el
+        // tape es flujo visual, el siguiente lote llega en ~100ms.
+        if (conn.ws.bufferedAmount > 512 * 1024) return;
+        try {
+          conn.ws.send(payload);
+        } catch (err) {
+          disconnected.push(connectionId);
+        }
+      });
+      for (const connId of disconnected) {
+        subscribers.delete(connId);
+      }
+      return;
+    }
+
     if (pattern === "chart:trades:*") {
       const symbol = channel.slice(14); // "chart:trades:".length = 14
 
