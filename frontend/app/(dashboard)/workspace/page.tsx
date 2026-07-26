@@ -60,6 +60,7 @@ import { UserScanTableContent } from '@/components/scanner/UserScanTableContent'
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { BugReportsAdminContent } from '@/components/dashboard-toolbar/BugReportsAdminContent';
 import { TimeAndSalesContent } from '@/components/tape/TimeAndSalesContent';
+import { TVChartContent } from '@/components/tvchart';
 import { FuturesMonitorContent } from '@/components/markets/FuturesMonitorContent';
 import { ForexMonitorContent } from '@/components/markets/ForexMonitorContent';
 import { TopNewsContent } from '@/components/news/TopNewsContent';
@@ -195,6 +196,7 @@ export default function ScannerPage() {
     if (title === 'Openul — Breaking News') return <OpenULContent />;
     if (title === 'Bug Reports Admin') return <BugReportsAdminContent />;
     if (title === 'Time & Sales') return <TimeAndSalesContent />;
+    if (title === 'TradingView') return <TVChartContent />;
     if (title === 'Futures' || title === 'Futuros') return <FuturesMonitorContent />;
     if (title === 'Forex') return <ForexMonitorContent />;
     if (title === 'Top News') return <TopNewsContent />;
@@ -278,6 +280,11 @@ export default function ScannerPage() {
     if (title.startsWith('Time & Sales: ')) {
       const ticker = title.replace('Time & Sales: ', '');
       return <TimeAndSalesContent initialSymbol={ticker} />;
+    }
+    // TradingView: TICKER (comando TVC)
+    if (title.startsWith('TradingView: ')) {
+      const ticker = title.replace('TradingView: ', '');
+      return <TVChartContent initialSymbol={ticker} />;
     }
     // Quote: TICKER (tira de precio) - NO restauramos porque es muy específico
 

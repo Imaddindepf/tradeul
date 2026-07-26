@@ -18,6 +18,20 @@ const nextConfig = {
     return config;
   },
 
+  // Proxy same-origin hacia el API gateway SOLO en dev: el puerto 3002 no
+  // está en la allowlist CORS del gateway, así que la ventana TradingView
+  // (components/tvchart) pasa por aquí en desarrollo. En producción llama
+  // a NEXT_PUBLIC_API_URL directamente y esta regla no se registra.
+  async rewrites() {
+    if (process.env.NODE_ENV !== 'development') return [];
+    return [
+      {
+        source: '/tvproxy/:path*',
+        destination: 'https://api.tradeul.com/:path*',
+      },
+    ];
+  },
+
   // Optimización de producción
   swcMinify: true,
   

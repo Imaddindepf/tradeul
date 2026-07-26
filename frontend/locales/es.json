@@ -334,6 +334,10 @@
     "tas": {
       "name": "Time & Sales",
       "description": "Cinta en vivo: cada print con precio, tamaño, venue y condición"
+    },
+    "tvc": {
+      "name": "TradingView",
+      "description": "Gráfico avanzado de TradingView: +100 indicadores, herramientas de dibujo, datos en vivo"
     }
   },
   "scanner": {
@@ -735,6 +739,9 @@
       },
       "TAS": {
         "description": "Time & Sales del ticker"
+      },
+      "TVC": {
+        "description": "Gráfico TradingView del ticker"
       }
     },
     "globalCommands": {
@@ -860,6 +867,9 @@
       },
       "TAS": {
         "description": "Cinta de Time & Sales"
+      },
+      "TVC": {
+        "description": "Gráfico avanzado de TradingView"
       }
     }
   },

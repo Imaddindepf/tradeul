@@ -334,6 +334,10 @@
     "tas": {
       "name": "Time & Sales",
       "description": "Live tape: every print with price, size, venue and condition"
+    },
+    "tvc": {
+      "name": "TradingView",
+      "description": "Advanced TradingView chart: 100+ indicators, drawing tools, live data"
     }
   },
   "scanner": {
@@ -735,6 +739,9 @@
       },
       "TAS": {
         "description": "Time & Sales for ticker"
+      },
+      "TVC": {
+        "description": "TradingView chart for ticker"
       }
     },
     "globalCommands": {
@@ -860,6 +867,9 @@
       },
       "TAS": {
         "description": "Time & Sales tape"
+      },
+      "TVC": {
+        "description": "Advanced TradingView chart"
       }
     }
   },

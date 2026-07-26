@@ -79,6 +79,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'heatmap', label: 'HM', description: 'commands.heatmap.description', icon: Grid3X3, shortcut: 'Ctrl+H', isNew: true },
   { id: 'imap', label: 'IMAP', description: 'commands.imap.description', icon: Map, isNew: true },
   { id: 'tas', label: 'TAS', description: 'commands.tas.description', icon: Rows3, isNew: true },
+  { id: 'tvc', label: 'TVC', description: 'commands.tvc.description', icon: LineChart, isNew: true },
   { id: 'hds', label: 'HDS', description: 'commands.hds.description', icon: Users, isNew: true },
   { id: 'evn', label: 'EVN', description: 'commands.evn.description', icon: Activity, isNew: true },
   { id: 'build', label: 'BUILD', description: 'commands.build.description', icon: Zap },

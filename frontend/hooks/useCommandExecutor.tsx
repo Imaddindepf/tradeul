@@ -13,6 +13,7 @@ import { ForexMonitorContent } from '@/components/markets/ForexMonitorContent';
 import { CatalystAlertsConfig } from '@/components/catalyst-alerts';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { TimeAndSalesContent } from '@/components/tape';
+import { TVChartContent } from '@/components/tvchart';
 import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
@@ -435,6 +436,19 @@ export function useCommandExecutor() {
                     y: screenHeight / 2 - 280,
                     minWidth: 280,
                     minHeight: 320,
+                });
+                return null;
+
+            case 'tvc':
+                openWindow({
+                    title: 'TradingView',
+                    content: <TVChartContent />,
+                    width: Math.min(1100, screenWidth - 120),
+                    height: Math.min(660, screenHeight - 160),
+                    x: Math.max(50, screenWidth / 2 - 550),
+                    y: Math.max(80, screenHeight / 2 - 330),
+                    minWidth: 560,
+                    minHeight: 380,
                 });
                 return null;
 
@@ -947,6 +961,19 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 280),
                     minWidth: 280,
                     minHeight: 320,
+                });
+                break;
+
+            case 'tvchart':
+                openWindow({
+                    title: `TradingView: ${normalizedTicker}`,
+                    content: <TVChartContent initialSymbol={normalizedTicker} />,
+                    width: Math.min(1100, screenWidth - 120),
+                    height: Math.min(660, screenHeight - 160),
+                    x: Math.max(50, screenWidth / 2 - 550),
+                    y: Math.max(80, screenHeight / 2 - 330),
+                    minWidth: 560,
+                    minHeight: 380,
                 });
                 break;
 

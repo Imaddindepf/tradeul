@@ -97,6 +97,13 @@ export const TICKER_COMMANDS = {
         descriptionKey: 'terminalCommands.tickerCommands.TAS.description',
         shortcut: null
     },
+    TVC: {
+        id: 'tvchart',
+        label: 'TVC',
+        name: 'TradingView Chart',
+        descriptionKey: 'terminalCommands.tickerCommands.TVC.description',
+        shortcut: null
+    },
 } as const;
 
 export type TickerCommandKey = keyof typeof TICKER_COMMANDS;
@@ -169,6 +176,13 @@ export const GLOBAL_COMMANDS = {
         label: 'TAS',
         name: 'Time & Sales',
         descriptionKey: 'terminalCommands.globalCommands.TAS.description',
+        shortcut: null
+    },
+    TVC: {
+        id: 'tvc',
+        label: 'TVC',
+        name: 'TradingView Chart',
+        descriptionKey: 'terminalCommands.globalCommands.TVC.description',
         shortcut: null
     },
     INS: {
