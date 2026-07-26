@@ -15,13 +15,31 @@ import { createPortal } from 'react-dom';
 import { Z_INDEX } from '@/lib/z-index';
 import { getOverlayRoot } from '@/lib/overlayRoot';
 import { TV_ICONS } from './tvIcons';
+import { useTVPopover } from './tvPopovers';
 import type { TVChartCellApi } from './TVChartCell';
 
-export type DrawingsSyncMode = 'off' | 'layout';
+/**
+ * Modos de sincronización de dibujos nuevos, calcados de tradingview.com
+ * (sharingMode de la CL): 'layout' = entre charts del MISMO símbolo dentro
+ * del diseño actual; 'global' = asociados al símbolo A NIVEL DE USUARIO
+ * (aparecen en cualquier diseño/layout que cargue ese símbolo, persistidos
+ * en el backend por (usuario, símbolo)).
+ */
+export type DrawingsSyncMode = 'off' | 'layout' | 'global';
 
 interface TVDrawingBarProps {
     /** API de la celda enfocada (null si aún no hay ninguna montada). */
     getActiveCell: () => TVChartCellApi | null;
+    /**
+     * TODAS las celdas montadas: el estado de la barra es GLOBAL del layout
+     * (como en tradingview.com): herramienta armada, imán, candados y ojo se
+     * aplican a todas las celdas, no solo a la enfocada.
+     */
+    getCells: () => TVChartCellApi[];
+    /** API de una celda por id (para re-aplicar el estado al llegar a ready). */
+    getCellById: (cellId: string) => TVChartCellApi | null;
+    /** Última celda cuyo widget llegó a ready (contador para re-aplicar). */
+    readyCell?: { id: string; seq: number };
     /** Sincronización de dibujos nuevos entre celdas del layout. */
     drawingsSync: DrawingsSyncMode;
     onDrawingsSyncChange: (mode: DrawingsSyncMode) => void;
@@ -290,18 +308,14 @@ function Flyout({
     const [mounted, setMounted] = useState(false);
     useEffect(() => setMounted(true), []);
 
-    useEffect(() => {
-        const close = (e: MouseEvent) => {
-            if (!ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node)) onClose();
-        };
-        const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-        window.addEventListener('mousedown', close);
-        window.addEventListener('keydown', esc);
-        return () => {
-            window.removeEventListener('mousedown', close);
-            window.removeEventListener('keydown', esc);
-        };
-    }, [anchor, onClose]);
+    // Exclusividad + cierre por clic fuera (incl. iframes). El ESC lo gestiona
+    // el flujo de la barra (cerrar flyout / volver al cursor), no el hook.
+    useTVPopover(
+        true,
+        onClose,
+        (t) => (ref.current?.contains(t) ?? false) || anchor.contains(t),
+        { escape: false },
+    );
 
     if (!mounted) return null;
     const r = anchor.getBoundingClientRect();
@@ -356,19 +370,24 @@ const SectionHeader = ({ children }: { children: ReactNode }) => (
     <div className="px-3 pb-1 pt-3 text-[11px] font-medium tracking-wide opacity-50">{children}</div>
 );
 
-export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange, escSignal = 0 }: TVDrawingBarProps) {
+export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, drawingsSync, onDrawingsSyncChange, escSignal = 0 }: TVDrawingBarProps) {
     /** Herramienta "actual" de cada grupo (el icono del botón la refleja). */
     const [groupTool, setGroupTool] = useState<Record<string, ToolItem>>({});
     const [selectedTool, setSelectedTool] = useState('cursor');
     const [openFlyout, setOpenFlyout] = useState<string | null>(null);
     const buttonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
+    /** Aplicar una acción a TODAS las celdas (estado global del layout). */
+    const forEachCell = (fn: (api: TVChartCellApi) => void) => {
+        for (const api of getCells()) fn(api);
+    };
+
     // ESC (flujo TV): con flyout abierto lo cierra; si no, vuelve al cursor.
     const escapeToNormal = () => {
         setOpenFlyout((open) => {
             if (open !== null) return null;
             setSelectedTool('cursor');
-            getActiveCell()?.selectTool('cursor');
+            forEachCell((api) => api.selectTool('cursor'));
             return null;
         });
     };
@@ -403,7 +422,9 @@ export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange
         setGroupTool((prev) => ({ ...prev, [groupId]: item }));
         setSelectedTool(item.tool);
         setOpenFlyout(null);
-        getActiveCell()?.selectTool(item.tool);
+        // Como en TV: la herramienta queda armada en TODO el layout y se
+        // dibuja en la celda sobre la que se haga clic.
+        forEachCell((api) => api.selectTool(item.tool));
     };
 
     const btnClass = (active: boolean) =>
@@ -414,20 +435,43 @@ export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange
     const applyMagnet = (mode: 'off' | 'weak' | 'strong') => {
         setMagnetMode(mode);
         setOpenFlyout(null);
-        const api = getActiveCell();
-        api?.setMagnet(mode !== 'off');
-        if (mode !== 'off') api?.setMagnetMode(mode);
+        forEachCell((api) => {
+            api.setMagnet(mode !== 'off');
+            if (mode !== 'off') api.setMagnetMode(mode);
+        });
     };
 
     const applyHide = (what: 'drawings' | 'indicators' | 'all') => {
         setOpenFlyout(null);
-        const api = getActiveCell();
         const next = hiddenState === what ? 'none' : what;
         setHiddenState(next);
         const on = next !== 'none';
-        if (what === 'drawings' || what === 'all') api?.setHideAllDrawings(on);
-        if (what === 'indicators' || what === 'all') api?.setHideAllStudies(on);
+        forEachCell((api) => {
+            if (what === 'drawings' || what === 'all') api.setHideAllDrawings(on);
+            if (what === 'indicators' || what === 'all') api.setHideAllStudies(on);
+        });
     };
+
+    // Celda nueva lista (cambio de layout, recreación por watchdog…): hereda
+    // el estado GLOBAL de la barra — sin esto nacía con los defaults aunque
+    // la barra marcase imán/candado/herramienta activos.
+    const barStateRef = useRef({ selectedTool, magnetMode, drawLockOn, lockAllOn, hiddenState });
+    barStateRef.current = { selectedTool, magnetMode, drawLockOn, lockAllOn, hiddenState };
+    useEffect(() => {
+        if (!readyCell?.id) return;
+        const api = getCellById(readyCell.id);
+        if (!api) return;
+        const s = barStateRef.current;
+        api.setMagnet(s.magnetMode !== 'off');
+        if (s.magnetMode !== 'off') api.setMagnetMode(s.magnetMode);
+        api.setLockAllDrawings(s.lockAllOn);
+        api.setHideAllDrawings(s.hiddenState === 'drawings' || s.hiddenState === 'all');
+        api.setHideAllStudies(s.hiddenState === 'indicators' || s.hiddenState === 'all');
+        // La celda recién creada parte con drawLock OFF: un exec la alinea.
+        if (s.drawLockOn) api.exec('stayInDrawingModeAction');
+        if (s.selectedTool !== 'cursor') api.selectTool(s.selectedTool);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [readyCell?.seq]);
 
     return (
         <div
@@ -458,7 +502,7 @@ export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange
                                     setOpenFlyout((v) => (v === group.id ? null : group.id));
                                 } else {
                                     setSelectedTool(current.tool);
-                                    getActiveCell()?.selectTool(current.tool);
+                                    forEachCell((api) => api.selectTool(current.tool));
                                 }
                             }}
                             className={btnClass(isActive || openFlyout === group.id)}
@@ -514,7 +558,7 @@ export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange
                 aria-label="Emoji"
                 onClick={() => {
                     setSelectedTool('emoji');
-                    getActiveCell()?.selectTool('emoji');
+                    forEachCell((api) => api.selectTool('emoji'));
                 }}
                 className={btnClass(selectedTool === 'emoji')}
             >
@@ -529,7 +573,7 @@ export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange
                 aria-label="Medir"
                 onClick={() => {
                     setSelectedTool('measure');
-                    getActiveCell()?.selectTool('measure');
+                    forEachCell((api) => api.selectTool('measure'));
                 }}
                 className={btnClass(selectedTool === 'measure')}
             >
@@ -540,7 +584,7 @@ export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange
                 aria-label="Acercar"
                 onClick={() => {
                     setSelectedTool('zoom');
-                    getActiveCell()?.selectTool('zoom');
+                    forEachCell((api) => api.selectTool('zoom'));
                 }}
                 className={btnClass(selectedTool === 'zoom')}
             >
@@ -583,7 +627,7 @@ export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange
                 aria-label="Permanecer en modo dibujo"
                 onClick={() => {
                     setDrawLockOn((v) => !v);
-                    getActiveCell()?.exec('stayInDrawingModeAction');
+                    forEachCell((api) => api.exec('stayInDrawingModeAction'));
                 }}
                 className={btnClass(drawLockOn)}
             >
@@ -597,7 +641,7 @@ export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange
                 onClick={() => {
                     const next = !lockAllOn;
                     setLockAllOn(next);
-                    getActiveCell()?.setLockAllDrawings(next);
+                    forEachCell((api) => api.setLockAllDrawings(next));
                 }}
                 className={btnClass(lockAllOn)}
             >
@@ -635,16 +679,26 @@ export function TVDrawingBar({ getActiveCell, drawingsSync, onDrawingsSyncChange
                 onClick={() => setOpenFlyout((v) => (v === 'globe' ? null : 'globe'))}
                 className={btnClass(drawingsSync !== 'off')}
             >
-                <Icon name="globe" />
+                {/* El botón muestra el icono del modo activo (flujo TV). */}
+                <Icon name={drawingsSync === 'layout' ? 'linkSync' : 'globe'} />
             </button>
             {openFlyout === 'globe' && buttonRefs.current.globe && (
-                <Flyout anchor={buttonRefs.current.globe} onClose={() => setOpenFlyout(null)} width={330}>
+                <Flyout anchor={buttonRefs.current.globe} onClose={() => setOpenFlyout(null)} width={360}>
                     <FlyoutItem
-                        icon="globe"
+                        icon="linkSync"
                         label="Los nuevos dibujos se sincronizan en el diseño"
                         selected={drawingsSync === 'layout'}
                         onClick={() => {
                             onDrawingsSyncChange(drawingsSync === 'layout' ? 'off' : 'layout');
+                            setOpenFlyout(null);
+                        }}
+                    />
+                    <FlyoutItem
+                        icon="globe"
+                        label="Los nuevos dibujos se sincronizan a nivel global"
+                        selected={drawingsSync === 'global'}
+                        onClick={() => {
+                            onDrawingsSyncChange(drawingsSync === 'global' ? 'off' : 'global');
                             setOpenFlyout(null);
                         }}
                     />

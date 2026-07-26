@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { isTapeTradesMsg, type TapePrint } from '@/lib/wsContracts';
+import { acquireStream, releaseStream } from '@/lib/chartStreams';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 
 export type TickDirection = 'up' | 'down' | 'flat';
@@ -220,7 +221,10 @@ export function useTapeData({
     useEffect(() => {
         if (!symbol || !enabled || !isConnected) return;
 
-        send({ action: 'subscribe_tape', symbol });
+        // Refcount global (lib/chartStreams): dos ventanas TAS del mismo
+        // símbolo comparten conexión; un unsubscribe directo mataría el
+        // stream de la otra (el servidor no lleva contador por símbolo).
+        acquireStream(send, 'tape', symbol);
 
         const subscription = messages$.subscribe({
             next: (message: any) => {
@@ -261,7 +265,7 @@ export function useTapeData({
 
         return () => {
             subscription.unsubscribe();
-            send({ action: 'unsubscribe_tape', symbol });
+            releaseStream(send, 'tape', symbol);
             setIsLive(false);
         };
     }, [symbol, enabled, isConnected, messages$, send, maxRows, computeDir]);

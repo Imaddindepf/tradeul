@@ -15,6 +15,7 @@ import {
     useEffect,
     useImperativeHandle,
     useRef,
+    useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
@@ -28,6 +29,13 @@ const API_URL =
         : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const LIBRARY_PATH = '/charting_library/';
 const SCRIPT_SRC = `${LIBRARY_PATH}charting_library.standalone.js`;
+
+/** Reintentos automáticos de una celda antes de mostrar el error con botón. */
+const MAX_CELL_ATTEMPTS = 3;
+/** Segundos VISIBLES sin onChartReady antes de recrear la celda. */
+const READY_TIMEOUT_SECS = 20;
+/** Segundos visibles antes de chequear si el CSS del iframe murió (celda blanca). */
+const CSS_CHECK_SECS = 4;
 
 declare global {
     interface Window {
@@ -102,8 +110,10 @@ export interface TVChartCellApi {
     applyDrawingsState: (state: object) => Promise<void>;
     undo: () => void;
     redo: () => void;
-    /** Screenshot del chart → descarga PNG. */
+    /** Screenshot del chart → descarga PNG (celda suelta). */
     screenshot: () => void;
+    /** Canvas del chart para componer la captura de TODO el layout. */
+    captureCanvas: () => Promise<HTMLCanvasElement | null>;
     /** Serializa el estado del chart (para guardado bajo demanda). */
     save: () => Promise<TVCellSnapshot | null>;
 }
@@ -123,10 +133,18 @@ export interface TVChartCellProps {
     onIntervalChanged?: (cellId: string, resolution: string) => void;
     /** La celda recibió foco (click) → celda activa del layout. */
     onActivate?: (cellId: string) => void;
-    /** El usuario creó/movió/borró un dibujo (para sync entre celdas). */
-    onDrawingEvent?: (cellId: string) => void;
+    /** El usuario creó/movió/borró un dibujo. Entrega el id del dibujo y el
+     *  tipo de evento de la CL (create/remove/points_changed/…): la semántica
+     *  TV de "solo los dibujos NUEVOS se sincronizan" exige saber QUÉ dibujo
+     *  y CUÁNDO nació. */
+    onDrawingEvent?: (cellId: string, sourceId: string, eventType: string) => void;
     /** ESC pulsado dentro del iframe (flujo TV: volver a cursor / cerrar flyout). */
     onEscape?: (cellId: string) => void;
+    /** ⌘S/Ctrl+S dentro del iframe → guardar el diseño. */
+    onSaveShortcut?: () => void;
+    /** El widget llegó a ready — la barra de dibujo re-aplica su estado
+     *  global (imán, candados, herramienta armada…) a la celda nueva. */
+    onReady?: (cellId: string) => void;
 }
 
 export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function TVChartCell(
@@ -141,6 +159,8 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
         onActivate,
         onDrawingEvent,
         onEscape,
+        onSaveShortcut,
+        onReady,
     },
     ref,
 ) {
@@ -152,6 +172,14 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
     const applyingSyncRef = useRef(false);
     /** true mientras se aplican dibujos sincronizados → no re-emitir evento. */
     const applyingDrawingsRef = useRef(false);
+
+    // Auto-curación: si el widget no llega a ready (assets caídos, hipo de
+    // red…), la celda se destruye y recrea sola en vez de quedarse blanca
+    // para siempre. mountEpoch re-ejecuta el efecto de montaje; attempts
+    // limita los reintentos automáticos; failed muestra la UI de error.
+    const [mountEpoch, setMountEpoch] = useState(0);
+    const [failed, setFailed] = useState(false);
+    const attemptsRef = useRef(0);
 
     const { i18n } = useTranslation();
     const { messages$, send, isConnected } = useWebSocket();
@@ -174,6 +202,10 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
     onDrawingEventRef.current = onDrawingEvent;
     const onEscapeRef = useRef(onEscape);
     onEscapeRef.current = onEscape;
+    const onSaveShortcutRef = useRef(onSaveShortcut);
+    onSaveShortcutRef.current = onSaveShortcut;
+    const onReadyRef = useRef(onReady);
+    onReadyRef.current = onReady;
 
     /** Lee símbolo/intervalo/tipo del chart activo (best-effort). */
     const readChartMeta = () => {
@@ -317,12 +349,23 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                 });
             } catch { /* screenshot no disponible */ }
         },
+        captureCanvas: async () => {
+            const w = widgetRef.current;
+            if (!w || !readyRef.current) return null;
+            try {
+                return await w.takeClientScreenshot();
+            } catch {
+                return null;
+            }
+        },
         save: buildSnapshot,
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }), []);
 
     useEffect(() => {
         let disposed = false;
+        let watchdogIv: ReturnType<typeof setInterval> | null = null;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
         const persistNow = () => {
             const w = widgetRef.current;
@@ -332,6 +375,64 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                     onPersistRef.current(cellId, { state, ...readChartMeta() });
                 });
             } catch { /* save no disponible */ }
+        };
+
+        const stopWatchdog = () => {
+            if (watchdogIv) {
+                clearInterval(watchdogIv);
+                watchdogIv = null;
+            }
+        };
+
+        /** Recrear la celda (o rendirse con UI de error tras N intentos). */
+        const scheduleRetry = (reason: string) => {
+            if (disposed) return;
+            stopWatchdog();
+            attemptsRef.current += 1;
+            if (attemptsRef.current > MAX_CELL_ATTEMPTS) {
+                console.warn(`[TVChartCell] ${cellId}: sin gráfico tras ${MAX_CELL_ATTEMPTS} intentos (${reason})`);
+                setFailed(true);
+            } else {
+                console.warn(`[TVChartCell] ${cellId}: recreando celda (${reason}, intento ${attemptsRef.current})`);
+                setMountEpoch((e) => e + 1);
+            }
+        };
+
+        /**
+         * El documento del iframe de la CL nace BLANCO y solo pinta oscuro al
+         * cargar su CSS: si alguna hoja falló (deploy, hipo de red), la celda
+         * quedaría blanca para siempre. readyState 'complete' + link sin
+         * .sheet = hoja fallida.
+         */
+        const cssDead = (): boolean => {
+            try {
+                const doc = containerRef.current?.querySelector('iframe')?.contentDocument;
+                if (!doc || doc.readyState !== 'complete') return false;
+                const links = Array.from(doc.querySelectorAll('link[rel="stylesheet"]'));
+                return links.length > 0 && links.some((l) => !(l as HTMLLinkElement).sheet);
+            } catch {
+                return false;
+            }
+        };
+
+        /**
+         * Vigilar la inicialización contando solo segundos VISIBLES: en una
+         * pestaña en segundo plano Chrome congela rAF/timers y la CL espera
+         * legítimamente — eso no es un fallo y no debe disparar reintentos.
+         */
+        const startWatchdog = () => {
+            stopWatchdog();
+            let visibleSecs = 0;
+            watchdogIv = setInterval(() => {
+                if (readyRef.current) {
+                    stopWatchdog();
+                    return;
+                }
+                if (document.visibilityState !== 'visible') return;
+                visibleSecs += 1;
+                if (visibleSecs >= CSS_CHECK_SECS && cssDead()) scheduleRetry('css muerto');
+                else if (visibleSecs >= READY_TIMEOUT_SECS) scheduleRetry('timeout de carga');
+            }, 1000);
         };
 
         loadTradingViewLibrary()
@@ -391,16 +492,27 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                         // Horario extendido: sin esto el menú Session no filtra
                         // pre/postmarket aunque el símbolo declare subsessions.
                         'pre_post_market_sessions',
+                        // REQUISITO del sync de dibujos: getLineToolsState /
+                        // applyLineToolsState solo existen con este featureset
+                        // (d.ts v31). Sin él, ambos modos de sincronización
+                        // morían en silencio. widget.save() sigue incluyendo
+                        // los dibujos (SaveChartOptions.includeDrawings
+                        // default true) → los diseños no cambian.
+                        'saveload_separate_drawings_storage',
                     ],
                 };
                 if (savedState) options.saved_data = savedState;
 
                 const widget = new window.TradingView.widget(options);
                 widgetRef.current = widget;
+                startWatchdog();
 
                 widget.onChartReady(() => {
                     if (disposed) return;
                     readyRef.current = true;
+                    attemptsRef.current = 0;
+                    stopWatchdog();
+                    setFailed(false);
 
                     try {
                         widget.subscribe('onAutoSaveNeeded', persistNow);
@@ -411,11 +523,11 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                         widget.subscribe('mouse_down', () => onActivateRef.current?.(cellId));
                     } catch { /* opcional */ }
 
-                    // Eventos de dibujo → sync entre celdas (si está activado).
+                    // Eventos de dibujo → sync entre celdas / global (si activo).
                     try {
-                        widget.subscribe('drawing_event', () => {
+                        widget.subscribe('drawing_event', (sourceId: unknown, eventType: unknown) => {
                             if (!applyingDrawingsRef.current) {
-                                onDrawingEventRef.current?.(cellId);
+                                onDrawingEventRef.current?.(cellId, String(sourceId), String(eventType));
                             }
                         });
                     } catch { /* opcional */ }
@@ -431,6 +543,11 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                             if (target?.closest?.('input, textarea, [contenteditable]')) return;
                             if (e.key === 'Escape') {
                                 onEscapeRef.current?.(cellId);
+                                return;
+                            }
+                            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+                                e.preventDefault();
+                                onSaveShortcutRef.current?.();
                                 return;
                             }
                             if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -463,27 +580,40 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                                 persistNow();
                             });
                     } catch { /* API parcial */ }
+
+                    onReadyRef.current?.(cellId);
                 });
             })
             .catch((err) => {
-                if (!disposed) console.error('[TVChartCell] error cargando la librería:', err);
+                if (disposed) return;
+                console.error('[TVChartCell] error cargando la librería:', err);
+                // El loader resetea su promesa al fallar: reintentar recarga el script.
+                retryTimer = setTimeout(() => scheduleRetry('script de la librería'), 2000);
             });
 
         return () => {
             disposed = true;
-            // Guardado final best-effort antes de destruir el widget.
-            persistNow();
+            stopWatchdog();
+            if (retryTimer) clearTimeout(retryTimer);
+            // NOTA: no hay guardado final aquí — widget.save() es asíncrono y
+            // su callback nunca llega con el iframe desmontado. El contenedor
+            // congela los snapshots ANTES de desmontar celdas
+            // (flushCellSnapshots) y el autosave de la CL (1 s) cubre el resto.
             readyRef.current = false;
             try {
                 widgetRef.current?.remove();
             } catch { /* iframe ya retirado */ }
             widgetRef.current = null;
+            // Un widget zombie puede dejar su iframe muerto colgando del
+            // contenedor (hijos gestionados por la CL, no por React).
+            if (containerRef.current) containerRef.current.innerHTML = '';
             datafeedRef.current?.destroy();
             datafeedRef.current = null;
         };
-        // Montaje único por celda: cambiar de layout recrea las celdas por key.
+        // Montaje por celda: cambiar de layout recrea por key; mountEpoch
+        // recrea la MISMA celda cuando el watchdog detecta un arranque muerto.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [mountEpoch]);
 
     // Tras una reconexión del WS compartido, reemitir las suscripciones.
     useEffect(() => {
@@ -492,9 +622,29 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
 
     return (
         <div
-            ref={containerRef}
-            className="h-full w-full"
+            className="relative h-full w-full"
             onMouseDownCapture={() => onActivateRef.current?.(cellId)}
-        />
+        >
+            <div ref={containerRef} className="h-full w-full" />
+            {failed && (
+                <div
+                    className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3"
+                    style={{ background: 'var(--color-bg, #0d1117)' }}
+                >
+                    <span className="text-[13px] opacity-70">No se pudo cargar el gráfico</span>
+                    <button
+                        onClick={() => {
+                            attemptsRef.current = 0;
+                            setFailed(false);
+                            setMountEpoch((e) => e + 1);
+                        }}
+                        className="rounded-md border px-3 py-1.5 text-[13px] hover:bg-black/10 dark:hover:bg-white/10"
+                        style={{ borderColor: 'var(--color-border, rgba(128,128,128,0.35))' }}
+                    >
+                        Reintentar
+                    </button>
+                </div>
+            )}
+        </div>
     );
 });

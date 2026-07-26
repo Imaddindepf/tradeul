@@ -414,21 +414,26 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
                 window.title.startsWith('Events:')) && (
                   <LinkGroupSelector windowId={window.id} currentLinkGroup={window.linkGroup ?? null} />
                 )}
-              {/* Open in New Window Button */}
-              <button
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenNewWindow();
-                }}
-                className="p-0.5 rounded hover:bg-primary/15 transition-colors group"
-                aria-label={t('floatingWindow.openInNewWindow')}
-                title={t('floatingWindow.openInNewWindow')}
-              >
-                <ExternalLink className="w-3 h-3 text-muted-fg group-hover:text-primary" />
-              </button>
+              {/* Open in New Window Button (oculto en TVC: no está en la
+                  whitelist de handleOpenNewWindow y los iframes de la
+                  Charting Library no sobreviven a un traslado de documento —
+                  antes era un botón muerto) */}
+              {!window.title.startsWith('TradingView') && (
+                <button
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenNewWindow();
+                  }}
+                  className="p-0.5 rounded hover:bg-primary/15 transition-colors group"
+                  aria-label={t('floatingWindow.openInNewWindow')}
+                  title={t('floatingWindow.openInNewWindow')}
+                >
+                  <ExternalLink className="w-3 h-3 text-muted-fg group-hover:text-primary" />
+                </button>
+              )}
 
               {/* Close Button (hidden when Lock Close is active) */}
               {!lockClose && (

@@ -57,9 +57,9 @@ systemctl stop "$SERVICE_NAME" 2>/dev/null || true
 sleep 2
 
 # Make sure port 3000 is free (kill zombies if any)
-if lsof -ti:3000 >/dev/null 2>&1; then
+if lsof -tiTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
     warn "Port 3000 still occupied, force-killing..."
-    lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+    lsof -tiTCP:3000 -sTCP:LISTEN | xargs kill -9 2>/dev/null || true
     sleep 2
 fi
 ok "Service stopped"

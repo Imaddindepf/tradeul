@@ -14,6 +14,7 @@ import { Z_INDEX } from '@/lib/z-index';
 import type { SyncFlags } from '@/components/chart/multichart/types';
 import { TV_LAYOUT_GROUPS } from './tvLayouts';
 import { TVLayoutIcon } from './TVLayoutIcon';
+import { useTVPopover } from './tvPopovers';
 
 interface TVLayoutPickerProps {
     anchorEl: HTMLElement | null;
@@ -77,21 +78,20 @@ export function TVLayoutPicker({
             setPos({ top: r.bottom + 6, left: Math.max(8, left) });
         };
         update();
-        const close = (e: MouseEvent) => {
-            if (!ref.current?.contains(e.target as Node) && !anchorEl.contains(e.target as Node)) onClose();
-        };
-        const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
         window.addEventListener('resize', update);
         window.addEventListener('scroll', update, true);
-        window.addEventListener('mousedown', close);
-        window.addEventListener('keydown', esc);
         return () => {
             window.removeEventListener('resize', update);
             window.removeEventListener('scroll', update, true);
-            window.removeEventListener('mousedown', close);
-            window.removeEventListener('keydown', esc);
         };
-    }, [isOpen, anchorEl, onClose]);
+    }, [isOpen, anchorEl]);
+
+    // Exclusividad + cierre por clic fuera (incl. iframes) + Escape.
+    useTVPopover(
+        isOpen,
+        onClose,
+        (t) => (ref.current?.contains(t) ?? false) || (anchorEl?.contains(t) ?? false),
+    );
 
     if (!mounted || !isOpen) return null;
 

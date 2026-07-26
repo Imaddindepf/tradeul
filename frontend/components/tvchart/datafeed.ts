@@ -21,6 +21,7 @@ import {
     type AggregatePayload,
     type ChartBar,
 } from '@/lib/barAggregation';
+import { acquireStream, releaseStream, resubscribeAllStreams } from '@/lib/chartStreams';
 
 // ---------------------------------------------------------------------------
 // Tipos mínimos de la Datafeed API (subset de datafeed-api.d.ts v31).
@@ -138,9 +139,14 @@ function isDailyOrAboveResolution(resolution: string): boolean {
     return /[DWM]/.test(resolution);
 }
 
-function toTVBar(bar: ChartBar): TVBar {
+function toTVBar(bar: ChartBar, dailyOrAbove = false): TVBar {
+    // Contrato de la CL: en velas diarias o superiores el time debe ser las
+    // 00:00:00 UTC del día de trading (el backend las sirve a medianoche ET =
+    // 04:00/05:00 UTC). Sin normalizar, la librería las desplaza y los charts
+    // japoneses (Heikin Ashi/Renko) salen con horas corruptas.
+    const time = dailyOrAbove ? bar.time - (bar.time % 86400) : bar.time;
     return {
-        time: bar.time * 1000,
+        time: time * 1000,
         open: bar.open,
         high: bar.high,
         low: bar.low,
@@ -167,8 +173,6 @@ export class TradeulDatafeed {
 
     /** Suscripciones realtime activas, por listenerGuid de la librería. */
     private readonly subs = new Map<string, LiveSubscription>();
-    /** Nº de listeners por símbolo (para no duplicar subscribe_chart). */
-    private readonly symbolRefs = new Map<string, number>();
     /**
      * Última vela del histórico por `symbol#resolution` — semilla de la
      * agregación realtime (getBars siempre corre antes de subscribeBars).
@@ -275,7 +279,13 @@ export class TradeulDatafeed {
                     pricescale: priceScaleFor(typeof lastPrice === 'number' ? lastPrice : null),
                     minmov: 1,
                     has_intraday: true,
-                    intraday_multipliers: ['1', '2', '5', '15', '30', '60', '240', '720'],
+                    // SIN 60/240/720: el backend ancla la vela horaria a :00,
+                    // pero la sesión regular 0930-1600 exige velas 09:30/10:30…
+                    // ("Library shifts bar time"). Al no declararlas, la CL las
+                    // CONSTRUYE desde las de 30m con el anclaje correcto para
+                    // la sesión activa (regular o extendida). Siguen disponibles
+                    // en la UI vía supported_resolutions.
+                    intraday_multipliers: ['1', '2', '5', '15', '30'],
                     has_daily: true,
                     daily_multipliers: ['1'],
                     has_weekly_and_monthly: true,
@@ -327,7 +337,11 @@ export class TradeulDatafeed {
                 if (periodParams.firstDataRequest) {
                     this.lastHistoryBars.set(`${symbol}#${resolution}`, raw[raw.length - 1]);
                 }
-                onResult(raw.map(toTVBar), { noData: false });
+                // El estado interno (lastHistoryBars/lastBar) conserva la base
+                // de tiempos del backend; la normalización diaria se aplica
+                // solo en la frontera hacia la librería.
+                const dailyOrAbove = isDailyOrAboveResolution(resolution);
+                onResult(raw.map((b) => toTVBar(b, dailyOrAbove)), { noData: false });
             })
             .catch((err) => onError(String(err?.message ?? err)));
     }
@@ -362,11 +376,10 @@ export class TradeulDatafeed {
         };
         this.subs.set(listenerGuid, sub);
 
-        const refs = this.symbolRefs.get(symbol) ?? 0;
-        this.symbolRefs.set(symbol, refs + 1);
-        if (refs === 0) {
-            this.ws.send({ action: 'subscribe_chart', symbol });
-        }
+        // Refcount GLOBAL (lib/chartStreams): el WS es compartido por toda la
+        // app y el servidor no lleva contador por símbolo — un unsubscribe
+        // local mataría el stream de las demás celdas/ventanas con el símbolo.
+        acquireStream(this.ws.send, 'chart', symbol);
     }
 
     unsubscribeBars(listenerGuid: string): void {
@@ -374,21 +387,12 @@ export class TradeulDatafeed {
         if (!sub) return;
         this.subs.delete(listenerGuid);
         sub.rxSub.unsubscribe();
-
-        const refs = (this.symbolRefs.get(sub.symbol) ?? 1) - 1;
-        if (refs <= 0) {
-            this.symbolRefs.delete(sub.symbol);
-            this.ws.send({ action: 'unsubscribe_chart', symbol: sub.symbol });
-        } else {
-            this.symbolRefs.set(sub.symbol, refs);
-        }
+        releaseStream(this.ws.send, 'chart', sub.symbol);
     }
 
-    /** Reemitir subscribe_chart tras una reconexión del WS compartido. */
+    /** Reemitir las suscripciones vivas tras una reconexión del WS compartido. */
     resubscribeAll(): void {
-        for (const symbol of this.symbolRefs.keys()) {
-            this.ws.send({ action: 'subscribe_chart', symbol });
-        }
+        resubscribeAllStreams(this.ws.send);
     }
 
     /** Liberar todo al desmontar la ventana. */
@@ -413,7 +417,7 @@ export class TradeulDatafeed {
                 case 'merge':
                 case 'new-bar':
                     sub.lastBar = action.bar;
-                    sub.onTick(toTVBar(action.bar));
+                    sub.onTick(toTVBar(action.bar, sub.isDailyOrAbove));
                     return;
                 case 'gap-backfill':
                     // La librería re-pide el histórico y llama getBars de nuevo.
@@ -433,7 +437,7 @@ export class TradeulDatafeed {
             if (!authoritative || !sub.lastBar || authoritative.time !== sub.lastBar.time) return;
             const corrected = mergeAuthoritativeBar(sub.lastBar, authoritative);
             sub.lastBar = corrected;
-            sub.onTick(toTVBar(corrected));
+            sub.onTick(toTVBar(corrected, sub.isDailyOrAbove));
         }
     }
 }

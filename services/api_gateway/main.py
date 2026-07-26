@@ -40,6 +40,7 @@ from shared.models.description import (
 from shared.models.polygon import PolygonSingleTickerSnapshotResponse
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
+from routes.tv_designs import router as tv_designs_router, drawings_router as tv_drawings_router, set_timescale_client as set_tv_designs_timescale_client
 from routes.user_filters import router as user_filters_router, set_timescale_client as set_user_filters_timescale_client, set_redis_client as set_user_filters_redis
 from routes.screener_templates import router as screener_templates_router, set_timescale_client as set_screener_templates_timescale_client
 from routes.financials import router as financials_router
@@ -106,6 +107,7 @@ async def lifespan(app: FastAPI):
     timescale_client = TimescaleClient()
     await timescale_client.connect()
     set_timescale_client(timescale_client)  # Para user_prefs
+    set_tv_designs_timescale_client(timescale_client)  # Para tv_designs (diseños chart TVC)
     set_user_filters_timescale_client(timescale_client)  # Para user_filters
     set_user_filters_redis(redis_client)  # Para notificar al scanner cuando cambian filtros
     set_screener_templates_timescale_client(timescale_client)  # Para screener_templates
@@ -252,6 +254,8 @@ app.add_middleware(
 
 # Registrar routers
 app.include_router(user_prefs_router)
+app.include_router(tv_designs_router)
+app.include_router(tv_drawings_router)
 app.include_router(user_filters_router)
 app.include_router(screener_templates_router)
 app.include_router(financials_router)

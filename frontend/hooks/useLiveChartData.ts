@@ -18,6 +18,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { applyAggregate, mergeAuthoritativeBar, sealedToChartBar } from '@/lib/barAggregation';
 import { isChartAggregateMsg, isChartBarSealedMsg, isTradingDayChangedMsg } from '@/lib/wsContracts';
+import { acquireStream, releaseStream } from '@/lib/chartStreams';
 
 // ============================================================================
 // Types
@@ -159,6 +160,9 @@ export function useLiveChartData(
   const intervalRef = useRef(interval);
   const dataRef = useRef<ChartBar[]>(cachedBars);
   const subscribedRef = useRef(false);
+  /** Símbolo realmente adquirido en chartStreams — el cleanup debe liberar
+   *  ESTE (tickerRef ya apunta al ticker nuevo cuando corre el cleanup). */
+  const acquiredSymbolRef = useRef<string | null>(null);
   const isLoadingMoreRef = useRef(false);
   const isLoadingForwardRef = useRef(false);
   const hasMoreRef = useRef(false);
@@ -552,7 +556,11 @@ export function useLiveChartData(
     const isDailyOrAbove = interval === '1day';
 
     if (!subscribedRef.current) {
-      send({ action: 'subscribe_chart', symbol: tickerRef.current });
+      // Refcount global (lib/chartStreams): el multichart TVC y otras ventanas
+      // comparten símbolo y conexión; emitir subscribe/unsubscribe directos
+      // pisaba las suscripciones del resto.
+      acquireStream(send, 'chart', tickerRef.current);
+      acquiredSymbolRef.current = tickerRef.current;
       subscribedRef.current = true;
       // La secuencia del servidor es por símbolo y sobrevive a nuestra
       // (re)suscripción: resetear la referencia local para no confundir el
@@ -661,7 +669,8 @@ export function useLiveChartData(
     // Cleanup
     return () => {
       if (subscribedRef.current) {
-        send({ action: 'unsubscribe_chart', symbol: tickerRef.current });
+        releaseStream(send, 'chart', acquiredSymbolRef.current ?? tickerRef.current);
+        acquiredSymbolRef.current = null;
         subscribedRef.current = false;
       }
       subscription.unsubscribe();

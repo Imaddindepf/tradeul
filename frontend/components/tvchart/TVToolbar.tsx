@@ -7,9 +7,11 @@
  * nativos (símbolo, indicadores, ajustes…) se abren dentro de esa celda.
  */
 
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useRef, useState, type ReactNode, type RefObject } from 'react';
+// El gestor de diseños se inyecta desde el contenedor (prop designManager).
 import { TVLayoutIcon } from './TVLayoutIcon';
 import { TV_ICONS } from './tvIcons';
+import { useTVPopover } from './tvPopovers';
 
 export interface TVToolbarActions {
     exec: (actionId: string) => void;
@@ -30,6 +32,8 @@ interface TVToolbarProps {
     layoutId: string;
     layoutButtonRef: RefObject<HTMLButtonElement>;
     onLayoutClick: () => void;
+    /** Gestor de diseños (nombre + Guardar/guardado + menú), estilo TV. */
+    designManager?: ReactNode;
 }
 
 function Icon({ name, className }: { name: string; className?: string }) {
@@ -120,14 +124,8 @@ function TbDropdown<T extends { label: string }>({
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        if (!open) return;
-        const close = (e: MouseEvent) => {
-            if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
-        };
-        window.addEventListener('mousedown', close);
-        return () => window.removeEventListener('mousedown', close);
-    }, [open]);
+    // Exclusividad + cierre por clic fuera (incl. iframes) + Escape.
+    useTVPopover(open, () => setOpen(false), (t) => rootRef.current?.contains(t) ?? false);
 
     return (
         <div ref={rootRef} className="relative">
@@ -183,6 +181,7 @@ export function TVToolbar({
     layoutId,
     layoutButtonRef,
     onLayoutClick,
+    designManager,
 }: TVToolbarProps) {
     return (
         <div
@@ -258,6 +257,8 @@ export function TVToolbar({
                 <TVLayoutIcon layoutId={layoutId} size={20} />
                 <Caret />
             </button>
+
+            {designManager}
 
             <Sep />
 
