@@ -97,12 +97,6 @@ export interface TVChartCellApi {
     setHideAllStudies: (on: boolean) => void;
     /** Alejar el zoom del chart. */
     zoomOut: () => void;
-    /**
-     * Reenvía una tecla al iframe para que los hotkeys NATIVOS de la librería
-     * (dígito → diálogo de intervalo, letra → búsqueda de símbolo) funcionen
-     * aunque el foco esté fuera del chart, como en tradingview.com.
-     */
-    forwardKey: (key: string) => void;
     /** Estado de los dibujos (v31) para sincronización entre celdas. */
     getDrawingsState: () => Promise<object | null>;
     applyDrawingsState: (state: object) => Promise<void>;
@@ -283,25 +277,6 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                 widgetRef.current?.activeChart().zoomOut();
             } catch { /* no listo */ }
         },
-        forwardKey: (key: string) => {
-            try {
-                const win = containerRef.current?.querySelector('iframe')?.contentWindow;
-                if (!win) return;
-                win.focus();
-                const code = /^[0-9]$/.test(key) ? `Digit${key}` : `Key${key.toUpperCase()}`;
-                const keyCode = key.toUpperCase().charCodeAt(0);
-                win.document.body.dispatchEvent(
-                    new win.window.KeyboardEvent('keydown', {
-                        key,
-                        code,
-                        keyCode,
-                        which: keyCode,
-                        bubbles: true,
-                        cancelable: true,
-                    } as KeyboardEventInit),
-                );
-            } catch { /* iframe inaccesible */ }
-        },
         getDrawingsState: async () => {
             try {
                 return await widgetRef.current?.activeChart().getLineToolsState();
@@ -402,6 +377,10 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                         'use_localstorage_for_settings',
                         'save_chart_properties_to_local_storage',
                         'popup_hints',
+                        // Dígito/letra los cableamos nosotros vía executeActionById
+                        // (los hotkeys nativos van ligados al header, aquí headless);
+                        // desactivar el de letra evita un posible diálogo doble.
+                        'symbol_search_hot_key',
                         // Marca de agua / logo de TradingView.
                         'widget_logo',
                         'library_branding',
@@ -441,15 +420,25 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                         });
                     } catch { /* opcional */ }
 
-                    // ESC dentro del iframe (flujo TV): la barra vuelve al cursor.
-                    // Dígitos/letras los gestiona la PROPIA librería (diálogo
-                    // nativo de intervalo y búsqueda de símbolo).
+                    // Teclas dentro del iframe (flujo TV). Los hotkeys nativos de
+                    // dígito/letra van ligados al header (aquí headless), así que
+                    // abrimos los diálogos NATIVOS vía executeActionById — mismo
+                    // diálogo que en tradingview.com, cero UI propia.
                     try {
                         const doc = containerRef.current?.querySelector('iframe')?.contentWindow?.document;
                         doc?.addEventListener('keydown', (e: KeyboardEvent) => {
                             const target = e.target as HTMLElement | null;
                             if (target?.closest?.('input, textarea, [contenteditable]')) return;
-                            if (e.key === 'Escape') onEscapeRef.current?.(cellId);
+                            if (e.key === 'Escape') {
+                                onEscapeRef.current?.(cellId);
+                                return;
+                            }
+                            if (e.ctrlKey || e.metaKey || e.altKey) return;
+                            if (/^[0-9]$/.test(e.key)) {
+                                widget.activeChart().executeActionById('changeInterval');
+                            } else if (/^[a-zA-Z]$/.test(e.key)) {
+                                widget.activeChart().executeActionById('symbolSearch');
+                            }
                         });
                     } catch { /* iframe inaccesible */ }
 

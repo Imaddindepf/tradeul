@@ -297,15 +297,20 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
 
     /**
      * Teclas con el foco fuera de los iframes (toolbar, barra, bordes):
-     * reenviarlas a la celda enfocada para que los hotkeys NATIVOS de la
-     * librería actúen (dígito → diálogo de intervalo; letra → símbolo).
+     * abrir los diálogos NATIVOS de la librería en la celda enfocada
+     * (dígito → cambio de intervalo; letra → búsqueda de símbolo).
      */
     const handleRootKeyDown = useCallback((e: React.KeyboardEvent) => {
         const target = e.target as HTMLElement;
         if (target.closest('input, textarea, [contenteditable]')) return;
-        if (/^[0-9a-zA-Z]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const api = cellApisRef.current[activeCellIdRef.current];
+        if (/^[0-9]$/.test(e.key)) {
             e.preventDefault();
-            cellApisRef.current[activeCellIdRef.current]?.forwardKey(e.key);
+            api?.exec('changeInterval');
+        } else if (/^[a-zA-Z]$/.test(e.key)) {
+            e.preventDefault();
+            api?.exec('symbolSearch');
         }
     }, []);
 
