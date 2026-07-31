@@ -3015,11 +3015,11 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           onCreateAlertWindow={applyConfigFromBuilder}
         />
       ),
-      width: 700,
-      height: 550,
+      width: 780,
+      height: 620,
       x: 200,
       y: 130,
-      minWidth: 500,
+      minWidth: 620,
       minHeight: 400,
     });
   }, [openWindow, customEventTypes, categoryId, categoryName, applyConfigFromBuilder]);

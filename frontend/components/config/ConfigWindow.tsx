@@ -138,6 +138,18 @@ function alertTypeLabel(eventType: string): string {
   return a ? a.name : eventType;
 }
 
+/** Grupos del catálogo que contienen algún filtro activo — para auto-expandirlos al cargar */
+function groupsWithActiveFilters(f: Record<string, any>): Set<string> {
+  const ids = new Set<string>();
+  for (const g of FILTER_GROUPS) {
+    if (g.filters.some(x => f[x.minK] !== undefined || f[x.maxK] !== undefined)) ids.add(g.id);
+  }
+  if (f.security_type || f.sector || f.industry) ids.add('strings');
+  const dil = DILUTION_FILTERS as unknown as { minK: string; maxK: string }[];
+  if (dil.some(x => f[x.minK] !== undefined || f[x.maxK] !== undefined)) ids.add('dilution');
+  return ids;
+}
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -210,6 +222,13 @@ export function ConfigWindow({
     const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n;
   });
 
+  // Filter groups expand state + search (declarado antes de loadStrategy, que lo usa)
+  const [expandedFilterGroups, setExpandedFilterGroups] = useState<Set<string>>(new Set());
+  const toggleFilterGroup = (id: string) => setExpandedFilterGroups(prev => {
+    const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n;
+  });
+  const [filterSearch, setFilterSearch] = useState('');
+
   // Load strategy into editor
   const loadStrategy = useCallback((eventTypes: string[], stratFilters: Record<string, any>, name?: string) => {
     setSelectedAlerts(new Set(eventTypes));
@@ -218,6 +237,8 @@ export function ConfigWindow({
       if (typeof v === 'number' || typeof v === 'string') allFilters[k] = v;
     }
     setFilters(allFilters);
+    // Auto-expandir los grupos que traen valores: al entrar a Filters se ven directamente
+    setExpandedFilterGroups(groupsWithActiveFilters(allFilters));
     if (name) setStrategyName(name);
     setActiveTab('summary');
   }, []);
@@ -389,6 +410,7 @@ export function ConfigWindow({
       if (typeof v === 'string') numFilters[k] = v;
     }
     setFilters(numFilters);
+    setExpandedFilterGroups(groupsWithActiveFilters(numFilters));
     setSelectedAlerts(new Set()); // Top lists have no alerts
     setStrategyName(scan.name);
     setLoadedScanId(scan.id);
@@ -404,6 +426,7 @@ export function ConfigWindow({
       numFilters[k] = v;
     }
     setFilters(numFilters);
+    setExpandedFilterGroups(groupsWithActiveFilters(numFilters));
     setSelectedAlerts(new Set());
     setStrategyName(preset.name);
     setLoadedScanId(null);
@@ -500,13 +523,6 @@ export function ConfigWindow({
     const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n;
   });
 
-  // Filter groups expand state + search
-  const [expandedFilterGroups, setExpandedFilterGroups] = useState<Set<string>>(new Set());
-  const toggleFilterGroup = (id: string) => setExpandedFilterGroups(prev => {
-    const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n;
-  });
-  const [filterSearch, setFilterSearch] = useState('');
-
   // Search alerts
   const alertGroups = useMemo(() => {
     if (!alertSearch.trim()) return getAlertsByCategory();
@@ -598,7 +614,7 @@ export function ConfigWindow({
         {activeTab === 'saved' && builderMode === 'strategy' && (
           <div className="h-full flex">
             {/* Left: folder tree */}
-            <div className="w-52 border-r border-border flex flex-col overflow-hidden">
+            <div className="w-56 border-r border-border flex flex-col overflow-hidden">
               <button onClick={handleStartFromScratch}
                 className="w-full text-left px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 border-b border-border-subtle transition-colors flex-shrink-0">
                 Start from Scratch
@@ -620,6 +636,7 @@ export function ConfigWindow({
                       )}
                       {exp && items.map(s => (
                         <button key={s.id}
+                          title={s.name}
                           onClick={() => setSelectedStrategy(s)}
                           onDoubleClick={() => handleLoadUserStrategy(s)}
                           className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'id' in selectedStrategy && selectedStrategy.id === s.id
@@ -641,6 +658,7 @@ export function ConfigWindow({
                   </button>
                   {expandedFolders.has('builtin') && BUILT_IN_PRESETS.map(p => (
                     <button key={p.id}
+                      title={p.name}
                       onClick={() => setSelectedStrategy(p)}
                       onDoubleClick={() => handleLoadBuiltIn(p)}
                       className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'isBuiltIn' in selectedStrategy && selectedStrategy.id === p.id
@@ -744,7 +762,7 @@ export function ConfigWindow({
         {activeTab === 'saved' && builderMode === 'toplist' && (
           <div className="h-full flex">
             {/* Left: folder tree */}
-            <div className="w-52 border-r border-border flex flex-col overflow-hidden">
+            <div className="w-56 border-r border-border flex flex-col overflow-hidden">
               <button onClick={handleStartFromScratch}
                 className="w-full text-left px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-500/10 border-b border-border-subtle transition-colors flex-shrink-0">
                 Start from Scratch
@@ -766,6 +784,7 @@ export function ConfigWindow({
                       )}
                       {exp && items.map(scan => (
                         <button key={scan.id}
+                          title={scan.name}
                           onClick={() => setSelectedStrategy(scan as any)}
                           onDoubleClick={() => handleLoadScan(scan)}
                           className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'userId' in selectedStrategy && (selectedStrategy as any).id === scan.id
@@ -792,6 +811,7 @@ export function ConfigWindow({
                   </button>
                   {expandedFolders.has('builtin') && BUILT_IN_TOP_LISTS.map(p => (
                     <button key={p.id}
+                      title={p.name}
                       onClick={() => setSelectedStrategy(p as any)}
                       onDoubleClick={() => handleLoadBuiltInTopList(p)}
                       className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'isTopList' in selectedStrategy && (selectedStrategy as any).id === p.id
@@ -946,8 +966,15 @@ export function ConfigWindow({
           type FDef = (typeof FG)[number]['filters'][number];
           const hasUnits = (f: FDef): f is FDef & { units: readonly string[]; defU: string } => 'units' in f;
           const q = filterSearch.trim().toLowerCase();
+          // La busqueda cruza etiqueta Y nombre de grupo: "dilution" o "index"
+          // no aparecen en ninguna etiqueta ("Overall Risk", "S&P 500 (SPY)
+          // Change 5 Minute"), solo en su grupo. Si el grupo casa, se muestran
+          // TODOS sus filtros; si no, se filtra por etiqueta como antes.
           const visibleGroups = q
-            ? FG.map(g => ({ ...g, filters: g.filters.filter(f => f.label.toLowerCase().includes(q)) })).filter(g => g.filters.length > 0)
+            ? FG.map(g => g.group.toLowerCase().includes(q)
+                ? g
+                : { ...g, filters: g.filters.filter(f => f.label.toLowerCase().includes(q)) })
+               .filter(g => g.filters.length > 0)
             : FG;
 
           return (
@@ -984,7 +1011,7 @@ export function ConfigWindow({
                               <FilterRangeRow
                                 key={f.label}
                                 label={f.label}
-                                compactLabel
+                                wide
                                 minValue={filters[f.minK] as number | undefined}
                                 maxValue={filters[f.maxK] as number | undefined}
                                 onMinChange={v => setFilter(f.minK, v)}
@@ -1015,7 +1042,7 @@ export function ConfigWindow({
                   {expandedFilterGroups.has('strings') && (
                     <div className="px-2 py-1 space-y-[3px]">
                       <div className="flex items-center gap-1">
-                        <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">Type</span>
+                        <span className="text-[11px] text-foreground/70 w-56 flex-shrink-0">Type</span>
                         <select value={(filters.security_type as string) || ''} onChange={e => setFilter('security_type', e.target.value || undefined)}
                           className="flex-1 px-1.5 py-[2px] text-[10px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)]">
                           <option value="">All Types</option>
@@ -1025,7 +1052,7 @@ export function ConfigWindow({
                         </select>
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">Sector</span>
+                        <span className="text-[11px] text-foreground/70 w-56 flex-shrink-0">Sector</span>
                         <select value={(filters.sector as string) || ''} onChange={e => setFilter('sector', e.target.value || undefined)}
                           className="flex-1 px-1.5 py-[2px] text-[10px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)]">
                           <option value="">All Sectors</option>
@@ -1035,7 +1062,7 @@ export function ConfigWindow({
                         </select>
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">Industry</span>
+                        <span className="text-[11px] text-foreground/70 w-56 flex-shrink-0">Industry</span>
                         <select value={(filters.industry as string) || ''} onChange={e => setFilter('industry', e.target.value || undefined)}
                           className="flex-1 px-1.5 py-[2px] text-[10px] border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary bg-[var(--color-input-bg)]">
                           <option value="">All Industries</option>
@@ -1051,7 +1078,10 @@ export function ConfigWindow({
                 {/* Dilution Risk filters - collapsible like the rest */}
                 {(() => {
                   const dilutionFields = DILUTION_FILTERS as unknown as { label: string; minK: string; maxK: string }[];
-                  const visibleDilutionFields = q
+                  // Mismo criterio: este grupo se renderiza aparte, asi que
+                  // su nombre se compara a mano.
+                  const dilutionGroupMatch = !!q && "dilution risk".includes(q);
+                  const visibleDilutionFields = q && !dilutionGroupMatch
                     ? dilutionFields.filter(f => f.label.toLowerCase().includes(q))
                     : dilutionFields;
                   if (q && visibleDilutionFields.length === 0) return null;
@@ -1070,7 +1100,7 @@ export function ConfigWindow({
                           <p className="text-[9px] text-muted-fg/50 pb-0.5">1=Low · 2=Medium · 3=High</p>
                           {visibleDilutionFields.map(({ label, minK, maxK }) => (
                             <div key={minK} className="flex items-center gap-1">
-                              <span className="text-[11px] text-foreground/70 w-[90px] flex-shrink-0">{label}</span>
+                              <span className="text-[11px] text-foreground/70 w-56 flex-shrink-0">{label}</span>
                               <select
                                 value={filters[minK] !== undefined ? String(filters[minK]) : ''}
                                 onChange={e => setFilter(minK, e.target.value ? Number(e.target.value) : undefined)}

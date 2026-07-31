@@ -10,6 +10,9 @@ import { requestContextBrief } from '@/lib/agentBridge';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useCurrentWindowId, useFloatingWindowActions, useFloatingWindowsList } from '@/contexts/FloatingWindowContext';
 import { useUserPreferencesStore, selectFont, selectTimezone } from '@/stores/useUserPreferencesStore';
+import { StreamPauseButton } from '@/components/common/StreamPauseButton';
+import { SquawkButton } from '@/components/common/SquawkButton';
+import { useSquawk, type SquawkService } from '@/contexts/SquawkContext';
 
 const FONT_CLASS_MAP: Record<string, string> = {
   'oxygen-mono': 'font-oxygen-mono',
@@ -234,7 +237,10 @@ function NewsItem({ item, isNew, tz, onTickerClick, onOpenBrief }: { item: OpenU
   );
 }
 
-function HeaderPortal({ windowId, todayCount, status }: { windowId: string; todayCount: number; status: string }) {
+function HeaderPortal({ windowId, todayCount, status, isPaused, onTogglePause, buffered, squawk }: {
+  windowId: string; todayCount: number; status: string;
+  isPaused: boolean; onTogglePause: () => void; buffered: number; squawk: SquawkService;
+}) {
   const [target, setTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -248,6 +254,17 @@ function HeaderPortal({ windowId, todayCount, status }: { windowId: string; toda
     <div className="flex items-center gap-1.5 mr-1">
       <StatusDot status={status} />
       <span className="text-[9px] font-mono text-muted-fg">{todayCount} today</span>
+      {isPaused && buffered > 0 && (
+        <span className="text-[9px] font-mono text-amber-500">+{buffered}</span>
+      )}
+      <StreamPauseButton isPaused={isPaused} onToggle={onTogglePause} size="sm" />
+      <SquawkButton
+        isEnabled={squawk.isEnabled}
+        isSpeaking={squawk.isSpeaking}
+        queueSize={squawk.queueSize}
+        onToggle={squawk.toggleEnabled}
+        size="sm"
+      />
     </div>,
     target,
   );
@@ -263,6 +280,26 @@ export function OpenULContent() {
   const tz = useUserPreferencesStore(selectTimezone);
   const fontClass = FONT_CLASS_MAP[font] || 'font-jetbrains-mono';
   const abbrev = tzAbbrev(tz);
+  const squawk = useSquawk();
+
+  // Pausa: congela la lista visible; lo nuevo queda en buffer hasta reanudar
+  const [frozen, setFrozen] = useState<OpenULNewsItem[] | null>(null);
+  const displayItems = frozen ?? items;
+  const bufferedCount = frozen ? Math.max(0, items.length - frozen.length) : 0;
+  const handleTogglePause = useCallback(() => {
+    setFrozen((prev) => (prev ? null : items));
+  }, [items]);
+
+  // Voz: lee cada noticia nueva cuando el squawk está activo
+  const lastSpokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (items.length === 0) return;
+    const newest = items[0];
+    if (lastSpokenRef.current === null) { lastSpokenRef.current = newest.id; return; }
+    if (newest.type === 'reaction' || lastSpokenRef.current === newest.id) return;
+    lastSpokenRef.current = newest.id;
+    if (squawk.isEnabled) squawk.speak(stripEmojis(newest.text).slice(0, 280));
+  }, [items, squawk]);
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [atTop, setAtTop] = useState(true);
@@ -322,10 +359,11 @@ export function OpenULContent() {
   }, [items]);
 
   useEffect(() => {
+    if (frozen) return; // en pausa no se auto-desplaza
     if (atTop && virtuosoRef.current) {
       virtuosoRef.current.scrollToIndex({ index: 0, behavior: 'smooth' });
     }
-  }, [items.length, atTop]);
+  }, [items.length, atTop, frozen]);
 
   const scrollToTop = useCallback(() => {
     virtuosoRef.current?.scrollToIndex({ index: 0, behavior: 'smooth' });
@@ -371,7 +409,13 @@ export function OpenULContent() {
 
   return (
     <div className={`relative flex flex-col h-full bg-surface select-text ${fontClass}`}>
-      {windowId && <HeaderPortal windowId={windowId} todayCount={todayCount} status={status} />}
+      {windowId && (
+        <HeaderPortal
+          windowId={windowId} todayCount={todayCount} status={status}
+          isPaused={!!frozen} onTogglePause={handleTogglePause}
+          buffered={bufferedCount} squawk={squawk}
+        />
+      )}
 
       {items.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-muted-fg gap-2">
@@ -384,7 +428,7 @@ export function OpenULContent() {
       ) : (
         <Virtuoso
           ref={virtuosoRef}
-          data={items}
+          data={displayItems}
           itemContent={renderItem}
           computeItemKey={computeItemKey}
           atTopStateChange={setAtTop}
@@ -407,7 +451,9 @@ export function OpenULContent() {
       )}
 
       <div className="flex items-center justify-between px-3 py-0.5 border-t border-border bg-surface-hover">
-        <span className="text-[8px] font-mono text-muted-fg">{items.length} items · {abbrev}</span>
+        <span className="text-[8px] font-mono text-muted-fg">
+          {displayItems.length} items{frozen ? ` · paused (+${bufferedCount})` : ''} · {abbrev}
+        </span>
         <span className="text-[8px] font-mono text-muted-fg/50">openul v1.0</span>
       </div>
     </div>

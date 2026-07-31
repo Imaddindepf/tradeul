@@ -51,6 +51,55 @@ export function parseHumanNumber(value: string | number | null | undefined): num
   return num * mul;
 }
 
+/**
+ * Parsea el texto de una CELDA de tabla del agente (AutoChart,
+ * InteractiveTable, StructuredTable) a número crudo, o null si la celda
+ * no es un número puntual.
+ *
+ * A diferencia de parseHumanNumber (entrada de filtros — NO tocar su
+ * semántica: FilterNumInput depende de ella), aquí se aceptan además:
+ *   - "**$1.2B**"           -> 1.2e9   (markers de negrita markdown)
+ *   - "+69.01%"             -> 69.01   (el % no escala, solo se descarta)
+ *   - "2.62x"               -> 2.62    (múltiplos: RVOL, ratios)
+ *   - "(2.3M)"              -> -2.3e6  (negativo contable)
+ *   - "N/A" / "—" / "-" / "" -> null   (placeholders de "sin dato")
+ *   - "$1.02 - $2.28"       -> null    (un rango no es un número puntual)
+ * Sufijos K/M/B/T case-insensitive vía UNIT_MUL.
+ */
+export function parseCellNumber(raw: string | null | undefined): number | null {
+  if (raw === null || raw === undefined) return null;
+
+  // Quitar markers de negrita markdown y espacio exterior.
+  let s = raw.replace(/\*\*/g, '').trim();
+  if (s === '') return null;
+
+  // Placeholders habituales de "sin dato".
+  if (/^(n\/?a|null|—|–|-|--)$/i.test(s)) return null;
+
+  // Negativo contable: "(2.3M)" -> -2.3M
+  let negative = false;
+  const paren = s.match(/^\((.+)\)$/);
+  if (paren) {
+    negative = true;
+    s = paren[1].trim();
+  }
+
+  // Quitar moneda, separadores de miles y espacios internos.
+  s = s.replace(/[,$\s]/g, '');
+
+  // Número puntual con sufijo opcional. Un rango ("1.02-2.28") o texto
+  // no matchean y devuelven null.
+  const match = s.match(/^([+-]?)(\d*\.?\d+)(%|x|[kmbt])?$/i);
+  if (!match) return null;
+
+  const num = parseFloat(match[1] + match[2]);
+  if (!Number.isFinite(num)) return null;
+
+  // "%" y "x" no están en UNIT_MUL -> mul 1 (solo se descartan).
+  const mul = UNIT_MUL[(match[3] || '').toUpperCase()] ?? 1;
+  return negative ? -num * mul : num * mul;
+}
+
 /** Limpia ruido de coma flotante y recorta ceros finales. */
 function trimFloat(n: number, decimals: number): string {
   return parseFloat(n.toFixed(decimals)).toString();

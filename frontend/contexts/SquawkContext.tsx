@@ -11,7 +11,7 @@ import { createContext, useContext, useRef, useState, useCallback, useMemo, useE
 import { useAuth } from '@clerk/nextjs';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 
-interface SquawkService {
+export interface SquawkService {
   isEnabled: boolean;
   isSpeaking: boolean;
   toggleEnabled: () => void;

@@ -56,6 +56,7 @@ FOREX_HASH_KEY = "snapshot:forex:latest"
 
 STALE_WS_SECS = int(os.getenv("STALE_WS_SECS", "60"))
 REST_POLL_SECS = int(os.getenv("FOREX_REST_POLL_SECS", "10"))
+PREV_CLOSE_REFRESH_SECS = int(os.getenv("FOREX_PREV_CLOSE_REFRESH_SECS", "900"))
 RECONNECT_BASE_SECS = 2
 RECONNECT_MAX_SECS = 60
 BARS_FLUSH_BATCH = 500
@@ -95,15 +96,18 @@ stats = {
 
 
 class PairState:
-    """Estado por par: dedupe y vela 1-min en formación."""
+    """Estado por par: dedupe, vela 1-min en formación y cierre previo."""
 
-    __slots__ = ("last_price", "last_ts", "bar_minute", "bar")
+    __slots__ = ("last_price", "last_ts", "bar_minute", "bar", "prev_close")
 
     def __init__(self):
         self.last_price: Optional[float] = None
         self.last_ts: int = 0
         self.bar_minute: Optional[int] = None
         self.bar: Optional[List[float]] = None  # [o, h, l, c]
+        # El WS legacy solo trae bid/ask (type Q), nunca change: el cierre
+        # previo viene del REST y es la referencia para CHG/CHG% en cada tick.
+        self.prev_close: Optional[float] = None
 
 
 states: Dict[str, PairState] = {}
@@ -200,11 +204,17 @@ async def process_quote(q: dict, source: str) -> None:
         logger.debug("forex_quote_publish_error", symbol=symbol, error=str(e))
 
     # ── Hash de snapshot ──
+    # El REST trae change; el WS no. Se ancla prev_close con el REST y se
+    # recalcula CHG/CHG% en cada tick para no machacar el snapshot con None.
     change = q.get("change")
+    if change is not None:
+        st.prev_close = round(price - change, 6)
+    elif st.prev_close:
+        change = round(price - st.prev_close, 6)
+    prev_close = st.prev_close
     change_pct = q.get("changePercentage")
-    if change_pct is None and change is not None and price != change:
-        change_pct = round(change / (price - change) * 100, 5)
-    prev_close = round(price - change, 6) if change is not None else None
+    if change_pct is None and change is not None and prev_close:
+        change_pct = round(change / prev_close * 100, 5)
     try:
         entry = orjson.dumps({
             "symbol": symbol,
@@ -403,6 +413,41 @@ async def rest_fallback_loop() -> None:
             logger.warning("fmp_forex_rest_error", error=str(e))
 
 
+async def prev_close_refresh_loop() -> None:
+    """
+    Refresca prev_close por par vía REST sin publicar quotes: cubre el
+    rollover diario mientras el WS (que no trae change) es la fuente activa.
+    """
+    while True:
+        await asyncio.sleep(PREV_CLOSE_REFRESH_SECS)
+        # Con el WS caído el fallback REST ya ancla prev_close en cada poll
+        if time.time() - stats["last_data_ts"] >= STALE_WS_SECS:
+            continue
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    FMP_FOREX_BATCH_URL,
+                    params={"apikey": settings.FMP_API_KEY},
+                    timeout=aiohttp.ClientTimeout(total=20),
+                ) as resp:
+                    if resp.status != 200:
+                        continue
+                    quotes = await resp.json()
+            updated = 0
+            for q in quotes or []:
+                sym = q.get("symbol")
+                price, change = q.get("price"), q.get("change")
+                if sym in CURATED_SET and price and change is not None:
+                    st = states.get(sym)
+                    if st is None:
+                        st = states[sym] = PairState()
+                    st.prev_close = round(price - change, 6)
+                    updated += 1
+            logger.debug("forex_prev_close_refreshed", pairs=updated)
+        except Exception as e:
+            logger.warning("forex_prev_close_refresh_error", error=str(e))
+
+
 # ── Seed de metadata ────────────────────────────────────────────────────────
 async def seed_forex_metadata() -> None:
     """Upsert del set curado en tickers_unified (market='forex')."""
@@ -467,10 +512,11 @@ async def lifespan(app: FastAPI):
     ws_task = asyncio.create_task(ws_consumer_loop())
     poll_task = asyncio.create_task(rest_fallback_loop())
     flush_task = asyncio.create_task(flush_bars_loop())
+    prev_close_task = asyncio.create_task(prev_close_refresh_loop())
 
     yield
 
-    for t in (ws_task, poll_task, flush_task):
+    for t in (ws_task, poll_task, flush_task, prev_close_task):
         t.cancel()
     await db.disconnect()
     await redis_client.disconnect()

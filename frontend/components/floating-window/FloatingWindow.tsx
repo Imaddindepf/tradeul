@@ -13,6 +13,14 @@ interface FloatingWindowProps {
   window: FloatingWindowType;
 }
 
+/**
+ * Título VISIBLE de la ventana. `window.title` es además la clave de enrutado
+ * (getWindowContent) y de restauración persistida, así que no se renombra:
+ * solo se mapea al mostrarlo. La ventana del chart no debe enseñar la marca
+ * "TradingView" — de cara al usuario es TC (Tradeul Chart).
+ */
+const displayTitle = (title: string): string => title.replace(/^TradingView(?=$|: )/, 'TC');
+
 function FloatingWindowImpl({ window }: FloatingWindowProps) {
   const { t } = useTranslation();
   const { closeWindow, updateWindow } = useFloatingWindowActions();
@@ -360,7 +368,7 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
       >
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-primary" />
-          <span className="text-sm font-medium text-foreground">{window.title}</span>
+          <span className="text-sm font-medium text-foreground">{displayTitle(window.title)}</span>
         </div>
       </div>
     );
@@ -400,7 +408,7 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
 
               <div id={`window-header-extra-${window.id}`} className="flex items-center" />
               <h3 className="text-xs font-medium text-foreground truncate"
-                id={`window-title-text-${window.id}`}>{window.title}</h3>
+                id={`window-title-text-${window.id}`}>{displayTitle(window.title)}</h3>
             </div>
 
             <div className="flex items-center gap-0.5 ml-2">
@@ -418,7 +426,7 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
                   whitelist de handleOpenNewWindow y los iframes de la
                   Charting Library no sobreviven a un traslado de documento —
                   antes era un botón muerto) */}
-              {!window.title.startsWith('TradingView') && (
+              {!window.title.startsWith('TradingView') && window.title !== 'Market Pulse' && (
                 <button
                   onMouseDown={(e) => {
                     e.stopPropagation();

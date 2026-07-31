@@ -236,6 +236,9 @@ export interface FilterRangeRowProps {
   warn?: React.ReactNode;
   /** Scanner panel: label column un poco más estrecha */
   compactLabel?: boolean;
+  /** Strategy Builder: columna de label ancha (cabe "Distance from Inside Market")
+   *  e inputs más anchos (cabe "100000" junto al selector de unidad). */
+  wide?: boolean;
 }
 
 export function FilterRangeRow({
@@ -252,20 +255,25 @@ export function FilterRangeRow({
   help,
   warn,
   compactLabel,
+  wide,
 }: FilterRangeRowProps) {
   const hasUnits = unitOpts && unitOpts.length > 0;
   const phMinTxt = formatPlaceholder(phMin, defaultUnit) || 'min';
   const phMaxTxt = formatPlaceholder(phMax, defaultUnit) || 'max';
+  // En modo wide los campos crecen para que "100000" quepa junto al selector de unidad
+  const fieldW = wide ? 'w-[96px]' : undefined;
 
   return (
     <div className="flex items-center gap-1.5 px-3 py-[3px]">
       <div
         className={cn(
           'flex items-center gap-0.5 shrink-0 font-medium text-foreground/70',
-          compactLabel ? 'w-[5.5rem]' : 'w-24',
+          compactLabel ? 'w-[5.5rem]' : wide ? 'w-56' : 'w-24',
         )}
       >
-        <span className={cn(TXT, 'truncate')}>{label}</span>
+        {/* wide: sin truncate — el label más largo del catálogo mide 196px (< w-56=224px);
+            si el catálogo crece, hace wrap en vez de cortarse */}
+        <span className={cn(TXT, wide ? 'leading-tight' : 'truncate')} title={label}>{label}</span>
         {help}
       </div>
 
@@ -277,6 +285,7 @@ export function FilterRangeRow({
             unitOpts={unitOpts}
             defaultUnit={defaultUnit}
             placeholder={phMinTxt}
+            className={fieldW}
           />
           <span className="text-muted-fg/40 text-[9px] shrink-0">-</span>
           <ScaledNumInput
@@ -285,13 +294,14 @@ export function FilterRangeRow({
             unitOpts={unitOpts}
             defaultUnit={defaultUnit}
             placeholder={phMaxTxt}
+            className={fieldW}
           />
         </>
       ) : (
         <>
-          <PlainNumInput value={minValue} onChange={onMinChange} placeholder={phMinTxt} />
+          <PlainNumInput value={minValue} onChange={onMinChange} placeholder={phMinTxt} className={fieldW} />
           <span className="text-muted-fg/40 text-[9px] shrink-0">-</span>
-          <PlainNumInput value={maxValue} onChange={onMaxChange} placeholder={phMaxTxt} />
+          <PlainNumInput value={maxValue} onChange={onMaxChange} placeholder={phMaxTxt} className={fieldW} />
         </>
       )}
 
