@@ -318,6 +318,46 @@ export const MinimizeIcon = (p: IconProps) => (
     </Base>
 );
 
+/*
+  Maximize / restore *chart* (the cell inside a multi-chart layout) — distinct
+  from Maximize/MinimizeIcon above, which drive the whole window's fullscreen.
+
+  These two are transcribed verbatim from TradingView's own bottom toolbar
+  button (`[data-name="layoutFullscreen"]`): 18x18 box, single filled path, no
+  stroke. That's why they don't use `Base` — `Base` is a 24x24 stroked grid and
+  re-drawing these as strokes loses the asymmetric 1px weight that makes the
+  glyph read correctly at 14px.
+
+  TradingView swaps the path between states (outward arrows → inward arrows);
+  its per-chart twin instead keeps one glyph and inverts the button background.
+  We follow the swap, which reads on its own without a filled chip.
+*/
+const CHART_FULLSCREEN_PATHS = {
+    maximize: 'M15 8V3h-5V2h6v6h-1ZM3 10v5h5v1H2v-6h1Z',
+    restore: 'M11 2v5h5v1h-6V2h1ZM7 16v-5H2v-1h6v6H7Z',
+} as const;
+
+function FilledBox18({ d, className, ...rest }: IconProps & { d: string }) {
+    return (
+        <svg
+            className={className}
+            width="18"
+            height="18"
+            viewBox="0 0 18 18"
+            {...rest}
+        >
+            <path fill="currentColor" d={d} />
+        </svg>
+    );
+}
+
+export const MaximizeChartIcon = (p: IconProps) => (
+    <FilledBox18 d={CHART_FULLSCREEN_PATHS.maximize} {...p} />
+);
+export const RestoreChartIcon = (p: IconProps) => (
+    <FilledBox18 d={CHART_FULLSCREEN_PATHS.restore} {...p} />
+);
+
 export const UndoIcon = (p: IconProps) => (
     <Base {...p}>
         <path d="M3 10h13a4 4 0 010 8h-5" />

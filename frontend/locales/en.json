@@ -965,6 +965,8 @@
     "screenshot": "Chart screenshot",
     "fullscreen": "Fullscreen",
     "exitFullscreen": "Exit fullscreen",
+    "maximizeChart": "Maximize chart",
+    "restoreChart": "Restore chart",
     "chartType": "Chart type",
     "replay": "Replay",
     "barReplay": "Bar Replay",

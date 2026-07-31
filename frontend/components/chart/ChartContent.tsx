@@ -62,8 +62,10 @@ import {
 import { createChartSyncBus, type ChartSyncBus } from './multichart/chartSyncBus';
 import { ChartLayoutContainer } from './multichart/ChartLayoutContainer';
 import { ChartWindowHeader } from './multichart/ChartWindowHeader';
+import { getLayoutTemplate } from './multichart/layoutTemplates';
 import { ChartProvider, type ChartContextValue } from './ChartContext';
 import { ChartHeader } from './ChartHeader';
+import { ChartBottomBar } from './ChartBottomBar';
 import { ChartToolbar } from './ChartToolbar';
 
 interface ChartContentProps {
@@ -169,7 +171,53 @@ function ChartWindowRoot({
 
     const cellCount = win ? Object.keys(win.cells).length : 0;
 
+    /*
+      ── Maximized cell ───────────────────────────────────────────────────
+      Window-local on purpose. TradingView treats this as pure view state:
+      it lives in a single value on the chart collection, is never written to
+      the saved layout, and a reload comes back with the full grid. Keeping it
+      out of the persisted Zustand store reproduces that exactly, and costs
+      nothing since only this subtree cares.
+    */
+    const [maximizedCellId, setMaximizedCellId] = useState<string | null>(null);
+
+    // Visible cells come from the layout template, not from the cells map —
+    // the store can hold more entries than the current template renders.
+    const visibleCellCount = win
+        ? getLayoutTemplate(win.layoutId).cellCount
+        : 0;
+
+    /*
+      Changing the layout drops the maximized state. Same as TradingView,
+      where `setLayout` runs `_recalculateMaximizedChartDef`, which resolves to
+      null on desktop. The second guard covers a layout that shrank past the
+      maximized cell, which would otherwise hide every cell at once.
+    */
+    const maximizedStillVisible =
+        maximizedCellId !== null &&
+        Boolean(win?.cells[maximizedCellId]) &&
+        Number(maximizedCellId.split('-')[1]) <= visibleCellCount;
+
+    useEffect(() => {
+        if (maximizedCellId !== null && !maximizedStillVisible) {
+            setMaximizedCellId(null);
+        }
+    }, [maximizedCellId, maximizedStillVisible]);
+
+    /*
+      Maximize always targets the ACTIVE cell — TradingView's per-chart
+      `requestFullscreen` maximizes and activates in the same call, so the
+      maximized chart is by definition the active one.
+    */
+    const handleToggleMaximize = useCallback(() => {
+        setMaximizedCellId((current) =>
+            current !== null ? null : (win?.activeCellId ?? null),
+        );
+    }, [win?.activeCellId]);
+
     if (!win) return null;
+
+    const effectiveMaximizedCellId = maximizedStillVisible ? maximizedCellId : null;
 
     return (
         <>
@@ -200,9 +248,15 @@ function ChartWindowRoot({
                                     windowId={windowId}
                                     bus={busRef.current!}
                                     onActiveContextValue={handleActiveCtx}
+                                    maximizedCellId={effectiveMaximizedCellId}
                                 />
                             </div>
                         </div>
+                        <ChartBottomBar
+                            cellCount={visibleCellCount}
+                            maximized={effectiveMaximizedCellId !== null}
+                            onToggleMaximize={handleToggleMaximize}
+                        />
                     </ChartProvider>
                 ) : (
                     <>
@@ -214,9 +268,15 @@ function ChartWindowRoot({
                                     windowId={windowId}
                                     bus={busRef.current!}
                                     onActiveContextValue={handleActiveCtx}
+                                    maximizedCellId={effectiveMaximizedCellId}
                                 />
                             </div>
                         </div>
+                        <ChartBottomBar
+                            cellCount={visibleCellCount}
+                            maximized={effectiveMaximizedCellId !== null}
+                            onToggleMaximize={handleToggleMaximize}
+                        />
                     </>
                 )}
             </div>

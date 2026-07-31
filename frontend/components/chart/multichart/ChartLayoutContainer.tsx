@@ -28,12 +28,19 @@ interface ChartLayoutContainerProps {
      * upward — see `ChartCell` for the rationale.
      */
     onActiveContextValue?: (ctx: ChartContextValue | null) => void;
+    /**
+     * Id of the cell currently maximized, or null for the normal grid. Owned
+     * by the window root (`ChartContent`) — see the note on the wrapper below
+     * for why the other cells stay mounted.
+     */
+    maximizedCellId?: string | null;
 }
 
 export function ChartLayoutContainer({
     windowId,
     bus,
     onActiveContextValue,
+    maximizedCellId = null,
 }: ChartLayoutContainerProps) {
     const win = useChartLayoutStore(selectWindow(windowId));
     const setActiveCellId = useChartLayoutStore((s) => s.setActiveCellId);
@@ -76,15 +83,40 @@ export function ChartLayoutContainer({
                 gap: isMulti ? '1px' : undefined,
             }}
         >
-            {cellList.map(({ idx, state }) => (
+            {cellList.map(({ idx, state }) => {
+                /*
+                  Maximizing does NOT unmount the other cells.
+
+                  TradingView detaches the hidden charts from the DOM but keeps
+                  their widgets alive, so they carry on receiving ticks and
+                  building bars while invisible (measured: a hidden 2m chart
+                  closed one bar and opened the next). Unmounting a <ChartCell>
+                  here would tear down its data subscription and its sync-bus
+                  wiring, so restoring would show a gap and refetch.
+
+                  So the maximized cell simply spans the whole grid on top and
+                  the rest go `visibility: hidden`. They keep their grid area —
+                  and therefore their exact size — which also means no resize
+                  storm through lightweight-charts on the way back.
+                */
+                const isMaximized = maximizedCellId === state.id;
+                const isHidden = maximizedCellId !== null && !isMaximized;
+                const showRing =
+                    isMulti && maximizedCellId === null && activeCellId === state.id;
+
+                return (
                 <div
                     key={state.id}
-                    style={{ gridArea: cellArea(idx) }}
+                    style={{
+                        gridArea: isMaximized ? '1 / 1 / -1 / -1' : cellArea(idx),
+                        zIndex: isMaximized ? 1 : undefined,
+                        visibility: isHidden ? 'hidden' : undefined,
+                        pointerEvents: isHidden ? 'none' : undefined,
+                    }}
+                    aria-hidden={isHidden || undefined}
                     className={`min-w-0 min-h-0 overflow-hidden bg-[color:var(--color-surface)] ${
-                        isMulti
-                            ? activeCellId === state.id
-                                ? 'ring-1 ring-inset ring-[color:var(--color-primary)]/60'
-                                : ''
+                        showRing
+                            ? 'ring-1 ring-inset ring-[color:var(--color-primary)]/60'
                             : ''
                     }`}
                 >
@@ -100,7 +132,8 @@ export function ChartLayoutContainer({
                         onActiveContextValue={onActiveContextValue}
                     />
                 </div>
-            ))}
+                );
+            })}
         </div>
     );
 }
