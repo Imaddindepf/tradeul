@@ -1489,6 +1489,7 @@
     "printCount": "{{count}} prints",
     "timezone": "Hora NY",
     "loadingMore": "Cargando prints anteriores…",
-    "dayStart": "inicio del día"
+    "dayStart": "inicio del día",
+    "bufferCap": "límite del buffer"
   }
 }

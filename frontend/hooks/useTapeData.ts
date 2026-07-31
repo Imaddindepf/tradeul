@@ -28,6 +28,12 @@ export interface TapeRow extends TapePrint {
     dir: TickDirection;
     /** true solo para prints llegados por WS después del render inicial. */
     live: boolean;
+    /**
+     * Reloj de pared al llegar el print (0 en el backfill). Con la lista
+     * virtualizada las filas se montan y desmontan al scrollear, así que el
+     * flash no puede dispararse "al montar": se acota por antigüedad real.
+     */
+    at: number;
 }
 
 interface UseTapeDataOptions {
@@ -43,6 +49,8 @@ interface UseTapeDataReturn {
     rows: TapeRow[];
     /** Páginas históricas del día cargadas al hacer scroll (más antiguas que rows). */
     olderRows: TapeRow[];
+    /** true cuando el buffer histórico llegó a su tope y ya no se pide más. */
+    atBufferCap: boolean;
     loading: boolean;
     /** true mientras se carga una página más antigua. */
     loadingOlder: boolean;
@@ -61,6 +69,13 @@ interface UseTapeDataReturn {
 
 const DEFAULT_MAX_ROWS = 2000;
 const DEFAULT_BACKFILL = 300;
+/**
+ * Tope del buffer histórico (páginas de scroll infinito). Antes crecía sin
+ * límite: cada página añade 500 filas y el array entero se recorre en cada
+ * lote en vivo (10/s). Con 20.000 filas hay ~440.000 px de scroll disponibles,
+ * de sobra para revisar el día.
+ */
+const MAX_OLDER_ROWS = 20_000;
 
 function printKey(p: TapePrint): string {
     // id de trade + exchange es único por día; fallback a t/q/p/s.
@@ -81,6 +96,7 @@ export function useTapeData({
     const [loading, setLoading] = useState(false);
     const [loadingOlder, setLoadingOlder] = useState(false);
     const [hasMore, setHasMore] = useState(true);
+    const [atBufferCap, setAtBufferCap] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isLive, setIsLive] = useState(false);
     const [printsPerSecond, setPrintsPerSecond] = useState(0);
@@ -107,6 +123,7 @@ export function useTapeData({
         setRows([]);
         setOlderRows([]);
         setHasMore(true);
+        setAtBufferCap(false);
         setLoadingOlder(false);
         loadingOlderRef.current = false;
         lastPriceRef.current = null;
@@ -128,7 +145,7 @@ export function useTapeData({
             const dir: TickDirection =
                 localLast == null || p.p === localLast ? 'flat' : p.p > localLast ? 'up' : 'down';
             localLast = p.p;
-            built.push({ ...p, key, dir, live: false });
+            built.push({ ...p, key, dir, live: false, at: 0 });
         }
         built.reverse(); // asc → desc (más reciente primero)
         return built;
@@ -189,6 +206,11 @@ export function useTapeData({
         if (loadingOlderRef.current || !symbolRef.current) return;
         const older = olderRowsRef.current;
         const live = rowsRef.current;
+        // Tope del buffer: se deja de paginar en vez de crecer sin límite.
+        if (older.length >= MAX_OLDER_ROWS) {
+            setAtBufferCap(true);
+            return;
+        }
         const oldest = older.length > 0 ? older[older.length - 1] : live[live.length - 1];
         if (!oldest) return;
 
@@ -232,12 +254,13 @@ export function useTapeData({
                 if (message.symbol !== symbolRef.current) return;
 
                 const batch = message.data; // orden cronológico (asc) dentro del lote
+                const now = Date.now();
                 const fresh: TapeRow[] = [];
                 for (const p of batch) {
                     const key = printKey(p);
                     if (seenKeysRef.current.has(key)) continue;
                     seenKeysRef.current.add(key);
-                    fresh.push({ ...p, key, dir: computeDir(p.p), live: true });
+                    fresh.push({ ...p, key, dir: computeDir(p.p), live: true, at: now });
                 }
                 if (fresh.length === 0) return;
 
@@ -248,7 +271,6 @@ export function useTapeData({
                 }
 
                 // prints/s: ventana móvil de 5s
-                const now = Date.now();
                 const win = rateWindowRef.current;
                 for (const _ of fresh) win.push(now);
                 while (win.length > 0 && win[0] < now - 5000) win.shift();
@@ -270,5 +292,5 @@ export function useTapeData({
         };
     }, [symbol, enabled, isConnected, messages$, send, maxRows, computeDir]);
 
-    return { rows, olderRows, loading, loadingOlder, hasMore, loadOlder, error, isConnected, isLive, printsPerSecond, clear };
+    return { rows, olderRows, atBufferCap, loading, loadingOlder, hasMore, loadOlder, error, isConnected, isLive, printsPerSecond, clear };
 }

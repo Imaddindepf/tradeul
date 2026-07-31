@@ -17,8 +17,9 @@
  * useWindowState (se restaura al reabrir el workspace).
  */
 
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Settings2, Pause, ArrowUpToLine, CircleDot } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useWindowState } from '@/contexts/FloatingWindowContext';
@@ -54,7 +55,15 @@ const DEFAULT_COLUMNS: Record<ColumnKey, boolean> = {
     condition: true,
 };
 
-const VISIBLE_ROW_CAP = 250;
+/**
+ * Alto exacto de fila (px). Es fijo, así que el virtualizador no necesita medir:
+ * estimateSize devuelve el valor real y no hay reflow de corrección.
+ */
+const ROW_H = 22;
+/** Filas extra fuera del viewport que se pre-renderizan. */
+const OVERSCAN = 12;
+/** Antigüedad máxima de un print para que su fila haga flash (ms). */
+const FLASH_WINDOW_MS = 500;
 
 // ============================================================================
 // Formateo
@@ -99,10 +108,12 @@ interface RowProps {
     flash: boolean;
     showMs: boolean;
     dimNoUpdate: boolean;
+    /** Posicionamiento absoluto que inyecta el virtualizador. */
+    virtualStyle: CSSProperties;
 }
 
 const TapeRowView = memo(function TapeRowView({
-    row, symbol, decoder, columns, gridTemplate, flash, showMs, dimNoUpdate,
+    row, symbol, decoder, columns, gridTemplate, flash, showMs, dimNoUpdate, virtualStyle,
 }: RowProps) {
     const isDP = decoder.isDarkPool(row.x, row.trfi);
     const noLast = decoder.isDimmedPrint(row.c);
@@ -118,7 +129,10 @@ const TapeRowView = memo(function TapeRowView({
                 ? 'text-[color:var(--color-tick-down)]'
                 : 'text-foreground/80';
 
-    const animation = flash && row.live
+    // Con la lista virtualizada una fila se monta cada vez que vuelve al
+    // viewport, así que "montar" ya no equivale a "recién llegada": el flash se
+    // acota por antigüedad real del print.
+    const animation = flash && row.live && Date.now() - row.at < FLASH_WINDOW_MS
         ? row.dir === 'down' ? 'tas-flash-down 0.5s ease-out' : 'tas-flash-up 0.5s ease-out'
         : undefined;
 
@@ -127,7 +141,11 @@ const TapeRowView = memo(function TapeRowView({
             className={`grid items-center gap-x-2 px-2 h-[22px] text-[11.5px] leading-none font-mono border-b border-border/30 ${
                 noLast && dimNoUpdate ? 'opacity-60' : ''
             } ${isBlock ? 'bg-primary/10' : ''}`}
-            style={{ gridTemplateColumns: gridTemplate, animation }}
+            // `contain: strict` aísla layout/paint de cada fila: el navegador deja
+            // de recalcular el árbol entero al entrar un lote. Es seguro aquí
+            // porque la fila tiene alto fijo y no contiene overlays flotantes
+            // (los tooltips son atributos `title` nativos).
+            style={{ ...virtualStyle, gridTemplateColumns: gridTemplate, animation, contain: 'strict' }}
         >
             {columns.ticker && (
                 <span className="truncate font-semibold text-primary">{symbol}</span>
@@ -226,7 +244,7 @@ export function TimeAndSalesContent({ initialSymbol }: { initialSymbol?: string 
     useEffect(() => { setSymbolInput(symbol); }, [symbol]);
 
     const {
-        rows, olderRows, loading, loadingOlder, hasMore, loadOlder,
+        rows, olderRows, atBufferCap, loading, loadingOlder, hasMore, loadOlder,
         error, isConnected, isLive, printsPerSecond,
     } = useTapeData({ symbol });
 
@@ -279,10 +297,23 @@ export function TimeAndSalesContent({ initialSymbol }: { initialSymbol?: string 
         anchorIdx = idx > 0 ? idx : 0;
     }
     const displayRows = anchorIdx > 0 ? filteredRows.slice(anchorIdx) : filteredRows;
-    // En vivo solo se pintan las primeras N (el tape corre); en pausa se deja
-    // scrollear más profundo, con tope para no clavar el DOM.
-    const visibleRows = displayRows.slice(0, paused ? 3000 : VISIBLE_ROW_CAP);
     const newSincePause = anchorIdx;
+
+    // ── Virtualización ───────────────────────────────────────────────────────
+    // Solo se montan las filas visibles (+OVERSCAN), como el resto de tablas del
+    // terminal. Antes se pintaban 250 en vivo y hasta 3.000 en pausa: ~18.000
+    // nodos DOM, un orden de magnitud por encima del umbral de error de
+    // Lighthouse (~1.400) y del presupuesto de ~10 ms por frame.
+    const rowVirtualizer = useVirtualizer({
+        count: displayRows.length,
+        getScrollElement: () => scrollRef.current,
+        estimateSize: () => ROW_H,
+        overscan: OVERSCAN,
+        // Claves estables: sin esto, al anteponer filas el virtualizador
+        // reutiliza por índice y las filas se ven "saltar" de contenido.
+        getItemKey: (index) => displayRows[index]?.key ?? index,
+    });
+    const virtualItems = rowVirtualizer.getVirtualItems();
 
     // ── Grid template según columnas visibles ────────────────────────────────
     const gridTemplate = useMemo(() => {
@@ -422,33 +453,49 @@ export function TimeAndSalesContent({ initialSymbol }: { initialSymbol?: string 
                         {t('tape.loading')}
                     </div>
                 )}
-                {!loading && visibleRows.length === 0 && (
+                {!loading && displayRows.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-24 gap-1 text-xs text-muted-fg">
                         <span>{t('tape.empty')}</span>
                         {error === 'backfill_failed' && <span className="text-[10px]">{t('tape.backfillFailed')}</span>}
                     </div>
                 )}
-                {visibleRows.map((row) => (
-                    <TapeRowView
-                        key={row.key}
-                        row={row}
-                        symbol={symbol}
-                        decoder={decoder}
-                        columns={columns}
-                        gridTemplate={gridTemplate}
-                        flash={flash}
-                        showMs={showMs}
-                        dimNoUpdate={dimNoUpdate}
-                    />
-                ))}
-                {visibleRows.length > 0 && loadingOlder && (
+                {displayRows.length > 0 && (
+                    <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+                        {virtualItems.map((vi) => {
+                            const row = displayRows[vi.index];
+                            if (!row) return null;
+                            return (
+                                <TapeRowView
+                                    key={row.key}
+                                    row={row}
+                                    symbol={symbol}
+                                    decoder={decoder}
+                                    columns={columns}
+                                    gridTemplate={gridTemplate}
+                                    flash={flash}
+                                    showMs={showMs}
+                                    dimNoUpdate={dimNoUpdate}
+                                    virtualStyle={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        width: '100%',
+                                        height: vi.size,
+                                        transform: `translateY(${vi.start}px)`,
+                                    }}
+                                />
+                            );
+                        })}
+                    </div>
+                )}
+                {displayRows.length > 0 && loadingOlder && (
                     <div className="flex items-center justify-center h-7 text-[10px] text-muted-fg animate-pulse">
                         {t('tape.loadingMore')}
                     </div>
                 )}
-                {visibleRows.length > 0 && !hasMore && !loadingOlder && (
+                {displayRows.length > 0 && !loadingOlder && (atBufferCap || !hasMore) && (
                     <div className="flex items-center justify-center h-7 text-[10px] text-muted-fg/60">
-                        — {t('tape.dayStart')} —
+                        — {atBufferCap ? t('tape.bufferCap') : t('tape.dayStart')} —
                     </div>
                 )}
             </div>
