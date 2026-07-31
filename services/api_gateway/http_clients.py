@@ -1049,39 +1049,22 @@ class BenzingaNewsClient(InternalServiceClient):
         response.raise_for_status()
         return response.json()
 
-    async def search_news(
-        self,
-        tickers: str = None,
-        channels: str = None,
-        tags: str = None,
-        author: str = None,
-        published_after: str = None,
-        published_before: str = None,
-        limit: int = 100,
-        sort: str = "published.desc"
-    ) -> Dict[str, Any]:
-        """Búsqueda de noticias con filtros completos (query directa a Polygon)"""
-        params = {"limit": limit, "sort": sort}
-        if tickers:
-            params["tickers"] = tickers
-        if channels:
-            params["channels"] = channels
-        if tags:
-            params["tags"] = tags
-        if author:
-            params["author"] = author
-        if published_after:
-            params["published_after"] = published_after
-        if published_before:
-            params["published_before"] = published_before
-        
-        response = await self.get("/api/v1/news/search", params=params)
+
+class NewsPersisterClient(InternalServiceClient):
+    """Cliente para news-persister (histórico unificado de noticias + búsqueda full-text)"""
+
+    def __init__(self, host: str = "news-persister", port: int = 8073, timeout: float = 90.0):
+        super().__init__("news-persister", f"http://{host}:{port}", timeout)
+
+    async def search_history(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Búsqueda paginada del histórico unificado (benzinga + fmp + polygon)"""
+        response = await self.get("/api/v1/news/history", params=params)
         response.raise_for_status()
         return response.json()
 
-    async def search_news_cursor(self, cursor_url: str) -> Dict[str, Any]:
-        """Sigue cursor de paginación de búsqueda"""
-        response = await self.get("/api/v1/news/search/cursor", params={"cursor_url": cursor_url})
+    async def extract_article(self, url: str) -> Dict[str, Any]:
+        """Extrae el cuerpo legible de un artículo para el lector nativo"""
+        response = await self.get("/api/v1/news/extract", params={"url": url})
         response.raise_for_status()
         return response.json()
 
@@ -1478,6 +1461,7 @@ class HTTPClientManager:
         self.market_session = MarketSessionClient()
         self.ticker_metadata = TickerMetadataClient()
         self.benzinga_news = BenzingaNewsClient()
+        self.news_persister = NewsPersisterClient()
         self.fmp_news = FMPNewsClient()
         self.financials = FinancialsClient()
         

@@ -2310,59 +2310,49 @@ async def proxy_news_by_ticker(ticker: str, limit: int = Query(50, ge=1, le=200)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/news/api/v1/news/search")
-async def proxy_news_search(
-    tickers: Optional[str] = Query(None, description="Comma-separated tickers"),
-    channels: Optional[str] = Query(None, description="Comma-separated channels"),
-    tags: Optional[str] = Query(None, description="Comma-separated tags"),
-    author: Optional[str] = Query(None, description="Author name"),
-    published_after: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    published_before: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    limit: int = Query(100, ge=1, le=1000, description="Limit results"),
-    sort: str = Query("published.desc", description="Sort order")
-):
-    """Proxy para búsqueda de noticias con filtros completos (query directa a Polygon)"""
+@app.get("/news/api/v1/news/history")
+async def proxy_news_history(request: Request):
+    """
+    Búsqueda del histórico unificado de noticias (news-persister → TimescaleDB).
+    Full-text (q) + tickers + sources + publisher + channels + tags + fechas,
+    con paginación por cursor (before/before_id).
+    Sustituye al viejo /news/search, que solo cubría Benzinga e ignoraba fechas.
+    """
     try:
-        return await http_clients.benzinga_news.search_news(
-            tickers=tickers,
-            channels=channels,
-            tags=tags,
-            author=author,
-            published_after=published_after,
-            published_before=published_before,
-            limit=limit,
-            sort=sort
-        )
+        params = dict(request.query_params)
+        return await http_clients.news_persister.search_history(params)
     except httpx.TimeoutException:
-        logger.error("news_search_timeout")
-        raise HTTPException(status_code=504, detail="News search service timeout")
+        logger.error("news_history_timeout")
+        raise HTTPException(status_code=504, detail="News history service timeout")
     except httpx.ConnectError:
-        logger.error("news_search_unavailable")
-        raise HTTPException(status_code=503, detail="News search service unavailable")
+        logger.error("news_history_unavailable")
+        raise HTTPException(status_code=503, detail="News history service unavailable")
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail="News search service error")
+        raise HTTPException(status_code=e.response.status_code, detail="News history service error")
     except Exception as e:
-        logger.error("news_search_error", error=str(e))
+        logger.error("news_history_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/news/api/v1/news/search/cursor")
-async def proxy_news_search_cursor(
-    cursor_url: str = Query(..., description="Polygon next_url for pagination")
-):
-    """Proxy para paginación cursor de búsqueda de noticias"""
+@app.get("/news/api/v1/news/extract")
+async def proxy_news_extract(url: str = Query(..., description="URL del artículo a extraer")):
+    """
+    Lector nativo: extracción server-side del cuerpo del artículo
+    (news-persister → trafilatura, con cache). El frontend lo renderiza con
+    su propia tipografía — sin iframes.
+    """
     try:
-        return await http_clients.benzinga_news.search_news_cursor(cursor_url=cursor_url)
+        return await http_clients.news_persister.extract_article(url)
     except httpx.TimeoutException:
-        logger.error("news_cursor_timeout")
-        raise HTTPException(status_code=504, detail="News cursor service timeout")
+        logger.error("news_extract_timeout")
+        raise HTTPException(status_code=504, detail="News extract timeout")
     except httpx.ConnectError:
-        logger.error("news_cursor_unavailable")
-        raise HTTPException(status_code=503, detail="News cursor service unavailable")
+        logger.error("news_extract_unavailable")
+        raise HTTPException(status_code=503, detail="News extract unavailable")
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail="News cursor service error")
+        raise HTTPException(status_code=e.response.status_code, detail="News extract error")
     except Exception as e:
-        logger.error("news_cursor_error", error=str(e))
+        logger.error("news_extract_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

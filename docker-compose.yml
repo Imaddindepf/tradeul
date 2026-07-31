@@ -907,6 +907,92 @@ services:
           memory: 128M
 
   # ============================================================================
+  # NEWS RENDERER - Navegador headless (Chromium) self-hosted para renderizar
+  # el JS de articulos (shells como MSN/Yahoo). Reemplaza a servicios externos.
+  # ============================================================================
+  news-renderer:
+    build:
+      context: ./services/news-renderer
+      dockerfile: Dockerfile
+    container_name: tradeul_news_renderer
+    networks:
+      - tradeul_network
+    environment:
+      - SERVICE_PORT=8074
+      - MAX_CONCURRENCY=2
+      - PROXY_URL=${NEWS_PROXY_URL:-}
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "127.0.0.1:8074:8074"
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8074/health')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1200M
+        reservations:
+          memory: 256M
+
+  # ============================================================================
+  # NEWS PERSISTER - Persiste el feed unificado de noticias en TimescaleDB
+  # (benzinga/OOC + fmp + polygon) y sirve la busqueda full-text del historico
+  # ============================================================================
+  news-persister:
+    build:
+      context: ./services/news-persister
+      dockerfile: Dockerfile
+    container_name: tradeul_news_persister
+    networks:
+      - tradeul_network
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_STREAM_KEY=stream:benzinga:news
+      - CONSUMER_GROUP=news_persister
+      - CONSUMER_NAME=persister_1
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-tradeul}
+      - SERVICE_PORT=8073
+      - RENDERER_URL=http://news-renderer:8074
+      - HEAVY_EXTRACT=${NEWS_HEAVY_EXTRACT:-false}
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "127.0.0.1:8073:8073"
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8073/health')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384M
+        reservations:
+          memory: 128M
+
+  # ============================================================================
   # AI NEWS BRIEF - Brief Fundamental de noticias (Claude Opus 4.8)
   # ============================================================================
   ai-news-brief:
@@ -946,45 +1032,48 @@ services:
   # ============================================================================
   # BENZINGA EARNINGS - Real-time earnings data streaming
   # ============================================================================
-  benzinga-earnings:
-    build:
-      context: ./services/benzinga-earnings
-      dockerfile: Dockerfile
-    container_name: tradeul_benzinga_earnings
-    env_file:
-      - .env
-    environment:
-      - POLYGON_API_KEY=${POLYGON_API_KEY}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - TIMESCALE_HOST=tradeul_timescale
-      - TIMESCALE_PORT=5432
-      - TIMESCALE_USER=${POSTGRES_USER:-tradeul_user}
-      - TIMESCALE_PASSWORD=${POSTGRES_PASSWORD}
-      - TIMESCALE_DATABASE=${POSTGRES_DB:-tradeul}
-      - SERVICE_PORT=8022
-      - POLL_INTERVAL_SECONDS=30
-      - FULL_SYNC_INTERVAL_MINUTES=60
-      - LOG_LEVEL=INFO
-      - PYTHONUNBUFFERED=1
-    depends_on:
-      redis:
-        condition: service_healthy
-      timescaledb:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - tradeul_network
-    ports:
-      - "127.0.0.1:8022:8022"
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-        reservations:
-          memory: 256M
+  # Servicio de earnings retirado 2026-07-29: el proveedor dejo de autorizar
+  # el feed (403 desde 2026-07-11) y ninguna herramienta lo consulta ya.
+  # Se deja comentado para que un 'docker compose up -d' no lo reviva.
+  # benzinga-earnings:
+  # build:
+  # context: ./services/benzinga-earnings
+  # dockerfile: Dockerfile
+  # container_name: tradeul_benzinga_earnings
+  # env_file:
+  # - .env
+  # environment:
+  # - POLYGON_API_KEY=${POLYGON_API_KEY}
+  # - REDIS_HOST=redis
+  # - REDIS_PORT=6379
+  # - REDIS_PASSWORD=${REDIS_PASSWORD}
+  # - TIMESCALE_HOST=tradeul_timescale
+  # - TIMESCALE_PORT=5432
+  # - TIMESCALE_USER=${POSTGRES_USER:-tradeul_user}
+  # - TIMESCALE_PASSWORD=${POSTGRES_PASSWORD}
+  # - TIMESCALE_DATABASE=${POSTGRES_DB:-tradeul}
+  # - SERVICE_PORT=8022
+  # - POLL_INTERVAL_SECONDS=30
+  # - FULL_SYNC_INTERVAL_MINUTES=60
+  # - LOG_LEVEL=INFO
+  # - PYTHONUNBUFFERED=1
+  # depends_on:
+  # redis:
+  # condition: service_healthy
+  # timescaledb:
+  # condition: service_healthy
+  # restart: unless-stopped
+  # networks:
+  # - tradeul_network
+  # ports:
+  # - "127.0.0.1:8022:8022"
+  # deploy:
+  # resources:
+  # limits:
+  # cpus: "0.5"
+  # memory: 512M
+  # reservations:
+  # memory: 256M
 
   prediction-markets:
     build:
@@ -1161,6 +1250,14 @@ services:
       - tradeul_network
     ports:
       - "127.0.0.1:8050:8050"
+    healthcheck:
+      # python3 en vez de curl (python:3.12-slim no lo trae). /health es el
+      # endpoint público del rest_app: si responde, /api/tools ya se sirve.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8050/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -1195,7 +1292,10 @@ services:
       # ai-news-brief en la misma red bridge => alcanzable por DNS del servicio.
       - NEWS_BRIEF_URL=http://ai-news-brief:8072
       # Fase 3c: rollout de tool-calling nativo por agente (CSV de agentes)
-      - AGENT_NATIVE_TOOLS=financial,dilution
+      - AGENT_NATIVE_TOOLS=financial,dilution,news_events,screener,research,market_data
+      # Fase 4b: sandbox de code_exec (red interna dedicada, sin docker.sock)
+      - CODE_SANDBOX_URL=http://code_sandbox:8085
+      - CODE_SANDBOX_TOKEN=${MCP_GATEWAY_TOKEN}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # NOTA: docker.sock eliminado — el sandbox de code_exec no está implementado
@@ -1214,7 +1314,10 @@ services:
       timescaledb:
         condition: service_healthy
       mcp_gateway:
-        condition: service_started
+        # service_healthy (no service_started): el agente ganaba la carrera
+        # al gateway y validate_catalog() se saltaba para siempre. El retry
+        # in-app cubre arranques manuales fuera de compose.
+        condition: service_healthy
       backtester:
         condition: service_started
     # Deja terminar briefs/grafos en curso antes de matar el proceso en un deploy.
@@ -1222,6 +1325,7 @@ services:
     restart: unless-stopped
     networks:
       - tradeul_network
+      - sandbox_net
     ports:
       - "127.0.0.1:8031:8031"
     deploy:
@@ -1606,6 +1710,34 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  code_sandbox:
+    build:
+      context: ./services/code-sandbox
+    container_name: tradeul_code_sandbox
+    environment:
+      - SANDBOX_TOKEN=${MCP_GATEWAY_TOKEN}
+    networks:
+      - sandbox_net
+    volumes:
+      - polygon_data:/data/polygon:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    mem_limit: 3g
+    cpus: 1.5
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+
 volumes:
   redis_data:
     driver: local
@@ -1624,3 +1756,6 @@ volumes:
 networks:
   tradeul_network:
     driver: bridge
+  sandbox_net:
+    driver: bridge
+    internal: true

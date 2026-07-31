@@ -43,6 +43,10 @@ SNAPSHOT_LAST_CLOSE_HASH = "snapshot:enriched:last_close"
 SNAPSHOT_ENRICHED_TTL = 600  # 10 minutes
 SNAPSHOT_LAST_CLOSE_TTL = 604800  # 7 days
 POSTMARKET_FROZEN_TTL = 259200  # 72h — survives the weekend for restart recovery
+# Margen tras las 16:00 ET antes de congelar el cierre regular: el print de
+# la subasta de cierre tarda en consolidarse y sin esta espera se cuela como
+# movimiento after-hours en los valores poco líquidos.
+_CLOSE_SETTLE_SECONDS = 180
 
 
 class EnrichmentPipeline:
@@ -137,6 +141,10 @@ class EnrichmentPipeline:
         # Post-market: freeze regular close at 16:00 ET and cache regular volumes
         self._regular_close_cache: Dict[str, float] = {}
         self._regular_close_frozen = False
+        # Instante del cierre regular (epoch ns) del día congelado. Sirve para
+        # distinguir un trade posterior al cierre de la última operación de la
+        # sesión regular.
+        self._regular_close_epoch_ns: Optional[int] = None
         self._regular_volumes_cache: Dict[str, int] = {}
         self._regular_volumes_loaded = False
 
@@ -234,15 +242,22 @@ class EnrichmentPipeline:
         session = MarketSession.from_time_et(now.hour, now.minute)
         self._current_session = session
         
-        # Freeze regular close prices at market close for accurate post-market calculations
+        # Freeze regular close prices once the closing print has settled.
+        # Congelar en el primer tick de POST_MARKET captura el precio ANTES de
+        # la subasta de cierre: en ilíquidos la subasta es el único print
+        # relevante del día, y la diferencia acaba publicada como movimiento
+        # after-hours. Se espera a que el cierre oficial esté consolidado.
         if session == MarketSession.POST_MARKET and not self._regular_close_frozen:
-            for td in tickers_data:
-                sym = td.get('ticker')
-                day_d = td.get('day', {})
-                if sym and isinstance(day_d, dict) and day_d.get('c') and day_d['c'] > 0:
-                    self._regular_close_cache[sym] = float(day_d['c'])
-            self._regular_close_frozen = True
-            logger.info("regular_close_frozen", tickers=len(self._regular_close_cache))
+            _close_at = now.replace(hour=16, minute=0, second=0, microsecond=0)
+            if (now - _close_at).total_seconds() >= _CLOSE_SETTLE_SECONDS:
+                for td in tickers_data:
+                    sym = td.get('ticker')
+                    day_d = td.get('day', {})
+                    if sym and isinstance(day_d, dict) and day_d.get('c') and day_d['c'] > 0:
+                        self._regular_close_cache[sym] = float(day_d['c'])
+                self._regular_close_frozen = True
+                self._regular_close_epoch_ns = int(_close_at.timestamp() * 1_000_000_000)
+                logger.info("regular_close_frozen", tickers=len(self._regular_close_cache))
         elif session != MarketSession.POST_MARKET:
             if self._regular_close_frozen:
                 # POST_MARKET just ended: freeze postmarket metrics FIRST so
@@ -250,6 +265,7 @@ class EnrichmentPipeline:
                 await self.freeze_postmarket_metrics_if_needed(now)
                 self._regular_close_cache.clear()
                 self._regular_close_frozen = False
+                self._regular_close_epoch_ns = None
                 self._regular_volumes_cache.clear()
                 self._regular_volumes_loaded = False
 
@@ -313,7 +329,7 @@ class EnrichmentPipeline:
                     continue
                 lt = td.get('lastTrade', {})
                 p = lt.get('p') if isinstance(lt, dict) else None
-                if p and p > 0:
+                if p and p > 0 and self._traded_after_close(lt):
                     if p > self._postmarket_highs.get(sym, 0):
                         self._postmarket_highs[sym] = p
                     if p < self._postmarket_lows.get(sym, float('inf')):
@@ -1056,8 +1072,11 @@ class EnrichmentPipeline:
         _sym = ticker_data.get('ticker', '')
         if _session == MarketSession.POST_MARKET:
             # Change % / $ vs the frozen regular close
+            # Sin operaciones después del cierre no hay movimiento que medir:
+            # el campo queda a None, que no es lo mismo que 0%.
             _reg_close = self._regular_close_cache.get(_sym)
-            if _reg_close and price and _reg_close > 0:
+            if (_reg_close and price and _reg_close > 0
+                    and self._traded_after_close(ticker_data.get('lastTrade'))):
                 _post_pct = round((price - _reg_close) / _reg_close * 100, 2)
                 _post_dollars = round(price - _reg_close, 4)
                 self._postmarket_change_pct[_sym] = _post_pct
@@ -1832,6 +1851,20 @@ class EnrichmentPipeline:
     # In-cycle cost is a single dict lookup per ticker (~0.001ms).
     # ================================================================
     
+    def _traded_after_close(self, last_trade) -> bool:
+        """¿La última operación es posterior al cierre regular congelado?
+
+        Distingue "no ha operado en el after-hours" de "ha operado y no se ha
+        movido". Si aún no hay cierre congelado o el tick no trae marca de
+        tiempo, no se afirma que haya habido operación.
+        """
+        if self._regular_close_epoch_ns is None or not isinstance(last_trade, dict):
+            return False
+        ts = last_trade.get('t')
+        if not isinstance(ts, (int, float)):
+            return False
+        return int(ts) >= self._regular_close_epoch_ns
+
     async def _maybe_refresh_slow_caches(self) -> None:
         """Refresh metadata and screener daily caches if stale. Called once per cycle."""
         import time

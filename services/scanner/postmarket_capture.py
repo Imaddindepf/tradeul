@@ -427,7 +427,7 @@ class PostMarketVolumeCapture:
         """Guarda volumen en Redis con TTL de 24 horas"""
         redis_key = self._get_redis_key(symbol)
         try:
-            await self.redis.set(redis_key, volume, ex=86400)  # TTL 24 horas
+            await self.redis.set(redis_key, volume, ttl=86400)  # TTL 24 horas
         except Exception as e:
             logger.error("redis_save_error", symbol=symbol, error=str(e))
     
