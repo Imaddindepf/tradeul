@@ -118,7 +118,7 @@ function BreadthMonitorView({ data, activeTab, onSelect }: PulseViewProps) {
             <Tooltip content={<BreadthTooltip />} />
             <Scatter
               data={normalDots}
-              fill="#2563EB"
+              fill="var(--color-muted-fg)"
               fillOpacity={0.6}
               cursor="pointer"
               onClick={handleClick}

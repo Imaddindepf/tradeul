@@ -1,8 +1,8 @@
 import { memo, useMemo } from 'react';
 import type { PulseViewProps } from '../types';
 
-const B = '#2563eb';
-const R = '#ec4899';
+const B = 'var(--color-tick-up)';
+const R = 'var(--color-tick-down)';
 
 function pct(v: number) { return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`; }
 function fmtB(v: number) { return v >= 1e12 ? `$${(v / 1e12).toFixed(1)}T` : v >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : `$${(v / 1e6).toFixed(0)}M`; }
@@ -24,12 +24,12 @@ function Bar({ value, min, max, diverging }: { value: number; min: number; max: 
   const norm = clamp((value - min) / ((max - min) || 1), 0, 1);
   return (
     <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-surface-inset">
-      <div className="h-full rounded-sm" style={{ width: `${norm * 100}%`, backgroundColor: B }} />
+      <div className="h-full rounded-sm opacity-70" style={{ width: `${norm * 100}%`, backgroundColor: 'var(--color-fg)' }} />
     </div>
   );
 }
 
-function OverviewView({ data }: PulseViewProps) {
+function OverviewView({ data, activeTab }: PulseViewProps) {
   const m = useMemo(() => {
     if (!data.length) return null;
     const totalCount = data.reduce((s, d) => s + d.count, 0);
@@ -73,7 +73,7 @@ function OverviewView({ data }: PulseViewProps) {
     <div className="flex-1 flex items-center justify-center text-[12px] text-muted-fg">No data</div>
   );
 
-  const vColor = (v: number) => v >= 0 ? 'text-primary' : 'text-rose-500';
+  const vColor = (v: number) => v >= 0 ? 'text-[color:var(--color-tick-up)]' : 'text-[color:var(--color-tick-down)]';
 
   return (
     <div className="flex-1 overflow-auto px-3 py-2 space-y-2">
@@ -106,7 +106,7 @@ function OverviewView({ data }: PulseViewProps) {
             <div className="text-[8px] text-muted-fg font-medium">Vol % Done</div>
             <div className="flex items-center gap-1.5">
               <div className="flex-1 h-[6px] rounded-full bg-surface-inset overflow-hidden">
-                <div className="h-full rounded-full bg-primary" style={{ width: `${clamp(m.volPct, 0, 100)}%` }} />
+                <div className="h-full rounded-full bg-foreground opacity-70" style={{ width: `${clamp(m.volPct, 0, 100)}%` }} />
               </div>
               <span className="text-[11px] font-bold tabular-nums text-foreground">{m.volPct.toFixed(0)}%</span>
             </div>
@@ -164,24 +164,25 @@ function OverviewView({ data }: PulseViewProps) {
 
       {/* Sector Ranking */}
       <div className="border border-border rounded-md px-3 py-2">
-        <div className="text-[8px] font-bold text-muted-fg uppercase tracking-[0.1em] mb-1.5">Sectors</div>
+        <div className="text-[8px] font-bold text-muted-fg uppercase tracking-[0.1em] mb-1.5">{activeTab === 'themes' ? 'Temas' : activeTab === 'industries' ? 'Industrias' : 'Sectores'}</div>
         <div className="space-y-[3px]">
           {m.sectors.map(s => {
+            const label = activeTab === 'themes' ? s.name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : s.name;
             const maxAbs = Math.max(...m.sectors.map(x => Math.abs(x.weighted_change)), 0.1);
             const norm = clamp(s.weighted_change / maxAbs, -1, 1);
             const w = Math.abs(norm) * 100;
             const pos = norm >= 0;
             return (
               <div key={s.name} className="flex items-center gap-1.5 h-[18px]">
-                <span className={`w-[3px] h-[3px] rounded-full shrink-0 ${pos ? 'bg-primary' : 'bg-rose-400'}`} />
-                <span className="text-[10px] font-semibold text-foreground w-[95px] shrink-0 truncate">{s.name}</span>
+                <span className={`w-[3px] h-[3px] rounded-full shrink-0 ${pos ? 'bg-[color:var(--color-tick-up)]' : 'bg-[color:var(--color-tick-down)]'}`} />
+                <span className="text-[10px] font-semibold text-foreground w-[200px] shrink-0 truncate" title={label}>{label}</span>
                 <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-surface-inset relative">
                   <div className="absolute top-0 left-1/2 h-full w-px bg-muted" />
                   <div className={`absolute top-0 bottom-0 rounded-sm ${pos ? 'left-1/2' : 'right-1/2'}`}
                     style={{ width: `${w / 2}%`, backgroundColor: pos ? B : R }} />
                 </div>
                 <span className={`text-[10px] font-bold tabular-nums w-[44px] text-right shrink-0 ${vColor(s.weighted_change)}`}>{pct(s.weighted_change)}</span>
-                <span className="text-[8px] text-muted-fg tabular-nums w-[36px] text-right shrink-0">{(s.breadth * 100).toFixed(0)}% adv</span>
+                <span className="text-[8px] text-muted-fg tabular-nums w-[52px] text-right shrink-0 whitespace-nowrap">{(s.breadth * 100).toFixed(0)}% adv</span>
               </div>
             );
           })}

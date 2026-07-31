@@ -157,7 +157,7 @@ function BubbleScatterView({ data, activeTab, onSelect }: PulseViewProps) {
                 {scatterData.map((d, i) => (
                   <Cell
                     key={i}
-                    fill={d.change >= 0 ? '#2563EB' : '#EC4899'}
+                    fill={d.change >= 0 ? 'var(--color-tick-up)' : 'var(--color-tick-down)'}
                     fillOpacity={0.6}
                   />
                 ))}

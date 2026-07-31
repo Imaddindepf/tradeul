@@ -531,7 +531,7 @@ function RRGView({ data: _pulseData, activeTab, onSelect: _onSelect }: PulseView
           )}
         </div>
 
-        {loading && <Loader2 className="w-3 h-3 text-primary animate-spin" />}
+        {loading && <Loader2 className="w-3 h-3 text-muted-fg animate-spin" />}
 
         <div className="flex-1" />
 

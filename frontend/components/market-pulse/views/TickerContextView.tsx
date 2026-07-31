@@ -2,8 +2,8 @@ import { memo, useMemo } from 'react';
 import type { TickerContextData } from '@/hooks/useMarketPulse';
 import { ExternalLink } from 'lucide-react';
 
-const B = '#2563eb';
-const R = '#ec4899';
+const B = 'var(--color-tick-up)';
+const R = 'var(--color-tick-down)';
 
 function pct(v: number | null | undefined) {
   if (v == null) return '—';
@@ -30,7 +30,7 @@ function fmtNum(v: number | null | undefined) {
   return v.toLocaleString();
 }
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
-function vColor(v: number | null | undefined) { return v != null && v >= 0 ? 'text-primary' : 'text-rose-500'; }
+function vColor(v: number | null | undefined) { return v != null && v >= 0 ? 'text-[color:var(--color-tick-up)]' : 'text-[color:var(--color-tick-down)]'; }
 function fmtTheme(n: string) { return n.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); }
 
 function DivBar({ value, min, max }: { value: number; min: number; max: number }) {
@@ -105,10 +105,10 @@ function TickerContextView({ data, onOpenTicker }: Props) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => onOpenTicker?.(data.symbol)}
-              className="text-[18px] font-black text-primary hover:text-primary transition-colors flex items-center gap-1"
+              className="text-[18px] font-black text-foreground hover:opacity-80 transition-opacity flex items-center gap-1"
             >
               {data.symbol}
-              <ExternalLink className="w-3 h-3 text-primary" />
+              <ExternalLink className="w-3 h-3 text-muted-fg" />
             </button>
             <span className="text-[10px] font-medium text-muted-fg bg-surface-inset px-1.5 py-0.5 rounded">
               {data.sector}
@@ -193,9 +193,9 @@ function TickerContextView({ data, onOpenTicker }: Props) {
             const pos = norm >= 0;
             const isActive = i === sectorIdx;
             return (
-              <div key={s.name} className={`flex items-center gap-1.5 h-[18px] rounded-sm px-0.5 ${isActive ? 'bg-primary/10 ring-1 ring-primary' : ''}`}>
-                <span className={`w-[3px] h-[3px] rounded-full shrink-0 ${isActive ? 'bg-primary' : pos ? 'bg-primary' : 'bg-rose-400'}`} />
-                <span className={`text-[10px] font-semibold w-[95px] shrink-0 truncate ${isActive ? 'text-primary' : 'text-foreground'}`}>{s.name}</span>
+              <div key={s.name} className={`flex items-center gap-1.5 h-[18px] rounded-sm px-0.5 ${isActive ? 'bg-surface-inset ring-1 ring-foreground/40' : ''}`}>
+                <span className={`w-[3px] h-[3px] rounded-full shrink-0 ${isActive ? 'bg-foreground' : pos ? 'bg-[color:var(--color-tick-up)]' : 'bg-[color:var(--color-tick-down)]'}`} />
+                <span className={`text-[10px] font-semibold w-[180px] shrink-0 truncate text-foreground ${isActive ? 'font-black' : ''}`} title={s.name}>{s.name}</span>
                 <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-surface-inset relative">
                   <div className="absolute top-0 left-1/2 h-full w-px bg-muted" />
                   <div className={`absolute top-0 bottom-0 rounded-sm ${pos ? 'left-1/2' : 'right-1/2'}`}
@@ -224,7 +224,7 @@ function TickerContextView({ data, onOpenTicker }: Props) {
                 <div key={p.symbol} className="flex items-center gap-2 h-[20px] group/peer">
                   <button
                     onClick={() => onOpenTicker?.(p.symbol)}
-                    className="text-[10px] font-bold text-primary hover:text-primary w-[48px] shrink-0 text-left transition-colors"
+                    className="text-[10px] font-bold text-foreground underline underline-offset-2 decoration-border hover:decoration-foreground w-[48px] shrink-0 text-left transition-colors"
                   >
                     {p.symbol}
                   </button>
@@ -263,8 +263,8 @@ function TickerContextView({ data, onOpenTicker }: Props) {
               const pos = norm >= 0;
               return (
                 <div key={th.name} className="flex items-center gap-1.5 h-[18px]">
-                  <span className={`w-[3px] h-[3px] rounded-full shrink-0 ${pos ? 'bg-primary' : 'bg-rose-400'}`} />
-                  <span className="text-[10px] font-semibold text-foreground w-[110px] shrink-0 truncate">{fmtTheme(th.name)}</span>
+                  <span className={`w-[3px] h-[3px] rounded-full shrink-0 ${pos ? 'bg-[color:var(--color-tick-up)]' : 'bg-[color:var(--color-tick-down)]'}`} />
+                  <span className="text-[10px] font-semibold text-foreground w-[200px] shrink-0 truncate" title={fmtTheme(th.name)}>{fmtTheme(th.name)}</span>
                   <div className="flex-1 h-[10px] rounded-sm overflow-hidden bg-surface-inset relative">
                     <div className="absolute top-0 left-1/2 h-full w-px bg-muted" />
                     <div className={`absolute top-0 bottom-0 rounded-sm ${pos ? 'left-1/2' : 'right-1/2'}`}
