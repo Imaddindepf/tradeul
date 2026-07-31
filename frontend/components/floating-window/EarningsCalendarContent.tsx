@@ -12,7 +12,8 @@
  *    /api/v1/earnings/calendar.
  *  - A detail modal opened by clicking a company: quarter strip (per-symbol
  *    history), estimate vs actual + surprise, expected vs realized price move,
- *    and tabs for Highlights / Transcript / Documents.
+ *    and tabs for Momentos destacados / Transcript / Documents. The short
+ *    preview summary renders on the calendar row, not inside the card.
  *
  * TIMEZONE: everything is rendered in the user's preferred timezone
  * (theme.timezone, default America/New_York). We pass `timezone` to every
@@ -57,7 +58,7 @@ interface DayReport {
   revenue_surprise_pct: number | null;
   beat_revenue: boolean | null;
   summary: string | null;
-  key_highlights: string[] | null;
+  summary_bullets: string[] | null;
   expected_move_pct: number | null;
   post_earnings_move_1d: number | null;
   market_cap: number | null;
@@ -111,12 +112,39 @@ interface TranscriptResponse {
   symbol: string;
   event_id: number;
   status: string | null;
+  // True while the call is still being transcribed. The payload then changes
+  // every few seconds and `poll_after_seconds` says how long to wait before
+  // asking again.
+  is_live: boolean;
+  poll_after_seconds: number | null;
+  went_live_at: string | null;
+  paragraph_count: number;
+  last_paragraph_time: number | null;
   report_date: string | null;
   report_time: string | null;
+  // Path on our own API, not an upstream URL — the audio is relayed. Needs the
+  // API base prefixed, and an HLS player outside Safari.
   audio_url: string | null;
+  audio_is_hls: boolean;
   speakers: string[];
   chapters: { id: number; title: string; start: number; end: number; level: number }[];
   paragraphs: { time: number; text: string; speakers: string[] }[];
+}
+
+/** An earnings call being transcribed right now (from /earnings/live). */
+interface LiveCall {
+  symbol: string;
+  company_name: string | null;
+  event_id: number;
+  report_date: string | null;
+  report_time: string | null;
+  time_slot: string;
+  fiscal_period: string | null;
+  fiscal_year: number | null;
+  market_cap: number | null;
+  went_live_at: string | null;
+  paragraph_count: number;
+  last_paragraph_time: number | null;
 }
 
 interface DocumentItem {
@@ -154,7 +182,12 @@ const colorForSymbol = (s: string): string => {
   return LOGO_COLORS[h % LOGO_COLORS.length];
 };
 
-const MONTHS_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function monthsShort(): string[] {
+  const m = i18n.t('earnings.monthsShort', { returnObjects: true });
+  return Array.isArray(m) && m.length === 12
+    ? (m as string[])
+    : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+}
 
 function weekdaysShort(): string[] {
   const days = i18n.t('earnings.weekdaysShort', { returnObjects: true });
@@ -197,7 +230,7 @@ const toYmd = (d: Date): string => {
 };
 const shortDate = (ymd: string): string => {
   const d = parseYmd(ymd);
-  return `${d.getDate()} ${MONTHS_ES[d.getMonth()]}`;
+  return `${d.getDate()} ${monthsShort()[d.getMonth()]}`;
 };
 const weekdayOf = (ymd: string): string => weekdaysShort()[parseYmd(ymd).getDay()];
 
@@ -258,19 +291,22 @@ function TickerLogo({ symbol, size = 28 }: { symbol: string; size?: number }) {
   );
 }
 
+/**
+ * Franja de la fila. Solo se pinta cuando la empresa NO tiene hora
+ * confirmada, ocupando el hueco de `report_time` — asi que se pinta con el
+ * mismo peso que el, texto plano y apagado, y no como una pastilla de color
+ * que aparece a saltos en una lista por lo demas neutra.
+ */
 function TimeSlotChip({ slot }: { slot: string }) {
-  const map: Record<string, { label: string; cls: string; title: string }> = {
-    BMO: { label: 'BMO', title: 'Before Market Open', cls: 'text-amber-600 dark:text-amber-300 bg-amber-500/10' },
-    AMC: { label: 'AMC', title: 'After Market Close', cls: 'text-indigo-600 dark:text-indigo-300 bg-indigo-500/10' },
-    DURING: { label: 'DUR', title: 'During Market', cls: 'text-sky-600 dark:text-sky-300 bg-sky-500/10' },
-    TBD: { label: 'TBD', title: 'Time TBD', cls: 'text-zinc-500 dark:text-zinc-400 bg-zinc-500/10' },
+  const map: Record<string, { label: string; title: string }> = {
+    BMO: { label: 'BMO', title: i18n.t('earnings.bmoTitle') },
+    AMC: { label: 'AMC', title: i18n.t('earnings.amcTitle') },
+    DURING: { label: 'DUR', title: i18n.t('earnings.duringTitle') },
+    TBD: { label: 'TBD', title: i18n.t('earnings.tbdTitle') },
   };
   const v = map[slot] ?? map.TBD;
   return (
-    <span
-      title={v.title}
-      className={cn('inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wider', v.cls)}
-    >
+    <span title={v.title} className="text-[11px] font-medium tracking-wider text-foreground/55">
       {v.label}
     </span>
   );
@@ -328,7 +364,7 @@ function WeekStrip({
                 <span className="text-[10px] text-foreground/60 tabular-nums">{d.count}</span>
               </div>
             ) : (
-              <span className="text-[10px] text-foreground/35 mt-0.5">Sin llamadas</span>
+              <span className="text-[10px] text-foreground/35 mt-0.5">{i18n.t('earnings.noCalls')}</span>
             )}
           </button>
         );
@@ -341,8 +377,41 @@ function WeekStrip({
 // COMPANY CARD (day list)
 // ============================================================================
 
-function CompanyCard({ r, onClick }: { r: DayReport; onClick: () => void }) {
-  const highlights = r.key_highlights || [];
+/**
+ * Strip of calls on the air right now, above the day list. Without it a live
+ * call is invisible unless the user happens to open that company's card — the
+ * day feed itself carries no live flag.
+ */
+function LiveCallsStrip({ calls, onOpen }: { calls: LiveCall[]; onOpen: (c: LiveCall) => void }) {
+  if (calls.length === 0) return null;
+  return (
+    <div
+      className="flex items-center gap-2 px-4 py-2 border-b shrink-0 overflow-x-auto"
+      style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.10))' }}
+    >
+      <LiveBadge compact />
+      <span className="text-[10px] uppercase tracking-wider text-foreground/45 shrink-0">
+        {i18n.t('earnings.callsNow')}
+      </span>
+      <div className="flex items-center gap-1.5">
+        {calls.map((c) => (
+          <button
+            key={c.event_id}
+            onClick={() => onOpen(c)}
+            title={`${c.company_name || c.symbol} — ${i18n.t('earnings.liveTranscriptOf')}`}
+            className="shrink-0 inline-flex items-center gap-1.5 px-2 h-6 rounded border border-foreground/20 bg-foreground/[0.04] hover:bg-foreground/[0.09] transition-colors"
+          >
+            <TickerLogo symbol={c.symbol} size={14} />
+            <span className="text-[11px] font-semibold">{c.symbol}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CompanyCard({ r, onClick, isLive = false }: { r: DayReport; onClick: () => void; isLive?: boolean }) {
+  const summaryBullets = r.summary_bullets || [];
   return (
     <button
       onClick={onClick}
@@ -359,6 +428,7 @@ function CompanyCard({ r, onClick }: { r: DayReport; onClick: () => void }) {
             </div>
             <div className="flex flex-col items-end gap-1 shrink-0">
               <div className="flex items-center gap-1.5">
+                {isLive && <LiveBadge compact />}
                 {r.fiscal_period && r.fiscal_year && (
                   <span className="text-[11px] font-medium text-foreground/70">
                     {r.fiscal_period} {r.fiscal_year}
@@ -373,9 +443,9 @@ function CompanyCard({ r, onClick }: { r: DayReport; onClick: () => void }) {
             </div>
           </div>
 
-          {highlights.length > 0 && (
+          {summaryBullets.length > 0 && (
             <ul className="mt-1.5 space-y-1">
-              {highlights.slice(0, 3).map((h, i) => (
+              {summaryBullets.slice(0, 3).map((h, i) => (
                 <li key={i} className="flex gap-1.5 text-[12px] leading-snug text-foreground/75">
                   <span className="text-foreground/30 select-none">•</span>
                   <span className="min-w-0">{h}</span>
@@ -394,6 +464,87 @@ function CompanyCard({ r, onClick }: { r: DayReport; onClick: () => void }) {
 // ============================================================================
 
 type DetailTab = 'highlights' | 'transcript' | 'documents';
+
+/**
+ * Audio player for the relayed HLS stream.
+ *
+ * Safari plays HLS natively; every other browser needs a player, so hls.js is
+ * loaded on demand — a plain <audio src="...m3u8"> is simply silent in Chrome,
+ * which is how this went unnoticed.
+ */
+function CallAudio({ src, isHls }: { src: string; isHls: boolean }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    setFailed(false);
+
+    const nativeHls = el.canPlayType('application/vnd.apple.mpegurl') !== '';
+    if (!isHls || nativeHls) {
+      el.src = src;
+      return;
+    }
+
+    let destroy: (() => void) | undefined;
+    let cancelled = false;
+    import('hls.js')
+      .then(({ default: Hls }) => {
+        if (cancelled) return;
+        if (!Hls.isSupported()) {
+          setFailed(true);
+          return;
+        }
+        const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+        hls.loadSource(src);
+        hls.attachMedia(el);
+        hls.on(Hls.Events.ERROR, (_e, data) => {
+          if (data.fatal) setFailed(true);
+        });
+        destroy = () => hls.destroy();
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+      destroy?.();
+    };
+  }, [src, isHls]);
+
+  return (
+    <div>
+      <audio ref={audioRef} controls className="w-full h-8" />
+      {failed && (
+        <div className="mt-1 text-[11px] text-foreground/40">
+          {i18n.t('earnings.audioFailed')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "EN DIRECTO" pill for a call that is being transcribed right now. */
+function LiveBadge({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'shrink-0 inline-flex items-center gap-1.5 rounded-full border border-foreground/20 bg-foreground/[0.06]',
+        compact ? 'px-1.5 h-[18px]' : 'px-2 h-[22px]'
+      )}
+    >
+      <span className="relative flex w-1.5 h-1.5">
+        <span className="absolute inline-flex w-full h-full rounded-full bg-foreground/60 animate-ping" />
+        <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-foreground/80" />
+      </span>
+      <span className={cn('font-semibold uppercase tracking-wider', compact ? 'text-[9px]' : 'text-[10px]')}>
+        En directo
+      </span>
+    </span>
+  );
+}
 
 function StatBox({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) {
   return (
@@ -423,10 +574,20 @@ function EventDetailModal({
   const [tab, setTab] = useState<DetailTab>('highlights');
   const [history, setHistory] = useState<EventRow[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(report.event_id);
-  const [eventHighlights, setEventHighlights] = useState<string[]>(report.key_highlights || []);
+  // Key highlights of the call. The short preview summary is NOT shown here:
+  // it already renders on the calendar row, outside the card.
+  const [eventKeyHighlights, setEventKeyHighlights] = useState<string[]>([]);
   const [highlightsLoading, setHighlightsLoading] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptResponse | null>(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
+  // Known from the event-detail fetch, so the live badge shows on any tab
+  // without having to load the transcript first.
+  const [transcriptIsLive, setTranscriptIsLive] = useState(false);
+  // The source keeps `status: "live"` for a while after the call has actually
+  // ended, until post-processing flips it to "final" — observed sitting there
+  // for over 15 minutes with the text frozen on the closing remarks. Without
+  // this we would poll a dead call forever.
+  const [transcriptStalled, setTranscriptStalled] = useState(false);
   const [documents, setDocuments] = useState<DocumentItem[] | null>(null);
   const [docsLoading, setDocsLoading] = useState(false);
 
@@ -468,35 +629,117 @@ function EventDetailModal({
       beat_revenue: e?.beat_revenue ?? report.beat_revenue,
       expected_move_pct: e?.expected_move_pct ?? report.expected_move_pct,
       post_earnings_move_1d: e?.post_earnings_move_1d ?? report.post_earnings_move_1d,
-      highlights: eventHighlights,
+      keyHighlights: eventKeyHighlights,
     };
-  }, [selectedEvent, report, eventHighlights]);
+  }, [selectedEvent, report, eventKeyHighlights]);
 
-  // Fetch AI summary bullets whenever the selected quarter changes.
+  // Fetch the call's key highlights whenever the selected quarter changes.
   useEffect(() => {
     if (selectedEventId == null) return;
     setHighlightsLoading(true);
     const c = new AbortController();
     fetch(`${apiUrl}/api/v1/earnings/event/${report.symbol}/${selectedEventId}?timezone=${tzq}`, { signal: c.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setEventHighlights(Array.isArray(d?.key_highlights) ? d.key_highlights : []))
-      .catch(() => setEventHighlights([]))
+      .then((d) => {
+        setEventKeyHighlights(Array.isArray(d?.key_highlights) ? d.key_highlights : []);
+        setTranscriptIsLive(d?.transcript_is_live === true);
+      })
+      .catch(() => {
+        setEventKeyHighlights([]);
+        setTranscriptIsLive(false);
+      })
       .finally(() => setHighlightsLoading(false));
     return () => c.abort();
   }, [selectedEventId, apiUrl, report.symbol, tzq]);
 
-  // Lazy-load transcript when the tab is opened.
+  // A call happening right now is what the user opened the card for, so land on
+  // the transcript instead of the highlights (which are empty until the call is
+  // processed anyway). Once only — never fight a user who navigated away.
+  const autoOpenedLiveRef = useRef(false);
+  useEffect(() => {
+    if (transcriptIsLive && !autoOpenedLiveRef.current) {
+      autoOpenedLiveRef.current = true;
+      setTab('transcript');
+    }
+  }, [transcriptIsLive]);
+
+  // Still being transcribed *and* still moving. A stalled call is over, so it
+  // must stop presenting itself as live.
+  const isLive = (transcript?.is_live ?? transcriptIsLive) && !transcriptStalled;
+
+  // Follow the live text, but only while the reader is already at the bottom:
+  // scrolling up to re-read something must not be yanked back down. Keyed on
+  // paragraph count *and* the length of the last one, since a live update often
+  // just extends the trailing paragraph.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const liveTick = transcript
+    ? `${transcript.paragraphs.length}:${transcript.paragraphs[transcript.paragraphs.length - 1]?.text.length ?? 0}`
+    : '';
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || tab !== 'transcript' || !isLive) return;
+    if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [liveTick, tab, isLive]);
+
+  // Transcript: load when the tab is opened, then keep following it for as long
+  // as the call is live. Each poll replaces the whole payload instead of
+  // appending a delta, because the source rewrites its last paragraph in place
+  // as the speaker finishes the sentence — appending by index would duplicate
+  // half-sentences. The cadence comes from the server (`poll_after_seconds`),
+  // and polling stops by itself the moment `is_live` turns false.
   useEffect(() => {
     if (tab !== 'transcript' || selectedEventId == null) return;
     setTranscript(null);
+    setTranscriptStalled(false);
     setTranscriptLoading(true);
     const c = new AbortController();
-    fetch(`${apiUrl}/api/v1/earnings/event/${report.symbol}/${selectedEventId}/transcript?timezone=${tzq}`, { signal: c.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setTranscript(d))
-      .catch(() => {})
-      .finally(() => setTranscriptLoading(false));
-    return () => c.abort();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    // Give up following when the text has not moved for this long: the call is
+    // over and we are only waiting for the source to relabel it. Comfortably
+    // longer than any pause between a question and its answer.
+    const STALL_MS = 4 * 60 * 1000;
+    let signature = '';
+    let lastAdvance = Date.now();
+
+    const poll = async () => {
+      try {
+        const r = await fetch(
+          `${apiUrl}/api/v1/earnings/event/${report.symbol}/${selectedEventId}/transcript?timezone=${tzq}`,
+          { signal: c.signal, cache: 'no-store' }
+        );
+        const d: TranscriptResponse | null = r.ok ? await r.json() : null;
+        if (stopped) return;
+        if (d) {
+          setTranscript(d);
+          // Count both a new paragraph and the trailing one growing as progress.
+          const sig = `${d.paragraph_count}:${d.paragraphs[d.paragraphs.length - 1]?.text.length ?? 0}`;
+          if (sig !== signature) {
+            signature = sig;
+            lastAdvance = Date.now();
+          }
+          if (d.is_live) {
+            if (Date.now() - lastAdvance > STALL_MS) {
+              setTranscriptStalled(true);
+            } else {
+              timer = setTimeout(poll, (d.poll_after_seconds ?? 8) * 1000);
+            }
+          }
+        }
+      } catch {
+        // Aborted (tab/quarter changed) or offline: stop following.
+      } finally {
+        if (!stopped) setTranscriptLoading(false);
+      }
+    };
+    poll();
+
+    return () => {
+      stopped = true;
+      c.abort();
+      if (timer) clearTimeout(timer);
+    };
   }, [tab, selectedEventId, apiUrl, report.symbol, tzq]);
 
   // Lazy-load documents when the tab is opened.
@@ -521,7 +764,7 @@ function EventDetailModal({
     <div className="absolute inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
       <button
         type="button"
-        aria-label="Cerrar detalle"
+        aria-label={i18n.t('earnings.closeDetail')}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto cursor-default"
         onClick={onClose}
       />
@@ -537,11 +780,12 @@ function EventDetailModal({
             <div className="text-[15px] font-semibold truncate">{report.company_name || report.symbol}</div>
             <div className="text-[11px] text-foreground/50">{report.symbol}</div>
           </div>
+          {isLive && <LiveBadge />}
           <button
             type="button"
             onClick={onClose}
             className="w-7 h-7 rounded-md text-foreground/60 hover:text-foreground hover:bg-foreground/10 transition-colors text-[16px] leading-none"
-            aria-label="Cerrar"
+            aria-label={i18n.t('earnings.close')}
           >
             ×
           </button>
@@ -566,7 +810,7 @@ function EventDetailModal({
                   {reported ? (
                     <MoveBadge value={e.post_earnings_move_1d} up={up} down={down} />
                   ) : (
-                    <span className="text-[10px] text-foreground/45">próximo</span>
+                    <span className="text-[10px] text-foreground/45">{i18n.t('earnings.upcoming')}</span>
                   )}
                 </button>
               );
@@ -577,7 +821,9 @@ function EventDetailModal({
         {/* Selected event summary */}
         <div className="px-4 py-2.5 border-b shrink-0" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.10))' }}>
           <div className="text-[13px] font-semibold">
-            Llamada de resultados de {report.symbol} {merged.fiscal_year} {merged.fiscal_period}
+            {i18n.language === 'es'
+              ? `${i18n.t('earnings.callOf')} ${report.symbol} ${merged.fiscal_year ?? ''} ${merged.fiscal_period ?? ''}`.trim()
+              : `${report.symbol} ${merged.fiscal_year ?? ''} ${merged.fiscal_period ?? ''} ${i18n.t('earnings.callOf')}`.replace(/\s+/g, ' ').trim()}
           </div>
           <div className="text-[11px] text-foreground/50">
             {merged.report_date}{merged.report_time ? ` · ${merged.report_time}` : ''}
@@ -585,15 +831,15 @@ function EventDetailModal({
 
           {/* Stats grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2.5 mt-3">
-            <StatBox label="Ingresos est." value={fmt.rev(merged.revenue_estimate)} />
-            <StatBox label="Ingresos real" value={fmt.rev(merged.revenue_actual)} tone={surpTone(merged.beat_revenue)} />
-            <StatBox label="Sorpresa ingr." value={fmt.pct(merged.revenue_surprise_pct)} tone={surpTone(merged.beat_revenue)} />
-            <StatBox label="Mov. esperado" value={fmt.moveFrac(merged.expected_move_pct)} />
-            <StatBox label="BPA est." value={fmt.eps(merged.eps_estimate)} />
-            <StatBox label="BPA real" value={fmt.eps(merged.eps_actual)} tone={surpTone(merged.beat_eps)} />
-            <StatBox label="Sorpresa BPA" value={fmt.pct(merged.eps_surprise_pct)} tone={surpTone(merged.beat_eps)} />
+            <StatBox label={i18n.t('earnings.revEstimate')} value={fmt.rev(merged.revenue_estimate)} />
+            <StatBox label={i18n.t('earnings.revActual')} value={fmt.rev(merged.revenue_actual)} tone={surpTone(merged.beat_revenue)} />
+            <StatBox label={i18n.t('earnings.revSurprise')} value={fmt.pct(merged.revenue_surprise_pct)} tone={surpTone(merged.beat_revenue)} />
+            <StatBox label={i18n.t('earnings.expectedMove')} value={fmt.moveFrac(merged.expected_move_pct)} />
+            <StatBox label={i18n.t('earnings.epsEstimate')} value={fmt.eps(merged.eps_estimate)} />
+            <StatBox label={i18n.t('earnings.epsActual')} value={fmt.eps(merged.eps_actual)} tone={surpTone(merged.beat_eps)} />
+            <StatBox label={i18n.t('earnings.epsSurprise')} value={fmt.pct(merged.eps_surprise_pct)} tone={surpTone(merged.beat_eps)} />
             <StatBox
-              label="Mov. precio 1d"
+              label={i18n.t('earnings.move1d')}
               value={<MoveBadge value={merged.post_earnings_move_1d} up={up} down={down} />}
             />
           </div>
@@ -610,23 +856,31 @@ function EventDetailModal({
               key={id}
               onClick={() => setTab(id)}
               className={cn(
-                'px-2.5 h-7 rounded text-[11px] font-medium transition-colors',
+                'inline-flex items-center gap-1.5 px-2.5 h-7 rounded text-[11px] font-medium transition-colors',
                 tab === id ? 'bg-foreground/[0.10] text-foreground' : 'text-foreground/55 hover:text-foreground/90 hover:bg-foreground/[0.05]'
               )}
             >
               {label}
+              {id === 'transcript' && isLive && <LiveBadge compact />}
             </button>
           ))}
         </div>
 
         {/* Tab content */}
-        <div className="flex-1 min-h-0 overflow-auto px-4 py-3 min-h-[160px]">
+        <div
+          ref={scrollRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+          }}
+          className="flex-1 min-h-0 overflow-auto px-4 py-3 min-h-[160px]"
+        >
           {tab === 'highlights' && (
             highlightsLoading ? (
-              <div className="text-[12px] text-foreground/45 pt-6 text-center">Cargando resumen…</div>
-            ) : merged.highlights.length > 0 ? (
-              <ul className="space-y-2">
-                {merged.highlights.map((h, i) => (
+              <div className="text-[12px] text-foreground/45 pt-6 text-center">{i18n.t('earnings.loadingHighlights')}</div>
+            ) : merged.keyHighlights.length > 0 ? (
+              <ul className="space-y-2.5">
+                {merged.keyHighlights.map((h, i) => (
                   <li key={i} className="flex gap-2 text-[13px] leading-relaxed text-foreground/85">
                     <span className="text-foreground/30 select-none mt-0.5">•</span>
                     <span>{h}</span>
@@ -635,27 +889,50 @@ function EventDetailModal({
               </ul>
             ) : (
               <div className="text-[12px] text-foreground/45 pt-6 text-center">
-                Sin resumen disponible para esta llamada.
+                Sin momentos destacados para esta llamada.
               </div>
             )
           )}
 
           {tab === 'transcript' && (
-            transcriptLoading ? (
-              <div className="text-[12px] text-foreground/45 pt-6 text-center">Cargando transcripción…</div>
+            transcriptLoading && !transcript ? (
+              <div className="text-[12px] text-foreground/45 pt-6 text-center">{i18n.t('earnings.loadingTranscript')}</div>
             ) : transcript && transcript.paragraphs.length > 0 ? (
               <div className="space-y-3">
                 {transcript.audio_url && (
-                  <audio controls src={transcript.audio_url} className="w-full h-8" />
+                  <CallAudio src={`${apiUrl}${transcript.audio_url}`} isHls={transcript.audio_is_hls} />
                 )}
-                {transcript.paragraphs.map((p, i) => (
-                  <div key={i} className="text-[13px] leading-relaxed">
-                    {p.speakers.length > 0 && (
-                      <span className="font-semibold text-foreground/90 mr-1.5">{p.speakers.join(', ')}:</span>
-                    )}
-                    <span className="text-foreground/75">{p.text}</span>
+                {transcript.paragraphs.map((p, i) => {
+                  // While live, the final paragraph is a partial that will be
+                  // rewritten on the next poll: dim it so the reader can tell
+                  // the sentence is still being spoken.
+                  const provisional = isLive && i === transcript.paragraphs.length - 1;
+                  return (
+                    <div key={i} className="text-[13px] leading-relaxed">
+                      {p.speakers.length > 0 && (
+                        <span className="font-semibold text-foreground/90 mr-1.5">{p.speakers.join(', ')}:</span>
+                      )}
+                      <span className={provisional ? 'text-foreground/55' : 'text-foreground/75'}>{p.text}</span>
+                      {provisional && <span className="ml-0.5 animate-pulse text-foreground/40">▍</span>}
+                    </div>
+                  );
+                })}
+                {isLive && (
+                  <div className="pt-1 pb-2 text-[11px] text-foreground/40 text-center">
+                    Transcribiendo la llamada en directo…
                   </div>
-                ))}
+                )}
+                {transcriptStalled && (
+                  <div className="pt-1 pb-2 text-[11px] text-foreground/40 text-center">
+                    {i18n.t('earnings.transcriptStalled')}
+                  </div>
+                )}
+              </div>
+            ) : isLive ? (
+              // Live but nothing transcribed yet: the call has been announced or
+              // has just started. Not the same as "no transcript exists".
+              <div className="text-[12px] text-foreground/45 pt-6 text-center">
+                {i18n.t('earnings.transcriptStarting')}
               </div>
             ) : (
               <div className="text-[12px] text-foreground/45 pt-6 text-center">{t('earnings.transcriptUnavailable')}</div>
@@ -664,7 +941,7 @@ function EventDetailModal({
 
           {tab === 'documents' && (
             docsLoading ? (
-              <div className="text-[12px] text-foreground/45 pt-6 text-center">Cargando documentos…</div>
+              <div className="text-[12px] text-foreground/45 pt-6 text-center">{i18n.t('earnings.loadingFilings')}</div>
             ) : documents && documents.length > 0 ? (
               <div className="space-y-1.5">
                 {documents.map((d) => (
@@ -691,7 +968,7 @@ function EventDetailModal({
                 ))}
               </div>
             ) : (
-              <div className="text-[12px] text-foreground/45 pt-6 text-center">Sin documentos para esta llamada.</div>
+              <div className="text-[12px] text-foreground/45 pt-6 text-center">{i18n.t('earnings.noFilings')}</div>
             )
           )}
         </div>
@@ -730,7 +1007,11 @@ export function EarningsCalendarContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  type SlotFilter = 'ALL' | 'BMO' | 'DURING' | 'AMC' | 'REPORTED';
+  const [slotFilter, setSlotFilter] = useState<SlotFilter>('ALL');
   const [modalReport, setModalReport] = useState<DayReport | null>(null);
+  const [liveCalls, setLiveCalls] = useState<LiveCall[]>([]);
+  const liveEventIds = useMemo(() => new Set(liveCalls.map((l) => l.event_id)), [liveCalls]);
 
   // Type-ahead search routing.
   const ecWindowId = useCurrentWindowId();
@@ -762,6 +1043,38 @@ export function EarningsCalendarContent() {
     },
     [apiUrl, tzq]
   );
+
+  // Which calls are on the air right now. Independent of the selected day: a
+  // live call is news wherever the user happens to be browsing. The server
+  // caches the scan, so this poll is cheap regardless of how many windows ask.
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const c = new AbortController();
+
+    const tick = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/v1/earnings/live?timezone=${tzq}`, {
+          signal: c.signal,
+          cache: 'no-store',
+        });
+        const d = res.ok ? await res.json() : null;
+        if (stopped) return;
+        setLiveCalls(Array.isArray(d?.live) ? d.live : []);
+      } catch {
+        /* best-effort: the calendar works without the live strip */
+      } finally {
+        if (!stopped) timer = setTimeout(tick, 30_000);
+      }
+    };
+    tick();
+
+    return () => {
+      stopped = true;
+      c.abort();
+      if (timer) clearTimeout(timer);
+    };
+  }, [apiUrl, tzq]);
 
   // Fetch the week strip.
   const fetchSchedule = useCallback(
@@ -849,7 +1162,7 @@ export function EarningsCalendarContent() {
       revenue_surprise_pct: e.revenue_surprise_pct,
       beat_revenue: e.beat_revenue,
       summary: null,
-      key_highlights: null,
+      summary_bullets: null,
       expected_move_pct: e.expected_move_pct,
       post_earnings_move_1d: e.post_earnings_move_1d,
       market_cap: null,
@@ -860,14 +1173,63 @@ export function EarningsCalendarContent() {
     });
   };
 
+  // Open the detail card straight from the live strip. The card fills in
+  // estimates and actuals itself from the per-symbol history, so the adapter
+  // only has to carry identity and timing.
+  const openModalFromLiveCall = (c: LiveCall) => {
+    setModalReport({
+      symbol: c.symbol,
+      company_name: c.company_name,
+      event_id: c.event_id,
+      report_date: c.report_date,
+      report_time: c.report_time,
+      utc_time: null,
+      time_slot: (c.time_slot as DayReport['time_slot']) || 'TBD',
+      fiscal_year: c.fiscal_year,
+      fiscal_period: c.fiscal_period,
+      fiscal_quarter: c.fiscal_period,
+      eps_estimate: null,
+      eps_actual: null,
+      eps_surprise_pct: null,
+      beat_eps: null,
+      revenue_estimate: null,
+      revenue_actual: null,
+      revenue_surprise_pct: null,
+      beat_revenue: null,
+      summary: null,
+      summary_bullets: null,
+      expected_move_pct: null,
+      post_earnings_move_1d: null,
+      market_cap: c.market_cap,
+      currency: null,
+      status: 'reported',
+      importance: null,
+      source: 'tradeul',
+    });
+  };
+
   const isToday = selectedDate === toYmd(new Date());
+
+  // Filtro por franja. Pulsar la pastilla activa la quita, asi que la propia
+  // fila de contadores es el control: no hace falta un "ver todo" aparte.
+  const visibleReports = useMemo(() => {
+    const all = dayData?.reports ?? [];
+    if (slotFilter === 'ALL') return all;
+    if (slotFilter === 'REPORTED') return all.filter((r) => r.status === 'reported');
+    return all.filter((r) => r.time_slot === slotFilter);
+  }, [dayData, slotFilter]);
+  // Contadores del dia. Sin color: en esta ventana el unico color lo ponen
+  // los logos, asi que estas pastillas heredan el lenguaje de las de
+  // "Llamadas ahora" (LiveCallsStrip) — borde tenue, fondo casi plano,
+  // etiqueta en versalitas y valor tabular.
   const summaryChips = dayData
-    ? [
-        { label: 'Total', value: dayData.total_count, cls: 'text-foreground/70 bg-foreground/[0.06]' },
-        { label: 'BMO', value: dayData.total_bmo, cls: 'text-amber-600 dark:text-amber-300 bg-amber-500/10' },
-        { label: 'AMC', value: dayData.total_amc, cls: 'text-indigo-600 dark:text-indigo-300 bg-indigo-500/10' },
-        { label: 'Reportados', value: dayData.total_reported, cls: 'text-emerald-600 dark:text-emerald-300 bg-emerald-500/10' },
-      ]
+    ? ([
+        { key: 'ALL', label: t('earnings.total'), value: dayData.total_count, title: t('earnings.totalTitle') },
+        { key: 'BMO', label: 'BMO', value: dayData.total_bmo, title: t('earnings.bmoTitle') },
+        { key: 'DURING', label: 'DUR', value: dayData.total_during, title: t('earnings.duringTitle') },
+        { key: 'AMC', label: 'AMC', value: dayData.total_amc, title: t('earnings.amcTitle') },
+        { key: 'REPORTED', label: t('earnings.reported'), value: dayData.total_reported, title: t('earnings.reportedTitle') },
+      ] as const)
     : [];
 
   return (
@@ -877,9 +1239,7 @@ export function EarningsCalendarContent() {
     >
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-3 h-11 border-b" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.18))' }}>
-        <span className="text-[13px] font-semibold tracking-tight">Calendario de ganancias</span>
-
-        <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-foreground/[0.05] ml-1">
+        <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-foreground/[0.05]">
           {(['day', 'search'] as ViewMode[]).map((v) => (
             <button
               key={v}
@@ -889,7 +1249,7 @@ export function EarningsCalendarContent() {
                 view === v ? 'bg-foreground/[0.10] text-foreground' : 'text-foreground/55 hover:text-foreground/90'
               )}
             >
-              {v === 'day' ? 'Calendario' : 'Buscar'}
+              {v === 'day' ? t('earnings.tabCalendar') : t('earnings.tabSearch')}
             </button>
           ))}
         </div>
@@ -900,7 +1260,7 @@ export function EarningsCalendarContent() {
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
-            placeholder="Ticker..."
+            placeholder={t('earnings.tickerPlaceholder')}
             className="bg-foreground/[0.04] hover:bg-foreground/[0.06] focus:bg-foreground/[0.08] text-foreground placeholder:text-foreground/40 rounded-md px-2 h-7 text-[11px] w-[110px] outline-none transition-colors border border-transparent focus:border-foreground/15"
           />
         </form>
@@ -910,13 +1270,15 @@ export function EarningsCalendarContent() {
         {view === 'day' && (
           <div className="flex items-center gap-1 p-0.5 rounded-md bg-foreground/[0.05]">
             <button onClick={() => navDate(-1)} className="w-6 h-6 rounded text-foreground/65 hover:text-foreground hover:bg-foreground/[0.08] text-[12px]" title={t('earnings.prevDay')}>‹</button>
-            <button onClick={() => setSelectedDate(toYmd(new Date()))} className={cn('px-2 h-6 rounded text-[11px] font-medium', isToday ? 'text-foreground bg-foreground/[0.08]' : 'text-foreground hover:bg-foreground/[0.08]')} title="Hoy">
-              {isToday ? 'Hoy' : `${weekdayOf(selectedDate)} ${shortDate(selectedDate)}`}
+            <button onClick={() => setSelectedDate(toYmd(new Date()))} className={cn('px-2 h-6 rounded text-[11px] font-medium', isToday ? 'text-foreground bg-foreground/[0.08]' : 'text-foreground hover:bg-foreground/[0.08]')} title={t('earnings.today')}>
+              {isToday ? t('earnings.today') : `${weekdayOf(selectedDate)} ${shortDate(selectedDate)}`}
             </button>
             <button onClick={() => navDate(1)} className="w-6 h-6 rounded text-foreground/65 hover:text-foreground hover:bg-foreground/[0.08] text-[12px]" title={t('earnings.nextDay')}>›</button>
           </div>
         )}
       </div>
+
+      <LiveCallsStrip calls={liveCalls} onOpen={openModalFromLiveCall} />
 
       {view === 'day' && (
         <>
@@ -929,25 +1291,71 @@ export function EarningsCalendarContent() {
           {/* Summary chips */}
           {dayData && dayData.total_count > 0 && (
             <div className="flex items-center gap-1.5 px-3 h-8 border-b" style={{ borderColor: 'var(--color-border, rgba(127,127,127,0.08))' }}>
-              {summaryChips.map((c) => (
-                <span key={c.label} className={cn('inline-flex items-center gap-1 px-2 h-6 rounded-md text-[10px] font-semibold uppercase tracking-wider', c.cls)}>
-                  <span className="opacity-70">{c.label}</span>
-                  <span className="tabular-nums">{c.value}</span>
-                </span>
-              ))}
+              {summaryChips.map((c) => {
+                // Un cero no merece el mismo peso que un dato: se apaga en vez
+                // de gritar igual que los que si tienen contenido. Y un chip
+                // vacio no filtra: dejaria la lista en blanco a proposito.
+                const empty = !c.value;
+                const active = slotFilter === c.key;
+                const canFilter = !empty || c.key === 'ALL';
+                return (
+                  <button
+                    key={c.key}
+                    type="button"
+                    disabled={!canFilter}
+                    onClick={() => setSlotFilter((prev) => (prev === c.key ? 'ALL' : c.key))}
+                    title={active && c.key !== 'ALL' ? t('earnings.filterOff') : c.title}
+                    aria-pressed={active}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 px-2 h-6 rounded border transition-colors',
+                      active
+                        ? 'border-foreground/45 bg-foreground/[0.10]'
+                        : empty
+                          ? 'border-foreground/10'
+                          : 'border-foreground/20 bg-foreground/[0.04]',
+                      canFilter && !active && 'hover:bg-foreground/[0.08] hover:border-foreground/30',
+                      !canFilter && 'cursor-default'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'text-[10px] uppercase tracking-wider',
+                        active ? 'text-foreground/70' : empty ? 'text-foreground/25' : 'text-foreground/45'
+                      )}
+                    >
+                      {c.label}
+                    </span>
+                    <span
+                      className={cn(
+                        'text-[11px] font-semibold tabular-nums',
+                        active ? 'text-foreground' : empty ? 'text-foreground/25' : 'text-foreground'
+                      )}
+                    >
+                      {c.value}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
 
           <div className="flex-1 overflow-auto">
             {loading ? (
-              <CenterMessage>Cargando…</CenterMessage>
+              <CenterMessage>{t('earnings.loading')}</CenterMessage>
             ) : error ? (
               <CenterMessage tone="error">{error}</CenterMessage>
             ) : !dayData || dayData.reports.length === 0 ? (
-              <CenterMessage>Sin llamadas de resultados este día</CenterMessage>
+              <CenterMessage>{t('earnings.noCallsDay')}</CenterMessage>
+            ) : visibleReports.length === 0 ? (
+              <CenterMessage>{t('earnings.noCallsFiltered')}</CenterMessage>
             ) : (
-              dayData.reports.map((r) => (
-                <CompanyCard key={`${r.symbol}-${r.event_id}`} r={r} onClick={() => setModalReport(r)} />
+              visibleReports.map((r) => (
+                <CompanyCard
+                  key={`${r.symbol}-${r.event_id}`}
+                  r={r}
+                  isLive={r.event_id != null && liveEventIds.has(r.event_id)}
+                  onClick={() => setModalReport(r)}
+                />
               ))
             )}
           </div>
@@ -957,13 +1365,13 @@ export function EarningsCalendarContent() {
       {view === 'search' && (
         <div className="flex-1 overflow-auto">
           {loading ? (
-            <CenterMessage>Cargando…</CenterMessage>
+            <CenterMessage>{t('earnings.loading')}</CenterMessage>
           ) : error ? (
             <CenterMessage tone="error">{error}</CenterMessage>
           ) : !searchTicker ? (
-            <CenterMessage>Escribe un ticker y pulsa Enter</CenterMessage>
+            <CenterMessage>{t('earnings.typeTicker')}</CenterMessage>
           ) : !tickerData || tickerData.length === 0 ? (
-            <CenterMessage>Sin historial para {searchTicker}</CenterMessage>
+            <CenterMessage>{t('earnings.noHistoryFor')} {searchTicker}</CenterMessage>
           ) : (
             <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
               <thead className="sticky top-0 z-10" style={{ backgroundColor: 'var(--color-surface)' }}>

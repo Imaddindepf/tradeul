@@ -34,7 +34,7 @@ export interface EarningsRecord {
     beat_revenue: boolean | null;
     guidance_direction: string | null;
     guidance_commentary: string | null;
-    key_highlights: string[] | null;
+    summary_bullets: string[] | null;
     importance: number | null;
     date_status: string | null;
     eps_method: string | null;

@@ -18,7 +18,7 @@ the shared paths (`/calendar`, `/upcoming`, `/ticker/{symbol}`).
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Response
 import structlog
 
 import perplexity_earnings as pe
@@ -172,18 +172,103 @@ async def get_event_detail(symbol: str, event_id: int, timezone: str = Query(_DE
 
 
 @router.get("/event/{symbol}/{event_id}/transcript")
-async def get_event_transcript(symbol: str, event_id: int, timezone: str = Query(_DEFAULT_TZ)):
-    """Full earnings-call transcript (paragraphs + speakers + chapters + audio)."""
+async def get_event_transcript(
+    symbol: str,
+    event_id: int,
+    response: Response,
+    timezone: str = Query(_DEFAULT_TZ),
+):
+    """Earnings-call transcript (paragraphs + speakers + chapters + audio).
+
+    Serves calls in progress as well as finished ones. While `is_live` is true
+    the payload changes every few seconds, so the client is expected to re-poll
+    at `poll_after_seconds` and re-render the paragraph list wholesale (the last
+    paragraph is rewritten as the speaker finishes the sentence).
+    """
     try:
         transcript = await pe.get_transcript(symbol, event_id, timezone)
         if transcript is None:
             raise HTTPException(status_code=404, detail="Transcript not available")
+        # A live transcript must never be cached by the browser or the reverse
+        # proxy: a cached copy is a call frozen mid-sentence. A finished one is
+        # immutable and safe to keep.
+        response.headers["Cache-Control"] = (
+            "no-store" if transcript.get("is_live") else "public, max-age=3600"
+        )
         return transcript
     except HTTPException:
         raise
     except Exception as e:
         logger.error("earnings_transcript_error", error=str(e), symbol=symbol, event_id=event_id)
         raise HTTPException(status_code=502, detail=f"Earnings source error: {e}")
+
+
+@router.get("/live")
+async def get_live_calls(
+    response: Response,
+    timezone: str = Query(_DEFAULT_TZ),
+    country: str = Query("US"),
+):
+    """Earnings calls being transcribed right now."""
+    try:
+        result = await pe.get_live_calls(timezone, country)
+        # Cheap for clients to re-ask; the scan itself is cached server-side.
+        response.headers["Cache-Control"] = "no-store"
+        return result
+    except Exception as e:
+        logger.error("earnings_live_error", error=str(e))
+        raise HTTPException(status_code=502, detail=f"Earnings source error: {e}")
+
+
+@router.get("/audio/{symbol}/{event_id}/playlist.m3u8")
+async def get_audio_playlist(
+    symbol: str,
+    event_id: int,
+    u: Optional[str] = Query(None, description="Relay token for a nested playlist"),
+):
+    """HLS playlist for the call audio, relayed and rewritten.
+
+    The upstream stream lives on the media vendor's CDN, so handing the browser
+    that URL would disclose the provider. Every URI in the playlist is rewritten
+    to a relative path back into this route instead.
+    """
+    try:
+        body = await pe.get_audio_playlist(symbol, event_id, u)
+        if body is None:
+            raise HTTPException(status_code=404, detail="Audio not available")
+        return Response(
+            content=body,
+            media_type="application/vnd.apple.mpegurl",
+            # A live playlist is rewritten every few seconds; never cache it.
+            headers={"Cache-Control": "no-store"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("earnings_audio_playlist_error", error=str(e), symbol=symbol, event_id=event_id)
+        raise HTTPException(status_code=502, detail=f"Audio source error: {e}")
+
+
+@router.get("/audio/{symbol}/{event_id}/segment")
+async def get_audio_segment(symbol: str, event_id: int, u: str = Query(...)):
+    """Relay one HLS media segment. `u` is only ever a token this service minted,
+    and is re-validated against the host allowlist before any fetch."""
+    try:
+        fetched = await pe.get_audio_segment(u)
+        if fetched is None:
+            raise HTTPException(status_code=404, detail="Segment not available")
+        content_type, body = fetched
+        return Response(
+            content=body,
+            media_type=content_type,
+            # Segments are immutable once published.
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("earnings_audio_segment_error", error=str(e))
+        raise HTTPException(status_code=502, detail=f"Audio source error: {e}")
 
 
 @router.get("/event/{symbol}/{event_id}/documents")

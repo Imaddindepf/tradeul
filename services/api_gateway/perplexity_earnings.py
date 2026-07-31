@@ -25,10 +25,32 @@ no login required):
              actualEps, estimatedEps, postEarningsMove1D, expectedMovePerc,
              averagePostEarningsMove1D}]
 
+    GET /rest/finance/earnings/<SYMBOL>/analysis/<eventId>?version=2.18&source=default
+        -> {eventId, analysis(md bullets), created, status, date, wentLiveAt,
+            preview}
+           The *key highlights* of the call — the long bullets the card shows
+           under "Momentos destacados". NOT the same as the day feed's
+           `summary`, which is the short preview blurb. Both are Perplexity's,
+           and their numbers can disagree: the highlights quote the company's
+           own non-GAAP EPS, the structured `actualEps` is Perplexity's
+           normalised adjusted figure (SWKS 2026-Q3: $1.85 vs 1.08).
+
     GET /rest/finance/earnings/<SYMBOL>/transcript/<eventId>
         -> {date, wentLiveAt, status, audio(m3u8),
             paragraphs:[{time, text, speakers:[...]}],
             chapters:[{id, title, startTimestamp, endTimestamp, level}]}
+           This feed is LIVE while the call is happening: `status` is "live",
+           `wentLiveAt` marks the real start (which can precede the scheduled
+           `date`), and paragraphs appear as people speak. Two properties,
+           measured against a call in progress, drive the design here:
+             * The LAST paragraph is provisional. It is rewritten in place as
+               the sentence completes — same `time`, longer `text` — so the list
+               must be re-rendered wholesale, never appended to by index.
+             * `speakers` and `chapters` stay empty until post-processing; they
+               only populate once `status` becomes "final".
+           Observed `status` values: "live" (in progress), "final" (processed)
+           and "failed" (the source could not capture the call — null audio,
+           null `wentLiveAt`, zero paragraphs). See `_is_live_transcript`.
 
     GET /rest/finance/earnings/<SYMBOL>/documents/<eventId>
         -> [{id, fileUrl, type, updatedAt, createdAt,
@@ -77,6 +99,45 @@ _IMPERSONATE_TARGETS = ("chrome", "chrome120", "chrome124", "chrome110", "safari
 _ET = ZoneInfo("America/New_York")
 _DEFAULT_TZ = "America/New_York"
 
+# Live-call cadence. Upstream serves the transcript with `Cache-Control:
+# max-age=5, stale-while-revalidate=60`, so a few seconds is the granularity the
+# source itself offers; anything faster only burns requests. `_LIVE_POLL_SECONDS`
+# is handed to the client as `poll_after_seconds` so the cadence lives here, in
+# one place, instead of being hardcoded in the UI.
+_LIVE_CACHE_SECONDS = 3
+_LIVE_POLL_SECONDS = 8
+
+# Transcript states that will never change again. "failed" matters as much as
+# "final": the source emits it for calls it could not capture, and those rows
+# carry a null `wentLiveAt` with zero paragraphs — indistinguishable from a live
+# call if you only test `status != "final"`, which is how a first cut of the live
+# scan reported a handful of silent placeholders as being on the air.
+_TERMINAL_TRANSCRIPT_STATES = frozenset({"final", "failed"})
+
+
+def _is_live_transcript(raw: Optional[Dict[str, Any]]) -> bool:
+    """True only for a call actually being transcribed right now.
+
+    Defined by `wentLiveAt` being set — the source's own marker that the call
+    started — plus a non-terminal state. Deliberately not a positive match on
+    `status == "live"`, so an unforeseen in-progress label still counts.
+    """
+    if not raw:
+        return False
+    if not raw.get("wentLiveAt"):
+        return False
+    return (raw.get("status") or "") not in _TERMINAL_TRANSCRIPT_STATES
+
+# Audio proxy. The call audio is an HLS stream on the upstream vendor's CDN, so
+# it cannot be handed to the browser as-is: the hostname identifies the provider.
+# Everything is relayed through our own /audio routes instead, and only these
+# hosts may ever be fetched — without the allowlist the relay would be an open
+# proxy usable against any address, including this network's internals.
+_AUDIO_HOST_ALLOWLIST = frozenset({"files.quartr.com"})
+# Playlist base per event, so segment requests carry only a relative path and
+# never a caller-supplied URL. Keyed "SYMBOL:eventId".
+_audio_base_cache = BoundedTTLCache(maxsize=256, ttl_seconds=3600)
+
 _cffi_session = None
 
 
@@ -122,8 +183,18 @@ def _fetch_json_sync(url: str) -> Optional[Any]:
 _day_cache = BoundedTTLCache(maxsize=256, ttl_seconds=120)       # 2 min
 _schedule_cache = BoundedTTLCache(maxsize=64, ttl_seconds=120)   # 2 min
 _symbol_cache = BoundedTTLCache(maxsize=512, ttl_seconds=600)    # 10 min
-_transcript_cache = BoundedTTLCache(maxsize=256, ttl_seconds=3600)  # 1 h
+# Transcripts come in two flavours and must NOT share a TTL. A finished call is
+# immutable, so an hour is free. A call in progress grows every few seconds —
+# caching that for an hour freezes the live transcript for everyone watching, so
+# it gets a few seconds only: enough to coalesce a burst of concurrent viewers
+# into one upstream request, never enough to show stale speech.
+_transcript_cache = BoundedTTLCache(maxsize=256, ttl_seconds=3600)  # final: 1 h
+_transcript_live_cache = BoundedTTLCache(maxsize=256, ttl_seconds=_LIVE_CACHE_SECONDS)
 _documents_cache = BoundedTTLCache(maxsize=256, ttl_seconds=3600)  # 1 h
+# Call analysis ("key highlights"): written once the call is processed, then
+# immutable — but cache short while status != "final" so a pending event picks
+# the real text up on the next view.
+_analysis_cache = BoundedTTLCache(maxsize=256, ttl_seconds=3600)  # 1 h
 
 
 def _tz_or_default(tz: Optional[str]) -> str:
@@ -185,17 +256,188 @@ async def fetch_symbol_raw(symbol: str) -> List[Dict[str, Any]]:
 
 
 async def fetch_transcript_raw(symbol: str, event_id: int) -> Optional[Dict[str, Any]]:
+    """Fetch the transcript, honouring the live/final split described above.
+
+    While the call is in progress upstream appends new paragraphs AND rewrites
+    the last one in place (the trailing paragraph is a partial that keeps
+    growing as the speaker talks, same `time`, longer `text`). Callers must
+    therefore treat the returned list as the whole truth and re-render it, never
+    append it to a previously held copy.
+    """
     symbol = symbol.upper().strip()
     key = f"{symbol}:{event_id}"
     cached = _transcript_cache.get(key)
     if cached is not None:
         return cached
+    cached = _transcript_live_cache.get(key)
+    if cached is not None:
+        return cached
     url = f"{_BASE}/{symbol}/transcript/{event_id}"
     data = await asyncio.to_thread(_fetch_json_sync, url)
     if isinstance(data, dict):
-        _transcript_cache.set(key, data)
+        # Terminal states are immutable, so they get the long TTL. Anything else
+        # may still change and gets seconds. A "failed" row belongs in the long
+        # cache too, or every poller would re-fetch it forever.
+        if (data.get("status") or "") in _TERMINAL_TRANSCRIPT_STATES:
+            _transcript_cache.set(key, data)
+        else:
+            _transcript_live_cache.set(key, data)
         return data
     return None
+
+
+async def fetch_analysis_raw(symbol: str, event_id: int) -> Optional[Dict[str, Any]]:
+    """Key highlights of the earnings call ("Momentos destacados" in the UI).
+
+    This is a *different* payload from the day feed's `summary`: 5-ish long
+    bullets written from the call itself. Only reachable through this endpoint.
+    """
+    symbol = symbol.upper().strip()
+    key = f"{symbol}:{event_id}"
+    cached = _analysis_cache.get(key)
+    if cached is not None:
+        return cached
+    url = f"{_BASE}/{symbol}/analysis/{event_id}?version=2.18&source=default"
+    data = await asyncio.to_thread(_fetch_json_sync, url)
+    if isinstance(data, dict):
+        # Only memoise the finished text; a pending call would get pinned for 1h.
+        if data.get("status") == "final":
+            _analysis_cache.set(key, data)
+        return data
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Audio relay (HLS)
+# ---------------------------------------------------------------------------
+
+
+def _fetch_bytes_sync(url: str) -> Optional[tuple]:
+    """Blocking GET returning (content_type, body). Used for HLS relaying."""
+    from curl_cffi import requests as cffi_requests
+
+    global _cffi_session
+    for attempt, target in enumerate(("chrome",) + _IMPERSONATE_TARGETS):
+        try:
+            session = _get_session() if attempt == 0 else cffi_requests.Session(impersonate=target)
+            resp = session.get(url, timeout=25, headers=_BASE_HEADERS)
+            if resp.status_code == 200:
+                return resp.headers.get("Content-Type", "application/octet-stream"), resp.content
+        except Exception:
+            continue
+    logger.warning("perplexity_audio_fetch_blocked", extra={"url": url})
+    return None
+
+
+def _audio_url_allowed(url: Optional[str]) -> bool:
+    """Only https URLs on the known media CDN may be relayed."""
+    if not url:
+        return False
+    from urllib.parse import urlsplit
+    parts = urlsplit(url)
+    return parts.scheme == "https" and parts.hostname in _AUDIO_HOST_ALLOWLIST
+
+
+def _pack_audio_url(url: str) -> str:
+    from base64 import urlsafe_b64encode
+    return urlsafe_b64encode(url.encode()).decode().rstrip("=")
+
+
+def unpack_audio_url(token: str) -> Optional[str]:
+    """Decode a relay token back to an upstream URL, or None if it is not one we
+    are willing to fetch. Every relay request goes through this check."""
+    from base64 import urlsafe_b64decode
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        url = urlsafe_b64decode(padded.encode()).decode()
+    except Exception:
+        return None
+    return url if _audio_url_allowed(url) else None
+
+
+async def resolve_audio_source(symbol: str, event_id: int) -> Optional[str]:
+    """Absolute upstream URL of the event's HLS playlist, if it has one."""
+    key = f"{symbol.upper()}:{event_id}"
+    cached = _audio_base_cache.get(key)
+    if cached is not None:
+        return cached or None
+    raw = await fetch_transcript_raw(symbol, event_id)
+    url = (raw or {}).get("audio")
+    if not _audio_url_allowed(url):
+        # Cache the negative too, so a call without audio is not re-fetched.
+        _audio_base_cache.set(key, "")
+        return None
+    _audio_base_cache.set(key, url)
+    return url
+
+
+def _rewrite_playlist(body: bytes, base_url: str) -> str:
+    """Rewrite every URI in an HLS playlist to point back at our own relay.
+
+    Handles media playlists, master playlists (whose entries are themselves
+    playlists) and the URI="..." attributes of EXT-X-KEY / EXT-X-MAP. Anything
+    that does not resolve onto the allowlisted CDN is dropped rather than passed
+    through, so a rewritten playlist can never send the browser off-site.
+
+    The emitted URIs are RELATIVE ("segment?u=..."), which the player resolves
+    against the playlist's own URL. Absolute ones would have to be built from
+    the inbound request, and behind the reverse proxy that yields the internal
+    address — a playlist full of localhost URLs the browser cannot fetch. Both
+    relay routes live in the same path segment, so relative always resolves.
+    """
+    from urllib.parse import urljoin, urlsplit
+    import re
+
+    def relay_for(raw_uri: str) -> Optional[str]:
+        absolute = urljoin(base_url, raw_uri.strip())
+        if not _audio_url_allowed(absolute):
+            return None
+        kind = "playlist.m3u8" if urlsplit(absolute).path.endswith(".m3u8") else "segment"
+        return f"{kind}?u={_pack_audio_url(absolute)}"
+
+    out: List[str] = []
+    for line in body.decode("utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            out.append(line)
+            continue
+        if stripped.startswith("#"):
+            # Tags carry their target inside URI="...".
+            match = re.search(r'URI="([^"]+)"', stripped)
+            if match:
+                relay = relay_for(match.group(1))
+                if relay is None:
+                    continue
+                line = stripped.replace(match.group(1), relay)
+            out.append(line)
+            continue
+        relay = relay_for(stripped)
+        if relay is None:
+            continue
+        out.append(relay)
+    return "\n".join(out) + "\n"
+
+
+async def get_audio_playlist(
+    symbol: str, event_id: int, token: Optional[str] = None
+) -> Optional[str]:
+    """Rewritten HLS playlist. `token` selects a nested playlist from a master;
+    without it, the event's root playlist is served."""
+    url = unpack_audio_url(token) if token else await resolve_audio_source(symbol, event_id)
+    if not url:
+        return None
+    fetched = await asyncio.to_thread(_fetch_bytes_sync, url)
+    if fetched is None:
+        return None
+    return _rewrite_playlist(fetched[1], url)
+
+
+async def get_audio_segment(token: str) -> Optional[tuple]:
+    """Relay one media segment as (content_type, bytes)."""
+    url = unpack_audio_url(token)
+    if not url:
+        return None
+    return await asyncio.to_thread(_fetch_bytes_sync, url)
 
 
 async def fetch_documents_raw(symbol: str, event_id: int) -> List[Dict[str, Any]]:
@@ -275,7 +517,20 @@ def _strip_vendor_ref(url: Optional[str]) -> Optional[str]:
 
 
 def _summary_bullets(summary: Optional[str]) -> List[str]:
-    """Perplexity `summary` is markdown bullets separated by newlines."""
+    """Split Perplexity's `summary` (markdown bullets) into a list.
+
+    This is the *preview summary* the day feed carries — the handful of bullets
+    Perplexity shows before you open an earnings card. It is NOT the longer
+    "key highlights" of the call that the card renders inside; those come from
+    a request we do not make (no public endpoint found, and `requiresLogin` is
+    false, so it is not a session issue either).
+
+    Never read figures out of this prose as data. It quotes the company's own
+    non-GAAP numbers, which can differ from the normalised `actualEps` in the
+    same payload — e.g. SWKS 2026-Q3: the prose says EPS $1.85, `actualEps` is
+    1.08. Both come from Perplexity; only the structured field is comparable
+    against `estimatedEps`.
+    """
     if not summary:
         return []
     out: List[str] = []
@@ -345,9 +600,9 @@ def transform_day_item(row: Dict[str, Any], tz: str) -> Dict[str, Any]:
         "revenue_actual": actual_rev,
         "revenue_surprise_pct": _surprise_pct(actual_rev, est_rev),
         "beat_revenue": _beat(actual_rev, est_rev),
-        # --- AI content ---
+        # --- AI content (preview summary, NOT the call's key highlights) ---
         "summary": row.get("summary"),
-        "key_highlights": _summary_bullets(row.get("summary")),
+        "summary_bullets": _summary_bullets(row.get("summary")),
         # --- price reaction ---
         "expected_move_pct": row.get("expectedMovePerc"),
         "post_earnings_move_1d": row.get("postEarningsMove1D"),
@@ -496,15 +751,38 @@ def build_transcript(symbol: str, event_id: int, raw: Dict[str, Any], tz: str) -
             if sp not in seen:
                 seen.add(sp)
                 speakers.append(sp)
+    paragraphs = raw.get("paragraphs") or []
+    is_live = _is_live_transcript(raw)
     return {
         "symbol": symbol.upper(),
         "event_id": event_id,
         "status": raw.get("status"),
+        "is_live": is_live,
+        # How long the client should wait before asking again. Only meaningful
+        # while live; None tells the client there is nothing left to follow.
+        "poll_after_seconds": _LIVE_POLL_SECONDS if is_live else None,
         "date": raw.get("date"),
         "report_date": _local_date(dt_utc, tz),
         "report_time": _local_clock(dt_utc, tz),
+        # Real start of the call, which can precede the scheduled `date`.
         "went_live_at": raw.get("wentLiveAt"),
-        "audio_url": _strip_vendor_ref(raw.get("audio")),
+        "paragraph_count": len(paragraphs),
+        # Seconds of call transcribed so far — the live progress indicator.
+        "last_paragraph_time": (paragraphs[-1].get("time") if paragraphs else None),
+        # RELATIVE path on our own API, not the upstream URL: the audio is an
+        # HLS stream on the vendor's CDN and its hostname would identify the
+        # provider, so it is relayed. Clients must prefix their API base.
+        "audio_url": (
+            f"/api/v1/earnings/audio/{symbol.upper()}/{event_id}/playlist.m3u8"
+            if _audio_url_allowed(raw.get("audio"))
+            else None
+        ),
+        # HLS needs a player (hls.js) outside Safari — a plain <audio src> is
+        # silent in Chrome. Flagged so the client does not have to sniff the
+        # extension.
+        "audio_is_hls": _audio_url_allowed(raw.get("audio")),
+        # Speaker labels and chapters arrive only with the post-processed final
+        # transcript; expect both empty while live.
         "speakers": speakers,
         "chapters": [
             {
@@ -546,9 +824,10 @@ async def build_event_detail(symbol: str, event_id: int, tz: str) -> Optional[Di
     actuals) merged with per-symbol estimates + price reaction, and the
     availability of transcript / documents."""
     symbol = symbol.upper().strip()
-    history, transcript = await asyncio.gather(
+    history, transcript, analysis = await asyncio.gather(
         fetch_symbol_raw(symbol),
         fetch_transcript_raw(symbol, event_id),
+        fetch_analysis_raw(symbol, event_id),
     )
     match = next((r for r in history if r.get("id") == event_id), None)
     if match is None and not transcript:
@@ -562,15 +841,17 @@ async def build_event_detail(symbol: str, event_id: int, tz: str) -> Optional[Di
     est_eps = match.get("estimatedEps")
     est_rev = match.get("estimatedRevenue")
 
-    # AI summary bullets live on the *day* feed, not the per-symbol history feed.
+    # The preview-summary bullets live on the *day* feed, not the per-symbol
+    # history feed. See _summary_bullets: this is the summary, not the call's
+    # key highlights.
     summary: Optional[str] = None
-    highlights: List[str] = []
+    summary_bullets: List[str] = []
     if report_date:
         day_rows = await fetch_day_raw(report_date, tz)
         for row in day_rows:
             if row.get("id") == event_id and (row.get("symbol") or "").upper() == symbol:
                 summary = row.get("summary")
-                highlights = _summary_bullets(summary)
+                summary_bullets = _summary_bullets(summary)
                 break
 
     return {
@@ -594,10 +875,17 @@ async def build_event_detail(symbol: str, event_id: int, tz: str) -> Optional[Di
         "expected_move_pct": match.get("expectedMovePerc"),
         "post_earnings_move_1d": match.get("postEarningsMove1D"),
         "avg_post_earnings_move_1d": match.get("averagePostEarningsMove1D"),
+        # Preview summary (short, from the day feed).
         "summary": summary,
-        "key_highlights": highlights,
+        "summary_bullets": summary_bullets,
+        # Key highlights of the call (long, from the /analysis endpoint).
+        "key_highlights": _summary_bullets((analysis or {}).get("analysis")),
+        "key_highlights_status": (analysis or {}).get("status"),
         "has_transcript": transcript is not None,
         "transcript_status": (transcript or {}).get("status"),
+        # Lets the card show a live badge and open straight on the transcript
+        # without having to fetch the transcript itself first.
+        "transcript_is_live": _is_live_transcript(transcript),
         "source": "tradeul",
     }
 
@@ -664,3 +952,93 @@ async def get_transcript(symbol: str, event_id: int, tz: str) -> Optional[Dict[s
 async def get_documents(symbol: str, event_id: int) -> Dict[str, Any]:
     rows = await fetch_documents_raw(symbol, event_id)
     return build_documents(symbol, event_id, rows)
+
+
+# ---------------------------------------------------------------------------
+# Live-call discovery
+# ---------------------------------------------------------------------------
+
+_live_scan_cache = BoundedTTLCache(maxsize=8, ttl_seconds=30)
+# A transcript probe is one upstream request per event, and the day feed carries
+# ~200 events. Only events scheduled inside this window around "now" can
+# plausibly be on a call, which cuts a scan to a handful of probes: calls start
+# at the scheduled time and run about an hour, with the source lagging behind.
+_LIVE_WINDOW_BEFORE = timedelta(hours=5)
+_LIVE_WINDOW_AFTER = timedelta(minutes=30)
+_LIVE_SCAN_CONCURRENCY = 8
+
+
+async def get_live_calls(tz: str, country: str = "US") -> Dict[str, Any]:
+    """Which earnings calls are being transcribed right now.
+
+    The day feed has no live flag — its status only ever says reported or
+    scheduled — so being live is a property of the transcript, and the only way
+    to know is to ask. Kept affordable by probing just the events whose
+    scheduled time is near now, and by caching the whole scan briefly so N
+    viewers cost one scan.
+    """
+    tz = _tz_or_default(tz)
+    key = f"{tz}:{country}"
+    cached = _live_scan_cache.get(key)
+    if cached is not None:
+        return cached
+
+    now = datetime.now(timezone.utc)
+    # Yesterday too: a late call still running past midnight UTC lands on the
+    # previous calendar day.
+    days = {
+        (now - timedelta(days=1)).astimezone(ZoneInfo(tz)).strftime("%Y-%m-%d"),
+        now.astimezone(ZoneInfo(tz)).strftime("%Y-%m-%d"),
+    }
+    feeds = await asyncio.gather(*[fetch_day_raw(d, tz, country) for d in sorted(days)])
+
+    candidates: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for rows in feeds:
+        for row in rows:
+            event_id = row.get("id")
+            if event_id in seen_ids:
+                continue
+            scheduled = _parse_utc(row.get("date"))
+            if scheduled is None:
+                continue
+            if now - _LIVE_WINDOW_BEFORE <= scheduled <= now + _LIVE_WINDOW_AFTER:
+                seen_ids.add(event_id)
+                candidates.append(row)
+
+    semaphore = asyncio.Semaphore(_LIVE_SCAN_CONCURRENCY)
+
+    async def probe(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        async with semaphore:
+            raw = await fetch_transcript_raw(row.get("symbol") or "", row.get("id"))
+        if not _is_live_transcript(raw):
+            return None
+        paragraphs = raw.get("paragraphs") or []
+        dt_utc = _parse_utc(row.get("date"))
+        return {
+            "symbol": row.get("symbol"),
+            "company_name": row.get("companyName"),
+            "event_id": row.get("id"),
+            "report_date": _local_date(dt_utc, tz),
+            "report_time": _local_clock(dt_utc, tz),
+            "time_slot": _derive_time_slot(dt_utc),
+            "fiscal_period": row.get("fiscalPeriod"),
+            "fiscal_year": row.get("fiscalYear"),
+            "market_cap": row.get("mktCap"),
+            "went_live_at": raw.get("wentLiveAt"),
+            "paragraph_count": len(paragraphs),
+            "last_paragraph_time": (paragraphs[-1].get("time") if paragraphs else None),
+        }
+
+    probed = await asyncio.gather(*[probe(r) for r in candidates], return_exceptions=True)
+    live = [p for p in probed if isinstance(p, dict)]
+    live.sort(key=lambda r: -(r.get("market_cap") or 0))
+
+    result = {
+        "timezone": tz,
+        "live": live,
+        "count": len(live),
+        "scanned": len(candidates),
+    }
+    _live_scan_cache.set(key, result)
+    return result
