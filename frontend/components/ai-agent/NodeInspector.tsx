@@ -66,6 +66,7 @@ const TAB_OF_KIND: Record<Artifact['kind'], TabId> = {
   code: 'codigo',
   table: 'datos',
   chart: 'charts',
+  image: 'charts',
   json: 'raw',
 };
 
@@ -188,6 +189,18 @@ const JsonArt = ({ art }: { art: Extract<Artifact, { kind: 'json' }> }) => (
   </section>
 );
 
+const ImageArt = ({ art }: { art: Extract<Artifact, { kind: 'image' }> }) => (
+  <section>
+    <h4 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-fg">{art.title || 'Chart'}</h4>
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img
+      src={`data:${art.mime || 'image/png'};base64,${art.data_base64}`}
+      alt={art.title || 'chart'}
+      className="max-h-[420px] w-full rounded-lg border border-border-subtle bg-white object-contain"
+    />
+  </section>
+);
+
 function renderArtifact(art: Artifact, i: number) {
   switch (art.kind) {
     case 'summary': return <SummaryArt key={i} art={art} />;
@@ -197,6 +210,7 @@ function renderArtifact(art: Artifact, i: number) {
     case 'table': return <TableArt key={i} art={art} />;
     case 'chart': return <ChartArt key={i} art={art} />;
     case 'json': return <JsonArt key={i} art={art} />;
+    case 'image': return <ImageArt key={i} art={art} />;
     default: return null;
   }
 }

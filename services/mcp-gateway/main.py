@@ -197,6 +197,57 @@ _gwlog = _logging.getLogger("mcp_gateway.rest")
 
 rest_app = FastAPI(title="Tradeul MCP Gateway REST API")
 
+
+async def _catalog_warm_loop() -> None:
+    """Pre-calienta el catálogo de eventos en background.
+
+    La agregación sobre market_events (~12M filas/día) tarda ~140s: si un
+    usuario la dispara en frío, revienta todos los timeouts de la cadena
+    (incidente 2026-07-27). Calentándola aquí cada 50 min, las llamadas de
+    agentes/usuarios siempre golpean el caché de strategy_scan.
+
+    Lo arranca el lifespan combinado de build_app(). NOTA: antes vivía en un
+    @rest_app.on_event("startup"), que NUNCA se ejecutaba — Starlette no
+    propaga lifespan a las apps montadas con Mount().
+
+    force_refresh=True es imprescindible: con un caché read-through, el warm
+    a los 3000s encontraba el caché aún vigente (TTL 3600s) y no re-consultaba,
+    dejando ~42 min de ventana fría cada ~102 min (revisión 2026-07-28).
+    _event_catalog devuelve {"error": ...} en vez de lanzar: hay que detectarlo
+    o el fallo se loguea como éxito; tras fallo, backoff corto de 120s.
+    """
+    # Helper plano, no la tool decorada (FunctionTool no es invocable).
+    from servers.strategy_scan import _event_catalog
+
+    log = _logging.getLogger("catalog_warm")
+    first = True
+    while True:
+        ok_all = True
+        for d in (["today", "yesterday"] if first else ["today"]):
+            try:
+                result = await _event_catalog(date=d, min_count=50, force_refresh=True)
+                if isinstance(result, dict) and result.get("error"):
+                    ok_all = False
+                    log.warning("catalog warm FAILED for %s: %s", d, result["error"])
+                else:
+                    log.warning("event catalog warmed for %s (%s event types)",
+                                d, result.get("count"))
+            except Exception as exc:  # noqa: BLE001
+                ok_all = False
+                log.warning("catalog warm failed for %s: %s", d, exc)
+        first = False
+        await asyncio.sleep(3000 if ok_all else 120)
+
+
+def _warm_task_done(task: "asyncio.Task") -> None:
+    """El warm loop es un while True: si el task termina sin cancelación es un
+    bug — dejarlo morir en silencio ocultaría la vuelta de las ventanas frías."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    _logging.getLogger("catalog_warm").error(
+        "catalog warm task murió inesperadamente: %r", exc)
+
 # Internal service token. The gateway sits on the private bridge network and
 # proxies data services (incl. a TimescaleDB tool that aggregates ~12M rows),
 # so callers must present a shared secret. Safe rollout: if MCP_GATEWAY_TOKEN
@@ -209,7 +260,12 @@ def _require_token(request: Request) -> None:
     if not _GATEWAY_TOKEN:
         return
     provided = request.headers.get("x-mcp-token", "")
-    if not provided or not hmac.compare_digest(provided, _GATEWAY_TOKEN):
+    try:
+        # compare_digest lanza TypeError con str no-ASCII: debe ser 401, no 500
+        authorized = bool(provided) and hmac.compare_digest(provided, _GATEWAY_TOKEN)
+    except TypeError:
+        authorized = False
+    if not authorized:
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
@@ -224,13 +280,26 @@ async def list_tools(request: Request):
     _require_token(request)
     tools = []
     try:
-        for tool in await gateway.list_tools():
+        if hasattr(gateway, "get_tools"):
+            # fastmcp >= 2.14: get_tools() → dict[str, Tool]. La CLAVE lleva
+            # el prefijo del mount (earnings_get_earnings_results); tool.name
+            # es el nombre local sin prefijo — usar siempre la clave.
+            tool_map = await gateway.get_tools()
+            items = (tool_map.items() if isinstance(tool_map, dict)
+                     else ((t.name, t) for t in tool_map))
+        else:
+            items = ((t.name, t) for t in await gateway.list_tools())
+        for name, tool in items:
             tools.append({
-                "name": tool.name,
+                "name": name,
                 "description": getattr(tool, "description", "") or "",
+                # JSON schema de los argumentos — lo consumen los smoke tests
+                # (scripts/smoke_tools.py, evals/run_tool_execution.py) para
+                # sintetizar llamadas mínimas válidas.
+                "input_schema": getattr(tool, "parameters", None),
             })
     except Exception:
-        pass
+        _logging.getLogger("api_tools").exception("tool listing failed")
     return {"tools": tools, "total": len(tools)}
 
 
@@ -286,30 +355,110 @@ async def call_tool(tool_name: str, request: Request):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Entry point - Mount both MCP + REST on the same Uvicorn server
+# App composition - Mount both MCP + REST on the same Uvicorn server
+# ──────────────────────────────────────────────────────────────────────
+class _McpTokenGate:
+    """ASGI middleware: exige X-MCP-Token en el mount /mcp.
+
+    El REST valida el token vía _require_token(); las apps montadas con
+    Mount() no pasan por las dependencias de FastAPI, así que el transporte
+    MCP necesita su propio gate. Misma semántica de rollout que el REST:
+    sin MCP_GATEWAY_TOKEN configurado, el check queda desactivado.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        # http y websocket: si fastmcp añadiera rutas ws en el futuro, no
+        # deben colarse sin token (hallazgo revisión 2026-07-28)
+        if scope["type"] in ("http", "websocket") and _GATEWAY_TOKEN:
+            provided = ""
+            for key, value in scope.get("headers") or []:
+                if key == b"x-mcp-token":
+                    provided = value.decode("latin-1")
+                    break
+            try:
+                # compare_digest lanza TypeError con no-ASCII → 401, no 500
+                authorized = bool(provided) and hmac.compare_digest(provided, _GATEWAY_TOKEN)
+            except TypeError:
+                authorized = False
+            if not authorized:
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 1008})
+                    return
+                from starlette.responses import JSONResponse as _JR
+                await _JR({"detail": "unauthorized"}, status_code=401)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+def build_app():
+    """Compone la app ASGI final: MCP (streamable HTTP) en /mcp, REST en /.
+
+    El lifespan del Starlette exterior es imprescindible: Starlette NO propaga
+    lifespan a las apps montadas, así que sin esto (a) el session manager de
+    FastMCP nunca se inicializa (/mcp devolvía 500 en initialize) y (b) los
+    startup hooks del REST nunca corrían (el warmer del catálogo estuvo muerto
+    por esa razón). Aquí corremos el lifespan de FastMCP, arrancamos el warmer
+    y cerramos las conexiones compartidas en el shutdown.
+    """
+    from contextlib import asynccontextmanager, suppress
+    from starlette.applications import Starlette
+    from starlette.responses import RedirectResponse
+    from starlette.routing import Mount, Route
+
+    # path="/" dentro de la app MCP + Mount("/mcp") ⇒ endpoint limpio en /mcp
+    # (con el antiguo path="/mcp" quedaba duplicado en /mcp/mcp).
+    mcp_app = gateway.http_app(path="/")
+
+    @asynccontextmanager
+    async def _lifespan(app):
+        try:
+            async with mcp_app.lifespan(app):
+                warm_task = asyncio.create_task(_catalog_warm_loop())
+                warm_task.add_done_callback(_warm_task_done)
+                try:
+                    yield
+                finally:
+                    warm_task.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await warm_task
+        finally:
+            # Tras salir del lifespan MCP: el session manager ya está cerrado
+            # y no quedan requests en vuelo usando los clientes compartidos.
+            await cleanup()
+
+    async def _mcp_slash_redirect(request):
+        # La URL exacta /mcp (sin barra) no la captura el Mount y caería al
+        # 404 del REST; 307 preserva método y body. URL canónica: /mcp/
+        url = "/mcp/"
+        if request.url.query:
+            url += "?" + request.url.query
+        return RedirectResponse(url=url, status_code=307)
+
+    return Starlette(
+        routes=[
+            Route("/mcp", _mcp_slash_redirect, methods=["GET", "POST", "DELETE"]),
+            Mount("/mcp", app=_McpTokenGate(mcp_app)),
+            Mount("/", app=rest_app),
+        ],
+        lifespan=_lifespan,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Entry point
 # ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    from starlette.routing import Mount
-    from starlette.applications import Starlette
 
     print(f"Starting Tradeul MCP Gateway on {config.mcp_host}:{config.mcp_port}")
     print(f"Redis: {config.redis_host}:{config.redis_port}")
     print(f"Domains: 12 | Tools: ~50")
 
-    # Get the ASGI app from FastMCP for the /mcp path
-    mcp_app = gateway.http_app(path="/mcp")
-
-    # Combine: REST API on root, MCP on /mcp
-    combined = Starlette(
-        routes=[
-            Mount("/mcp", app=mcp_app),
-            Mount("/", app=rest_app),
-        ],
-    )
-
     uvicorn.run(
-        combined,
+        build_app(),
         host=config.mcp_host,
         port=config.mcp_port,
     )

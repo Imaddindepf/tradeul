@@ -6,6 +6,7 @@ import {
   ArrowUpRight, ArrowDownRight, Minus, BarChart3,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { parseCellNumber } from '@/lib/utils/numberFormat';
 
 const ChartLoadError = () => (
   <div className="h-[80px] flex items-center justify-center rounded-xl border border-border bg-surface text-[11px] text-muted-fg">
@@ -116,7 +117,7 @@ function StructuredTable({ table }: { table: DataTable }) {
   const isNumeric = useMemo(() => {
     return table.headers.map((_, colIdx) => {
       const vals = rows.map(r => r[colIdx] || '').filter(Boolean);
-      const numCount = vals.filter(v => !isNaN(parseFloat(v.replace(/[,$%x]/g, '')))).length;
+      const numCount = vals.filter(v => parseCellNumber(v) !== null).length;
       return numCount > vals.length * 0.5;
     });
   }, [table.headers, rows]);
@@ -126,9 +127,9 @@ function StructuredTable({ table }: { table: DataTable }) {
     return [...rows].sort((a, b) => {
       const av = a[sortCol] || '';
       const bv = b[sortCol] || '';
-      const an = parseFloat(av.replace(/[,$%x]/g, ''));
-      const bn = parseFloat(bv.replace(/[,$%x]/g, ''));
-      if (!isNaN(an) && !isNaN(bn)) return sortAsc ? an - bn : bn - an;
+      const an = parseCellNumber(av);
+      const bn = parseCellNumber(bv);
+      if (an !== null && bn !== null) return sortAsc ? an - bn : bn - an;
       return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
     });
   }, [rows, sortCol, sortAsc]);
@@ -139,8 +140,8 @@ function StructuredTable({ table }: { table: DataTable }) {
   };
 
   const getCellColor = (value: string): string => {
-    const num = parseFloat(value.replace(/[,$%x]/g, ''));
-    if (isNaN(num)) return 'text-foreground';
+    const num = parseCellNumber(value);
+    if (num === null) return 'text-foreground';
     if (value.includes('%')) {
       if (num > 0) return 'text-emerald-600 font-medium';
       if (num < 0) return 'text-red-500 font-medium';

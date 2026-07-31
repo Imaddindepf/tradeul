@@ -772,6 +772,23 @@ async def handle_websocket(
                         "backtest_result": bt_result.get("backtest_result", {}),
                     })
 
+                # Charts del sandbox de code_exec: el frontend (ResultBlock,
+                # type 'code_exec') espera charts como {label: png_base64}.
+                # Sin este bloque los PNG se quedan en agent_results y el chat
+                # nunca los pinta.
+                ce_result = agent_results.get("code_exec", {})
+                ce_charts = ce_result.get("charts") if isinstance(ce_result, dict) else None
+                if ce_charts:
+                    structured_outputs.append({
+                        "type": "code_exec",
+                        "title": "Charts",
+                        "charts": {
+                            (c.get("label") or f"chart_{i}"): c.get("png_base64", "")
+                            for i, c in enumerate(ce_charts)
+                            if isinstance(c, dict) and c.get("png_base64")
+                        },
+                    })
+
                 # Alert draft: typed payload so the UI renders an interactive
                 # card (paraphrase contract + dry-run evidence + arm button)
                 ac_result = agent_results.get("alert_compiler", {})

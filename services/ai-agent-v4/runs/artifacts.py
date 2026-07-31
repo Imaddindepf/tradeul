@@ -143,14 +143,61 @@ def _metrics_artifact(result: dict) -> dict | None:
 
 
 def _raw_artifact(result: dict) -> dict | None:
-    """JSON crudo del resultado, para transparencia total (si cabe)."""
+    """JSON crudo del resultado, para transparencia total (si cabe).
+
+    Excluye los PNG base64 del sandbox (`charts`): pesan demasiado y ya se
+    muestran como artifacts `image` propios.
+    """
+    slim = {k: v for k, v in result.items() if k != "charts"}
     try:
-        s = json.dumps(result, ensure_ascii=False, default=str)
+        s = json.dumps(slim, ensure_ascii=False, default=str)
     except Exception:  # noqa: BLE001
         return None
     if len(s) > _MAX_RAW_CHARS:
         return None
-    return {"kind": "json", "title": "Resultado completo (raw)", "data": result}
+    return {"kind": "json", "title": "Resultado completo (raw)", "data": slim}
+
+
+def _sandbox_artifacts(result: dict) -> list[dict[str, Any]]:
+    """Artifacts de la ejecución real en el sandbox (Fase 4b):
+      - cada `output` → tabla (si es DataFrame) o métricas/JSON (escalares)
+      - cada `chart` PNG → artifact `image`
+    """
+    arts: list[dict[str, Any]] = []
+    for out in (result.get("outputs") or [])[:8]:
+        if not isinstance(out, dict):
+            continue
+        label = str(out.get("label") or "output")
+        data = out.get("data")
+        if isinstance(data, dict) and data.get("type") == "dataframe":
+            recs = data.get("records") or []
+            if _is_row_list(recs):
+                t = _rows_to_table(recs, label)
+                if t:
+                    n_total = data.get("rows", len(recs))
+                    if n_total > len(recs):
+                        t["title"] = f"{label} ({len(recs)} de {n_total} filas)"
+                    arts.append(t)
+                    continue
+        if isinstance(data, dict) and all(
+            isinstance(v, (int, float, str)) for v in data.values()
+        ) and data:
+            arts.append({
+                "kind": "metrics", "title": label,
+                "items": [{"label": k, "value": v} for k, v in list(data.items())[:12]],
+            })
+        else:
+            arts.append({"kind": "json", "title": label, "data": data})
+
+    for ch in (result.get("charts") or [])[:_MAX_CHARTS]:
+        if isinstance(ch, dict) and ch.get("png_base64"):
+            arts.append({
+                "kind": "image",
+                "title": str(ch.get("label") or "chart"),
+                "mime": "image/png",
+                "data_base64": ch["png_base64"],
+            })
+    return arts
 
 
 def build_artifacts(node_name: str, node_output: Any) -> list[dict[str, Any]]:
@@ -295,6 +342,10 @@ def _build(node_name: str, node_output: Any) -> list[dict[str, Any]]:
     # ── Código / specs completos ──
     if node_name == "code_exec" and result.get("code"):
         arts.append(_code_artifact("Código generado", "python", result["code"]))
+        # Resultados de la ejecución real en el sandbox (Fase 4b)
+        arts.extend(_sandbox_artifacts(result))
+        if result.get("exec_error"):
+            arts.append(_code_artifact("Error de ejecución", "text", result["exec_error"]))
     if node_name == "screener" and result.get("filters_generated"):
         arts.append(_code_artifact("Filtros compilados", "json", result["filters_generated"]))
     if node_name == "strategy_scanner" and result.get("spec"):
@@ -340,12 +391,14 @@ def _build(node_name: str, node_output: Any) -> list[dict[str, Any]]:
                     "chart": ev,
                 })
 
-    # Barrido genérico: cualquier otra lista-de-dicts que no hayamos emitido
+    # Barrido genérico: cualquier otra lista-de-dicts que no hayamos emitido.
+    # `outputs`/`charts` del sandbox ya se emiten en _sandbox_artifacts.
+    _skip_scan = ("dry_run", "outputs", "charts") if node_name == "code_exec" else ("dry_run",)
     if emitted_tables < _MAX_TABLES:
         for label, rows in _find_all_row_lists(result):
             if emitted_tables >= _MAX_TABLES:
                 break
-            if id(rows) in seen_ids or label.startswith("dry_run"):
+            if id(rows) in seen_ids or label.startswith(_skip_scan):
                 continue
             t = _rows_to_table(rows, label)
             if t:

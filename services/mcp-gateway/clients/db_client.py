@@ -9,19 +9,31 @@ from typing import Optional, Any
 logger = logging.getLogger(__name__)
 
 _pool: Optional[asyncpg.Pool] = None
+_pool_lock = None  # lazy: se crea dentro del loop en el primer uso
 
 
 async def get_db_pool() -> asyncpg.Pool:
-    global _pool
-    if _pool is None:
-        from config import config
-        _pool = await asyncpg.create_pool(
-            config.database_url,
-            min_size=2,
-            max_size=10,
-            command_timeout=30,
-        )
-        logger.info("TimescaleDB pool created: %s:%s/%s", config.db_host, config.db_port, config.db_name)
+    """Lazy singleton con lock: el warmer de arranque y las primeras requests
+    REST llegan concurrentes — sin lock, el check-then-act creaba pools
+    duplicados (revisión 2026-07-28)."""
+    global _pool, _pool_lock
+    if _pool is not None:
+        return _pool
+    import asyncio
+    if _pool_lock is None:
+        # sin await entre check y set: atómico dentro del event loop
+        _pool_lock = asyncio.Lock()
+    async with _pool_lock:
+        if _pool is None:
+            from config import config
+            logger.info("db_client: creating pool (loop=%s)...", id(asyncio.get_running_loop()))
+            _pool = await asyncio.wait_for(asyncpg.create_pool(
+                config.database_url,
+                min_size=1,
+                max_size=10,
+                command_timeout=30,
+            ), timeout=15)
+            logger.info("TimescaleDB pool created: %s:%s/%s", config.db_host, config.db_port, config.db_name)
     return _pool
 
 
@@ -35,10 +47,18 @@ async def close_db_pool():
 
 async def db_fetch(query: str, *args, timeout: float = 15.0) -> list[dict]:
     """Execute a SELECT query and return results as list of dicts."""
+    import asyncio, time as _t
+    t0 = _t.time()
     pool = await get_db_pool()
-    async with pool.acquire() as conn:
+    logger.info("db_fetch: pool ready in %.2fs (loop=%s), acquiring...", _t.time()-t0, id(asyncio.get_running_loop()))
+    conn = await asyncio.wait_for(pool.acquire(), timeout=10)
+    try:
+        logger.info("db_fetch: acquired in %.2fs, fetching...", _t.time()-t0)
         rows = await conn.fetch(query, *args, timeout=timeout)
+        logger.info("db_fetch: fetched %d rows in %.2fs", len(rows), _t.time()-t0)
         return [dict(r) for r in rows]
+    finally:
+        await pool.release(conn)
 
 
 async def db_fetchval(query: str, *args, timeout: float = 10.0) -> Any:

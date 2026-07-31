@@ -6,6 +6,7 @@ import {
   ResponsiveContainer, Cell,
 } from 'recharts';
 import { BarChart3 } from 'lucide-react';
+import { parseCellNumber, formatCompact } from '@/lib/utils/numberFormat';
 
 interface AutoChartProps {
   headers: string[];
@@ -18,11 +19,13 @@ interface AutoChartProps {
  * and renders a Recharts bar chart with contextual colors.
  */
 export const AutoBarChart = memo(function AutoBarChart({ headers, rows }: AutoChartProps) {
-  // Find first numeric column (skip column 0 which is labels)
+  // Find first numeric column by majority vote across ALL rows (skip
+  // column 0 which is labels): a column qualifies if >50% of its cells
+  // parse to a number, so a stray "N/A" in the first row can't skip it.
   let valueColIdx = -1;
   for (let i = 1; i < headers.length; i++) {
-    const sample = rows[0]?.[i]?.replace(/[,$%*]/g, '').trim() || '';
-    if (!isNaN(parseFloat(sample)) && sample.length > 0) {
+    const numCount = rows.filter(row => parseCellNumber(row[i]) !== null).length;
+    if (numCount > rows.length * 0.5) {
       valueColIdx = i;
       break;
     }
@@ -31,7 +34,7 @@ export const AutoBarChart = memo(function AutoBarChart({ headers, rows }: AutoCh
 
   const data = rows.slice(0, 25).map(row => ({
     name: (row[0] || '').replace(/\*\*/g, '').trim(),
-    value: parseFloat(row[valueColIdx]?.replace(/[,$%*]/g, '').trim() || '0') || 0,
+    value: parseCellNumber(row[valueColIdx]) ?? 0,
   }));
 
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -40,7 +43,7 @@ export const AutoBarChart = memo(function AutoBarChart({ headers, rows }: AutoCh
       <div className="bg-surface border border-border rounded-lg shadow-lg px-3 py-2 text-[11px]">
         <p className="font-semibold text-foreground">{label}</p>
         <p className="text-primary font-mono">
-          {headers[valueColIdx]}: {payload[0]?.value?.toLocaleString()}
+          {headers[valueColIdx]}: {formatCompact(payload[0]?.value)}
         </p>
       </div>
     );
@@ -73,6 +76,7 @@ export const AutoBarChart = memo(function AutoBarChart({ headers, rows }: AutoCh
               axisLine={false}
               tickLine={false}
               width={55}
+              tickFormatter={formatCompact}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99,102,241,0.05)' }} />
             <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={40}>

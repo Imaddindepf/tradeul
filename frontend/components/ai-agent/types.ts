@@ -59,6 +59,7 @@ export type Artifact =
     }
   | { kind: 'code'; title?: string; language?: string; content: string }
   | { kind: 'chart'; title?: string; chart: Record<string, unknown> }
+  | { kind: 'image'; title?: string; mime?: string; data_base64: string }
   | { kind: 'json'; title?: string; data: unknown };
 
 /** Referencia a los artifacts persistidos (llega en node_completed / canvas_step). */

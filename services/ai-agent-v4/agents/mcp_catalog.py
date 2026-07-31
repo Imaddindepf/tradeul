@@ -16,6 +16,7 @@ Benefits over scattering string literals across agent files:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -36,6 +37,13 @@ class MCPTool:
         return f"{self.server}_{self.name}"
 
     async def __call__(self, arguments: dict | None = None, **kwargs) -> Any:
+        # Single choke point for every tool call in every agent: arguments are
+        # checked against the tool's own schema before they leave. See
+        # agents/_tool_args — an argument the tool does not declare comes back
+        # as an empty result that is indistinguishable from "no data".
+        from agents._tool_args import clean_args
+
+        arguments = await clean_args(self.full_name, arguments)
         return await call_mcp_tool(self.server, self.name, arguments, **kwargs)
 
 
@@ -68,6 +76,7 @@ class _Earnings:
     get_upcoming_earnings = MCPTool("earnings", "get_upcoming_earnings")
     get_earnings_by_ticker = MCPTool("earnings", "get_earnings_by_ticker")
     get_earnings_by_date = MCPTool("earnings", "get_earnings_by_date")
+    get_earnings_results = MCPTool("earnings", "get_earnings_results")
 
 
 class _Sec:
@@ -178,12 +187,16 @@ def all_catalog_tools() -> list[MCPTool]:
     return tools
 
 
-async def validate_catalog() -> None:
+async def validate_catalog() -> bool:
     """Cross-check the catalog against the gateway's live tool listing.
 
     Non-fatal: logs a warning for catalog entries missing on the gateway
     (broken calls waiting to happen) and an info line for gateway tools
     not declared here (new capabilities to adopt).
+
+    Returns True when the cross-check actually ran against a live listing,
+    False when it had to be skipped (gateway unreachable or empty listing)
+    so callers can retry.
     """
     try:
         client = await _get_client()
@@ -192,11 +205,11 @@ async def validate_catalog() -> None:
         live = {t["name"] for t in data.get("tools", [])}
     except Exception as exc:
         logger.warning("MCP catalog validation skipped (gateway unreachable): %s", exc)
-        return
+        return False
 
     if not live:
         logger.warning("MCP catalog validation skipped: gateway returned an empty tool list")
-        return
+        return False
 
     declared = {t.full_name for t in all_catalog_tools()}
     missing = sorted(declared - live)
@@ -208,3 +221,35 @@ async def validate_catalog() -> None:
         logger.info("MCP catalog: %d gateway tools not in catalog: %s", len(undeclared), undeclared)
     if not missing:
         logger.info("MCP catalog validated: %d/%d tools present on gateway", len(declared), len(declared))
+    return True
+
+
+async def validate_catalog_with_retry(
+    max_attempts: int = 10,
+    initial_delay: float = 5.0,
+    max_delay: float = 60.0,
+) -> bool:
+    """Run validate_catalog until it reaches a live gateway, with backoff.
+
+    Compose arranca agente y gateway en paralelo: si el agente gana la
+    carrera, la validación única se saltaba PERMANENTEMENTE (sin drift
+    detection hasta el siguiente restart). Diseñada para correr como tarea
+    de fondo del lifespan — nunca bloquea el arranque.
+    """
+    delay = initial_delay
+    for attempt in range(1, max_attempts + 1):
+        if await validate_catalog():
+            return True
+        if attempt == max_attempts:
+            break
+        logger.info(
+            "MCP catalog validation attempt %d/%d failed; retrying in %.0fs",
+            attempt, max_attempts, delay,
+        )
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, max_delay)
+    logger.error(
+        "MCP catalog validation gave up after %d attempts; "
+        "drift detection stays off until next restart", max_attempts,
+    )
+    return False

@@ -19,6 +19,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+from agents._when import AMC_PHRASES, BMO_PHRASES, detect_slot
 from agents.mcp_catalog import MCP
 
 
@@ -124,8 +125,12 @@ _CATEGORY_MAP: dict[str, list[str]] = {
     "halt": ["halts"], "halted": ["halts"], "halts": ["halts"],
     "reversals": ["reversals"], "anomalies": ["anomalies"],
     "new highs": ["new_highs"], "new lows": ["new_lows"],
-    "post market": ["post_market"], "after hours": ["post_market"],
 }
+
+# Las frases de sesión salen del vocabulario compartido en vez de repetirse
+# aquí: "after hour", "tras el cierre" y demás variantes entran solas.
+_CATEGORY_MAP.update({p: ["post_market"] for p in AMC_PHRASES})
+_CATEGORY_MAP.update({p: ["gappers_up", "gappers_down"] for p in BMO_PHRASES})
 
 
 def _detect_categories(query: str) -> list[str]:
@@ -158,8 +163,8 @@ _AMOUNT_SUFFIX = {
     "k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12,
     "thousand": 1e3, "million": 1e6, "billion": 1e9, "trillion": 1e12,
 }
-_GT_WORDS = r"(?:above|over|greater\s+than|more\s+than|at\s+least|mayor(?:es)?\s+(?:a|de|que)|m[aá]s\s+de|encima\s+de|superior(?:es)?\s+a|>=?)"
-_LT_WORDS = r"(?:below|under|less\s+than|at\s+most|menor(?:es)?\s+(?:a|de|que)|menos\s+de|debajo\s+de|inferior(?:es)?\s+a|<=?)"
+_GT_WORDS = r"(?:above|over|greater\s+than|more\s+than|at\s+least|mayor(?:es)?\s+(?:a|de|que)|m[aá]s\s+de|(?:por\s+)?encima\s+de|superior(?:es)?\s+a|>=?)"
+_LT_WORDS = r"(?:below|under|less\s+than|at\s+most|menor(?:es)?\s+(?:a|de|que)|menos\s+de|(?:por\s+)?debajo\s+de|inferior(?:es)?\s+a|<=?)"
 _AMOUNT_RE = r"\$?\s*([\d][\d.,]*)\s*(k|m|b|t|thousand|million|billion|trillion)?\b"
 
 _CONSTRAINT_FIELDS = [
@@ -176,7 +181,11 @@ def _extract_query_filters(query: str) -> list[dict[str, Any]]:
     filters: list[dict[str, Any]] = []
     for field_words, field in _CONSTRAINT_FIELDS:
         for op_words, op in ((_GT_WORDS, "gte"), (_LT_WORDS, "lte")):
-            m = re.search(field_words + r"\s*(?:of\s+)?" + op_words + r"\s*" + _AMOUNT_RE, ql)
+            # Natural order field→op→amount ("market cap above 300m") plus
+            # inverted order op→amount→field ("por encima de 100m de
+            # capitalización", "above 100m market cap").
+            m = re.search(field_words + r"\s*(?:of\s+)?" + op_words + r"\s*" + _AMOUNT_RE, ql) \
+                or re.search(op_words + r"\s*" + _AMOUNT_RE + r"\s+(?:de\s+|of\s+)?" + field_words, ql)
             if not m:
                 continue
             try:
@@ -235,7 +244,7 @@ async def _market_data_node_native(state: dict, start_time: float) -> dict | Non
         return None
 
     # Fecha para movers/bars históricos (reutiliza el parser de news_events).
-    from agents.news_events import _extract_date_reference
+    from agents._when import date_reference as _extract_date_reference
     date_from, _date_to = _extract_date_reference(task, language)
     q_low = f"{task} {query}".lower()
     direction = "down" if re.search(
@@ -376,10 +385,13 @@ async def _fetch_session_movers(query: str, limit: int) -> tuple[dict[str, Any],
     rules (always empty), and categories only cover a top-N subset anyway —
     the dynamic filter is the authoritative path for session-based rankings.
     """
-    ql = query.lower()
-    if any(k in ql for k in ("after hours", "after-hours", "afterhours", "post market", "post-market", "postmarket")):
+    # Vocabulario compartido: esta rama tenía su propia lista y no reconocía
+    # "after hour" en singular, así que la misma pregunta se entendía en un
+    # agente y no en el otro.
+    slot = detect_slot(query)
+    if slot == "amc":
         field, prefix = "postmarket_change_percent", "afterhours"
-    elif any(k in ql for k in ("premarket", "pre market", "pre-market")):
+    elif slot == "bmo":
         field, prefix = "premarket_change_percent", "premarket"
     else:
         return {}, []
@@ -391,14 +403,25 @@ async def _fetch_session_movers(query: str, limit: int) -> tuple[dict[str, Any],
     if not any(f["field"] == "current_volume" for f in extra_filters):
         extra_filters.append({"field": "current_volume", "op": "gt", "value": _SESSION_MOVERS_MIN_VOLUME})
 
-    async def _screen(op: str, value: float, order: str) -> list[dict]:
-        raw = await MCP.scanner.apply_dynamic_filter({
+    async def _screen(op: str, value: float, order: str) -> dict[str, Any]:
+        args: dict[str, Any] = {
             "filters": [{"field": field, "op": op, "value": value}, *extra_filters],
             "sort_by": field,
             "sort_order": order,
             "limit": limit,
-        })
-        return raw.get("tickers", []) if isinstance(raw, dict) else []
+        }
+        raw = await MCP.scanner.apply_dynamic_filter(args)
+        if not isinstance(raw, dict):
+            raw = {}
+        # Mismo shape que _run_universe_screen: el spec viaja junto a las
+        # filas para que el synthesizer sepa qué filtros YA vienen aplicados
+        # y no re-filtre (ni invente) sobre el top-N.
+        return {
+            "spec": args,
+            "matched_total": raw.get("count", 0),
+            "universe_size": raw.get("total_scanned", 0),
+            "tickers": raw.get("tickers", []),
+        }
 
     out: dict[str, Any] = {}
     errors: list[str] = []
@@ -407,9 +430,9 @@ async def _fetch_session_movers(query: str, limit: int) -> tuple[dict[str, Any],
             _screen("gte", _SESSION_MOVERS_MIN_CHANGE, "desc"),
             _screen("lte", -_SESSION_MOVERS_MIN_CHANGE, "asc"),
         )
-        if gainers:
+        if gainers["tickers"]:
             out[f"{prefix}_gainers"] = gainers
-        if losers:
+        if losers["tickers"]:
             out[f"{prefix}_losers"] = losers
     except Exception as exc:
         errors.append(f"session_movers: {exc}")
@@ -463,6 +486,9 @@ _ENRICHED_FIELDS = {
     "shares_outstanding",
     "premarket_change_percent", "premarket_volume",
     "premarket_high", "premarket_low",
+    # Ya viene calculado aguas arriba; sin él el modelo se inventa el
+    # "% desde la apertura" o lo deriva de un precio en vivo.
+    "change_from_open",
     "postmarket_change_percent", "postmarket_volume",
     "postmarket_change_dollars", "postmarket_high", "postmarket_low",
 }
@@ -931,16 +957,51 @@ async def market_data_node(state: dict) -> dict:
     categories = explicit_categories
     if not categories and not tickers:
         categories = ["winners"]
+        # Este ranking es de TODO el mercado y no sabe nada de earnings. Sin
+        # decirlo, sus filas se han presentado como "movimientos post-earnings"
+        # arrastrando compañías que no habían reportado (AMIX, NUWE, DCX...).
+        results["categories_scope"] = (
+            "Ranking of ALL listed symbols by session move. NOT filtered by "
+            "earnings, news or any event: a row here is not evidence that the "
+            "company reported anything. To relate movement to earnings, "
+            "intersect these symbols with an earnings result set."
+        )
 
     # 4a. Planner-emitted universe screen — the authoritative path for
     # rankings with constraints or custom sort. Runs on the full ~12K
     # universe; categories are skipped since the screen IS the ranking.
+    # Contrato multi-lista: state["screen"] llega como lista de 1-4 specs
+    # (el supervisor normaliza dict→[dict]); varios specs = varias listas
+    # rankeadas en una sola query ("top 10 up Y top 10 down after hours").
     screen = state.get("screen")
-    if isinstance(screen, dict) and screen.get("filters") is not None:
-        screen_results, screen_errors = await _run_universe_screen(screen)
-        errors.extend(screen_errors)
-        if screen_results:
-            results.update(screen_results)
+    if isinstance(screen, dict):
+        screen_specs = [screen]
+    elif isinstance(screen, list):
+        screen_specs = screen
+    else:
+        screen_specs = []
+    screen_specs = [
+        s for s in screen_specs
+        if isinstance(s, dict) and isinstance(s.get("filters"), list)
+    ][:4]
+    if screen_specs:
+        spec_outputs = await asyncio.gather(
+            *[_run_universe_screen(s) for s in screen_specs],
+        )
+        screen_payloads: list[tuple[dict, dict]] = []
+        for spec, (spec_results, spec_errors) in zip(screen_specs, spec_outputs):
+            errors.extend(spec_errors)
+            if spec_results:
+                screen_payloads.append((spec, spec_results["universe_screen"]))
+        if screen_payloads:
+            if len(screen_payloads) == 1:
+                # Un solo spec → shape histórico intacto.
+                results["universe_screen"] = screen_payloads[0][1]
+            else:
+                results["universe_screens"] = [
+                    {"label": spec.get("label") or f"screen_{i + 1}", **payload}
+                    for i, (spec, payload) in enumerate(screen_payloads)
+                ]
             categories = []
 
             # Top-N pequeño → upgrade de las filas con el snapshot enriquecido
@@ -949,11 +1010,14 @@ async def market_data_node(state: dict) -> dict:
             # por el synthesizer sale con el card lleno de N/A (caso JNJ
             # 2026-07-24: "why didn't you include JNJ" pintó RSI/VWAP/float
             # como N/A porque JNJ solo existía como fila del screen).
-            screen_syms = [
-                r.get("symbol") for r in results["universe_screen"].get("tickers", [])
-                if isinstance(r, dict) and r.get("symbol")
-            ]
-            if 0 < len(screen_syms) <= 20:
+            # Unión de símbolos de todos los specs (cap 40 por el caso dual).
+            screen_syms: list[str] = []
+            for _spec, payload in screen_payloads:
+                for r in payload.get("tickers", []):
+                    sym = r.get("symbol") if isinstance(r, dict) else None
+                    if sym and sym not in screen_syms:
+                        screen_syms.append(sym)
+            if 0 < len(screen_syms) <= 40:
                 try:
                     raw = await MCP.scanner.get_enriched_batch({"symbols": screen_syms})
                     full = _clean_enriched(raw)
@@ -966,7 +1030,7 @@ async def market_data_node(state: dict) -> dict:
 
     # 4b. After-hours / premarket movers — keyword fallback when the planner
     # didn't emit a screen. Replaces the dead post_market category.
-    if "universe_screen" not in results:
+    if "universe_screen" not in results and "universe_screens" not in results:
         session_movers, session_errors = await _fetch_session_movers(query, limit)
         if session_movers:
             results.update(session_movers)
@@ -1009,7 +1073,9 @@ async def market_data_node(state: dict) -> dict:
             for item in val:
                 if isinstance(item, dict) and "symbol" in item:
                     all_symbols.add(item["symbol"])
-    screen_rows = results.get("universe_screen", {}).get("tickers", [])
+    screen_rows = list(results.get("universe_screen", {}).get("tickers", []))
+    for block in results.get("universe_screens", []):
+        screen_rows.extend(block.get("tickers", []))
     for item in screen_rows:
         if isinstance(item, dict) and "symbol" in item:
             all_symbols.add(item["symbol"])

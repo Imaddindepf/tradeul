@@ -18,11 +18,18 @@ degrada al camino Redis existente.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import time
 from typing import Any, Optional
+
+
+def _semantic_enabled() -> bool:
+    """Flag de la memoria semántica (Fase 4a). Default ON — todo fallo de
+    embeddings/pgvector cae solo a keywords, así que activarla es seguro."""
+    return os.getenv("MEMORY_SEMANTIC", "1").strip().lower() not in ("0", "false", "off")
 
 logger = logging.getLogger(__name__)
 
@@ -162,10 +169,38 @@ class ConversationStore:
                     """,
                     (user_id, thread_id, query[:200], query[:200], now, now, legacy),
                 )
+            # Fase 4a: embedding en background — nunca bloquea ni rompe el turno.
+            if _semantic_enabled():
+                try:
+                    asyncio.get_running_loop().create_task(
+                        self._embed_turn(user_id, thread_id, now, query, response),
+                    )
+                except RuntimeError:
+                    pass  # sin loop (scripts síncronos): lo cubrirá el backfill
             return True
         except Exception as exc:  # noqa: BLE001
             logger.warning("ConversationStore.store_turn failed: %s", exc)
             return False
+
+    async def _embed_turn(
+        self, user_id: str, thread_id: str, ts: float, query: str, response: str,
+    ) -> None:
+        """Calcula y persiste el embedding de un turno recién guardado."""
+        try:
+            from memory.embeddings import embed_texts, to_pgvector
+            vecs = await embed_texts([f"{query}\n{(response or '')[:1500]}"])
+            if not vecs:
+                return
+            async with self._pool.connection() as conn:
+                await conn.execute(
+                    """
+                    UPDATE agent_conv_messages SET embedding = %s::vector
+                    WHERE user_id = %s AND thread_id = %s AND ts = %s
+                    """,
+                    (to_pgvector(vecs[0]), user_id, thread_id, ts),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("embed_turn failed (thread=%s): %s", thread_id, exc)
 
     # ── Lectura ──────────────────────────────────────────────────
 
@@ -229,13 +264,27 @@ class ConversationStore:
     async def search_messages(
         self, user_id: str, query: str, limit: int = 5,
     ) -> Optional[list[dict[str, Any]]]:
-        """Búsqueda por keywords sobre los mensajes del usuario (ILIKE por token).
+        """Búsqueda sobre los mensajes del usuario.
+
+        Fase 4a: primero SEMÁNTICA (pgvector, coseno con umbral) — entiende
+        significado, no tokens: es la clase de fallo del recall por keywords
+        (caso "aranceles" 2026-07-22) la que esto elimina. Si los embeddings
+        fallan o no hay hits sobre el umbral, cae a keywords (ILIKE por token,
+        el comportamiento histórico).
 
         Devuelve hits con el mismo shape que search_memory() de MemoryManager
         (source=conversation). None si PG no disponible.
         """
         if not self._ready:
             return None
+
+        if _semantic_enabled():
+            try:
+                hits = await self._search_semantic(user_id, query, limit)
+                if hits:
+                    return hits
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("semantic search failed — keyword fallback: %s", exc)
         tokens = [t for t in query.lower().split() if len(t) >= 3][:8]
         if not tokens:
             return []
@@ -279,6 +328,51 @@ class ConversationStore:
             return None
 
     # ── Borrado ──────────────────────────────────────────────────
+
+    async def _search_semantic(
+        self, user_id: str, query: str, limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Búsqueda por similitud coseno sobre pgvector.
+
+        Solo devuelve hits con score >= MEMORY_SEMANTIC_MIN_SCORE (el top-N de
+        coseno SIEMPRE devuelve algo aunque sea irrelevante — sin umbral, la
+        memoria inyectaría ruido en el planner). Lista vacía → keyword fallback.
+        """
+        from memory.embeddings import embed_query, to_pgvector
+
+        vec = await embed_query(query)
+        if not vec:
+            return []
+        vec_lit = to_pgvector(vec)
+        min_score = float(os.getenv("MEMORY_SEMANTIC_MIN_SCORE", "0.60"))
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                """
+                SELECT thread_id, ts, query, response,
+                       1 - (embedding <=> %s::vector) AS score
+                FROM agent_conv_messages
+                WHERE user_id = %s AND embedding IS NOT NULL
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                (vec_lit, user_id, vec_lit, limit * 2),
+            )
+            rows = await cur.fetchall()
+        hits: list[dict[str, Any]] = []
+        for thread_id, ts, q, resp, score in rows:
+            if score is None or float(score) < min_score:
+                continue
+            hits.append({
+                "source": "conversation",
+                "thread_id": thread_id,
+                "content": (q or "")[:300],
+                "response_snippet": (resp or "")[:300],
+                "score": round(float(score), 3),
+                "timestamp": ts,
+            })
+            if len(hits) >= limit:
+                break
+        return hits
 
     async def delete_thread(self, user_id: str, thread_id: str) -> bool:
         if not self._ready:

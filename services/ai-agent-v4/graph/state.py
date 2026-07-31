@@ -67,7 +67,7 @@ class AgentState(TypedDict):
     theme_tags: list[str]                # Canonical theme tags resolved by supervisor (e.g. ["robotics", "memory_chips"])
 
     # ── Universe screen (full-universe structured ranking/filtering) ──
-    screen: Optional[dict]               # Planner-emitted spec: {filters: [{field, op, value}], sort_by, sort_order, limit}
+    screen: Optional[list[dict]]         # Planner-emitted specs (1-4): [{filters: [{field, op, value}], sort_by, sort_order, limit, label?}]
 
     # ── Market Pulse (composable analytical queries) ──
     pulse_queries: Optional[list[dict]]  # Structured queries for analyze_market tool

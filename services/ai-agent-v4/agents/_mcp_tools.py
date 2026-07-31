@@ -7,6 +7,7 @@ for simple JSON request/response without SSE parsing.
 import httpx
 import os
 import logging
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,24 @@ async def close_client() -> None:
         _client = None
 
 
+def _record_tool_call(
+    server: str, tool_name: str, ok: bool, error: str, started: float,
+) -> None:
+    """Persist per-tool success/failure counters (agent_tool_calls table).
+
+    Deferred import and never fatal: telemetry going down must not take the
+    tool call with it.
+    """
+    try:
+        from telemetry import get_telemetry
+        get_telemetry().record_tool(
+            server=server, tool=tool_name, ok=ok, error=error,
+            latency_ms=int((time.monotonic() - started) * 1000),
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def call_mcp_tool(
     server: str,
     tool_name: str,
@@ -74,6 +93,7 @@ async def call_mcp_tool(
     merged.update(kwargs)
     arguments = {k: v for k, v in merged.items() if v is not None}
 
+    started = time.monotonic()
     last_error: Exception | None = None
     for attempt in range(1 + retries):
         try:
@@ -106,9 +126,16 @@ async def call_mcp_tool(
                     f"MCP tool {full_tool_name} returned error: {result['error']}"
                 )
 
+            _record_tool_call(server, tool_name, True, "", started)
             return result
 
-        except MCPToolError:
+        except MCPToolError as e:
+            # Tool-level failures (404 / 401 / in-band `error`) used to
+            # propagate silently: httpx logs the HTTP exchange at INFO and the
+            # agents swallow the exception into their in-memory `_errors`
+            # array, so a broken tool left no durable trace anywhere.
+            logger.warning("MCP tool %s error: %s", full_tool_name, e)
+            _record_tool_call(server, tool_name, False, str(e), started)
             raise
         except httpx.TimeoutException as e:
             last_error = e
@@ -123,4 +150,9 @@ async def call_mcp_tool(
                 full_tool_name, attempt + 1, 1 + retries, e,
             )
 
+    logger.warning(
+        "MCP tool %s failed after %d attempts: %s",
+        full_tool_name, 1 + retries, last_error,
+    )
+    _record_tool_call(server, tool_name, False, str(last_error), started)
     raise MCPToolError(f"MCP tool {full_tool_name} failed after {1 + retries} attempts: {last_error}")

@@ -71,22 +71,18 @@ EVENT_TYPES = {
 }
 
 
-@mcp.tool()
-async def get_recent_events(
+# REGLA (fastmcp >= 2.7): @mcp.tool() devuelve un objeto FunctionTool, NO la
+# función — un nombre decorado nunca se llama directamente (TypeError en
+# runtime). La lógica compartida entre tools vive en helpers planos como
+# _recent_events(). Lo vigila scripts/lint_tool_calls.py en el build.
+async def _recent_events(
     count: int = 100,
     event_type: Optional[str] = None,
     symbol: Optional[str] = None,
     min_price: Optional[float] = None,
     min_rvol: Optional[float] = None,
 ) -> dict:
-    """Get the most recent market events from the real-time Redis stream.
-
-    This returns the latest events (last few minutes). For historical queries,
-    use query_historical_events instead.
-
-    Each event contains: event_type, symbol, price, change_pct, volume, rvol,
-    vwap, details, and timestamp.
-    """
+    """Shared implementation for the real-time event stream queries."""
     events = await redis_xrevrange("stream:alerts:market", count=min(count * 3, 500))
 
     filtered = []
@@ -104,6 +100,31 @@ async def get_recent_events(
             break
 
     return {"events": filtered, "count": len(filtered)}
+
+
+@mcp.tool()
+async def get_recent_events(
+    count: int = 100,
+    event_type: Optional[str] = None,
+    symbol: Optional[str] = None,
+    min_price: Optional[float] = None,
+    min_rvol: Optional[float] = None,
+) -> dict:
+    """Get the most recent market events from the real-time Redis stream.
+
+    This returns the latest events (last few minutes). For historical queries,
+    use query_historical_events instead.
+
+    Each event contains: event_type, symbol, price, change_pct, volume, rvol,
+    vwap, details, and timestamp.
+    """
+    return await _recent_events(
+        count=count,
+        event_type=event_type,
+        symbol=symbol,
+        min_price=min_price,
+        min_rvol=min_rvol,
+    )
 
 
 @mcp.tool()
@@ -309,4 +330,4 @@ async def get_available_event_types() -> dict:
 async def get_events_by_ticker(symbol: str, count: int = 50) -> dict:
     """Get all recent events for a specific ticker from the real-time stream.
     For historical events, use query_historical_events with a date range."""
-    return await get_recent_events(count=count, symbol=symbol)
+    return await _recent_events(count=count, symbol=symbol)

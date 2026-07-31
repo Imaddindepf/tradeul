@@ -179,6 +179,15 @@ CURATED += [
         "plan_not_contains": ["arancel", "tariff", "farmac", "pharma"],
     },
     {
+        # Caso real (2026-07-27): "grafica el cierre de X en julio y dame el
+        # retorno" se enrutaba a market_data (DATA_LOOKUP), que no puede ni
+        # graficar rangos históricos ni calcular retornos de periodo. Serie
+        # histórica + métrica de rango → code_exec (único con rango + charts).
+        "id": "chart_range_to_code_exec",
+        "query": "grafica el cierre de AAPL en julio y dame el retorno del periodo",
+        "agents_all": ["code_exec"],
+    },
+    {
         # Caso real (2026-07-24): "top 13 pharma by enterprise value" se
         # aproximó con la unión de 14 temáticas nicho → JNJ ($615B) quedó
         # fuera y EW (equipamiento) se coló. Regla 7 de universe_screen:
@@ -198,5 +207,69 @@ CURATED += [
         "query": "dame acciones de computación cuántica",
         "intent_in": {"THEMATIC"},
         "agents_any": ["market_data"],
+    },
+]
+
+# ── Contrato screen multi-lista (2026-07-27) ─────────────────────────────────
+# Caso real: "top 10 up after hours solo, y top 10 down after hours solo" —
+# el planner emitía UN solo screen desc y la lista "down" salía de un re-corte
+# del top-N. El contrato ahora admite un array de screens con label; la
+# dirección down es el MISMO campo de sort con sort_order asc.
+
+CURATED += [
+    {
+        # La query real del incidente: dos listas rankeadas → array de screens.
+        "id": "ah_dual_lists",
+        "query": "dame top acciones after hours por encima de 100m de capitalización! top 10 up after hours solo, y top 10 down after hours solo",
+        "intent_in": {"RANKING"},
+        "agents_any": ["market_data"],
+        "screens_min": 2,
+        "screen_fields_any": ["market_cap"],
+        "screen_sorts_any": ["postmarket_change_percent"],
+    },
+    {
+        # Una sola lista con constraint → sigue bastando un único screen.
+        "id": "ah_single_list",
+        "query": "top 10 acciones que más suben en after hours con market cap mayor a 300m",
+        "agents_any": ["market_data"],
+        "screens_min": 1,
+        "screen_fields_any": ["market_cap"],
+        "screen_sorts_any": ["postmarket_change_percent"],
+    },
+    {
+        # Dirección "down" sola con constraint expresado como "por encima de
+        # 100m de capitalización" — lo mínimo es que emita el screen.
+        "id": "ah_cap_direction",
+        "query": "top 10 down after hours por encima de 100m de capitalización",
+        "agents_any": ["market_data"],
+        "screens_min": 1,
+    },
+    {
+        # Dual premarket: gainers + losers con floor de volumen premarket.
+        "id": "premarket_dual",
+        "query": "top 5 premarket gainers y top 5 premarket losers con volumen premarket por encima de 500k",
+        "agents_any": ["market_data"],
+        "screens_min": 2,
+        "screen_sorts_any": ["premarket_change_percent"],
+    },
+    {
+        # Sort custom de sesión sin constraints: la regla 6 no aplica porque
+        # postmarket_volume no existe como categoría del scanner.
+        "id": "ah_volume_sort",
+        "query": "top 10 por volumen en after hours",
+        "agents_any": ["market_data"],
+        "screens_min": 1,
+        "screen_sorts_any": ["postmarket_volume"],
+    },
+    {
+        # Guardia scanner-vs-screener: wording de "filtrar" con campo de
+        # SESIÓN jamás debe caer en SCREENING (el screener EOD no tiene
+        # campos de sesión) — va a RANKING/market_data con screen.
+        "id": "ah_filter_not_screening",
+        "query": "filtra las acciones que suben más de un 3% en after hours",
+        "intent_in": {"RANKING"},
+        "agents_any": ["market_data"],
+        "screens_min": 1,
+        "screen_sorts_any": ["postmarket_change_percent"],
     },
 ]

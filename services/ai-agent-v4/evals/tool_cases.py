@@ -80,12 +80,22 @@ TOOL_CASES = [
         "orphan_unlock": "news.get_catalyst_alerts",
     },
     {
+        # 2026-07-27: get_earnings_by_date proxea al servicio benzinga
+        # PARADO (entitlement revocado); la ruta viva para fechas pasadas es
+        # get_earnings_results(date=...). Se retira el orphan_unlock: elegir
+        # el tool vivo es lo correcto, no un fallo del selector.
         "id": "ne_earnings_date_orphan",
         "agent": "news_events",
         "query": "¿Quién presentó resultados el 18 de julio?",
-        "tools_any": ["earnings.get_earnings_by_date"],
+        "tools_any": ["earnings.get_earnings_results"],
         "tools_none": ["earnings.get_today_earnings"],
-        "orphan_unlock": "earnings.get_earnings_by_date",
+    },
+    {
+        "id": "ne_earnings_results_amc",
+        "agent": "news_events",
+        "query": "¿Quién presentó resultados hoy after hours y cómo fueron? De mejor a peor",
+        "tools_all": ["earnings.get_earnings_results"],
+        "tools_none": ["earnings.get_upcoming_earnings"],
     },
 
     # ── financial ────────────────────────────────────────────────

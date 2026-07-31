@@ -241,14 +241,14 @@ EARNINGS_CALENDAR — Upcoming earnings dates, "who reports this week" → news_
 EARNINGS_HISTORY — Past EPS, revenue, quarterly results for a ticker → financial
 FUNDAMENTALS — Financial statements, balance sheets, ratios → financial
 SEC_FILINGS — SEC documents: 10-K, 10-Q, 8-K, S-1 → financial
-SCREENING — Filter stocks by specific numeric criteria (without ranking) → screener
+SCREENING — Filter stocks by specific numeric criteria (without ranking) → screener. The screener engine is END-OF-DAY/current-state technical criteria. Any query about SESSION-relative movement (after-hours, premarket, extended hours: postmarket %, premarket %, AH volume) is NEVER SCREENING — route it as RANKING → market_data with a screen spec (the live scanner universe is the only source with session fields).
 ALERT_CREATE — The user wants a STANDING ALERT: to be notified in the FUTURE when a market condition occurs → alert_compiler. Keywords: "avísame cuando", "alerta cuando", "crea una alerta", "quiero que me avises", "alert me when", "notify me when/if", "create an alert", "watch for", "cuando entre en top gappers". The condition may reference events, filters, sequences or scanner membership. Distinct from STRATEGY_SCAN (looks BACKWARD) and from ALERT_MANAGE.
 ALERT_MANAGE — List / pause / arm / archive EXISTING alerts → alert_manager. Keywords: "mis alertas", "lista mis alertas", "pausa la alerta", "arma la alerta de…", "borra la alerta", "my alerts", "pause/activate/delete alert". Does NOT create.
 STRATEGY_SCAN — Find stocks whose INTRADAY PRICE ACTION matched a described setup/sequence on a specific day → strategy_scanner. The user describes a temporal pattern of events ("crossed VWAP up AFTER an opening decline", "halted then broke out", "volume spike in the first 30 min and closed green vs open") and wants the LIST of stocks where it HAPPENED (today, yesterday, or a past date). Keywords: "cruzaron", "hicieron", "tras", "después de", "that did", "which stocks crossed/reclaimed/broke... and then...". Distinct from SCREENING (current-state filters, no temporal sequence), RANKING (top lists), BACKTEST (P&L simulation with entry/exit rules) and CODE (statistical frequencies).
 THEMATIC — Find stocks by investment theme, sector vertical, or industry category. The user is explicitly looking for a LIST of companies in a specific theme. Examples: "robotics stocks", "empresas de memoria", "quantum computing companies", "acciones de energía nuclear", "cybersecurity zero trust", "EV charging", "GLP-1 weight loss drugs", "chip foundry stocks", "defense tech", "lithium miners" → market_data. IMPORTANT: Broad market questions like "what theme is driving the market today?", "que tema mueve el mercado?", "what sectors are hot?" are NOT THEMATIC — they are RANKING queries because the user wants to see current market movers, not a static list of themed companies.
 DEEP_RESEARCH — Comprehensive analysis, business model, competitive positioning, sentiment, analyst opinions → research + financial (when tickers are present). Use for: "how does X make money?", "compare X vs Y", "what's X's competitive moat?", "diferencias entre X e Y", "modelo de negocio de X"
 COMPLETE_ANALYSIS — Full picture: "análisis completo", "deep dive", "full breakdown" → market_data + news_events + financial (add research if sentiment/opinions requested)
-CODE — Custom statistical analysis, frequency studies, conditional probabilities, data transformations → code_exec. Use when user asks "how often", "what % of the time", "con qué frecuencia", "average return after X", "correlation between X and Y" — any question needing custom Python/DuckDB analysis on historical data WITHOUT trading strategy P&L simulation.
+CODE — Custom statistical analysis, frequency studies, conditional probabilities, data transformations → code_exec. Use when user asks "how often", "what % of the time", "con qué frecuencia", "average return after X", "correlation between X and Y" — any question needing custom Python/DuckDB analysis on historical data WITHOUT trading strategy P&L simulation. ALSO route here when the user asks to PLOT/CHART a HISTORICAL price series or compute metrics over a DATE RANGE: "grafica el cierre de X en julio", "plot X's closing prices", "retorno del periodo/mes", "evolución de X en junio", "compara los cierres de X e Y este mes". code_exec is the ONLY agent with range access to historical bars plus chart output; market_data/DATA_LOOKUP is for CURRENT live values and single-day technicals and CANNOT chart a historical range.
 BACKTEST — Trading strategy P&L simulation with entry/exit rules → backtest. ONLY when user describes a STRATEGY with entry conditions AND exit rules (stop, target, time). Examples: "backtest buying RSI<30 with 5% stop", "/backtest gap-up strategy". If query is a frequency/statistical question WITHOUT explicit P&L strategy intent, route to CODE instead. If user is only asking ABOUT backtest capabilities (no strategy given), classify as GREETING.
 CHART_ANALYSIS — User is asking about a specific chart they are viewing (technical analysis, patterns, support/resistance, trend) → market_data (add research if "why" is asked, add news_events for context)
 DILUTION_ANALYSIS — ANY question about stock dilution, warrants, ATM offerings, shelf registrations, convertible notes/preferred, equity lines, S-1 filings, cash runway, burn rate, shares outstanding history, offering history, PIPE deals, registration statements, dilution risk scores, price protection/ratchet clauses, baby-shelf restrictions, overhead supply → dilution. Add market_data for current price context. Add news_events if asking about recent filings or catalysts. ALSO market-wide dilution-activity questions WITHOUT a ticker ("¿qué tickers están diluyendo ahora?", "who is filing shelfs/ATMs this week?", "most dilution activity") → dilution (it has a market-wide trending source) — these are DILUTION_ANALYSIS, NOT RANKING.
@@ -283,7 +283,8 @@ Example: "What's NVAX's dilution risk and cash runway?" = DILUTION_ANALYSIS → 
 <universe_screen>
 The platform maintains a real-time enriched snapshot of ~12,000 tickers x 395 fields.
 When a RANKING or SCREENING query includes numeric constraints or a custom sort metric,
-emit a "screen" object so market_data runs it on the FULL universe:
+emit a "screen" object — or an ARRAY of up to 4 screen objects (rule 9) — so
+market_data runs it on the FULL universe:
 
 "screen": {{
   "filters": [{{"field": str, "op": "gt|gte|lt|lte|eq|neq|contains", "value": number|string}}],
@@ -326,24 +327,29 @@ Rules:
 8. There is NO enterprise_value field. If the user asks for EV (or another
    unavailable metric), sort by the nearest available one (market_cap) and SAY SO
    in "plan" so the synthesizer can state the substitution.
+9. When the query asks for SEVERAL ranked lists at once ("top 10 up AND top 10
+   down after hours", "gainers y losers"), emit an ARRAY of screen objects
+   (max 4), each with a short "label" naming its list, repeating the shared
+   constraint filters in every spec. The "down"/losers direction is the SAME
+   sort field with "sort_order": "asc" — there are no *_losers fields.
 </universe_screen>
 
 <thematic_catalog>
 When intent is THEMATIC, you MUST set "theme_tags" to one or more of these canonical tags:
 
 SEMICONDUCTORS: semiconductors, semiconductor_equipment, memory_chips, gpu_accelerators, cpu_processors, analog_mixed_signal, networking_chips, rf_wireless_chips, chip_foundry, power_semiconductors, eda_chip_design
-AI & SOFTWARE: artificial_intelligence, generative_ai, machine_learning, ai_agents_inference, ai_data_centers, data_center_hardware, data_infrastructure, cloud_computing, edge_computing, saas, enterprise_software, crm_marketing_tech, developer_tools, big_data_analytics, cybersecurity, identity_zero_trust, endpoint_network_security, ar_vr
+AI & SOFTWARE: artificial_intelligence, generative_ai, machine_learning, data_infrastructure, cloud_computing, edge_computing, saas, enterprise_software, crm_marketing_tech, developer_tools, big_data_analytics, cybersecurity, identity_zero_trust, endpoint_network_security, ar_vr
 CONNECTIVITY: 5g_iot, satellite_internet, fiber_optics
-ROBOTICS: robotics, humanoid_robotics, surgical_robotics, industrial_automation, autonomous_vehicles, lidar, drones, 3d_printing
-FRONTIER: quantum_computing, blockchain_crypto, crypto_exchange, bitcoin_mining, space_technology
+ROBOTICS: robotics, surgical_robotics, industrial_automation, autonomous_vehicles, lidar, drones, 3d_printing
+FRONTIER: quantum_computing, blockchain_crypto, crypto_exchange, space_technology
 FINTECH: fintech, digital_payments, buy_now_pay_later, neobanking, insurtech, lending_platforms, wealthtech, payroll_hr_tech, online_gambling
 BIOTECH & PHARMA: biotech, genomics, gene_editing_crispr, mrna_therapeutics, cell_gene_therapy, immunotherapy, oncology, glp1_weight_loss, diabetes, neuroscience, cardiovascular, rare_disease, vaccines, psychedelics, cannabis
 MEDTECH: digital_health, telehealth, medical_devices, diagnostics, medical_imaging, dental, animal_health, cro_cdmo, aging_population
 OIL & GAS: oil_exploration, oil_refining, oil_services, midstream_pipelines, natural_gas
-CLEAN ENERGY: clean_energy, solar, wind, nuclear_energy, nuclear_power_ai, uranium, hydrogen_fuel_cells, battery_storage, lithium, carbon_capture, smart_grid
+CLEAN ENERGY: clean_energy, solar, wind, nuclear_energy, uranium, hydrogen_fuel_cells, battery_storage, lithium, carbon_capture, smart_grid
 TRANSPORTATION: electric_vehicles, ev_charging, ride_sharing, shipping, rails_freight, airlines
 MINING: gold_mining, silver_mining, copper, rare_earths, steel, aluminum, agriculture_agtech
-CONSUMER DIGITAL: e_commerce, social_media, digital_advertising, streaming, esports_gaming, food_delivery, education_tech
+CONSUMER DIGITAL: e_commerce, social_media, streaming, esports_gaming, food_delivery, education_tech
 CONSUMER LIFESTYLE: travel_tech, gig_economy, luxury_brands, restaurant_tech, pet_economy, athleisure_wellness
 DEFENSE: defense_contractors, defense_tech, commercial_aerospace, hypersonics_missiles, border_surveillance
 INFRASTRUCTURE: construction_engineering, water_treatment, waste_management
@@ -416,6 +422,9 @@ User: "dame las acciones por encima de 500m de market cap ordenadas por volumen 
 
 User: "top after hours stocks with market cap above 300m"
 {{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "screen": {{"filters": [{{"field": "market_cap", "op": "gte", "value": 300000000}}, {{"field": "volume", "op": "gt", "value": 100000}}], "sort_by": "postmarket_change_percent", "sort_order": "desc", "limit": 25, "snapshot": "live"}}, "plan": "Screen full universe: after-hours movers with market cap > $300M ranked by AH change", "confidence": 1.0, "reasoning": "After-hours ranking with market cap constraint — universe screen sorted by postmarket change", "clarification": null}}
+
+User: "dame top acciones after hours por encima de 100m de capitalización! top 10 up after hours solo, y top 10 down after hours solo"
+{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "screen": [{{"label": "top10_ah_up", "filters": [{{"field": "market_cap", "op": "gte", "value": 100000000}}, {{"field": "volume", "op": "gt", "value": 100000}}], "sort_by": "postmarket_change_percent", "sort_order": "desc", "limit": 10, "snapshot": "live"}}, {{"label": "top10_ah_down", "filters": [{{"field": "market_cap", "op": "gte", "value": 100000000}}, {{"field": "volume", "op": "gt", "value": 100000}}], "sort_by": "postmarket_change_percent", "sort_order": "asc", "limit": 10, "snapshot": "live"}}], "plan": "Dos screens after-hours con mcap > $100M: top 10 up y top 10 down por cambio post-market", "confidence": 1.0, "reasoning": "Two ranked lists requested (up AND down) — array of screens with the same filters and opposite sort_order", "clarification": null}}
 
 User: "small caps entre 1 y 10 dolares con gap de mas de 5%, RVOL sobre 3 y float bajo 20 millones"
 {{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "screen": {{"filters": [{{"field": "price", "op": "gte", "value": 1}}, {{"field": "price", "op": "lte", "value": 10}}, {{"field": "gap_percent", "op": "gte", "value": 5}}, {{"field": "rvol", "op": "gte", "value": 3}}, {{"field": "float_shares", "op": "lte", "value": 20000000}}], "sort_by": "gap_percent", "sort_order": "desc", "limit": 25, "snapshot": "live"}}, "plan": "Screen: small caps $1-$10, gap >5%, RVOL >3, float <20M ordenado por gap", "confidence": 1.0, "reasoning": "Multi-constraint day-trader screen — full-universe filter with 5 conditions", "clarification": null}}
@@ -944,8 +953,18 @@ async def query_planner_node(state: dict) -> dict:
         theme_tags = [t.strip() for t in theme_tags if isinstance(t, str) and t.strip()]
 
     # Universe screen spec (full-universe structured ranking)
+    # Contrato: null | {spec} | [{...spec, "label": str}, ...]. Se normaliza
+    # SIEMPRE a lista de 1-4 specs válidos (o None): market_data itera la
+    # lista y así "top 10 up Y top 10 down" viajan como dos screens.
     screen = decision.get("screen")
-    if screen is not None and not (isinstance(screen, dict) and isinstance(screen.get("filters"), list)):
+    if isinstance(screen, dict):
+        screen = [screen]
+    if isinstance(screen, list):
+        screen = [
+            s for s in screen
+            if isinstance(s, dict) and isinstance(s.get("filters"), list)
+        ][:4] or None
+    else:
         screen = None
 
     # Market Pulse structured queries

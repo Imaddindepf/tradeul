@@ -354,3 +354,14 @@ async def usage(
     """The caller's own LLM spend over the last `days` (by model)."""
     from telemetry import get_telemetry
     return await get_telemetry().user_summary(user_id, days=days)
+
+
+@router.get("/tools/health")
+async def tools_health(
+    user_id: str = Depends(request_user_id),
+    days: int = 7,
+) -> dict[str, Any]:
+    """Success/failure counters per MCP tool over the last `days` — answers
+    "since when is tool X failing" (last_ok / first_error / last_error)."""
+    from telemetry import get_telemetry
+    return await get_telemetry().tool_summary(days=days)

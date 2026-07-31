@@ -33,6 +33,14 @@ _BASELINE = Path(__file__).with_name("baseline_routing.json")
 _REPORT = Path(os.getenv("EVAL_REPORT_PATH", "/tmp/eval_routing_report.json"))
 
 
+def _screen_specs(out: dict) -> list[dict]:
+    """Normaliza "screen" (None | dict legacy | list[dict]) a lista de specs."""
+    screen = out.get("screen")
+    if isinstance(screen, dict):
+        screen = [screen]
+    return [s for s in (screen or []) if isinstance(s, dict)]
+
+
 async def _plan(query: str, extra_state: dict | None = None) -> dict:
     """Corre el planner sobre una query y devuelve su decisión de routing.
 
@@ -70,9 +78,17 @@ async def _plan(query: str, extra_state: dict | None = None) -> dict:
         "clarification": bool(out.get("clarification")),
         "plan": (out.get("plan") or "")[:200],
         "theme_tags": sorted(out.get("theme_tags") or []),
+        "screens_count": len(_screen_specs(out)),
         "screen_fields": sorted({
-            f.get("field", "") for f in ((out.get("screen") or {}).get("filters") or [])
+            f.get("field", "")
+            for spec in _screen_specs(out)
+            for f in (spec.get("filters") or [])
             if isinstance(f, dict)
+        }),
+        "screen_sorts": sorted({
+            str(spec.get("sort_by"))
+            for spec in _screen_specs(out)
+            if spec.get("sort_by")
         }),
     }
 
@@ -143,6 +159,12 @@ async def run(sample: int, update_baseline: bool) -> int:
         if "screen_fields_any" in c and not (set(c["screen_fields_any"]) & set(d.get("screen_fields", []))):
             ok = False
             reasons.append(f"screen_fields={d.get('screen_fields')} ∩ {c['screen_fields_any']} = ∅")
+        if "screens_min" in c and d.get("screens_count", 0) < c["screens_min"]:
+            ok = False
+            reasons.append(f"screens_count={d.get('screens_count', 0)} < min {c['screens_min']}")
+        if "screen_sorts_any" in c and not (set(c["screen_sorts_any"]) & set(d.get("screen_sorts", []))):
+            ok = False
+            reasons.append(f"screen_sorts={d.get('screen_sorts')} ∩ {c['screen_sorts_any']} = ∅")
         if "themes_max" in c and len(d.get("theme_tags", [])) > c["themes_max"]:
             ok = False
             reasons.append(f"{len(d['theme_tags'])} theme_tags > max {c['themes_max']}: {d['theme_tags'][:5]}")

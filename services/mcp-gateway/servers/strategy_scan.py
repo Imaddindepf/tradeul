@@ -23,6 +23,7 @@ from clients.db_client import db_fetch
 from typing import Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import asyncio
 import logging
 import time
 
@@ -66,7 +67,10 @@ _OPS = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<=", "eq": "="}
 
 # In-process cache for the dynamic event catalog (date -> (ts, rows))
 _catalog_cache: dict = {}
-_CATALOG_TTL = 600
+_CATALOG_TTL = 3600  # la query tarda ~140s sobre ~12M eventos/día: 1 warm/hora, servido de caché
+# Single-flight: un lock por fecha para que N callers en frío no lancen N
+# agregaciones de 140s en paralelo (hallazgo revisión 2026-07-28)
+_catalog_locks: dict = {}
 
 
 def _resolve_date(date: str) -> str:
@@ -336,39 +340,50 @@ LIMIT {limit}
     }
 
 
-@mcp.tool()
-async def get_event_catalog(date: str = "today", min_count: int = 50) -> dict:
-    """Get the LIVE catalog of event types actually firing on a given date,
-    with occurrence counts and unique symbols. Use this to discover which
-    event types are available for scan_day_setups (240+ types: VWAP crosses,
-    ORB breakouts, candle patterns, SMA/MACD/stochastic crosses, halts,
-    volume spikes, consolidations, double tops/bottoms, trailing stops...).
-
-    Args:
-        date: 'today', 'yesterday' or 'YYYY-MM-DD'
-        min_count: Hide event types with fewer occurrences (default 50)
-    """
+# Helper plano compartido: lo llama la tool de abajo y el warmer de main.py.
+# REGLA (fastmcp >= 2.7): un nombre decorado con @mcp.tool() es un FunctionTool,
+# no una función — nunca se llama directamente (ver scripts/lint_tool_calls.py).
+async def _event_catalog(
+    date: str = "today", min_count: int = 50, force_refresh: bool = False
+) -> dict:
+    """force_refresh: lo usa el warmer de main.py para re-consultar aunque el
+    caché siga vigente — con intervalo de warm (3000s) < TTL (3600s), el caché
+    de 'today' nunca llega a expirar y el cold path de ~140s no se sirve a
+    usuarios (hallazgo revisión 2026-07-28: sin esto, el warm era un no-op de
+    lectura y cada ~102 min había ~42 min de ventana fría)."""
     date_str = _resolve_date(date)
+
+    def _fresh(entry, max_age):
+        return entry is not None and time.time() - entry[0] < max_age
+
     cached = _catalog_cache.get(date_str)
-    if cached and time.time() - cached[0] < _CATALOG_TTL:
+    if _fresh(cached, _CATALOG_TTL) and not force_refresh:
         rows = cached[1]
     else:
-        ts_from = datetime.strptime(date_str, "%Y-%m-%d")
-        ts_to = ts_from + timedelta(days=1)
-        try:
-            rows = await db_fetch(
-                """
-                SELECT event_type, COUNT(*) AS occurrences, COUNT(DISTINCT symbol) AS symbols
-                FROM market_events
-                WHERE ts >= $1 AND ts < $2
-                GROUP BY event_type
-                ORDER BY occurrences DESC
-                """,
-                ts_from, ts_to, timeout=150,
-            )
-        except Exception as e:
-            return {"error": f"catalog query failed: {e}"}
-        _catalog_cache[date_str] = (time.time(), rows)
+        lock = _catalog_locks.setdefault(date_str, asyncio.Lock())
+        async with lock:
+            # Double-check: otro caller pudo poblarlo mientras esperábamos el
+            # lock. Bajo force_refresh, reusar solo si es MUY reciente (<30s).
+            cached = _catalog_cache.get(date_str)
+            if _fresh(cached, 30 if force_refresh else _CATALOG_TTL):
+                rows = cached[1]
+            else:
+                ts_from = datetime.strptime(date_str, "%Y-%m-%d")
+                ts_to = ts_from + timedelta(days=1)
+                try:
+                    rows = await db_fetch(
+                        """
+                        SELECT event_type, COUNT(*) AS occurrences, COUNT(DISTINCT symbol) AS symbols
+                        FROM market_events
+                        WHERE ts >= $1 AND ts < $2
+                        GROUP BY event_type
+                        ORDER BY occurrences DESC
+                        """,
+                        ts_from, ts_to, timeout=150,
+                    )
+                except Exception as e:
+                    return {"error": f"catalog query failed: {e}"}
+                _catalog_cache[date_str] = (time.time(), rows)
 
     # Merge human descriptions where we have them
     try:
@@ -390,3 +405,18 @@ async def get_event_catalog(date: str = "today", min_count: int = 50) -> dict:
         catalog.append(entry)
 
     return {"date": date_str, "event_types": catalog, "count": len(catalog)}
+
+
+@mcp.tool()
+async def get_event_catalog(date: str = "today", min_count: int = 50) -> dict:
+    """Get the LIVE catalog of event types actually firing on a given date,
+    with occurrence counts and unique symbols. Use this to discover which
+    event types are available for scan_day_setups (240+ types: VWAP crosses,
+    ORB breakouts, candle patterns, SMA/MACD/stochastic crosses, halts,
+    volume spikes, consolidations, double tops/bottoms, trailing stops...).
+
+    Args:
+        date: 'today', 'yesterday' or 'YYYY-MM-DD'
+        min_count: Hide event types with fewer occurrences (default 50)
+    """
+    return await _event_catalog(date=date, min_count=min_count)

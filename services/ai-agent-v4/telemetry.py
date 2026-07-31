@@ -11,6 +11,10 @@ cuello de botella?". Este módulo cierra ese hueco sin tocar los call-sites:
     tokens de CADA invocación y lo encola.
   - Un writer en segundo plano vuelca lotes a Postgres (`agent_llm_calls`), así
     la escritura nunca añade latencia al camino del usuario.
+  - El mismo writer persiste cada llamada a tool MCP (`agent_tool_calls`,
+    éxito/fallo/latencia, desde `agents/_mcp_tools.py`) — antes un fallo de
+    tool solo vivía en el array `_errors` en memoria y en logs docker que
+    rotan en minutos: imposible responder "¿desde cuándo falla la tool X?".
 
 No-fatal en todos los frentes: si Postgres no está, si falta el uso de tokens,
 o si el buffer se llena, se degrada silenciosamente sin romper la respuesta.
@@ -22,6 +26,7 @@ import contextvars
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -107,9 +112,26 @@ CREATE TABLE IF NOT EXISTS agent_llm_calls (
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_run  ON agent_llm_calls (run_id);
 CREATE INDEX IF NOT EXISTS idx_llm_calls_user ON agent_llm_calls (user_id, ts DESC);
+CREATE TABLE IF NOT EXISTS agent_tool_calls (
+    id         BIGSERIAL PRIMARY KEY,
+    ts         DOUBLE PRECISION NOT NULL,
+    run_id     TEXT NOT NULL DEFAULT '',
+    user_id    TEXT NOT NULL DEFAULT '',
+    node       TEXT NOT NULL DEFAULT '',
+    server     TEXT NOT NULL DEFAULT '',
+    tool       TEXT NOT NULL DEFAULT '',
+    ok         BOOLEAN NOT NULL DEFAULT TRUE,
+    error      TEXT NOT NULL DEFAULT '',
+    latency_ms INT  NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_tool ON agent_tool_calls (server, tool, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_ts   ON agent_tool_calls (ts);
 """
 
 _RETENTION_DAYS = int(os.getenv("LLM_TELEMETRY_RETENTION_DAYS", "30"))
+# Las filas de tools son minúsculas y su valor es histórico ("¿desde cuándo
+# falla X?"), así que viven más que las de LLM por defecto.
+_TOOL_RETENTION_DAYS = int(os.getenv("TOOL_TELEMETRY_RETENTION_DAYS", "90"))
 _FLUSH_INTERVAL_S = float(os.getenv("LLM_TELEMETRY_FLUSH_S", "5"))
 _MAX_BUFFER = 5000
 
@@ -119,6 +141,7 @@ class _Telemetry:
         self._db_url = os.getenv("CHECKPOINT_DB_URL", "").strip()
         self._pool = None
         self._buffer: list[tuple] = []
+        self._tool_buffer: list[tuple] = []
         self._task: Optional[asyncio.Task] = None
         self._ready = False
         self._last_prune = 0.0
@@ -142,7 +165,7 @@ class _Telemetry:
                 await conn.execute(_SCHEMA)
             self._ready = True
             self._task = asyncio.create_task(self._flush_loop())
-            logger.info("LLM telemetry ready (agent_llm_calls)")
+            logger.info("LLM telemetry ready (agent_llm_calls, agent_tool_calls)")
         except Exception as exc:  # noqa: BLE001
             logger.warning("LLM telemetry unavailable (%s)", exc)
             self._ready = False
@@ -164,6 +187,20 @@ class _Telemetry:
             _cost_usd(model, int(input_tokens), int(output_tokens)), int(latency_ms),
         ))
 
+    def record_tool(
+        self, *, server: str, tool: str, ok: bool, error: str = "", latency_ms: int = 0,
+    ) -> None:
+        """Sincrónico, no bloqueante: encola una llamada a tool MCP (éxito o
+        fallo). Mismo contrato que `record`: descarta si el buffer está lleno."""
+        if not self._ready or len(self._tool_buffer) >= _MAX_BUFFER:
+            return
+        ctx = _call_ctx.get() or {}
+        self._tool_buffer.append((
+            time.time(), ctx.get("run_id", ""), ctx.get("user_id", ""),
+            ctx.get("node", ""), server or "", tool or "",
+            bool(ok), (error or "")[:500], int(latency_ms),
+        ))
+
     async def _flush_loop(self) -> None:
         while True:
             try:
@@ -177,23 +214,39 @@ class _Telemetry:
                 logger.warning("telemetry flush error: %s", exc)
 
     async def _flush(self) -> None:
-        if not self._buffer or not self._pool:
+        if not self._pool:
             return
-        batch, self._buffer = self._buffer, []
-        try:
-            async with self._pool.connection() as conn:
-                async with conn.cursor() as cur:
-                    await cur.executemany(
-                        """
-                        INSERT INTO agent_llm_calls
-                          (ts, run_id, user_id, node, provider, model,
-                           input_tokens, output_tokens, total_tokens, cost_usd, latency_ms)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        """,
-                        batch,
-                    )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("telemetry batch insert failed (%d rows dropped): %s", len(batch), exc)
+        if self._buffer:
+            batch, self._buffer = self._buffer, []
+            try:
+                async with self._pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            """
+                            INSERT INTO agent_llm_calls
+                              (ts, run_id, user_id, node, provider, model,
+                               input_tokens, output_tokens, total_tokens, cost_usd, latency_ms)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            """,
+                            batch,
+                        )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("telemetry batch insert failed (%d rows dropped): %s", len(batch), exc)
+        if self._tool_buffer:
+            batch, self._tool_buffer = self._tool_buffer, []
+            try:
+                async with self._pool.connection() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            """
+                            INSERT INTO agent_tool_calls
+                              (ts, run_id, user_id, node, server, tool, ok, error, latency_ms)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            """,
+                            batch,
+                        )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("tool telemetry batch insert failed (%d rows dropped): %s", len(batch), exc)
 
     async def _maybe_prune(self) -> None:
         now = time.time()
@@ -202,8 +255,10 @@ class _Telemetry:
         self._last_prune = now
         try:
             cutoff = now - _RETENTION_DAYS * 86400
+            tool_cutoff = now - _TOOL_RETENTION_DAYS * 86400
             async with self._pool.connection() as conn:
                 await conn.execute("DELETE FROM agent_llm_calls WHERE ts < %s", (cutoff,))
+                await conn.execute("DELETE FROM agent_tool_calls WHERE ts < %s", (tool_cutoff,))
         except Exception as exc:  # noqa: BLE001
             logger.warning("telemetry prune failed: %s", exc)
 
@@ -279,6 +334,64 @@ class _Telemetry:
             }
         except Exception as exc:  # noqa: BLE001
             logger.warning("telemetry user_summary failed: %s", exc)
+            return {}
+
+    async def tool_summary(self, days: int = 7) -> dict:
+        """Contadores de éxito/fallo por tool MCP en la ventana. `last_ok`,
+        `first_error` y `last_error_at` responden "¿desde cuándo falla X?"."""
+        if not self._ready:
+            return {}
+        try:
+            cutoff = time.time() - days * 86400
+            async with self._pool.connection() as conn:
+                cur = await conn.execute(
+                    """
+                    SELECT server, tool, count(*),
+                           count(*) FILTER (WHERE NOT ok),
+                           max(ts) FILTER (WHERE ok),
+                           min(ts) FILTER (WHERE NOT ok),
+                           max(ts) FILTER (WHERE NOT ok),
+                           avg(latency_ms)
+                    FROM agent_tool_calls WHERE ts >= %s
+                    GROUP BY server, tool
+                    ORDER BY count(*) FILTER (WHERE NOT ok) DESC, count(*) DESC
+                    """,
+                    (cutoff,),
+                )
+                rows = await cur.fetchall()
+                cur = await conn.execute(
+                    """
+                    SELECT DISTINCT ON (server, tool) server, tool, error
+                    FROM agent_tool_calls
+                    WHERE ts >= %s AND NOT ok
+                    ORDER BY server, tool, ts DESC
+                    """,
+                    (cutoff,),
+                )
+                last_errors = {(r[0], r[1]): r[2] for r in await cur.fetchall()}
+
+            def _iso(ts) -> Optional[str]:
+                if not ts:
+                    return None
+                return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="seconds")
+
+            tools = []
+            for r in rows:
+                calls, errors = int(r[2] or 0), int(r[3] or 0)
+                entry = {
+                    "server": r[0], "tool": r[1], "calls": calls, "errors": errors,
+                    "error_rate": round(errors / calls, 3) if calls else 0.0,
+                    "avg_latency_ms": int(r[7] or 0),
+                    "last_ok": _iso(r[4]),
+                    "first_error": _iso(r[5]),
+                    "last_error_at": _iso(r[6]),
+                }
+                if errors:
+                    entry["last_error"] = last_errors.get((r[0], r[1]), "")
+                tools.append(entry)
+            return {"window_days": days, "tools": tools}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("telemetry tool_summary failed: %s", exc)
             return {}
 
 

@@ -19,15 +19,21 @@ from __future__ import annotations
 import logging
 import re
 
+from agents._when import SESSION_PHRASES
+
 logger = logging.getLogger(__name__)
 
 # Señales fuertes de datos live de mercado (fallback sin LLM).
+# Las frases de sesión vienen del vocabulario compartido: aquí sólo estaban
+# 'after\\s*hours', que no casa con "after hour" en singular.
+_SESSION_ALT = "|".join(re.escape(p) for p in sorted(SESSION_PHRASES, key=len, reverse=True))
+
 _LIVE_DATA_RE = re.compile(
     r"(?ix)\b("
     r"suben?|bajan?|caen?|cayendo|subiendo|"
     r"movers?|gappers?|screener?|scanner|snapshot|"
     r"top\s*\d+|ranking|rvol|volumen\s+(?:relativo|inusual)|"
-    r"premarket|pre-market|after\s*hours|"
+    + _SESSION_ALT + r"|"
     r"precio\s+(?:ahora|actual)|cotiza(?:n|ndo)?\s+(?:ahora|hoy)|"
     r"se\s+(?:mueven?|est[aá]n?\s+moviendo)"
     r")\b"

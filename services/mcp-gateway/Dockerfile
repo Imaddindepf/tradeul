@@ -9,6 +9,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . .
 
+# Build gates (auditoría 2026-07-28): el linter prohíbe llamar tools
+# decoradas (FunctionTool no es invocable desde fastmcp 2.7) y el smoke
+# estático verifica que los 14 servidores importan y registran sus tools.
+# Si cualquiera falla, la imagen no se construye.
+RUN python scripts/lint_tool_calls.py . \
+    && python scripts/smoke_tools.py --static
+
 # Expose MCP gateway port
 EXPOSE 8050
 

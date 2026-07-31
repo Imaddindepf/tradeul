@@ -93,13 +93,16 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = scheduler
     logger.info("Scheduler runtime started")
 
-    # Validate the MCP tool catalog against the live gateway (non-fatal)
-    from agents.mcp_catalog import validate_catalog
-    await validate_catalog()
-
-    # Warm the live event catalog in background (cold call aggregates ~12M
-    # rows and takes ~45s; warming it here means no user query ever pays it).
-    async def _warm_event_catalog() -> None:
+    # Validate the MCP tool catalog against the live gateway (non-fatal),
+    # then warm the live event catalog (cold call aggregates ~12M rows and
+    # takes ~45s; warming it here means no user query ever pays it).
+    # En una sola tarea de fondo y EN ESTE ORDEN: si el agente arranca antes
+    # que el gateway, la validación reintenta con backoff en vez de saltarse
+    # para siempre, y el warm-up solo corre cuando el gateway ya responde
+    # (un warm-up perdedor cacheaba un catálogo vacío durante 6h).
+    async def _validate_then_warm() -> None:
+        from agents.mcp_catalog import validate_catalog_with_retry
+        await validate_catalog_with_retry()
         try:
             from agents.alert_compiler import _get_live_catalog
             await _get_live_catalog()
@@ -107,7 +110,7 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # noqa: BLE001
             logger.warning("Event catalog warm-up failed: %s", exc)
 
-    catalog_warmup = asyncio.create_task(_warm_event_catalog())
+    catalog_warmup = asyncio.create_task(_validate_then_warm())
 
     # Checkpoint retention: prune inactive LangGraph checkpoints so the
     # checkpoint tables stop growing without bound (non-fatal background loop).

@@ -58,6 +58,7 @@ ROSTERS: dict[str, dict[str, list[str]]] = {
             "earnings.get_today_earnings",
             "earnings.get_upcoming_earnings",
             "earnings.get_earnings_by_ticker",
+            "earnings.get_earnings_results",
             "sec.search_filings",
             "scanner.get_market_session",
         ],
@@ -236,6 +237,15 @@ TOOL_DESCS: dict[str, str] = {
     "sec.get_filing_detail": (
         "Full detail/content of ONE filing by accession number. Use AFTER a "
         "search to open the most relevant filing and read what it announces."
+    ),
+    # ── news_events ──
+    "earnings.get_earnings_results": (
+        "Actual REPORTED earnings results for a day: who has ALREADY reported "
+        "and how the numbers came in — EPS/revenue actual vs estimate, "
+        "surprise % and post-earnings move, sorted best-to-worst. Args: date, "
+        "time_slot (amc/bmo), sort_by (surprise/mkt_cap). Prefer over the "
+        "calendar tools when the user asks how results WERE, not who WILL "
+        "report."
     ),
 }
 

@@ -10,6 +10,7 @@ MCP tools used:
   - earnings.get_earnings_by_ticker(ticker)            - earnings history for a ticker
   - earnings.get_today_earnings()                      - today's earnings calendar
   - earnings.get_upcoming_earnings(days)               - earnings next N days
+  - earnings.get_earnings_results(date, time_slot)     - actual reported results (sorted)
 
 Data cleaning:
   - News: strip body (full article text), keep only metadata + teaser
@@ -118,122 +119,19 @@ def _earnings_timeframe(q: str) -> str:
         return "today"
     return "general"
 
-def _extract_days(q: str) -> int:
-    match = re.search(r'(\d+)\s*(?:days?|dias?)', q.lower())
-    if match:
-        return min(max(int(match.group(1)), 1), 30)
-    return 7
-
-_DATE_NUMERIC_RE = re.compile(
-    r'(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})'
+# El vocabulario temporal (franjas, días, ventanas) vive en agents/_when para
+# que todos los consumidores reconozcan las mismas frases. Ver ese módulo.
+from agents._when import (  # noqa: F401
+    _AMC_KEYWORDS,
+    _BMO_KEYWORDS,
+    _MAX_WINDOWS,
+    _detect_time_slot,
+    _day_mentions,
+    _extract_date_reference,
+    _extract_days,
+    _extract_earnings_windows,
+    _slot_mentions,
 )
-_ISO_DATE_RE = re.compile(r'(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})')
-
-_MONTH_NAMES = {
-    "enero": 1, "january": 1, "jan": 1,
-    "febrero": 2, "february": 2, "feb": 2,
-    "marzo": 3, "march": 3, "mar": 3,
-    "abril": 4, "april": 4, "apr": 4,
-    "mayo": 5, "may": 5,
-    "junio": 6, "june": 6, "jun": 6,
-    "julio": 7, "july": 7, "jul": 7,
-    "agosto": 8, "august": 8, "aug": 8,
-    "septiembre": 9, "setiembre": 9, "september": 9, "sep": 9, "sept": 9,
-    "octubre": 10, "october": 10, "oct": 10,
-    "noviembre": 11, "november": 11, "nov": 11,
-    "diciembre": 12, "december": 12, "dec": 12,
-}
-# "18 de julio [de 2026]" / "18 julio"
-_DATE_TEXT_ES_RE = re.compile(r'\b(\d{1,2})\s+(?:de\s+)?([a-zá-ú]{3,12})(?:\s+(?:de\s+|del\s+)?(\d{4}))?\b')
-# "july 18[, 2026]" / "jul 18th"
-_DATE_TEXT_EN_RE = re.compile(r'\b([a-z]{3,9})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b')
-
-
-def _extract_date_reference(q: str, language: str = "en") -> tuple[str | None, str | None]:
-    """Extract date_from and date_to from natural language references."""
-    ql = q.lower()
-    today = datetime.now()
-
-    iso_m = _ISO_DATE_RE.search(ql)
-    if iso_m:
-        y, m, d = int(iso_m.group(1)), int(iso_m.group(2)), int(iso_m.group(3))
-        try:
-            target = datetime(y, m, d)
-            return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
-
-    num_m = _DATE_NUMERIC_RE.search(ql)
-    if num_m:
-        a, b, y = int(num_m.group(1)), int(num_m.group(2)), int(num_m.group(3))
-        if language == "es":
-            d, m = a, b
-        else:
-            m, d = a, b
-        try:
-            target = datetime(y, m, d)
-            return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
-        except ValueError:
-            d, m = m, d
-            try:
-                target = datetime(y, m, d)
-                return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
-            except ValueError:
-                pass
-
-    # Fechas con mes textual: "18 de julio [de 2026]", "july 18[, 2026]",
-    # "aug 5". Sin año explícito: año actual, o el anterior si quedaría en
-    # el futuro (se pregunta por el pasado).
-    for m, d_i, mo_i, y_i in (
-        (_DATE_TEXT_ES_RE.search(ql), 1, 2, 3),
-        (_DATE_TEXT_EN_RE.search(ql), 2, 1, 3),
-    ):
-        if m and m.group(mo_i) in _MONTH_NAMES:
-            try:
-                day = int(m.group(d_i))
-                month = _MONTH_NAMES[m.group(mo_i)]
-                year = int(m.group(y_i)) if m.group(y_i) else today.year
-                target = datetime(year, month, day)
-                if not m.group(y_i) and target > today + timedelta(days=1):
-                    target = datetime(year - 1, month, day)
-                return (target.strftime("%Y-%m-%d"),
-                        (target + timedelta(days=1)).strftime("%Y-%m-%d"))
-            except ValueError:
-                pass
-
-    day_map = {
-        "monday": 0, "lunes": 0,
-        "tuesday": 1, "martes": 1,
-        "wednesday": 2, "miércoles": 2, "miercoles": 2,
-        "thursday": 3, "jueves": 3,
-        "friday": 4, "viernes": 4,
-    }
-
-    for name, weekday in day_map.items():
-        if name in ql:
-            days_back = (today.weekday() - weekday) % 7
-            # days_back == 0 means "today is that day" → use today, not last week
-            if days_back == 0:
-                target = today
-            else:
-                target = today - timedelta(days=days_back)
-            return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    if "yesterday" in ql or "ayer" in ql:
-        yest = today - timedelta(days=1)
-        # Skip weekends: if yesterday is Sunday → use Friday
-        if yest.weekday() == 6:  # Sunday
-            yest = today - timedelta(days=2)
-        elif yest.weekday() == 5:  # Saturday
-            yest = today - timedelta(days=1)
-        return yest.strftime("%Y-%m-%d"), (yest + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    if "last week" in ql or "semana pasada" in ql:
-        start = today - timedelta(days=today.weekday() + 7)
-        end = start + timedelta(days=5)
-        return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
-
-    return today.strftime("%Y-%m-%d"), (today + timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 # -- Data cleaning --
@@ -272,58 +170,128 @@ def _clean_events(raw: Any) -> list[dict]:
     return []
 
 
+# Campos de una fila de calendario que el modelo necesita para responder.
+# Todo lo demás (grounding, guidance_commentary, event_id, imágenes) es peso
+# muerto que empuja el payload contra el límite del sintetizador.
+_CALENDAR_KEEP = {
+    "symbol", "report_date", "company_name", "report_time", "time_slot", "fiscal_period",
+    "eps_estimate", "eps_actual", "eps_surprise_pct",
+    "revenue_estimate", "revenue_actual", "revenue_surprise_pct",
+    "market_cap", "status", "importance",
+}
+
+# El resumen alimenta las conclusiones, así que se conserva — recortado, no
+# eliminado. Un día entero de resúmenes completos son ~30 KB.
+_SUMMARY_CHARS = 300
+
+
+def _calendar_row(item: dict, report_date: str | None = None,
+                  keep_summary: bool = True) -> dict:
+    row = {k: v for k, v in item.items() if k in _CALENDAR_KEEP and v is not None}
+    # Igual que en los resultados: la fila lleva su día. Al pedir varios días
+    # y aplanarlos, una fila sin fecha acaba contada en el día que no es.
+    if report_date and not row.get("report_date"):
+        row["report_date"] = report_date
+    # El resumen se conserva también en las programadas: su previa dice el
+    # estimado y el historial de sorpresas, que es justo lo que se pregunta
+    # antes de que reporten. Se quitó un rato para encajar en un tope de
+    # payload que resultó ser arbitrario.
+    summary = item.get("summary") if keep_summary else None
+    if isinstance(summary, str) and summary.strip():
+        text = " ".join(summary.split())
+        row["summary"] = text[:_SUMMARY_CHARS] + ("…" if len(text) > _SUMMARY_CHARS else "")
+    return row
+
+
+def _clean_calendar(raw: Any, cap: int = 25) -> Any:
+    """Compacta un día de calendario: reportadas vs pendientes, filas al grano.
+
+    `cap` limita cada lista. Al pedir varios días el presupuesto se reparte,
+    porque tres días crudos superan por sí solos el tope del sintetizador.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    reports = raw.get("reports")
+    if not isinstance(reports, list):
+        return raw
+
+    reported: list[dict] = []
+    scheduled: list[dict] = []
+    for item in reports:
+        if not isinstance(item, dict) or not item.get("symbol"):
+            continue
+        ya_reporto = (item.get("eps_actual") is not None
+                      or item.get("revenue_actual") is not None)
+        row = _calendar_row(item, raw.get("date"))
+        (reported if ya_reporto else scheduled).append(row)
+
+    by_size = lambda r: -(r.get("market_cap") or 0)
+    reported.sort(key=by_size)
+    scheduled.sort(key=by_size)
+
+    out = {
+        "date": raw.get("date"),
+        "total": len(reports),
+        "reported_count": len(reported),
+        "scheduled_count": len(scheduled),
+        "reported": reported[:cap],
+        "scheduled": scheduled[:cap],
+    }
+    # La vista de día no trae consenso, y eso viaja con los datos: si se
+    # pierde aquí, el modelo deduce el beat/miss del texto y se equivoca de
+    # signo. Lo declara el tool; el limpiador no puede tragárselo.
+    if raw.get("estimates_available") is False:
+        out["estimates_available"] = False
+        out["note"] = raw.get("note")
+
+    # Recortar es legítimo; hacerlo sin decirlo, no.
+    if len(reported) > cap or len(scheduled) > cap:
+        out["truncated"] = (
+            f"showing the {cap} largest by market cap of "
+            f"{len(reported)} reported / {len(scheduled)} scheduled"
+        )
+    return out
+
+
 def _clean_earnings(raw: Any) -> Any:
-    """Clean earnings -- already small, just pass through."""
+    """Historial per-ticker: ya viene compacto."""
     return raw
 
 
-_TODAY_KEEP = {
-    "ticker", "company_name", "time", "time_slot", "fiscal_year", "fiscal_period",
-    "estimated_eps", "actual_eps", "eps_surprise_percent",
-    "estimated_revenue", "actual_revenue", "revenue_surprise_percent",
-    "importance",
+_RESULTS_KEEP = {
+    "symbol", "company", "time_slot", "eps_estimate", "eps_actual",
+    "eps_surprise_pct", "revenue_estimate", "revenue_actual",
+    "revenue_surprise_pct", "post_move_pct", "live_reaction_pct", "market_cap", "source",
 }
 
 
-def _clean_today_earnings(raw: Any) -> dict:
-    """Structure today's earnings into reported vs. scheduled, top entries only."""
+def _clean_earnings_results(raw: Any) -> Any:
+    """Compact reported results: keep key row fields only, drop nulls."""
     if not isinstance(raw, dict):
         return raw
 
-    results = raw.get("results", [])
-    stats = raw.get("stats", {})
-
-    reported = []
-    scheduled_bmo = []
-    scheduled_amc = []
-
-    for item in results:
+    rows = []
+    for item in raw.get("results", []):
         if not isinstance(item, dict):
             continue
-        row = {k: v for k, v in item.items() if k in _TODAY_KEEP and v is not None}
-        if not row.get("ticker"):
-            continue
-        if item.get("actual_eps") is not None:
-            reported.append(row)
-        elif item.get("time_slot") == "AMC":
-            scheduled_amc.append(row)
-        else:
-            scheduled_bmo.append(row)
+        row = {k: v for k, v in item.items() if k in _RESULTS_KEEP and v is not None}
+        if row.get("symbol"):
+            rows.append(row)
 
-    importance_key = lambda x: -(x.get("importance") or 0)
-    scheduled_bmo.sort(key=importance_key)
-    scheduled_amc.sort(key=importance_key)
-
-    return {
+    out = {
         "date": raw.get("date"),
-        "total": stats.get("total", len(results)),
-        "bmo_count": stats.get("bmo", len(scheduled_bmo)),
-        "amc_count": stats.get("amc", len(scheduled_amc)),
-        "reported_count": stats.get("reported", len(reported)),
-        "reported": reported,
-        "top_scheduled_bmo": scheduled_bmo[:25],
-        "top_scheduled_amc": scheduled_amc[:25],
+        "time_slot": raw.get("time_slot"),
+        "sort_by": raw.get("sort_by"),
+        "count": len(rows),
+        "results": rows,
     }
+    # Señales de cobertura: sin esto el LLM no distingue "reportaron pocas"
+    # de "quedan N por reportar" ni datos completos de datos degradados.
+    if raw.get("scheduled_pending") is not None:
+        out["scheduled_pending"] = raw["scheduled_pending"]
+    if raw.get("partial"):
+        out["partial"] = raw["partial"]
+    return out
 
 
 _UPCOMING_KEEP = {
@@ -362,7 +330,7 @@ def _clean_upcoming_earnings(raw: Any) -> dict:
 # ── Native tool-calling path (Fase 3c) ──────────────────────────────
 
 async def _news_events_node_native(state: dict, start_time: float) -> dict | None:
-    """Ruta nativa: el selector LLM elige del roster de 14 tools; los args
+    """Ruta nativa: el selector LLM elige del roster de 15 tools; los args
     salen del estado (tickers, fechas, tipo de evento) de forma determinista.
     Recupera las 4 huérfanas: get_recent_events (eventos AHORA sin ticker),
     get_catalyst_alerts, get_available_event_types y get_earnings_by_date.
@@ -381,6 +349,9 @@ async def _news_events_node_native(state: dict, start_time: float) -> dict | Non
     language = state.get("language", "en")
     tickers = list(state.get("tickers", []))[:5]
 
+    from agents._tool_args import start_run, take_warnings
+    start_run()
+
     selected = await select_tools("news_events", task)
     if not selected:
         return None
@@ -389,6 +360,16 @@ async def _news_events_node_native(state: dict, start_time: float) -> dict | Non
     if not date_from and task != query:
         date_from, date_to = _extract_date_reference(query, language)
     event_type = _detect_event_type(task) or _detect_event_type(query)
+
+    # Las ventanas se resuelven una sola vez y las comparten TODAS las ramas
+    # que toman fecha. Calcularlas dentro de una rama fue el fallo original:
+    # la consulta se contestaba entera o a medias según qué tool eligiera el
+    # selector.
+    windows = _extract_earnings_windows(task) or _extract_earnings_windows(query)
+    window_dates: list[str] = []
+    for d, _ in windows:
+        if d and d not in window_dates:
+            window_dates.append(d)
 
     results: dict[str, Any] = {}
     errors: list[str] = []
@@ -442,7 +423,7 @@ async def _news_events_node_native(state: dict, start_time: float) -> dict | Non
                 results["event_types"] = await MCP.events.get_available_event_types({})
             elif tool == "earnings.get_today_earnings":
                 raw = await MCP.earnings.get_today_earnings({})
-                results["today_earnings"] = _clean_today_earnings(raw)
+                results["today_earnings"] = _clean_calendar(raw)
             elif tool == "earnings.get_upcoming_earnings":
                 raw = await MCP.earnings.get_upcoming_earnings(
                     {"days": _extract_days(task or query), "min_importance": 3, "limit": 100})
@@ -452,12 +433,81 @@ async def _news_events_node_native(state: dict, start_time: float) -> dict | Non
                     raw = await MCP.earnings.get_earnings_by_ticker({"ticker": t})
                     results.setdefault("ticker_earnings", {})[t] = _clean_earnings(raw)
             elif tool == "earnings.get_earnings_by_date":
-                if date_from:
-                    raw = await MCP.earnings.get_earnings_by_date({"date": date_from})
-                    results["earnings_by_date"] = {"date": date_from,
-                                                   "earnings": _clean_earnings(raw)}
-                else:
+                dates = window_dates or ([date_from] if date_from else [])
+                if not dates:
                     errors.append("earnings_by_date: no date detected in query")
+                else:
+                    # Un día de calendario en crudo ronda los 30 KB, así que el
+                    # cupo de filas se reparte entre los días pedidos.
+                    cap = max(8, 25 // len(dates))
+
+                    async def _one_date(day: str) -> dict:
+                        raw = await MCP.earnings.get_earnings_by_date({"date": day})
+                        return _clean_calendar(raw, cap=cap)
+
+                    got = await asyncio.gather(
+                        *(_one_date(d) for d in dates), return_exceptions=True)
+                    days = []
+                    for day, res in zip(dates, got):
+                        if isinstance(res, Exception):
+                            errors.append(f"earnings_by_date[{day}]: {res}")
+                        else:
+                            days.append({"date": day, "earnings": res})
+                    if len(days) == 1 and len(dates) == 1:
+                        results["earnings_by_date"] = days[0]
+                    elif days:
+                        results["earnings_by_date_days"] = days
+                        results["earnings_dates_requested"] = dates
+            elif tool == "earnings.get_earnings_results":
+                # Una consulta puede abarcar varias ventanas ("pre market de
+                # hoy y after hours de ayer"): se pide cada una y se devuelven
+                # todas. Con una sola ventana la forma no cambia.
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                # Nombre local: asignar `windows` aquí lo convertiría en
+                # variable local de _exec y la lectura de arriba reventaría
+                # con UnboundLocalError.
+                wins = windows
+                if not wins:
+                    slot = _detect_time_slot(task) or _detect_time_slot(query)
+                    date = date_from if date_from and date_from != today_str else None
+                    wins = [(date, slot)]
+
+                # El presupuesto de filas se REPARTE entre ventanas: tres
+                # ventanas a 40 filas cada una triplican el payload, y el
+                # sintetizador acaba recortando y partiendo la tabla a media
+                # fila. El total se mantiene como el de una consulta simple.
+                per_window = max(8, 40 // max(1, len(wins)))
+
+                async def _one_window(date: str | None, slot: str | None) -> dict:
+                    # Sin fecha explícita el tool resuelve el día en ET: el
+                    # reloj del contenedor puede ir por delante de NY.
+                    params: dict = {"sort_by": "surprise", "limit": per_window}
+                    if date and date != today_str:
+                        params["date"] = date
+                    if slot:
+                        params["time_slot"] = slot
+                    return _clean_earnings_results(
+                        await MCP.earnings.get_earnings_results(params))
+
+                fetched = await asyncio.gather(
+                    *(_one_window(d, sl) for d, sl in wins),
+                    return_exceptions=True,
+                )
+                ok = [f for f in fetched if not isinstance(f, Exception)]
+                for (d, sl), f in zip(wins, fetched):
+                    if isinstance(f, Exception):
+                        errors.append(f"earnings_results[{d or 'today'}/{sl or 'all'}]: {f}")
+                if len(ok) == 1 and len(wins) == 1:
+                    results["earnings_results"] = ok[0]
+                elif ok:
+                    # Se declara lo que se pidió, no sólo lo que volvió: si una
+                    # ventana falla, la respuesta lo dice en vez de parecer
+                    # completa.
+                    results["earnings_results_windows"] = ok
+                    results["earnings_windows_requested"] = [
+                        {"date": d or "today", "time_slot": sl or "all"}
+                        for d, sl in wins
+                    ]
             elif tool == "sec.search_filings":
                 for t in tickers[:3]:
                     params = {"ticker": t, "page_size": 10}
@@ -476,20 +526,37 @@ async def _news_events_node_native(state: dict, start_time: float) -> dict | Non
     await asyncio.gather(*[_exec(t) for t in selected])
 
     if not results:
+        # Sin resultados se cede a la heurística, pero un fallo de ejecución
+        # NO es lo mismo que "este tool no aplica": si hubo errores hay que
+        # gritarlos. Un UnboundLocalError aquí se tragó una tarde entera de
+        # respuestas degradadas sin dejar rastro.
+        if errors:
+            logger.error(
+                "news_events native: %d tool(s) failed and produced nothing — %s",
+                len(errors), "; ".join(errors[:5]),
+            )
         return None  # nada ejecutable — que responda la heurística
 
     if errors:
         results["_errors"] = errors
 
     elapsed_ms = int((time.time() - start_time) * 1000)
+    # Lo que no se pudo pedir viaja con la respuesta: el sintetizador puede
+    # decir "no pude consultar X" en lugar de dar por completa una consulta
+    # recortada.
+    dropped = take_warnings()
+    payload = {
+        "tickers_detected": tickers,
+        "native_tools": selected,
+        **results,
+    }
+    if errors:
+        payload["errors"] = errors
+    if dropped:
+        payload["unrequested"] = dropped
+
     return {
-        "agent_results": {
-            "news_events": {
-                "tickers_detected": tickers,
-                "native_tools": selected,
-                **results,
-            },
-        },
+        "agent_results": {"news_events": payload},
         "execution_metadata": {
             **(state.get("execution_metadata", {})),
             "news_events": {
@@ -498,6 +565,7 @@ async def _news_events_node_native(state: dict, start_time: float) -> dict | Non
                 "native": True,
                 "tools": selected,
                 "error_count": len(errors),
+                "dropped_args": len(dropped),
             },
         },
     }
@@ -703,11 +771,34 @@ async def news_events_node(state: dict) -> dict:
                     errors.append(f"upcoming_earnings: {exc}")
 
             if timeframe == "today":
-                try:
-                    raw = await MCP.earnings.get_today_earnings({})
-                    results["today_earnings"] = _clean_today_earnings(raw)
-                except Exception as exc:
-                    errors.append(f"today_earnings: {exc}")
+                # Misma regla que en la ruta nativa: si la pregunta nombra
+                # varios días se piden todos. Dejar esto sólo en la otra ruta
+                # hacía que la respuesta dependiera de por dónde entrara.
+                dates = [d for d, _ in _extract_earnings_windows(query) if d]
+                if dates:
+                    cap = max(8, 25 // len(dates))
+
+                    async def _one_day(day: str) -> dict:
+                        raw = await MCP.earnings.get_earnings_by_date({"date": day})
+                        return {"date": day, "earnings": _clean_calendar(raw, cap=cap)}
+
+                    got = await asyncio.gather(
+                        *(_one_day(d) for d in dates), return_exceptions=True)
+                    days = []
+                    for day, res in zip(dates, got):
+                        if isinstance(res, Exception):
+                            errors.append(f"earnings_by_date[{day}]: {res}")
+                        else:
+                            days.append(res)
+                    if days:
+                        results["earnings_by_date_days"] = days
+                        results["earnings_dates_requested"] = dates
+                else:
+                    try:
+                        raw = await MCP.earnings.get_today_earnings({})
+                        results["today_earnings"] = _clean_calendar(raw)
+                    except Exception as exc:
+                        errors.append(f"today_earnings: {exc}")
 
         if wants_hist_events:
             date_from, date_to = _extract_date_reference(query, language)

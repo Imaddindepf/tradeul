@@ -10,8 +10,11 @@ Actual parquet columns:
 from fastmcp import FastMCP
 from config import config
 from typing import Optional
-import duckdb
 import os
+
+from clients.day_aggs import find_file as _find_file
+from clients.day_aggs import get_duckdb as _get_duckdb
+from clients.day_aggs import resolve_date as _resolve_date
 from datetime import datetime, timedelta
 
 mcp = FastMCP(
@@ -19,23 +22,6 @@ mcp = FastMCP(
     instructions="Historical market data service with 1760+ trading days of OHLCV data. "
     "Minute-level and day-level granularity. Powered by DuckDB on Parquet flat files.",
 )
-
-
-def _get_duckdb():
-    conn = duckdb.connect(":memory:")
-    conn.execute("SET threads=2")
-    conn.execute("SET memory_limit='1GB'")
-    return conn
-
-
-def _find_file(base_path: str, date_str: str) -> Optional[str]:
-    parquet = os.path.join(base_path, f"{date_str}.parquet")
-    if os.path.exists(parquet):
-        return parquet
-    csvgz = os.path.join(base_path, f"{date_str}.csv.gz")
-    if os.path.exists(csvgz):
-        return csvgz
-    return None
 
 
 def _minute_filepath(date_str: str, is_today: bool) -> Optional[str]:
@@ -46,17 +32,6 @@ def _minute_filepath(date_str: str, is_today: bool) -> Optional[str]:
             return today_file
         return _find_file(config.minute_aggs_today_path, date_str)
     return _find_file(config.minute_aggs_path, date_str)
-
-
-def _resolve_date(date: str) -> str:
-    if date == "today":
-        return datetime.now().strftime("%Y-%m-%d")
-    elif date == "yesterday":
-        dt = datetime.now() - timedelta(days=1)
-        while dt.weekday() >= 5:
-            dt -= timedelta(days=1)
-        return dt.strftime("%Y-%m-%d")
-    return date
 
 
 def _rows_to_dicts(cursor) -> list[dict]:

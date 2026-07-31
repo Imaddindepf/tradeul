@@ -15,6 +15,8 @@ import logging
 import time
 from typing import Any
 
+from agents._prompts import render
+
 logger = logging.getLogger(__name__)
 
 # ── Structured schema ────────────────────────────────────────────
@@ -57,11 +59,21 @@ Your audience: experienced day traders and institutional analysts who demand pre
 You MUST return a JSON object matching the provided schema. Every field you populate must come from the agent_results data — NEVER hallucinate prices, volumes, percentages, or company info.
 
 <tool_status>
-If a "tool_status" object is present, each listed agent FAILED to return data (timeout or error) — its absence is a tool failure, NOT an absence of market activity. Never present missing data as if it were a finding (e.g. do not conclude "no hay movers" when the scanner failed). State briefly that that data source was temporarily unavailable, and answer with what you do have.
+If a "tool_status" object is present, it reports data-source failures in two shapes:
+- {"available": false}: that agent FAILED entirely (timeout or error) — its absence is a tool failure, NOT an absence of market activity. Never present missing data as if it were a finding (e.g. do not conclude "no hay movers" when the scanner failed). State briefly that that data source was temporarily unavailable, and answer with what you do have.
+- {"partial": true, "failed_tools": [...]}: that agent DID return data but the listed tools failed. Use its data normally — do not discard or caveat it wholesale. Only if a failed tool is material to the user's question, mention briefly that that specific piece was unavailable.
 </tool_status>
 
+<screen_spec_rules>
+When a result block includes a "spec" object, those filters were ALREADY applied
+server-side over the FULL universe — never re-filter, re-rank, or drop the
+returned rows against them. If the user asked for a constraint that is NOT in
+the spec, do not apply it yourself to the top-N rows: present the list as-is
+and state plainly that it is a partial cut (top-N) without that filter.
+</screen_spec_rules>
+
 <data_freshness>
-TODAY IS {current_date}. The most recent COMPLETED fiscal year is typically {last_fy}.
+TODAY IS <<current_date>>. The most recent COMPLETED fiscal year is typically <<last_fy>>.
 When agent data contains multiple periods/years, LEAD with the most recent full fiscal
 year plus any current-year YTD data, and label every figure with its period — never
 present an older year's figures as "the latest". If web-research numbers conflict with
@@ -82,7 +94,7 @@ rationalization, always.
 </past_answer_questions>
 
 <language>
-{language_instruction}
+<<language_instruction>>
 All text fields (session_context, section titles, section content, bullets, key_takeaways) must be in the specified language.
 Financial terms can stay in English: Ticker, Price, Volume, RSI, VWAP, RVOL, ADX, EPS, Revenue.
 </language>
@@ -266,12 +278,46 @@ def _compact_alert_result(result: dict) -> dict:
     return clean
 
 
+# Keys that carry agent bookkeeping, not fetched data — an agent whose result
+# holds nothing beyond these (plus errors) produced no usable output.
+_TOOL_STATUS_META_KEYS = {"status", "error", "tickers_detected", "native_tools"}
+
+
+def _agent_has_data(result: dict) -> bool:
+    for key, value in result.items():
+        if key.startswith("_") or key in _TOOL_STATUS_META_KEYS:
+            continue
+        if value in (None, "", [], {}):
+            continue
+        return True
+    return False
+
+
+def _failed_tool_names(errs) -> list[str]:
+    """Extract tool names from `_errors` entries, formatted "{tool}: {message}"
+    across the agents; entries without that shape pass through truncated."""
+    names: list[str] = []
+    for e in errs if isinstance(errs, list) else [errs]:
+        e = str(e)
+        prefix = e.split(":", 1)[0].strip()
+        name = prefix if ":" in e and 0 < len(prefix) <= 60 else e[:60]
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def _collect_tool_status(agent_results: dict) -> dict:
     """Surface per-agent failure signals the LLM would otherwise never see.
 
     A failed specialist and a genuine "no data" must be distinguishable: an
     agent that timed out / crashed (guard status) or whose tool returned an
     in-band error should be reported as unavailable, not silently omitted.
+
+    Partial and total failure must also be distinguishable: one failed tool
+    among several used to mark the whole agent {"available": false}, telling
+    the LLM to disregard data it actually has. Now an agent is unavailable
+    only when it produced NO results; otherwise it is reported as partial
+    with the failed tools listed.
     """
     status: dict[str, dict] = {}
     for name, result in agent_results.items():
@@ -285,15 +331,36 @@ def _collect_tool_status(agent_results: dict) -> dict:
         elif result.get("_errors"):
             errs = result.get("_errors")
             err = "; ".join(map(str, errs)) if isinstance(errs, list) else str(errs)
-        if err:
+        if not err:
+            continue
+        if result.get("status") == "tool_error" or not _agent_has_data(result):
             status[name] = {"available": False, "detail": str(err)[:300]}
+        else:
+            status[name] = {
+                "partial": True,
+                "failed_tools": _failed_tool_names(result.get("_errors") or [err]),
+                "detail": str(err)[:300],
+            }
     return status
 
 
 def _prepare_results_payload(agent_results: dict) -> dict:
     """Prepare a clean, size-limited payload for the synthesizer LLM."""
-    MAX_PER_AGENT = 30_000
-    MAX_TOTAL = 80_000
+    # Estos topes NO son la ventana de contexto: el modelo de síntesis admite
+    # del orden de un millón de tokens de entrada, así que 80.000 caracteres
+    # (~20.000 tokens) eran el 2% de lo disponible. Recortar datos para
+    # cumplirlos era tirar información buena por un número inventado.
+    #
+    # La restricción real es el presupuesto de SALIDA (max_output_tokens, del
+    # que además come el thinking): si se le pide renderizar cientos de filas,
+    # el JSON se corta. Eso se controla limitando lo que se le pide que
+    # escriba, no lo que se le da a leer — de ahí los `limit` de cada tool.
+    #
+    # Lo que queda aquí es una válvula contra un payload patológico (un agente
+    # devolviendo megabytes), no un presupuesto de uso diario. Cuando salta,
+    # quita elementos enteros y lo dice.
+    MAX_PER_AGENT = 200_000
+    MAX_TOTAL = 400_000
 
     payload = {}
     total_size = 0
@@ -324,10 +391,14 @@ def _prepare_results_payload(agent_results: dict) -> dict:
                 if agent_size <= MAX_PER_AGENT:
                     break
                 val_size = _safe_json_size(clean[key])
-                if val_size > 5000:
-                    val_str = json.dumps(clean[key], default=str)[:4000]
-                    clean[key] = f"[TRUNCATED from {val_size} chars] {val_str}..."
-                    agent_size = _safe_json_size(clean)
+                if val_size <= 5000:
+                    continue
+                # Recortar el JSON por caracteres parte la estructura a mitad
+                # de fila y el modelo recibe basura: de ahí las tablas que
+                # salen cortadas. Se quitan elementos ENTEROS y se dice
+                # cuántos, que el modelo sí sabe interpretar.
+                clean[key] = _drop_items(clean[key], val_size, MAX_PER_AGENT)
+                agent_size = _safe_json_size(clean)
 
         payload[agent_name] = clean
         total_size += _safe_json_size(clean)
@@ -336,6 +407,38 @@ def _prepare_results_payload(agent_results: dict) -> dict:
         logger.warning("Total payload size %d exceeds %d limit", total_size, MAX_TOTAL)
 
     return payload
+
+
+def _drop_items(value: Any, val_size: int, budget: int) -> Any:
+    """Reduce un valor grande quitando elementos completos, nunca a medias.
+
+    Devuelve siempre algo que sigue siendo JSON válido: una lista más corta
+    con nota de cuántos faltan, o un dict con sus listas internas recortadas.
+    """
+    keep_ratio = max(0.1, min(0.9, budget / max(val_size, 1)))
+
+    if isinstance(value, list):
+        keep = max(1, int(len(value) * keep_ratio))
+        if keep >= len(value):
+            return value
+        return value[:keep] + [
+            {"_omitted": len(value) - keep,
+             "_note": f"{len(value) - keep} more rows omitted for length"}
+        ]
+
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            if isinstance(v, list) and len(v) > 3:
+                keep = max(1, int(len(v) * keep_ratio))
+                out[k] = v[:keep] + ([{"_omitted": len(v) - keep}] if keep < len(v) else [])
+            else:
+                out[k] = v
+        return out
+
+    if isinstance(value, str) and len(value) > 4000:
+        return value[:4000] + " […truncated]"
+    return value
 
 
 def _structured_to_markdown(resp: SynthesizerResponse) -> str:
@@ -464,19 +567,29 @@ async def _synthesize_structured(
 
     from datetime import datetime, timezone
     _now = datetime.now(timezone.utc)
-    system_prompt = STRUCTURED_PROMPT.format(
+    # Ver agents/_prompts: este prompt documenta formas JSON y cita importes,
+    # así que ni str.format() ni string.Template pueden tocarlo. render() sólo
+    # reconoce <<name>> y falla si algo queda sin sustituir.
+    system_prompt = render(
+        STRUCTURED_PROMPT,
         language_instruction=language_instruction,
         current_date=_now.strftime("%B %d, %Y"),
         last_fy=_now.year - 1,
     )
     user_content = json.dumps(user_payload, ensure_ascii=False, default=str)
 
+    # Los thinking-tokens de Gemini salen del MISMO presupuesto de salida:
+    # con payloads grandes (6 agentes, brief híbrido 2026-07-27) 8192 se
+    # truncaba a mitad de JSON → fallback markdown (sin tablas ni card).
+    # Techo amplio para el JSON + thinking acotado (la síntesis no necesita
+    # un monólogo largo; el esquema ya guía la estructura).
     config = types.GenerateContentConfig(
         response_schema=SynthesizerResponse,
         response_mime_type="application/json",
         system_instruction=system_prompt,
         temperature=0.3,
-        max_output_tokens=4096 if mode == "quick" else 8192,
+        max_output_tokens=6144 if mode == "quick" else 16384,
+        thinking_config=types.ThinkingConfig(thinking_budget=2048),
     )
 
     response = await client.aio.models.generate_content(
@@ -566,9 +679,14 @@ async def synthesizer_node(state: dict) -> dict:
     # respuesta final pulida: reescribirla con el synthesizer solo añadiría
     # latencia y degradaría la voz del brief. Passthrough literal.
     # Con resultados mixtos (news_brief + agentes live) sí se sintetiza.
-    nb_result = agent_results.get("news_brief", {})
+    # Claves privadas (p.ej. _market_pulse_context del enricher) no cuentan
+    # como "resultado de agente" — sin esto el passthrough nunca se cumplía
+    # (visto 2026-07-27: follow-up de brief con news_brief solo re-sintetizó
+    # 14s de más en vez de entregar el markdown de Opus literal).
+    _real_results = {k: v for k, v in agent_results.items() if not k.startswith("_")}
+    nb_result = _real_results.get("news_brief", {})
     if (
-        len(agent_results) == 1
+        len(_real_results) == 1
         and isinstance(nb_result, dict)
         and nb_result.get("status") == "success"
         and nb_result.get("brief_markdown")
@@ -786,7 +904,14 @@ async def synthesizer_node(state: dict) -> dict:
             structured_response.metrics is not None,
         )
     except Exception as exc:
-        logger.warning("Synthesizer: structured output failed, falling back to markdown: %s", exc)
+        # ERROR, no warning: la ruta estructurada ES el producto (secciones,
+        # tarjeta de métricas, tablas). Perderla degrada la respuesta a texto
+        # plano, y un WARNING entre miles de líneas es exactamente cómo esto
+        # sobrevivió sin que nadie lo viera.
+        logger.error(
+            "Synthesizer: structured output FAILED (%s: %s) — degraded to plain markdown",
+            type(exc).__name__, exc, exc_info=True,
+        )
         used_fallback = True
 
     if structured_response is not None and structured_response.metrics is None:
