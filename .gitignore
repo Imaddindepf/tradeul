@@ -122,3 +122,10 @@ data/bug_reports/
 
 # Code snapshot backups (phase deploys)
 backups/*/
+
+# Backups con sufijo (.bak_4b, .bak-20260730-tcfix, .backup.20260728_healthcheck...)
+*.bak*
+*.backup*
+
+# Workspace del deploy rapido de frontend (no es fuente)
+frontend-staging/
