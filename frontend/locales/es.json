@@ -336,8 +336,8 @@
       "description": "Cinta en vivo: cada print con precio, tamaño, venue y condición"
     },
     "tvc": {
-      "name": "TradingView",
-      "description": "Gráfico avanzado de TradingView: +100 indicadores, herramientas de dibujo, datos en vivo"
+      "name": "Tradeul Chart",
+      "description": "Gráfico avanzado: +100 indicadores, herramientas de dibujo, datos en vivo"
     }
   },
   "scanner": {
@@ -529,24 +529,51 @@
   "settings": {
     "title": "Configuración",
     "language": "Idioma",
-    "languageDescription": "Selecciona tu idioma preferido",
+    "languageDescription": "Idioma de menús, etiquetas y alertas.",
     "timezone": "Zona horaria",
-    "timezoneDescription": "Todas las horas se mostrarán en esta zona horaria",
+    "timezoneDescription": "Todas las horas del terminal se muestran en esta zona.",
+    "timezoneReloadHint": "Cambiar la zona horaria recarga el terminal.",
     "theme": "Tema",
-    "layout": "Diseño",
-    "saveLayout": "Guardar Layout",
-    "saveLayoutDescription": "Guarda la posición de tus ventanas para restaurarlas después.",
-    "saved": "¡Guardado!",
+    "sections": {
+      "interface": "Interfaz"
+    },
+    "pinned": "Fijados",
+    "allCommands": "Todos los comandos",
+    "layout": "Layout",
+    "saveLayout": "Guardar layout",
+    "saveLayoutDescription": "Guarda la posición y el tamaño de cada ventana abierta y las restaura en tu próxima sesión.",
+    "saved": "Layout guardado",
     "reset": "Restablecer",
     "font": "Fuente",
-    "clearLayout": "Borrar layout guardado",
+    "fontHint": "Se aplica a tablas, cotizaciones y gráficos.",
+    "clearLayout": "Borrar",
     "windowsSaved": "{{count}} ventana guardada",
     "windowsSaved_plural": "{{count}} ventanas guardadas",
     "synced": "Sincronizado con tu cuenta",
-    "localOnly": "Solo guardado local",
+    "localOnly": "Guardado solo en este dispositivo",
+    "dataColors": "Colores de datos",
+    "preview": "Vista previa",
+    "previewSymbol": "Símbolo",
+    "previewLast": "Último",
+    "previewChange": "Var",
+    "searchCommands": "Buscar comandos…",
+    "pinHint": "Los comandos fijados aparecen en la barra superior.",
+    "noResults": "No hay comandos.",
+    "nav": {
+      "general": "General",
+      "appearance": "Apariencia",
+      "workspace": "Workspace",
+      "commands": "Comandos"
+    },
+    "tzGroups": {
+      "americas": "América",
+      "europe": "Europa",
+      "asia": "Asia-Pacífico",
+      "utc": "Universal"
+    },
     "tabs": {
       "colors": "Colores",
-      "layout": "Diseño",
+      "layout": "Layout",
       "commands": "Comandos"
     },
     "colors": {
@@ -740,8 +767,8 @@
       "TAS": {
         "description": "Time & Sales del ticker"
       },
-      "TVC": {
-        "description": "Gráfico TradingView del ticker"
+      "TC": {
+        "description": "Gráfico avanzado del ticker"
       }
     },
     "globalCommands": {
@@ -868,8 +895,8 @@
       "TAS": {
         "description": "Cinta de Time & Sales"
       },
-      "TVC": {
-        "description": "Gráfico avanzado de TradingView"
+      "TC": {
+        "description": "Gráfico avanzado — +100 indicadores y herramientas de dibujo"
       }
     }
   },
@@ -1377,7 +1404,63 @@
     "transcript": "Transcripción",
     "transcriptUnavailable": "Transcripción no disponible todavía.",
     "prevDay": "Día anterior",
-    "nextDay": "Día siguiente"
+    "nextDay": "Día siguiente",
+    "monthsShort": [
+      "ene",
+      "feb",
+      "mar",
+      "abr",
+      "may",
+      "jun",
+      "jul",
+      "ago",
+      "sep",
+      "oct",
+      "nov",
+      "dic"
+    ],
+    "tabCalendar": "Calendario",
+    "tabSearch": "Buscar",
+    "tickerPlaceholder": "Ticker...",
+    "today": "Hoy",
+    "live": "EN DIRECTO",
+    "callsNow": "Llamadas ahora",
+    "liveTranscriptOf": "transcripción en directo",
+    "noCalls": "Sin llamadas",
+    "noCallsDay": "Sin llamadas de resultados este día",
+    "noCallsFiltered": "Ninguna llamada con este filtro",
+    "loading": "Cargando…",
+    "typeTicker": "Escribe un ticker y pulsa Enter",
+    "noHistoryFor": "Sin historial para",
+    "total": "Total",
+    "reported": "Reportados",
+    "totalTitle": "Todas las llamadas del día",
+    "reportedTitle": "Ya han publicado",
+    "bmoTitle": "Antes de la apertura",
+    "amcTitle": "Tras el cierre",
+    "duringTitle": "Durante la sesión",
+    "tbdTitle": "Hora por confirmar",
+    "filterOn": "Filtrar por esto",
+    "filterOff": "Quitar filtro",
+    "upcoming": "próximo",
+    "loadingHighlights": "Cargando momentos destacados…",
+    "loadingTranscript": "Cargando transcripción…",
+    "loadingFilings": "Cargando documentos…",
+    "noFilings": "Sin documentos para esta llamada.",
+    "audioFailed": "No se ha podido reproducir el audio de la llamada.",
+    "close": "Cerrar",
+    "closeDetail": "Cerrar detalle",
+    "callOf": "Llamada de resultados de",
+    "revEstimate": "Ingresos est.",
+    "revActual": "Ingresos real",
+    "revSurprise": "Sorpresa ingr.",
+    "expectedMove": "Mov. esperado",
+    "epsEstimate": "BPA est.",
+    "epsActual": "BPA real",
+    "epsSurprise": "Sorpresa BPA",
+    "move1d": "Mov. precio 1d",
+    "transcriptStalled": "La llamada ha terminado. Esperando la transcripción definitiva…",
+    "transcriptStarting": "La llamada acaba de empezar. La transcripción aparecerá aquí en unos segundos…"
   },
   "tape": {
     "colTicker": "Ticker",

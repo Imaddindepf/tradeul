@@ -336,8 +336,8 @@
       "description": "Live tape: every print with price, size, venue and condition"
     },
     "tvc": {
-      "name": "TradingView",
-      "description": "Advanced TradingView chart: 100+ indicators, drawing tools, live data"
+      "name": "Tradeul Chart",
+      "description": "Advanced chart: 100+ indicators, drawing tools, live data"
     }
   },
   "scanner": {
@@ -529,30 +529,57 @@
   "settings": {
     "title": "Settings",
     "language": "Language",
-    "languageDescription": "Select your preferred language",
+    "languageDescription": "Interface language for menus, labels and alerts.",
     "timezone": "Timezone",
-    "timezoneDescription": "All times will be displayed in this timezone",
+    "timezoneDescription": "Every timestamp in the terminal uses this timezone.",
+    "timezoneReloadHint": "Changing the timezone reloads the terminal.",
     "theme": "Theme",
+    "sections": {
+      "interface": "Interface"
+    },
+    "pinned": "Pinned",
+    "allCommands": "All commands",
     "layout": "Layout",
-    "saveLayout": "Save Layout",
-    "saveLayoutDescription": "Save your window positions to restore them later.",
-    "saved": "Saved!",
-    "reset": "Reset",
+    "saveLayout": "Save layout",
+    "saveLayoutDescription": "Stores the position and size of every open window and restores them on your next session.",
+    "saved": "Layout saved",
+    "reset": "Restore defaults",
     "font": "Font",
-    "clearLayout": "Clear saved layout",
+    "fontHint": "Applied to tables, quotes and charts.",
+    "clearLayout": "Clear",
     "windowsSaved": "{{count}} window saved",
     "windowsSaved_plural": "{{count}} windows saved",
     "synced": "Synced with your account",
-    "localOnly": "Local storage only",
+    "localOnly": "Stored on this device only",
+    "dataColors": "Data colors",
+    "preview": "Preview",
+    "previewSymbol": "Symbol",
+    "previewLast": "Last",
+    "previewChange": "Chg",
+    "searchCommands": "Search commands…",
+    "pinHint": "Pinned commands appear in the top bar.",
+    "noResults": "No commands found.",
+    "nav": {
+      "general": "General",
+      "appearance": "Appearance",
+      "workspace": "Workspace",
+      "commands": "Commands"
+    },
+    "tzGroups": {
+      "americas": "Americas",
+      "europe": "Europe",
+      "asia": "Asia-Pacific",
+      "utc": "Universal"
+    },
     "tabs": {
       "colors": "Colors",
       "layout": "Layout",
       "commands": "Commands"
     },
     "colors": {
-      "tickUp": "Up",
-      "tickDown": "Down",
-      "background": "BG"
+      "tickUp": "Up tick",
+      "tickDown": "Down tick",
+      "background": "Background"
     }
   },
   "navbar": {
@@ -740,8 +767,8 @@
       "TAS": {
         "description": "Time & Sales for ticker"
       },
-      "TVC": {
-        "description": "TradingView chart for ticker"
+      "TC": {
+        "description": "Advanced chart for ticker"
       }
     },
     "globalCommands": {
@@ -868,8 +895,8 @@
       "TAS": {
         "description": "Time & Sales tape"
       },
-      "TVC": {
-        "description": "Advanced TradingView chart"
+      "TC": {
+        "description": "Advanced chart — 100+ indicators & drawing tools"
       }
     }
   },
@@ -1377,7 +1404,63 @@
     "transcript": "Transcript",
     "transcriptUnavailable": "Transcript not available yet.",
     "prevDay": "Previous day",
-    "nextDay": "Next day"
+    "nextDay": "Next day",
+    "monthsShort": [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec"
+    ],
+    "tabCalendar": "Calendar",
+    "tabSearch": "Search",
+    "tickerPlaceholder": "Ticker...",
+    "today": "Today",
+    "live": "LIVE",
+    "callsNow": "Calls now",
+    "liveTranscriptOf": "live transcript",
+    "noCalls": "No calls",
+    "noCallsDay": "No earnings calls this day",
+    "noCallsFiltered": "No calls match this filter",
+    "loading": "Loading…",
+    "typeTicker": "Type a ticker and press Enter",
+    "noHistoryFor": "No history for",
+    "total": "Total",
+    "reported": "Reported",
+    "totalTitle": "All calls this day",
+    "reportedTitle": "Already reported",
+    "bmoTitle": "Before Market Open",
+    "amcTitle": "After Market Close",
+    "duringTitle": "During Market",
+    "tbdTitle": "Time TBD",
+    "filterOn": "Filter by this",
+    "filterOff": "Clear filter",
+    "upcoming": "upcoming",
+    "loadingHighlights": "Loading highlights…",
+    "loadingTranscript": "Loading transcript…",
+    "loadingFilings": "Loading filings…",
+    "noFilings": "No filings for this call.",
+    "audioFailed": "Couldn't play the call audio.",
+    "close": "Close",
+    "closeDetail": "Close detail",
+    "callOf": "earnings call",
+    "revEstimate": "Est. revenue",
+    "revActual": "Actual revenue",
+    "revSurprise": "Rev. surprise",
+    "expectedMove": "Expected move",
+    "epsEstimate": "Est. EPS",
+    "epsActual": "Actual EPS",
+    "epsSurprise": "EPS surprise",
+    "move1d": "1d price move",
+    "transcriptStalled": "The call has ended. Waiting for the final transcript…",
+    "transcriptStarting": "The call has just started. The transcript will appear here in a few seconds…"
   },
   "tape": {
     "colTicker": "Ticker",

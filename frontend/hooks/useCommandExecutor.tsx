@@ -256,12 +256,12 @@ export function useCommandExecutor() {
                 openWindow({
                     title: t('commands.settings.name'),
                     content: <SettingsContent />,
-                    width: 280,
-                    height: 260,
-                    x: screenWidth - 300,
+                    width: 460,
+                    height: 520,
+                    x: screenWidth - 500,
                     y: 80,
-                    minWidth: 260,
-                    minHeight: 220,
+                    minWidth: 300,
+                    minHeight: 320,
                 });
                 return null;
 
@@ -364,12 +364,12 @@ export function useCommandExecutor() {
                             }}
                         />
                     ),
-                    width: 700,
-                    height: 550,
-                    x: screenWidth / 2 - 350,
-                    y: screenHeight / 2 - 275,
-                    minWidth: 550,
-                    minHeight: 450,
+                    width: 780,
+                    height: 620,
+                    x: screenWidth / 2 - 390,
+                    y: screenHeight / 2 - 310,
+                    minWidth: 620,
+                    minHeight: 480,
                 });
                 return null;
             }
@@ -413,9 +413,10 @@ export function useCommandExecutor() {
                 });
                 return null;
 
-            case 'top':
+            case 'top': // alias legado de WIRE
+            case 'wire':
                 openWindow({
-                    title: t('commands.top.name'),
+                    title: 'Newswire',
                     content: <TopNewsContent />,
                     width: 520,
                     height: 640,
@@ -818,9 +819,8 @@ export function useCommandExecutor() {
                     height: 620,
                     x: Math.max(50, screenWidth - 870),
                     y: Math.max(70, 90),
-                    minWidth: 520,
-                    minHeight: 400,
-                    hideHeader: true,
+                    minWidth: 560,
+                    minHeight: 420,
                 });
                 return null;
 

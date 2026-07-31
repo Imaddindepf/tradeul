@@ -97,11 +97,11 @@ export const TICKER_COMMANDS = {
         descriptionKey: 'terminalCommands.tickerCommands.TAS.description',
         shortcut: null
     },
-    TVC: {
+    TC: {
         id: 'tvchart',
-        label: 'TVC',
-        name: 'TradingView Chart',
-        descriptionKey: 'terminalCommands.tickerCommands.TVC.description',
+        label: 'TC',
+        name: 'Tradeul Chart',
+        descriptionKey: 'terminalCommands.tickerCommands.TC.description',
         shortcut: null
     },
 } as const;
@@ -150,10 +150,10 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.N.description',
         shortcut: 'Ctrl+N'
     },
-    TOP: {
-        id: 'top',
-        label: 'TOP',
-        name: 'Top News',
+    WIRE: {
+        id: 'wire',
+        label: 'WIRE',
+        name: 'Newswire',
         descriptionKey: 'terminalCommands.globalCommands.TOP.description',
         shortcut: null
     },
@@ -178,11 +178,11 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.TAS.description',
         shortcut: null
     },
-    TVC: {
+    TC: {
         id: 'tvc',
-        label: 'TVC',
-        name: 'TradingView Chart',
-        descriptionKey: 'terminalCommands.globalCommands.TVC.description',
+        label: 'TC',
+        name: 'Tradeul Chart',
+        descriptionKey: 'terminalCommands.globalCommands.TC.description',
         shortcut: null
     },
     INS: {

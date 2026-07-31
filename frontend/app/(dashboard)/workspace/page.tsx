@@ -199,7 +199,7 @@ export default function ScannerPage() {
     if (title === 'TradingView') return <TVChartContent />;
     if (title === 'Futures' || title === 'Futuros') return <FuturesMonitorContent />;
     if (title === 'Forex') return <ForexMonitorContent />;
-    if (title === 'Top News') return <TopNewsContent />;
+    if (title === 'Top News' || title === 'Newswire') return <TopNewsContent />;
     if (title === 'OddsMaker — Backtester') return <BacktestPanelContent />;
     if (title === 'API — Developer Access' || title === 'API — Acceso desarrollador') return <APIContent />;
     // Alias ES de Indicators (el título guardado depende del idioma activo)
@@ -392,7 +392,7 @@ export default function ScannerPage() {
         workspaceLayouts.forEach((layout) => {
           const content = getWindowContent(layout);
           if (content) {
-            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:') || layout.title === 'Market Pulse';
+            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:');
             openWindow({
               id: layout.id,
               title: layout.title,
@@ -422,7 +422,7 @@ export default function ScannerPage() {
         savedLayout.forEach((layout) => {
           const content = getWindowContent({ title: layout.title });
           if (content) {
-            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:') || layout.title === 'Market Pulse';
+            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:');
             openWindow({
               id: layout.id,
               title: layout.title,
