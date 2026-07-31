@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Z_INDEX } from '@/lib/z-index';
 import { getOverlayRoot } from '@/lib/overlayRoot';
@@ -59,18 +60,29 @@ function Icon({ name }: { name: string }) {
     );
 }
 
+/**
+ * Texto bilingüe: nombres OFICIALES de TradingView en ambos idiomas (los ES
+ * salen de los bundles de traducción de la CL; los EN son los nativos de
+ * tradingview.com). La barra muestra el idioma de la app (react-i18next).
+ */
+interface Bi {
+    en: string;
+    es: string;
+}
+const bi = (en: string, es: string): Bi => ({ en, es });
+
 interface ToolItem {
     tool: string;
     icon: string;
-    label: string;
+    label: Bi;
 }
 interface ToolSection {
-    header?: string;
+    header?: Bi;
     items: ToolItem[];
 }
 interface ToolGroup {
     id: string;
-    title: string;
+    title: Bi;
     /** Herramienta por defecto (icono del botón hasta que se elige otra). */
     defaultItem: ToolItem;
     sections: ToolSection[];
@@ -79,213 +91,213 @@ interface ToolGroup {
 const GROUPS: ToolGroup[] = [
     {
         id: 'cursors',
-        title: 'Cursores',
-        defaultItem: { tool: 'cursor', icon: 'cursorCross', label: 'Cruz' },
+        title: bi('Cursors', 'Cursores'),
+        defaultItem: { tool: 'cursor', icon: 'cursorCross', label: bi('Cross', 'Cruz') },
         sections: [
             {
                 items: [
-                    { tool: 'cursor', icon: 'cursorCross', label: 'Cruz' },
-                    { tool: 'dot', icon: 'cursorDot', label: 'Punto' },
-                    { tool: 'arrow_cursor', icon: 'cursorArrow', label: 'Flecha' },
-                    { tool: 'eraser', icon: 'trash', label: 'Borrador' },
+                    { tool: 'cursor', icon: 'cursorCross', label: bi('Cross', 'Cruz') },
+                    { tool: 'dot', icon: 'cursorDot', label: bi('Dot', 'Punto') },
+                    { tool: 'arrow_cursor', icon: 'cursorArrow', label: bi('Arrow', 'Flecha') },
+                    { tool: 'eraser', icon: 'trash', label: bi('Eraser', 'Borrador') },
                 ],
             },
         ],
     },
     {
         id: 'trend',
-        title: 'Herramientas de tendencia',
-        defaultItem: { tool: 'trend_line', icon: 'trendLine', label: 'Línea de tendencia' },
+        title: bi('Trend line tools', 'Herramientas de tendencia'),
+        defaultItem: { tool: 'trend_line', icon: 'trendLine', label: bi('Trend Line', 'Línea de tendencia') },
         sections: [
             {
                 items: [
-                    { tool: 'trend_line', icon: 'trendLine', label: 'Línea de tendencia' },
-                    { tool: 'ray', icon: 'ray', label: 'Rayo' },
-                    { tool: 'info_line', icon: 'infoLine', label: 'Línea de información' },
-                    { tool: 'extended', icon: 'extended', label: 'Línea extendida' },
-                    { tool: 'trend_angle', icon: 'trendAngle', label: 'Ángulo de tendencia' },
-                    { tool: 'horizontal_line', icon: 'horzLine', label: 'Línea horizontal' },
-                    { tool: 'horizontal_ray', icon: 'horzRay', label: 'Rayo horizontal' },
-                    { tool: 'vertical_line', icon: 'vertLine', label: 'Línea vertical' },
-                    { tool: 'cross_line', icon: 'crossLine', label: 'Cruce de líneas' },
+                    { tool: 'trend_line', icon: 'trendLine', label: bi('Trend Line', 'Línea de tendencia') },
+                    { tool: 'ray', icon: 'ray', label: bi('Ray', 'Rayo') },
+                    { tool: 'info_line', icon: 'infoLine', label: bi('Info Line', 'Línea de información') },
+                    { tool: 'extended', icon: 'extended', label: bi('Extended Line', 'Línea extendida') },
+                    { tool: 'trend_angle', icon: 'trendAngle', label: bi('Trend Angle', 'Ángulo de tendencia') },
+                    { tool: 'horizontal_line', icon: 'horzLine', label: bi('Horizontal Line', 'Línea horizontal') },
+                    { tool: 'horizontal_ray', icon: 'horzRay', label: bi('Horizontal Ray', 'Rayo horizontal') },
+                    { tool: 'vertical_line', icon: 'vertLine', label: bi('Vertical Line', 'Línea vertical') },
+                    { tool: 'cross_line', icon: 'crossLine', label: bi('Cross Line', 'Cruce de líneas') },
                 ],
             },
             {
-                header: 'CANALES',
+                header: bi('CHANNELS', 'CANALES'),
                 items: [
-                    { tool: 'parallel_channel', icon: 'parallelChannel', label: 'Canal paralelo' },
-                    { tool: 'regression_trend', icon: 'regressionTrend', label: 'Tendencia de regresión' },
-                    { tool: 'flat_bottom', icon: 'flatBottom', label: 'Plano superior/inferior' },
-                    { tool: 'disjoint_angle', icon: 'disjointAngle', label: 'Canal desconectado' },
+                    { tool: 'parallel_channel', icon: 'parallelChannel', label: bi('Parallel Channel', 'Canal paralelo') },
+                    { tool: 'regression_trend', icon: 'regressionTrend', label: bi('Regression Trend', 'Tendencia de regresión') },
+                    { tool: 'flat_bottom', icon: 'flatBottom', label: bi('Flat Top/Bottom', 'Plano superior/inferior') },
+                    { tool: 'disjoint_angle', icon: 'disjointAngle', label: bi('Disjoint Channel', 'Canal desconectado') },
                 ],
             },
             {
-                header: 'TRIDENTES',
+                header: bi('PITCHFORKS', 'TRIDENTES'),
                 items: [
-                    { tool: 'pitchfork', icon: 'pitchfork', label: 'Herramienta tridente' },
-                    { tool: 'schiff_pitchfork', icon: 'schiffPitchfork', label: 'Tridente de Schiff' },
-                    { tool: 'schiff_pitchfork_modified', icon: 'schiffPitchfork2', label: 'Tridente de Schiff modificado' },
-                    { tool: 'inside_pitchfork', icon: 'insidePitchfork', label: 'Tridente interno' },
+                    { tool: 'pitchfork', icon: 'pitchfork', label: bi('Pitchfork', 'Herramienta tridente') },
+                    { tool: 'schiff_pitchfork', icon: 'schiffPitchfork', label: bi('Schiff Pitchfork', 'Tridente de Schiff') },
+                    { tool: 'schiff_pitchfork_modified', icon: 'schiffPitchfork2', label: bi('Modified Schiff Pitchfork', 'Tridente de Schiff modificado') },
+                    { tool: 'inside_pitchfork', icon: 'insidePitchfork', label: bi('Inside Pitchfork', 'Tridente interno') },
                 ],
             },
         ],
     },
     {
         id: 'fib',
-        title: 'Fibonacci y Gann',
-        defaultItem: { tool: 'fib_retracement', icon: 'fibRetracement', label: 'Retroceso de Fibonacci' },
+        title: bi('Fibonacci and Gann', 'Fibonacci y Gann'),
+        defaultItem: { tool: 'fib_retracement', icon: 'fibRetracement', label: bi('Fib Retracement', 'Retroceso de Fibonacci') },
         sections: [
             {
-                header: 'FIBONACCI',
+                header: bi('FIBONACCI', 'FIBONACCI'),
                 items: [
-                    { tool: 'fib_retracement', icon: 'fibRetracement', label: 'Retroceso de Fibonacci' },
-                    { tool: 'fib_trend_ext', icon: 'fibTrendExt', label: 'Extensión de Fibonacci en función de las tendencias' },
-                    { tool: 'fib_channel', icon: 'fibChannel', label: 'Canal de Fibonacci' },
-                    { tool: 'fib_timezone', icon: 'fibTimezone', label: 'Zona horaria de Fibonacci' },
-                    { tool: 'fib_speed_resist_fan', icon: 'fibSpeedFan', label: 'Abanico de Fibonacci de resistencia de velocidad' },
-                    { tool: 'fib_trend_time', icon: 'fibTrendTime', label: 'Proyección temporal de Fibonacci' },
-                    { tool: 'fib_circles', icon: 'fibCircles', label: 'Círculos de Fibonacci' },
-                    { tool: 'fib_spiral', icon: 'fibSpiral', label: 'Espiral de Fibonacci' },
-                    { tool: 'fib_speed_resist_arcs', icon: 'fibArcs', label: 'Arcos de Fibonacci de resistencia de velocidad' },
-                    { tool: 'fib_wedge', icon: 'fibWedge', label: 'Cuña de Fibonacci' },
-                    { tool: 'pitchfan', icon: 'pitchfan', label: 'Herramienta abanico' },
+                    { tool: 'fib_retracement', icon: 'fibRetracement', label: bi('Fib Retracement', 'Retroceso de Fibonacci') },
+                    { tool: 'fib_trend_ext', icon: 'fibTrendExt', label: bi('Trend-Based Fib Extension', 'Extensión de Fibonacci en función de las tendencias') },
+                    { tool: 'fib_channel', icon: 'fibChannel', label: bi('Fib Channel', 'Canal de Fibonacci') },
+                    { tool: 'fib_timezone', icon: 'fibTimezone', label: bi('Fib Time Zone', 'Zona horaria de Fibonacci') },
+                    { tool: 'fib_speed_resist_fan', icon: 'fibSpeedFan', label: bi('Fib Speed Resistance Fan', 'Abanico de Fibonacci de resistencia de velocidad') },
+                    { tool: 'fib_trend_time', icon: 'fibTrendTime', label: bi('Trend-Based Fib Time', 'Proyección temporal de Fibonacci') },
+                    { tool: 'fib_circles', icon: 'fibCircles', label: bi('Fib Circles', 'Círculos de Fibonacci') },
+                    { tool: 'fib_spiral', icon: 'fibSpiral', label: bi('Fib Spiral', 'Espiral de Fibonacci') },
+                    { tool: 'fib_speed_resist_arcs', icon: 'fibArcs', label: bi('Fib Speed Resistance Arcs', 'Arcos de Fibonacci de resistencia de velocidad') },
+                    { tool: 'fib_wedge', icon: 'fibWedge', label: bi('Fib Wedge', 'Cuña de Fibonacci') },
+                    { tool: 'pitchfan', icon: 'pitchfan', label: bi('Pitchfan', 'Herramienta abanico') },
                 ],
             },
             {
-                header: 'GANN',
+                header: bi('GANN', 'GANN'),
                 items: [
-                    { tool: 'gannbox', icon: 'gannbox', label: 'Cuadrícula de Gann' },
-                    { tool: 'gannbox_fixed', icon: 'gannSquareFixed', label: 'Cuadrado de Gann fijo' },
-                    { tool: 'gannbox_square', icon: 'gannSquare', label: 'Cuadrado de Gann' },
-                    { tool: 'gannbox_fan', icon: 'gannFan', label: 'Abanico de Gann' },
+                    { tool: 'gannbox', icon: 'gannbox', label: bi('Gann Box', 'Cuadrícula de Gann') },
+                    { tool: 'gannbox_fixed', icon: 'gannSquareFixed', label: bi('Gann Square Fixed', 'Cuadrado de Gann fijo') },
+                    { tool: 'gannbox_square', icon: 'gannSquare', label: bi('Gann Square', 'Cuadrado de Gann') },
+                    { tool: 'gannbox_fan', icon: 'gannFan', label: bi('Gann Fan', 'Abanico de Gann') },
                 ],
             },
         ],
     },
     {
         id: 'patterns',
-        title: 'Patrones',
-        defaultItem: { tool: 'xabcd_pattern', icon: 'xabcd', label: 'Patrón XABCD' },
+        title: bi('Patterns', 'Patrones'),
+        defaultItem: { tool: 'xabcd_pattern', icon: 'xabcd', label: bi('XABCD Pattern', 'Patrón XABCD') },
         sections: [
             {
-                header: 'PATRONES',
+                header: bi('PATTERNS', 'PATRONES'),
                 items: [
-                    { tool: 'xabcd_pattern', icon: 'xabcd', label: 'Patrón XABCD' },
-                    { tool: 'cypher_pattern', icon: 'cypher', label: 'Patrón Cypher' },
-                    { tool: 'abcd_pattern', icon: 'abcd', label: 'Patrón ABCD' },
-                    { tool: 'triangle_pattern', icon: 'trianglePattern', label: 'Patrón de triángulo' },
-                    { tool: '3divers_pattern', icon: 'threeDrivers', label: 'Patrón Three Drives' },
-                    { tool: 'head_and_shoulders', icon: 'headShoulders', label: 'Hombro cabeza hombro' },
+                    { tool: 'xabcd_pattern', icon: 'xabcd', label: bi('XABCD Pattern', 'Patrón XABCD') },
+                    { tool: 'cypher_pattern', icon: 'cypher', label: bi('Cypher Pattern', 'Patrón Cypher') },
+                    { tool: 'abcd_pattern', icon: 'abcd', label: bi('ABCD Pattern', 'Patrón ABCD') },
+                    { tool: 'triangle_pattern', icon: 'trianglePattern', label: bi('Triangle Pattern', 'Patrón de triángulo') },
+                    { tool: '3divers_pattern', icon: 'threeDrivers', label: bi('Three Drives Pattern', 'Patrón Three Drives') },
+                    { tool: 'head_and_shoulders', icon: 'headShoulders', label: bi('Head and Shoulders', 'Hombro cabeza hombro') },
                 ],
             },
             {
-                header: 'ONDAS DE ELLIOTT',
+                header: bi('ELLIOTT WAVES', 'ONDAS DE ELLIOTT'),
                 items: [
-                    { tool: 'elliott_impulse_wave', icon: 'elliottImpulse', label: 'Onda de impulso de Elliott (12345)' },
-                    { tool: 'elliott_correction', icon: 'elliottCorrection', label: 'Corrección de Elliott (ABC)' },
-                    { tool: 'elliott_triangle_wave', icon: 'elliottTriangle', label: 'Triángulo de Elliott (ABCDE)' },
-                    { tool: 'elliott_double_combo', icon: 'elliottDouble', label: 'Combo doble de Elliott (WXY)' },
-                    { tool: 'elliott_triple_combo', icon: 'elliottTriple', label: 'Combo triple de Elliott (WXYXZ)' },
+                    { tool: 'elliott_impulse_wave', icon: 'elliottImpulse', label: bi('Elliott Impulse Wave (12345)', 'Onda de impulso de Elliott (12345)') },
+                    { tool: 'elliott_correction', icon: 'elliottCorrection', label: bi('Elliott Correction Wave (ABC)', 'Corrección de Elliott (ABC)') },
+                    { tool: 'elliott_triangle_wave', icon: 'elliottTriangle', label: bi('Elliott Triangle Wave (ABCDE)', 'Triángulo de Elliott (ABCDE)') },
+                    { tool: 'elliott_double_combo', icon: 'elliottDouble', label: bi('Elliott Double Combo Wave (WXY)', 'Combo doble de Elliott (WXY)') },
+                    { tool: 'elliott_triple_combo', icon: 'elliottTriple', label: bi('Elliott Triple Combo Wave (WXYXZ)', 'Combo triple de Elliott (WXYXZ)') },
                 ],
             },
             {
-                header: 'CICLOS',
+                header: bi('CYCLES', 'CICLOS'),
                 items: [
-                    { tool: 'cyclic_lines', icon: 'cyclicLines', label: 'Líneas cíclicas' },
-                    { tool: 'time_cycles', icon: 'timeCycles', label: 'Ciclos temporales' },
-                    { tool: 'sine_line', icon: 'sineLine', label: 'Línea sinusoidal' },
+                    { tool: 'cyclic_lines', icon: 'cyclicLines', label: bi('Cyclic Lines', 'Líneas cíclicas') },
+                    { tool: 'time_cycles', icon: 'timeCycles', label: bi('Time Cycles', 'Ciclos temporales') },
+                    { tool: 'sine_line', icon: 'sineLine', label: bi('Sine Line', 'Línea sinusoidal') },
                 ],
             },
         ],
     },
     {
         id: 'forecast',
-        title: 'Previsión y medición',
-        defaultItem: { tool: 'long_position', icon: 'longPosition', label: 'Posición larga' },
+        title: bi('Prediction and measurement tools', 'Previsión y medición'),
+        defaultItem: { tool: 'long_position', icon: 'longPosition', label: bi('Long Position', 'Posición larga') },
         sections: [
             {
-                header: 'PREVISIÓN',
+                header: bi('PROJECTION', 'PREVISIÓN'),
                 items: [
-                    { tool: 'long_position', icon: 'longPosition', label: 'Posición larga' },
-                    { tool: 'short_position', icon: 'shortPosition', label: 'Posición corta' },
-                    { tool: 'forecast', icon: 'forecast', label: 'Previsión de la posición' },
-                    { tool: 'bars_pattern', icon: 'barsPattern', label: 'Patrón de barras' },
-                    { tool: 'ghost_feed', icon: 'ghostFeed', label: 'Ghost feed' },
-                    { tool: 'projection', icon: 'sector', label: 'Sector' },
+                    { tool: 'long_position', icon: 'longPosition', label: bi('Long Position', 'Posición larga') },
+                    { tool: 'short_position', icon: 'shortPosition', label: bi('Short Position', 'Posición corta') },
+                    { tool: 'forecast', icon: 'forecast', label: bi('Forecast', 'Previsión de la posición') },
+                    { tool: 'bars_pattern', icon: 'barsPattern', label: bi('Bars Pattern', 'Patrón de barras') },
+                    { tool: 'ghost_feed', icon: 'ghostFeed', label: bi('Ghost Feed', 'Ghost feed') },
+                    { tool: 'projection', icon: 'sector', label: bi('Projection', 'Sector') },
                 ],
             },
             {
-                header: 'EN FUNCIÓN DEL VOLUMEN',
+                header: bi('VOLUME-BASED', 'EN FUNCIÓN DEL VOLUMEN'),
                 items: [
-                    { tool: 'anchored_vwap', icon: 'anchoredVwap', label: 'VWAP anclado' },
-                    { tool: 'fixed_range_volume_profile', icon: 'fixedRangeVP', label: 'Perfil de volumen de rango fijo' },
+                    { tool: 'anchored_vwap', icon: 'anchoredVwap', label: bi('Anchored VWAP', 'VWAP anclado') },
+                    { tool: 'fixed_range_volume_profile', icon: 'fixedRangeVP', label: bi('Fixed Range Volume Profile', 'Perfil de volumen de rango fijo') },
                 ],
             },
             {
-                header: 'MEDIDORES',
+                header: bi('MEASURER', 'MEDIDORES'),
                 items: [
-                    { tool: 'price_range', icon: 'priceRange', label: 'Rango de precios' },
-                    { tool: 'date_range', icon: 'dateRange', label: 'Rango de fechas' },
-                    { tool: 'date_and_price_range', icon: 'datePriceRange', label: 'Rango de fecha y precio' },
+                    { tool: 'price_range', icon: 'priceRange', label: bi('Price Range', 'Rango de precios') },
+                    { tool: 'date_range', icon: 'dateRange', label: bi('Date Range', 'Rango de fechas') },
+                    { tool: 'date_and_price_range', icon: 'datePriceRange', label: bi('Date and Price Range', 'Rango de fecha y precio') },
                 ],
             },
         ],
     },
     {
         id: 'shapes',
-        title: 'Figuras y pinceles',
-        defaultItem: { tool: 'brush', icon: 'brush', label: 'Pincel' },
+        title: bi('Geometric shapes', 'Figuras y pinceles'),
+        defaultItem: { tool: 'brush', icon: 'brush', label: bi('Brush', 'Pincel') },
         sections: [
             {
-                header: 'PINCELES',
+                header: bi('BRUSHES', 'PINCELES'),
                 items: [
-                    { tool: 'brush', icon: 'brush', label: 'Pincel' },
-                    { tool: 'highlighter', icon: 'highlighter', label: 'Resaltador' },
+                    { tool: 'brush', icon: 'brush', label: bi('Brush', 'Pincel') },
+                    { tool: 'highlighter', icon: 'highlighter', label: bi('Highlighter', 'Resaltador') },
                 ],
             },
             {
-                header: 'FLECHAS',
+                header: bi('ARROWS', 'FLECHAS'),
                 items: [
-                    { tool: 'arrow_marker', icon: 'arrowMarker', label: 'Marcador de flecha' },
-                    { tool: 'arrow', icon: 'arrow', label: 'Flecha' },
-                    { tool: 'arrow_up', icon: 'arrowUp', label: 'Marca de flecha hacia arriba' },
-                    { tool: 'arrow_down', icon: 'arrowDown', label: 'Marca de flecha hacia abajo' },
+                    { tool: 'arrow_marker', icon: 'arrowMarker', label: bi('Arrow Marker', 'Marcador de flecha') },
+                    { tool: 'arrow', icon: 'arrow', label: bi('Arrow', 'Flecha') },
+                    { tool: 'arrow_up', icon: 'arrowUp', label: bi('Arrow Mark Up', 'Marca de flecha hacia arriba') },
+                    { tool: 'arrow_down', icon: 'arrowDown', label: bi('Arrow Mark Down', 'Marca de flecha hacia abajo') },
                 ],
             },
             {
-                header: 'FIGURAS',
+                header: bi('SHAPES', 'FIGURAS'),
                 items: [
-                    { tool: 'rectangle', icon: 'rectangle', label: 'Rectángulo' },
-                    { tool: 'rotated_rectangle', icon: 'rotatedRectangle', label: 'Rectángulo rotado' },
-                    { tool: 'path', icon: 'path', label: 'Ruta' },
-                    { tool: 'circle', icon: 'circle', label: 'Círculo' },
-                    { tool: 'ellipse', icon: 'ellipse', label: 'Elipse' },
-                    { tool: 'polyline', icon: 'polyline', label: 'Polilínea' },
-                    { tool: 'triangle', icon: 'triangle', label: 'Triángulo' },
-                    { tool: 'arc', icon: 'arc', label: 'Arco' },
-                    { tool: 'curve', icon: 'curve', label: 'Curva' },
-                    { tool: 'double_curve', icon: 'doubleCurve', label: 'Doble curva' },
+                    { tool: 'rectangle', icon: 'rectangle', label: bi('Rectangle', 'Rectángulo') },
+                    { tool: 'rotated_rectangle', icon: 'rotatedRectangle', label: bi('Rotated Rectangle', 'Rectángulo rotado') },
+                    { tool: 'path', icon: 'path', label: bi('Path', 'Ruta') },
+                    { tool: 'circle', icon: 'circle', label: bi('Circle', 'Círculo') },
+                    { tool: 'ellipse', icon: 'ellipse', label: bi('Ellipse', 'Elipse') },
+                    { tool: 'polyline', icon: 'polyline', label: bi('Polyline', 'Polilínea') },
+                    { tool: 'triangle', icon: 'triangle', label: bi('Triangle', 'Triángulo') },
+                    { tool: 'arc', icon: 'arc', label: bi('Arc', 'Arco') },
+                    { tool: 'curve', icon: 'curve', label: bi('Curve', 'Curva') },
+                    { tool: 'double_curve', icon: 'doubleCurve', label: bi('Double Curve', 'Doble curva') },
                 ],
             },
         ],
     },
     {
         id: 'text',
-        title: 'Texto y notas',
-        defaultItem: { tool: 'text', icon: 'text', label: 'Texto' },
+        title: bi('Annotation tools', 'Texto y notas'),
+        defaultItem: { tool: 'text', icon: 'text', label: bi('Text', 'Texto') },
         sections: [
             {
-                header: 'TEXTO Y NOTAS',
+                header: bi('TEXT & NOTES', 'TEXTO Y NOTAS'),
                 items: [
-                    { tool: 'text', icon: 'text', label: 'Texto' },
-                    { tool: 'note', icon: 'note', label: 'Nota' },
-                    { tool: 'price_note', icon: 'priceNote', label: 'Nota de precio' },
-                    { tool: 'table', icon: 'table', label: 'Tabla' },
-                    { tool: 'callout', icon: 'callout', label: 'Leyenda' },
-                    { tool: 'comment', icon: 'comment', label: 'Comentarios' },
-                    { tool: 'price_label', icon: 'priceLabel', label: 'Etiqueta de precio' },
-                    { tool: 'signpost', icon: 'signpost', label: 'Señal' },
-                    { tool: 'flag', icon: 'flag', label: 'Marca con bandera' },
+                    { tool: 'text', icon: 'text', label: bi('Text', 'Texto') },
+                    { tool: 'note', icon: 'note', label: bi('Note', 'Nota') },
+                    { tool: 'price_note', icon: 'priceNote', label: bi('Price Note', 'Nota de precio') },
+                    { tool: 'table', icon: 'table', label: bi('Table', 'Tabla') },
+                    { tool: 'callout', icon: 'callout', label: bi('Callout', 'Leyenda') },
+                    { tool: 'comment', icon: 'comment', label: bi('Comment', 'Comentarios') },
+                    { tool: 'price_label', icon: 'priceLabel', label: bi('Price Label', 'Etiqueta de precio') },
+                    { tool: 'signpost', icon: 'signpost', label: bi('Signpost', 'Señal') },
+                    { tool: 'flag', icon: 'flag', label: bi('Flag Mark', 'Marca con bandera') },
                 ],
             },
         ],
@@ -371,6 +383,11 @@ const SectionHeader = ({ children }: { children: ReactNode }) => (
 );
 
 export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, drawingsSync, onDrawingsSyncChange, escSignal = 0 }: TVDrawingBarProps) {
+    // Idioma de la app → labels EN o ES (nombres oficiales de TV en ambos).
+    const { i18n } = useTranslation();
+    const lang: keyof Bi = i18n.language?.toLowerCase().startsWith('es') ? 'es' : 'en';
+    const L = (b: Bi) => b[lang];
+
     /** Herramienta "actual" de cada grupo (el icono del botón la refleja). */
     const [groupTool, setGroupTool] = useState<Record<string, ToolItem>>({});
     const [selectedTool, setSelectedTool] = useState('cursor');
@@ -494,8 +511,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
                             ref={(el) => {
                                 buttonRefs.current[group.id] = el;
                             }}
-                            title={current.label}
-                            aria-label={current.label}
+                            title={L(current.label)}
+                            aria-label={L(current.label)}
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={() => {
                                 if (isActive) {
@@ -511,8 +528,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
                         </button>
                         {/* Flechita de abrir panel: solo visible al pasar por encima. */}
                         <button
-                            title={group.title}
-                            aria-label={`${group.title} — abrir panel`}
+                            title={L(group.title)}
+                            aria-label={`${L(group.title)} — ${lang === 'es' ? 'abrir panel' : 'open panel'}`}
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -528,10 +545,10 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
                         </button>
                         {openFlyout === group.id && buttonRefs.current[group.id] && (
                             <Flyout anchor={buttonRefs.current[group.id]!} onClose={() => setOpenFlyout(null)}>
-                                <div className="px-3 pb-1 pt-1.5 text-[13px] font-semibold">{group.title}</div>
+                                <div className="px-3 pb-1 pt-1.5 text-[13px] font-semibold">{L(group.title)}</div>
                                 {group.sections.map((section, si) => (
                                     <div key={si}>
-                                        {section.header && <SectionHeader>{section.header}</SectionHeader>}
+                                        {section.header && <SectionHeader>{L(section.header)}</SectionHeader>}
                                         {si > 0 && !section.header && (
                                             <div className="my-1 h-px w-full" style={{ background: 'var(--color-border, rgba(128,128,128,0.2))' }} />
                                         )}
@@ -539,7 +556,7 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
                                             <FlyoutItem
                                                 key={item.tool}
                                                 icon={item.icon}
-                                                label={item.label}
+                                                label={L(item.label)}
                                                 selected={selectedTool === item.tool}
                                                 onClick={() => pick(item, group.id)}
                                             />
@@ -569,8 +586,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
 
             {/* Directos: regla y zoom (como en TV, sin flyout) */}
             <button
-                title="Medir"
-                aria-label="Medir"
+                title={L(bi('Measure', 'Medir'))}
+                aria-label={L(bi('Measure', 'Medir'))}
                 onClick={() => {
                     setSelectedTool('measure');
                     forEachCell((api) => api.selectTool('measure'));
@@ -580,8 +597,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
                 <Icon name="ruler" />
             </button>
             <button
-                title="Acercar"
-                aria-label="Acercar"
+                title={L(bi('Zoom In', 'Acercar'))}
+                aria-label={L(bi('Zoom In', 'Acercar'))}
                 onClick={() => {
                     setSelectedTool('zoom');
                     forEachCell((api) => api.selectTool('zoom'));
@@ -591,8 +608,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
                 <Icon name="zoomIn" />
             </button>
             <button
-                title="Alejar"
-                aria-label="Alejar"
+                title={L(bi('Zoom Out', 'Alejar'))}
+                aria-label={L(bi('Zoom Out', 'Alejar'))}
                 onClick={() => getActiveCell()?.zoomOut()}
                 className={btnClass(false)}
             >
@@ -604,8 +621,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
             {/* Imán: mini-menú débil/fuerte */}
             <button
                 ref={(el) => { buttonRefs.current.magnet = el; }}
-                title="Imán"
-                aria-label="Imán"
+                title={L(bi('Magnet', 'Imán'))}
+                aria-label={L(bi('Magnet', 'Imán'))}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => setOpenFlyout((v) => (v === 'magnet' ? null : 'magnet'))}
                 className={btnClass(magnetMode !== 'off')}
@@ -614,17 +631,17 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
             </button>
             {openFlyout === 'magnet' && buttonRefs.current.magnet && (
                 <Flyout anchor={buttonRefs.current.magnet} onClose={() => setOpenFlyout(null)} width={220}>
-                    <FlyoutItem icon="magnet" label="Imán débil" selected={magnetMode === 'weak'}
+                    <FlyoutItem icon="magnet" label={L(bi('Weak Magnet', 'Imán débil'))} selected={magnetMode === 'weak'}
                         onClick={() => applyMagnet(magnetMode === 'weak' ? 'off' : 'weak')} />
-                    <FlyoutItem icon="magnetStrong" label="Imán fuerte" selected={magnetMode === 'strong'}
+                    <FlyoutItem icon="magnetStrong" label={L(bi('Strong Magnet', 'Imán fuerte'))} selected={magnetMode === 'strong'}
                         onClick={() => applyMagnet(magnetMode === 'strong' ? 'off' : 'strong')} />
                 </Flyout>
             )}
 
             {/* Permanecer en modo dibujo (directo) */}
             <button
-                title="Permanecer en modo dibujo"
-                aria-label="Permanecer en modo dibujo"
+                title={L(bi('Stay in Drawing Mode', 'Permanecer en modo dibujo'))}
+                aria-label={L(bi('Stay in Drawing Mode', 'Permanecer en modo dibujo'))}
                 onClick={() => {
                     setDrawLockOn((v) => !v);
                     forEachCell((api) => api.exec('stayInDrawingModeAction'));
@@ -636,8 +653,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
 
             {/* Bloquear todos los dibujos (directo) */}
             <button
-                title="Bloquear todos los dibujos"
-                aria-label="Bloquear todos los dibujos"
+                title={L(bi('Lock All Drawings', 'Bloquear todos los dibujos'))}
+                aria-label={L(bi('Lock All Drawings', 'Bloquear todos los dibujos'))}
                 onClick={() => {
                     const next = !lockAllOn;
                     setLockAllOn(next);
@@ -651,8 +668,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
             {/* Ojo: ocultar dibujos/indicadores/todo */}
             <button
                 ref={(el) => { buttonRefs.current.eye = el; }}
-                title="Ocultar"
-                aria-label="Ocultar"
+                title={L(bi('Hide', 'Ocultar'))}
+                aria-label={L(bi('Hide', 'Ocultar'))}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => setOpenFlyout((v) => (v === 'eye' ? null : 'eye'))}
                 className={btnClass(hiddenState !== 'none')}
@@ -661,11 +678,11 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
             </button>
             {openFlyout === 'eye' && buttonRefs.current.eye && (
                 <Flyout anchor={buttonRefs.current.eye} onClose={() => setOpenFlyout(null)} width={230}>
-                    <FlyoutItem icon="eyeOff" label="Ocultar dibujos" selected={hiddenState === 'drawings'}
+                    <FlyoutItem icon="eyeOff" label={L(bi('Hide Drawings', 'Ocultar dibujos'))} selected={hiddenState === 'drawings'}
                         onClick={() => applyHide('drawings')} />
-                    <FlyoutItem icon="eyeOff" label="Ocultar indicadores" selected={hiddenState === 'indicators'}
+                    <FlyoutItem icon="eyeOff" label={L(bi('Hide Indicators', 'Ocultar indicadores'))} selected={hiddenState === 'indicators'}
                         onClick={() => applyHide('indicators')} />
-                    <FlyoutItem icon="eyeOff" label="Ocultar todo" selected={hiddenState === 'all'}
+                    <FlyoutItem icon="eyeOff" label={L(bi('Hide All', 'Ocultar todo'))} selected={hiddenState === 'all'}
                         onClick={() => applyHide('all')} />
                 </Flyout>
             )}
@@ -673,8 +690,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
             {/* Globo: sincronizar dibujos nuevos entre celdas del layout */}
             <button
                 ref={(el) => { buttonRefs.current.globe = el; }}
-                title="Sincronizar dibujos"
-                aria-label="Sincronizar dibujos"
+                title={L(bi('Sync Drawings', 'Sincronizar dibujos'))}
+                aria-label={L(bi('Sync Drawings', 'Sincronizar dibujos'))}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => setOpenFlyout((v) => (v === 'globe' ? null : 'globe'))}
                 className={btnClass(drawingsSync !== 'off')}
@@ -686,7 +703,7 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
                 <Flyout anchor={buttonRefs.current.globe} onClose={() => setOpenFlyout(null)} width={360}>
                     <FlyoutItem
                         icon="linkSync"
-                        label="Los nuevos dibujos se sincronizan en el diseño"
+                        label={L(bi('New drawings are synced across the layout', 'Los nuevos dibujos se sincronizan en el diseño'))}
                         selected={drawingsSync === 'layout'}
                         onClick={() => {
                             onDrawingsSyncChange(drawingsSync === 'layout' ? 'off' : 'layout');
@@ -695,7 +712,7 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
                     />
                     <FlyoutItem
                         icon="globe"
-                        label="Los nuevos dibujos se sincronizan a nivel global"
+                        label={L(bi('New drawings are synced globally', 'Los nuevos dibujos se sincronizan a nivel global'))}
                         selected={drawingsSync === 'global'}
                         onClick={() => {
                             onDrawingsSyncChange(drawingsSync === 'global' ? 'off' : 'global');
@@ -709,8 +726,8 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
 
             {/* Eliminar dibujos e indicadores del panel enfocado */}
             <button
-                title="Eliminar dibujos e indicadores"
-                aria-label="Eliminar dibujos e indicadores"
+                title={L(bi('Remove Drawings & Indicators', 'Eliminar dibujos e indicadores'))}
+                aria-label={L(bi('Remove Drawings & Indicators', 'Eliminar dibujos e indicadores'))}
                 onClick={() => getActiveCell()?.exec('paneRemoveAllStudiesDrawingTools')}
                 className={btnClass(false)}
             >

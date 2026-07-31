@@ -8,6 +8,7 @@
  */
 
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 // El gestor de diseños se inyecta desde el contenedor (prop designManager).
 import { TVLayoutIcon } from './TVLayoutIcon';
 import { TV_ICONS } from './tvIcons';
@@ -45,35 +46,43 @@ function Icon({ name, className }: { name: string; className?: string }) {
     );
 }
 
-const INTERVALS: Array<{ res: string; label: string }> = [
-    { res: '1', label: '1m' },
-    { res: '2', label: '2m' },
-    { res: '5', label: '5m' },
-    { res: '15', label: '15m' },
-    { res: '30', label: '30m' },
-    { res: '60', label: '1h' },
-    { res: '240', label: '4h' },
-    { res: '720', label: '12h' },
-    { res: '1D', label: 'D' },
-    { res: '1W', label: 'S' },
-    { res: '1M', label: 'M' },
-    { res: '3M', label: '3M' },
-    { res: '12M', label: '12M' },
+/** Texto bilingüe (nombres oficiales TV): la toolbar sigue el idioma de la app. */
+interface Bi {
+    en: string;
+    es: string;
+}
+const bi = (en: string, es: string): Bi => ({ en, es });
+
+const INTERVALS: Array<{ res: string; label: Bi }> = [
+    { res: '1', label: bi('1m', '1m') },
+    { res: '2', label: bi('2m', '2m') },
+    { res: '5', label: bi('5m', '5m') },
+    { res: '15', label: bi('15m', '15m') },
+    { res: '30', label: bi('30m', '30m') },
+    { res: '60', label: bi('1h', '1h') },
+    { res: '240', label: bi('4h', '4h') },
+    { res: '720', label: bi('12h', '12h') },
+    { res: '1D', label: bi('D', 'D') },
+    { res: '1W', label: bi('W', 'S') },
+    { res: '1M', label: bi('M', 'M') },
+    { res: '3M', label: bi('3M', '3M') },
+    { res: '12M', label: bi('12M', '12M') },
 ];
 
-const CHART_TYPES: Array<{ type: number; label: string }> = [
-    { type: 1, label: 'Velas' },
-    { type: 9, label: 'Velas huecas' },
-    { type: 0, label: 'Barras' },
-    { type: 8, label: 'Heikin Ashi' },
-    { type: 2, label: 'Línea' },
-    { type: 3, label: 'Área' },
-    { type: 10, label: 'Línea base' },
-    { type: 13, label: 'Columnas' },
+const CHART_TYPES: Array<{ type: number; label: Bi }> = [
+    { type: 1, label: bi('Candles', 'Velas') },
+    { type: 9, label: bi('Hollow candles', 'Velas huecas') },
+    { type: 0, label: bi('Bars', 'Barras') },
+    { type: 8, label: bi('Heikin Ashi', 'Heikin Ashi') },
+    { type: 2, label: bi('Line', 'Línea') },
+    { type: 3, label: bi('Area', 'Área') },
+    { type: 10, label: bi('Baseline', 'Línea base') },
+    { type: 13, label: bi('Columns', 'Columnas') },
 ];
 
-function intervalLabel(res: string): string {
-    return INTERVALS.find((i) => i.res === res)?.label ?? res;
+function intervalLabel(res: string, lang: keyof Bi): string {
+    const found = INTERVALS.find((i) => i.res === res);
+    return found ? found.label[lang] : res;
 }
 
 const Caret = () => (
@@ -108,16 +117,18 @@ function TbButton({
 }
 
 /** Dropdown minimalista anclado bajo su botón. */
-function TbDropdown<T extends { label: string }>({
+function TbDropdown<T>({
     title,
     trigger,
     items,
+    labelOf,
     onPick,
     isSelected,
 }: {
     title: string;
     trigger: ReactNode;
     items: T[];
+    labelOf: (item: T) => string;
     onPick: (item: T) => void;
     isSelected: (item: T) => boolean;
 }) {
@@ -148,7 +159,7 @@ function TbDropdown<T extends { label: string }>({
                 >
                     {items.map((item) => (
                         <button
-                            key={item.label}
+                            key={labelOf(item)}
                             onClick={() => {
                                 setOpen(false);
                                 onPick(item);
@@ -157,7 +168,7 @@ function TbDropdown<T extends { label: string }>({
                                 isSelected(item) ? 'font-bold' : ''
                             }`}
                         >
-                            {item.label}
+                            {labelOf(item)}
                         </button>
                     ))}
                 </div>
@@ -183,6 +194,9 @@ export function TVToolbar({
     onLayoutClick,
     designManager,
 }: TVToolbarProps) {
+    const { i18n } = useTranslation();
+    const lang: keyof Bi = i18n.language?.toLowerCase().startsWith('es') ? 'es' : 'en';
+    const L = (b: Bi) => b[lang];
     return (
         <div
             className="flex shrink-0 items-center gap-0.5 border-b px-1.5"
@@ -193,13 +207,13 @@ export function TVToolbar({
             }}
         >
             {/* Símbolo de la celda enfocada → diálogo nativo de búsqueda */}
-            <TbButton title="Cambiar símbolo" onClick={() => actions.exec('symbolSearch')}>
+            <TbButton title={L(bi('Change Symbol', 'Cambiar símbolo'))} onClick={() => actions.exec('symbolSearch')}>
                 <span className="px-0.5 font-semibold">{symbol || '—'}</span>
                 <Caret />
             </TbButton>
 
             {/* Comparar / añadir símbolo */}
-            <TbButton title="Comparar símbolo" onClick={() => actions.exec('compareOrAdd')}>
+            <TbButton title={L(bi('Compare Symbol', 'Comparar símbolo'))} onClick={() => actions.exec('compareOrAdd')}>
                 <Icon name="comparePlus" />
             </TbButton>
 
@@ -207,9 +221,10 @@ export function TVToolbar({
 
             {/* Intervalo (estilo TV: texto plano) */}
             <TbDropdown
-                title="Intervalo"
-                trigger={<span>{intervalLabel(interval)}</span>}
+                title={L(bi('Interval', 'Intervalo'))}
+                trigger={<span>{intervalLabel(interval, lang)}</span>}
                 items={INTERVALS}
+                labelOf={(i) => L(i.label)}
                 onPick={(i) => actions.setInterval(i.res)}
                 isSelected={(i) => i.res === interval}
             />
@@ -218,9 +233,10 @@ export function TVToolbar({
 
             {/* Tipo de gráfico (icono velas oficial) */}
             <TbDropdown
-                title="Tipo de gráfico"
+                title={L(bi('Chart Type', 'Tipo de gráfico'))}
                 trigger={<Icon name="candles" />}
                 items={CHART_TYPES}
+                labelOf={(t) => L(t.label)}
                 onPick={(t) => actions.setChartType(t.type)}
                 isSelected={(t) => t.type === chartType}
             />
@@ -228,18 +244,18 @@ export function TVToolbar({
             <Sep />
 
             {/* Indicadores (icono oficial) */}
-            <TbButton title="Indicadores" onClick={() => actions.exec('insertIndicator')}>
+            <TbButton title={L(bi('Indicators', 'Indicadores'))} onClick={() => actions.exec('insertIndicator')}>
                 <Icon name="indicators" />
-                <span className="hidden text-sm md:inline">Indicadores</span>
+                <span className="hidden text-sm md:inline">{L(bi('Indicators', 'Indicadores'))}</span>
             </TbButton>
 
             <Sep />
 
             {/* Undo / Redo (iconos oficiales) */}
-            <TbButton title="Deshacer" onClick={actions.undo}>
+            <TbButton title={L(bi('Undo', 'Deshacer'))} onClick={actions.undo}>
                 <Icon name="undo" />
             </TbButton>
-            <TbButton title="Rehacer" onClick={actions.redo}>
+            <TbButton title={L(bi('Redo', 'Rehacer'))} onClick={actions.redo}>
                 <Icon name="redo" />
             </TbButton>
 
@@ -250,8 +266,8 @@ export function TVToolbar({
                 ref={layoutButtonRef}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={onLayoutClick}
-                title="Seleccionar layout"
-                aria-label="Seleccionar layout"
+                title={L(bi('Select Layout', 'Seleccionar layout'))}
+                aria-label={L(bi('Select Layout', 'Seleccionar layout'))}
                 className="flex h-8 items-center gap-1 rounded px-1.5 hover:bg-black/10 dark:hover:bg-white/10"
             >
                 <TVLayoutIcon layoutId={layoutId} size={20} />
@@ -263,10 +279,10 @@ export function TVToolbar({
             <Sep />
 
             {/* Ajustes / captura (iconos oficiales) */}
-            <TbButton title="Ajustes del gráfico" onClick={() => actions.exec('chartProperties')}>
+            <TbButton title={L(bi('Chart Settings', 'Ajustes del gráfico'))} onClick={() => actions.exec('chartProperties')}>
                 <Icon name="settings" />
             </TbButton>
-            <TbButton title="Captura del gráfico" onClick={actions.screenshot}>
+            <TbButton title={L(bi('Chart Snapshot', 'Captura del gráfico'))} onClick={actions.screenshot}>
                 <Icon name="camera" />
             </TbButton>
         </div>

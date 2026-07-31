@@ -24,6 +24,17 @@ let connectionInfo = {
 
 let heartbeatTimer = null;
 
+// Liveness: timestamp del último mensaje recibido del servidor. El heartbeat
+// app-level (action:ping) SIEMPRE recibe un {type:'pong'} de vuelta, así que
+// en una conexión viva nunca pasan más de ~30s sin mensajes. Si pasan más de
+// LIVENESS_TIMEOUT_MS (2 pings sin respuesta + margen), el TCP está medio
+// muerto (sleep del portátil, cambio de red, proxy) y readyState sigue OPEN:
+// hay que cerrar a la fuerza para disparar el flujo normal de reconexión.
+// Sin esto, un socket half-open deja la app "conectada" y congelada para
+// siempre — ws.send() sobre TCP muerto no lanza error.
+let lastMessageAt = 0;
+const LIVENESS_TIMEOUT_MS = 75000;
+
 // Trading day tracking para detectar cambio de sesión
 // Se actualiza cuando:
 // 1. Recibimos mensaje "connected" del servidor (al conectar)
@@ -86,6 +97,7 @@ function connectWebSocket(url) {
       connectionInfo.isConnected = true;
       connectionInfo.reconnectAttempts = 0;
       connectionInfo.waitingForToken = false; // Limpiar flag
+      lastMessageAt = Date.now();
       
       // Limpiar timeout de token si existe
       if (connectionInfo.tokenTimeout) {
@@ -99,6 +111,7 @@ function connectWebSocket(url) {
     };
 
     ws.onmessage = function(event) {
+      lastMessageAt = Date.now();
       try {
         // Parse JSON en el worker (fuera del main thread)
         const message = JSON.parse(event.data);
@@ -174,6 +187,15 @@ function startHeartbeat() {
   stopHeartbeat();
   heartbeatTimer = setInterval(function() {
     if (ws && ws.readyState === WebSocket.OPEN) {
+      // Deadline de liveness ANTES de enviar el siguiente ping: si el server
+      // no ha respondido nada (ni al pong) en todo el margen, la conexión
+      // está muerta aunque readyState diga OPEN. close() dispara onclose →
+      // token fresco → reconexión → resubscribe, el flujo ya existente.
+      if (lastMessageAt > 0 && Date.now() - lastMessageAt > LIVENESS_TIMEOUT_MS) {
+        log('error', '💀 Liveness timeout (' + LIVENESS_TIMEOUT_MS + 'ms sin mensajes): forzando reconexión');
+        try { ws.close(); } catch (e) { /* ya cerrado */ }
+        return;
+      }
       try {
         ws.send(JSON.stringify({ action: 'ping' }));
       } catch (error) {

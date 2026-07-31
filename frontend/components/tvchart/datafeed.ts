@@ -74,6 +74,18 @@ interface TVSymbolInfo {
     industry?: string;
 }
 
+/** TimescaleMark de la CL v31 (subset estructural de charting_library.d.ts). */
+interface TVTimescaleMark {
+    id: string | number;
+    time: number; // Unix s
+    color: string;
+    label: string;
+    labelFontColor?: string;
+    tooltip: string[];
+    /** v31: shapes nativos de earnings (TimeScaleMarkShape). */
+    shape?: 'circle' | 'earningUp' | 'earningDown' | 'earning';
+}
+
 /** Puente hacia el WebSocket compartido de la app (AuthWebSocketContext). */
 export interface TVWsBridge {
     send: (msg: Record<string, unknown>) => void;
@@ -164,6 +176,97 @@ function priceScaleFor(lastPrice: number | null): number {
 }
 
 // ---------------------------------------------------------------------------
+// Caché compartida de resolución de símbolos (a nivel de módulo, entre TODAS
+// las celdas/ventanas): 6 celdas con el mismo símbolo = 1 petición, no 6.
+// Se cachea la Promise (dedup de peticiones en vuelo incluida).
+// ---------------------------------------------------------------------------
+
+/** Metadata (exchange, nombre, sector…): estática → cache de sesión. */
+const metadataCache = new Map<string, Promise<any>>();
+/** Snapshot (solo afina pricescale): TTL corto es suficiente. */
+const snapshotCache = new Map<string, { at: number; promise: Promise<any> }>();
+const SNAPSHOT_TTL_MS = 30_000;
+
+function fetchMetadataShared(apiUrl: string, symbol: string): Promise<any> {
+    const key = `${apiUrl}|${symbol}`;
+    let p = metadataCache.get(key);
+    if (!p) {
+        p = fetch(`${apiUrl}/api/v1/ticker/${encodeURIComponent(symbol)}/metadata`)
+            .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`metadata ${r.status}`))));
+        // Los fallos no se cachean: el siguiente intento vuelve a pedir.
+        p.catch(() => metadataCache.delete(key));
+        metadataCache.set(key, p);
+    }
+    return p;
+}
+
+function fetchSnapshotShared(apiUrl: string, symbol: string): Promise<any> {
+    const key = `${apiUrl}|${symbol}`;
+    const hit = snapshotCache.get(key);
+    if (hit && Date.now() - hit.at < SNAPSHOT_TTL_MS) return hit.promise;
+    const promise = fetch(`${apiUrl}/api/v1/ticker/${encodeURIComponent(symbol)}/snapshot`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+    snapshotCache.set(key, { at: Date.now(), promise });
+    return promise;
+}
+
+// ---------------------------------------------------------------------------
+// Earnings → timescale marks (iconos E en el eje de tiempo, estilo TV).
+// Fuente: /api/v1/earnings/ticker/{symbol} (histórico + próximos). Caché a
+// nivel de módulo compartida entre celdas, con TTL: la CL pide marks en cada
+// cambio de rango visible y no queremos martillear el backend.
+// ---------------------------------------------------------------------------
+
+interface EarningsEvent {
+    event_id?: number;
+    report_date?: string;    // YYYY-MM-DD
+    utc_time?: string;       // ISO
+    time_slot?: string;      // BMO / AMC / TBD
+    fiscal_year?: number;
+    fiscal_period?: string;  // Q1…Q4
+    eps_estimate?: number | null;
+    eps_actual?: number | null;
+    beat_eps?: boolean | null;
+    revenue_estimate?: number | null;
+    revenue_actual?: number | null;
+    expected_move_pct?: number | null;      // fracción (0.036 = 3.6 %)
+    post_earnings_move_1d?: number | null;  // fracción
+    status?: string;         // scheduled / reported…
+}
+
+const earningsCache = new Map<string, { at: number; promise: Promise<EarningsEvent[]> }>();
+const EARNINGS_TTL_MS = 10 * 60_000;
+
+function fetchEarningsShared(apiUrl: string, symbol: string): Promise<EarningsEvent[]> {
+    const key = `${apiUrl}|${symbol}`;
+    const hit = earningsCache.get(key);
+    if (hit && Date.now() - hit.at < EARNINGS_TTL_MS) return hit.promise;
+    const promise = fetch(`${apiUrl}/api/v1/earnings/ticker/${encodeURIComponent(symbol)}?limit=100`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => (Array.isArray(json?.earnings) ? (json.earnings as EarningsEvent[]) : []))
+        .catch(() => []);
+    earningsCache.set(key, { at: Date.now(), promise });
+    return promise;
+}
+
+/** 108848200000 → "108.8B" (para tooltips compactos). */
+function fmtMoney(n: number | null | undefined): string | null {
+    if (n == null || !isFinite(n)) return null;
+    const abs = Math.abs(n);
+    if (abs >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+    if (abs >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+    return `${n}`;
+}
+
+/** Fracción → "+3.6%" (con signo). */
+function fmtPct(n: number | null | undefined): string | null {
+    if (n == null || !isFinite(n)) return null;
+    const v = n * 100;
+    return `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
+}
+
+// ---------------------------------------------------------------------------
 // Datafeed
 // ---------------------------------------------------------------------------
 
@@ -191,12 +294,32 @@ export class TradeulDatafeed {
             callback({
                 supported_resolutions: SUPPORTED_RESOLUTIONS,
                 supports_marks: false,
-                supports_timescale_marks: false,
-                supports_time: false,
+                // Iconos de earnings en el eje de tiempo: la CL solo llama a
+                // getTimescaleMarks si el datafeed lo declara aquí.
+                supports_timescale_marks: true,
+                // Countdown de cierre de vela en la escala de precios: con
+                // esto la CL llama getServerTime y el contador no depende del
+                // reloj (potencialmente desviado) del navegador.
+                supports_time: true,
                 exchanges: [],
                 symbols_types: [],
             });
         }, 0);
+    }
+
+    /**
+     * Hora del servidor (Unix s) para el countdown de la escala de precios.
+     * Cualquier respuesta del dominio trae header Date (Caddy): un HEAD
+     * barato basta. Fallback: reloj local (comportamiento sin supports_time).
+     */
+    getServerTime(callback: (serverTime: number) => void): void {
+        fetch(`${this.apiUrl}/api/v1/health`, { method: 'HEAD' })
+            .then((r) => {
+                const d = r.headers.get('date');
+                const t = d ? Date.parse(d) : NaN;
+                callback(Math.round((isFinite(t) ? t : Date.now()) / 1000));
+            })
+            .catch(() => callback(Math.round(Date.now() / 1000)));
     }
 
     // -- Símbolos --------------------------------------------------------------
@@ -251,13 +374,10 @@ export class TradeulDatafeed {
                 : 'regular';
         const activeSession = SUBSESSIONS.find((s) => s.id === requestedSession)!;
 
-        const metadataReq = fetch(`${this.apiUrl}/api/v1/ticker/${encodeURIComponent(symbol)}/metadata`)
-            .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`metadata ${r.status}`))));
+        const metadataReq = fetchMetadataShared(this.apiUrl, symbol);
 
         // Best-effort: el snapshot solo afina pricescale; si falla, default.
-        const snapshotReq = fetch(`${this.apiUrl}/api/v1/ticker/${encodeURIComponent(symbol)}/snapshot`)
-            .then((r) => (r.ok ? r.json() : null))
-            .catch(() => null);
+        const snapshotReq = fetchSnapshotShared(this.apiUrl, symbol);
 
         Promise.all([metadataReq, snapshotReq])
             .then(([meta, snap]) => {
@@ -301,6 +421,75 @@ export class TradeulDatafeed {
             .catch(() => onError('unknown_symbol'));
     }
 
+    // -- Timescale marks (earnings) --------------------------------------------
+
+    /**
+     * Iconos de earnings en el eje de tiempo (contrato v31): un shape nativo
+     * por evento — earningUp (beat de EPS), earningDown (miss), earning
+     * (programado / sin resultado aún). onDataCallback se llama EXACTAMENTE
+     * una vez por petición (requisito de la CL), con [] ante cualquier fallo.
+     */
+    getTimescaleMarks(
+        symbolInfo: TVSymbolInfo,
+        from: number,
+        to: number,
+        onDataCallback: (marks: TVTimescaleMark[]) => void,
+        resolution: string,
+    ): void {
+        const symbol = (symbolInfo.ticker ?? symbolInfo.name).toUpperCase();
+        const dailyOrAbove = isDailyOrAboveResolution(resolution);
+        fetchEarningsShared(this.apiUrl, symbol)
+            .then((events) => {
+                const marks: TVTimescaleMark[] = [];
+                for (const ev of events) {
+                    if (!ev.report_date) continue;
+                    // Velas diarias+ van normalizadas a las 00:00 UTC del día
+                    // (ver toTVBar): el mark debe caer en la misma marca de
+                    // tiempo. En intradía, la hora real del evento.
+                    const dayStart = Date.parse(`${ev.report_date}T00:00:00Z`) / 1000;
+                    const utc = ev.utc_time ? Date.parse(ev.utc_time) / 1000 : NaN;
+                    const time = dailyOrAbove || !isFinite(utc) ? dayStart : utc;
+                    if (!isFinite(time) || time < from || time > to) continue;
+
+                    const beat = ev.beat_eps;
+                    const shape: TVTimescaleMark['shape'] =
+                        beat === true ? 'earningUp' : beat === false ? 'earningDown' : 'earning';
+                    const color = beat === true ? '#26a69a' : beat === false ? '#ef5350' : '#787b86';
+
+                    const tooltip: string[] = [];
+                    const fiscal = [ev.fiscal_period, ev.fiscal_year].filter(Boolean).join(' ');
+                    tooltip.push(
+                        `Earnings${fiscal ? ` ${fiscal}` : ''} · ${ev.report_date}${ev.time_slot && ev.time_slot !== 'TBD' ? ` (${ev.time_slot})` : ''}`,
+                    );
+                    if (ev.eps_actual != null) {
+                        tooltip.push(`EPS: ${ev.eps_actual}${ev.eps_estimate != null ? ` (est ${ev.eps_estimate})` : ''}`);
+                    } else if (ev.eps_estimate != null) {
+                        tooltip.push(`EPS est: ${ev.eps_estimate}`);
+                    }
+                    const rev = fmtMoney(ev.revenue_actual);
+                    const revEst = fmtMoney(ev.revenue_estimate);
+                    if (rev) tooltip.push(`Ingresos: ${rev}${revEst ? ` (est ${revEst})` : ''}`);
+                    else if (revEst) tooltip.push(`Ingresos est: ${revEst}`);
+                    const move = fmtPct(ev.post_earnings_move_1d);
+                    const expMove = fmtPct(ev.expected_move_pct);
+                    if (move) tooltip.push(`Reacción 1D: ${move}`);
+                    else if (expMove) tooltip.push(`Mov. esperado: ±${expMove.replace(/^[+-]/, '')}`);
+
+                    marks.push({
+                        id: ev.event_id ?? `${symbol}-${ev.report_date}`,
+                        time,
+                        color,
+                        label: 'E',
+                        labelFontColor: '#ffffff',
+                        tooltip,
+                        shape,
+                    });
+                }
+                onDataCallback(marks);
+            })
+            .catch(() => onDataCallback([]));
+    }
+
     // -- Histórico -------------------------------------------------------------
 
     getBars(
@@ -335,7 +524,18 @@ export class TradeulDatafeed {
                 raw.sort((a, b) => a.time - b.time);
 
                 if (periodParams.firstDataRequest) {
-                    this.lastHistoryBars.set(`${symbol}#${resolution}`, raw[raw.length - 1]);
+                    const newest = raw[raw.length - 1];
+                    this.lastHistoryBars.set(`${symbol}#${resolution}`, newest);
+                    // Re-sembrar la base de agregación de las suscripciones YA
+                    // vivas del mismo par: tras un reset (resyncAll/gap-backfill)
+                    // la CL rellama getBars pero NO subscribeBars, y un lastBar
+                    // obsoleto haría que cada aggregate posterior volviera a
+                    // detectar hueco → bucle de resets.
+                    for (const sub of this.subs.values()) {
+                        if (sub.symbol === symbol && sub.resolution === resolution) {
+                            sub.lastBar = newest;
+                        }
+                    }
                 }
                 // El estado interno (lastHistoryBars/lastBar) conserva la base
                 // de tiempos del backend; la normalización diaria se aplica
@@ -393,6 +593,21 @@ export class TradeulDatafeed {
     /** Reemitir las suscripciones vivas tras una reconexión del WS compartido. */
     resubscribeAll(): void {
         resubscribeAllStreams(this.ws.send);
+    }
+
+    /**
+     * Resync tras reconexión o vuelta de background (mecanismo oficial CL:
+     * onResetCacheNeeded + resetData, docs "Datafeed Issues → internet
+     * connection issues"). Invalida la caché de barras de TODAS las
+     * suscripciones vivas; el caller debe llamar después
+     * widget.activeChart().resetData() para forzar el re-fetch inmediato.
+     * Cierra los huecos de velas de forma determinista en vez de esperar al
+     * siguiente aggregate (que en símbolos ilíquidos o diario puede no llegar).
+     */
+    resyncAll(): void {
+        for (const sub of this.subs.values()) {
+            sub.onResetCacheNeeded();
+        }
     }
 
     /** Liberar todo al desmontar la ventana. */

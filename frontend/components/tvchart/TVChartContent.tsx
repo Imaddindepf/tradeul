@@ -23,6 +23,8 @@ import { DEFAULT_SYNC_FLAGS, type SyncFlags } from '@/components/chart/multichar
 import { TV_LAYOUTS } from './tvLayouts';
 import { closeAllTVPopovers } from './tvPopovers';
 import { TVLayoutGrid } from './TVLayoutGrid';
+import { drawTradeulLogoOnCanvas } from './TradeulLogo';
+import { TVIndicatorsDialog, TVIntervalDialog, TVSymbolSearchDialog } from './TVCommandDialogs';
 import { TVLayoutPicker } from './TVLayoutPicker';
 import { TVChartCell, type TVChartCellApi, type TVCellSnapshot } from './TVChartCell';
 import { TVDesignManager, type ActiveDesign } from './TVDesignManager';
@@ -189,6 +191,34 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
         [cellCount],
     );
 
+    // ── Montaje ESCALONADO de celdas ──────────────────────────────────────
+    // Los iframes same-origin comparten el hilo principal de la página:
+    // montar 6 widgets a la vez encola 6 inicializaciones de la CL en serie
+    // y congela la UI varios segundos. mountedIds va admitiendo celdas de una
+    // en una (la primera al instante); entre celda y celda el hilo respira y
+    // la ventana sigue respondiendo. Las celdas aún no admitidas pintan un
+    // placeholder con el fondo del chart.
+    const STAGGER_MS = 200;
+    const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
+    useEffect(() => {
+        // Mientras se restaura /last la rejilla no existe: no admitir celdas
+        // (se montarían todas de golpe al aparecer).
+        if (restoring) return;
+        const missing = cellIds.filter((id) => !mountedIds.has(id));
+        const stale = [...mountedIds].some((id) => !cellIds.includes(id));
+        if (stale) {
+            // Layout más pequeño: soltar las celdas sobrantes ya.
+            setMountedIds(new Set(cellIds.filter((id) => mountedIds.has(id))));
+            return;
+        }
+        if (missing.length === 0) return;
+        const t = setTimeout(
+            () => setMountedIds((prev) => new Set([...prev, missing[0]])),
+            mountedIds.size === 0 ? 0 : STAGGER_MS,
+        );
+        return () => clearTimeout(t);
+    }, [cellIds, mountedIds, restoring]);
+
     /** Escribir el componentState de la ventana (sin tocar el dirty). */
     const writeWindowState = useCallback(() => {
         const id = windowIdRef.current;
@@ -204,11 +234,48 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
         });
     }, [updateWindowComponentState]);
 
+    /**
+     * Throttle del volcado al store (leading + trailing): cada writeWindowState
+     * acaba en un JSON.stringify del store COMPLETO de preferencias hacia
+     * localStorage (síncrono, en el hilo principal) — con 6 celdas son cientos
+     * de KB por golpe. El autosave de cada celda dispara persistWindow
+     * constantemente mientras se usa el chart; escribir como mucho una vez
+     * cada 2 s elimina el jank sin perder estado (siempre queda un trailing
+     * write con el último snapshot, y al desmontar se hace flush).
+     */
+    const WRITE_THROTTLE_MS = 2000;
+    const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastWriteRef = useRef(0);
+    const scheduleWriteWindowState = useCallback(() => {
+        if (writeTimerRef.current) return; // trailing ya programado
+        const elapsed = Date.now() - lastWriteRef.current;
+        if (elapsed >= WRITE_THROTTLE_MS) {
+            lastWriteRef.current = Date.now();
+            writeWindowState();
+            return;
+        }
+        writeTimerRef.current = setTimeout(() => {
+            writeTimerRef.current = null;
+            lastWriteRef.current = Date.now();
+            writeWindowState();
+        }, WRITE_THROTTLE_MS - elapsed);
+    }, [writeWindowState]);
+
+    // Flush del trailing write pendiente al desmontar la ventana.
+    useEffect(() => () => {
+        if (writeTimerRef.current) {
+            clearTimeout(writeTimerRef.current);
+            writeTimerRef.current = null;
+            writeWindowState();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     /** Persistir el estado completo de la ventana y marcar cambios sin guardar. */
     const persistWindow = useCallback(() => {
-        writeWindowState();
+        scheduleWriteWindowState();
         setStateVersion((v) => v + 1);
-    }, [writeWindowState]);
+    }, [scheduleWriteWindowState]);
 
     // Ventana de gracia tras montar o cargar un diseño: los persists que
     // disparan las celdas al inicializarse (widget ready) no son cambios del
@@ -299,6 +366,47 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
         persistWindow();
     }, [persistWindow, refreshActiveInfo]);
 
+    // ── Diálogos ÚNICOS de la ventana (flujo tradingview.com): búsqueda de
+    // símbolo y cambio de intervalo salen UNA vez, centrados en la ventana,
+    // y aplican a la celda enfocada ─────────────────────────────────────────
+    const [cmdDialog, setCmdDialog] = useState<
+        { kind: 'symbol' | 'interval' | 'indicators'; cellId: string; seed: string } | null
+    >(null);
+    /** Devolver el foco al contenedor al cerrar: la siguiente tecla reabre. */
+    const contentRootRef = useRef<HTMLDivElement>(null);
+    const closeCmdDialog = useCallback(() => {
+        setCmdDialog(null);
+        contentRootRef.current?.focus();
+    }, []);
+    const openCmdDialog = useCallback((kind: 'symbol' | 'interval' | 'indicators', cellId: string, seed: string) => {
+        setActiveCellId(cellId);
+        const snap = cellsRef.current[cellId];
+        setActiveInfo({
+            symbol: snap?.symbol ?? DEFAULT_SYMBOL,
+            interval: snap?.interval ?? DEFAULT_TV_INTERVAL,
+            chartType: snap?.chartType ?? DEFAULT_CHART_TYPE,
+        });
+        closeAllTVPopovers();
+        // Si ya hay uno abierto, se conserva (no pisar lo que escribe el usuario).
+        setCmdDialog((d) => d ?? { kind, cellId, seed });
+    }, []);
+    const applyCmdSymbol = useCallback((symbol: string) => {
+        if (!cmdDialog) return;
+        const cellId = cmdDialog.cellId;
+        closeCmdDialog();
+        cellApisRef.current[cellId]?.setSymbol(symbol);
+        // setSymbol va con guard anti-eco: registrar el cambio a mano (mismo
+        // patrón que el comando `TICKER TVC`).
+        handleSymbolChanged(cellId, symbol);
+    }, [cmdDialog, closeCmdDialog, handleSymbolChanged]);
+    const applyCmdInterval = useCallback((resolution: string) => {
+        if (!cmdDialog) return;
+        const cellId = cmdDialog.cellId;
+        closeCmdDialog();
+        cellApisRef.current[cellId]?.setInterval(resolution);
+        handleIntervalChanged(cellId, resolution);
+    }, [cmdDialog, closeCmdDialog, handleIntervalChanged]);
+
     const handleActivate = useCallback((cellId: string) => {
         // Clic dentro de un gráfico (iframe): cerrar cualquier popover abierto
         // — los mousedown de los iframes no llegan al documento padre.
@@ -371,8 +479,19 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
         });
     }, []);
 
-    const registerCellApi = useCallback((cellId: string) => (api: TVChartCellApi | null) => {
-        cellApisRef.current[cellId] = api;
+    // Ref-callbacks MEMOIZADOS por celda: si la identidad de la función
+    // cambiara en cada render, React soltaría (null) y re-engancharía el api
+    // de todas las celdas en cada re-render de la ventana.
+    const cellApiRefFnsRef = useRef(new Map<string, (api: TVChartCellApi | null) => void>());
+    const registerCellApi = useCallback((cellId: string) => {
+        let fn = cellApiRefFnsRef.current.get(cellId);
+        if (!fn) {
+            fn = (api: TVChartCellApi | null) => {
+                cellApisRef.current[cellId] = api;
+            };
+            cellApiRefFnsRef.current.set(cellId, fn);
+        }
+        return fn;
     }, []);
 
     // ── Sincronización de dibujos, semántica EXACTA de tradingview.com ────
@@ -549,6 +668,12 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
                 Math.round(rect.height * scale),
             );
         }
+        // Logo Tradeul en la descarga del layout (bottom-left del conjunto).
+        await drawTradeulLogoOnCanvas(ctx, {
+            x: 12 * scale,
+            y: out.height - (34 + 20) * scale,
+            height: 20 * scale,
+        });
         const symbols = Array.from(
             new Set(
                 Object.keys(cellApisRef.current)
@@ -573,7 +698,23 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
     const toolbarActions: TVToolbarActions = useMemo(() => {
         const active = () => cellApisRef.current[activeCellIdRef.current];
         return {
-            exec: (actionId) => active()?.exec(actionId),
+            exec: (actionId) => {
+                // Búsqueda/intervalo: diálogo único de la ventana, no el
+                // nativo del iframe de la celda.
+                if (actionId === 'symbolSearch') {
+                    openCmdDialog('symbol', activeCellIdRef.current, '');
+                    return;
+                }
+                if (actionId === 'changeInterval') {
+                    openCmdDialog('interval', activeCellIdRef.current, '');
+                    return;
+                }
+                if (actionId === 'insertIndicator') {
+                    openCmdDialog('indicators', activeCellIdRef.current, '');
+                    return;
+                }
+                active()?.exec(actionId);
+            },
             setInterval: (resolution) => {
                 active()?.setInterval(resolution);
                 handleIntervalChanged(activeCellIdRef.current, resolution);
@@ -590,11 +731,11 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
             redo: () => active()?.redo(),
             screenshot: () => void screenshotLayout(),
         };
-    }, [handleIntervalChanged, persistWindow, refreshActiveInfo, screenshotLayout]);
+    }, [handleIntervalChanged, openCmdDialog, persistWindow, refreshActiveInfo, screenshotLayout]);
 
     /**
      * Teclas con el foco fuera de los iframes (toolbar, barra, bordes):
-     * abrir los diálogos NATIVOS de la librería en la celda enfocada
+     * abrir el diálogo ÚNICO de la ventana para la celda enfocada
      * (dígito → cambio de intervalo; letra → búsqueda de símbolo).
      */
     const handleRootKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -606,15 +747,14 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
             return;
         }
         if (e.ctrlKey || e.metaKey || e.altKey) return;
-        const api = cellApisRef.current[activeCellIdRef.current];
         if (/^[0-9]$/.test(e.key)) {
             e.preventDefault();
-            api?.exec('changeInterval');
+            openCmdDialog('interval', activeCellIdRef.current, e.key);
         } else if (/^[a-zA-Z]$/.test(e.key)) {
             e.preventDefault();
-            api?.exec('symbolSearch');
+            openCmdDialog('symbol', activeCellIdRef.current, e.key.toUpperCase());
         }
-    }, []);
+    }, [openCmdDialog]);
 
     /**
      * Payload completo del diseño (mismo shape que el componentState), con los
@@ -654,6 +794,8 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
         setActiveDesign(meta);
         setActiveCellId('cell-1');
         setDesignEpoch((e) => e + 1);
+        // El epoch remonta la rejilla entera: volver a escalonar el montaje.
+        setMountedIds(new Set());
         // Recién cargado = sin cambios pendientes (ventana de gracia mientras
         // las celdas remontan y disparan sus persists de inicialización).
         cleanUntilRef.current = Date.now() + 6000;
@@ -753,7 +895,8 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
     }, [stateVersion, activeDesign, getDesignPayload]);
 
     // Al cerrar la ventana sin diseño activo: volcado final del estado sin
-    // nombre (cellsRef está fresco gracias al auto_save_delay de 1 s).
+    // nombre (cellsRef está razonablemente fresco: los cambios de símbolo/
+    // intervalo persisten al instante y el autosave de la CL corre cada 5 s).
     useEffect(() => () => {
         if (!initSyncRef.current || activeDesignRef.current) return;
         tvDesignsApi.setLast(getTokenRef.current, {
@@ -767,7 +910,12 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
     }, []);
 
     return (
-        <div className="relative flex h-full w-full flex-col" onKeyDown={handleRootKeyDown}>
+        <div
+            ref={contentRootRef}
+            tabIndex={-1}
+            className="relative flex h-full w-full flex-col outline-none"
+            onKeyDown={handleRootKeyDown}
+        >
             <TVToolbar
                 symbol={activeInfo.symbol}
                 interval={activeInfo.interval}
@@ -818,16 +966,35 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
                     escSignal={escSignal}
                 />
 
-                {/* Rejilla recursiva (árbol de partición de los 55 layouts TV).
+                {/* Rejilla PLANA de los 55 layouts TV (celdas absolutas con key
+                    estable): cambiar de layout no remonta las supervivientes —
+                    solo cambian estilos y se monta/desmonta el delta. La key
+                    lleva SOLO el epoch: cargar un diseño sí remonta todo
+                    (savedState nuevo); cambiar de layout, nunca.
                     Durante la restauración de /last no se montan celdas. */}
                 <div ref={gridRootRef} className="min-h-0 min-w-0 flex-1">
                     {!restoring && <TVLayoutGrid
-                        key={`${designEpoch}:${layoutId}`}
+                        key={`epoch-${designEpoch}`}
                         layoutId={layoutId}
                         renderCell={(cellIndex) => {
                             const cellId = `cell-${cellIndex + 1}`;
                             const snap = cellsRef.current[cellId];
                             const isActive = cellCount > 1 && cellId === activeCellId;
+                            if (!mountedIds.has(cellId)) {
+                                // Turno de montaje aún no llegó: placeholder.
+                                return (
+                                    <div
+                                        data-cell-id={cellId}
+                                        style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            background: 'var(--color-bg, #0d1117)',
+                                            outline: '1px solid transparent',
+                                            outlineOffset: -1,
+                                        }}
+                                    />
+                                );
+                            }
                             return (
                                 <div
                                     data-cell-id={cellId}
@@ -856,6 +1023,8 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
                                         onEscape={handleCellEscape}
                                         onSaveShortcut={handleCellSaveShortcut}
                                         onReady={handleCellReady}
+                                        onOpenSymbolSearch={(id, seed) => openCmdDialog('symbol', id, seed)}
+                                        onOpenIntervalDialog={(id, seed) => openCmdDialog('interval', id, seed)}
                                     />
                                 </div>
                             );
@@ -863,6 +1032,34 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
                     />}
                 </div>
             </div>
+
+            {/* Diálogos únicos de la ventana (centrados sobre el conjunto). */}
+            {cmdDialog?.kind === 'symbol' && (
+                <TVSymbolSearchDialog
+                    seed={cmdDialog.seed}
+                    onClose={closeCmdDialog}
+                    onPick={applyCmdSymbol}
+                />
+            )}
+            {cmdDialog?.kind === 'interval' && (
+                <TVIntervalDialog
+                    seed={cmdDialog.seed}
+                    onClose={closeCmdDialog}
+                    onApply={applyCmdInterval}
+                />
+            )}
+            {cmdDialog?.kind === 'indicators' && (
+                <TVIndicatorsDialog
+                    studies={Array.from(new Set([
+                        // Custom de Tradeul primero (por si getStudiesList no
+                        // los incluye en esta versión).
+                        'RVOL Volumen Relativo',
+                        ...(cellApisRef.current[cmdDialog.cellId]?.listStudies() ?? []),
+                    ]))}
+                    onClose={closeCmdDialog}
+                    onAdd={(name) => cellApisRef.current[cmdDialog.cellId]?.addStudy(name)}
+                />
+            )}
         </div>
     );
 }

@@ -12,6 +12,7 @@
 
 import {
     forwardRef,
+    useCallback,
     useEffect,
     useImperativeHandle,
     useRef,
@@ -20,10 +21,14 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { TradeulDatafeed } from './datafeed';
+import { drawTradeulLogoOnCanvas, injectTradeulLogo } from './TradeulLogo';
+import { buildCustomIndicatorsGetter } from './tvCustomIndicators';
 
 // En dev el gateway no permite CORS desde el puerto 3002: pasar por el
 // rewrite same-origin /tvproxy (ver next.config.mjs). En prod, directo.
-const API_URL =
+// Exportada: los diálogos de ventana (TVCommandDialogs) buscan contra el
+// mismo API que el datafeed.
+export const API_URL =
     process.env.NODE_ENV === 'development'
         ? '/tvproxy'
         : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -105,6 +110,10 @@ export interface TVChartCellApi {
     setHideAllStudies: (on: boolean) => void;
     /** Alejar el zoom del chart. */
     zoomOut: () => void;
+    /** Lista de estudios disponibles (nativos + custom) para el diálogo único. */
+    listStudies: () => string[];
+    /** Añade un indicador por nombre al chart de la celda. */
+    addStudy: (name: string) => void;
     /** Estado de los dibujos (v31) para sincronización entre celdas. */
     getDrawingsState: () => Promise<object | null>;
     applyDrawingsState: (state: object) => Promise<void>;
@@ -145,6 +154,10 @@ export interface TVChartCellProps {
     /** El widget llegó a ready — la barra de dibujo re-aplica su estado
      *  global (imán, candados, herramienta armada…) a la celda nueva. */
     onReady?: (cellId: string) => void;
+    /** Letra tecleada en el iframe → abrir el buscador ÚNICO de la ventana. */
+    onOpenSymbolSearch?: (cellId: string, seed: string) => void;
+    /** Dígito tecleado en el iframe → abrir el diálogo ÚNICO de intervalo. */
+    onOpenIntervalDialog?: (cellId: string, seed: string) => void;
 }
 
 export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function TVChartCell(
@@ -161,6 +174,8 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
         onEscape,
         onSaveShortcut,
         onReady,
+        onOpenSymbolSearch,
+        onOpenIntervalDialog,
     },
     ref,
 ) {
@@ -206,6 +221,10 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
     onSaveShortcutRef.current = onSaveShortcut;
     const onReadyRef = useRef(onReady);
     onReadyRef.current = onReady;
+    const onOpenSymbolSearchRef = useRef(onOpenSymbolSearch);
+    onOpenSymbolSearchRef.current = onOpenSymbolSearch;
+    const onOpenIntervalDialogRef = useRef(onOpenIntervalDialog);
+    onOpenIntervalDialogRef.current = onOpenIntervalDialog;
 
     /** Lee símbolo/intervalo/tipo del chart activo (best-effort). */
     const readChartMeta = () => {
@@ -309,6 +328,25 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                 widgetRef.current?.activeChart().zoomOut();
             } catch { /* no listo */ }
         },
+        listStudies: () => {
+            try {
+                return widgetRef.current?.getStudiesList() ?? [];
+            } catch {
+                return [];
+            }
+        },
+        addStudy: (name: string) => {
+            try {
+                widgetRef.current
+                    ?.activeChart()
+                    .createStudy(name)
+                    ?.catch?.((err: unknown) => {
+                        console.warn(`[TVChartCell] createStudy("${name}") falló:`, err);
+                    });
+            } catch (err) {
+                console.warn(`[TVChartCell] createStudy("${name}") falló:`, err);
+            }
+        },
         getDrawingsState: async () => {
             try {
                 return await widgetRef.current?.activeChart().getLineToolsState();
@@ -334,7 +372,19 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
             const w = widgetRef.current;
             if (!w || !readyRef.current) return;
             try {
-                w.takeClientScreenshot().then((canvas: HTMLCanvasElement) => {
+                w.takeClientScreenshot().then(async (canvas: HTMLCanvasElement) => {
+                    // Logo Tradeul en la descarga, mismo sitio que el overlay
+                    // (bottom-left, por encima del eje de tiempo).
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        const dpr = window.devicePixelRatio || 1;
+                        const h = 20 * dpr;
+                        await drawTradeulLogoOnCanvas(ctx, {
+                            x: 12 * dpr,
+                            y: canvas.height - 34 * dpr - h,
+                            height: h,
+                        });
+                    }
                     canvas.toBlob((blob) => {
                         if (!blob) return;
                         const url = URL.createObjectURL(blob);
@@ -466,8 +516,26 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                     overrides: {
                         'paneProperties.background': background,
                         'paneProperties.backgroundType': 'solid',
+                        // Countdown de cierre de vela DENTRO de la etiqueta
+                        // del precio actual (default false en la CL). Solo
+                        // aplica en resoluciones intradía — limitación
+                        // documentada de la librería, igual en tradingview.com.
+                        'mainSeriesProperties.showCountdown': true,
                     },
-                    auto_save_delay: 1,
+                    // 5 s: cada autosave serializa el chart completo y dispara la
+                    // persistencia de la ventana (localStorage síncrono). A 1 s,
+                    // cualquier pan/zoom convertía el hilo principal en un
+                    // festival de JSON.stringify. Los cambios críticos (símbolo,
+                    // intervalo) persisten aparte vía persistNow inmediato, y los
+                    // cambios de layout/guardados congelan snapshots explícitos
+                    // (flushCellSnapshots), así que no se pierde nada relevante.
+                    auto_save_delay: 5,
+                    // La CL debouncea la búsqueda de símbolos: sin esto lanzaba
+                    // una petición por pulsación.
+                    symbol_search_request_delay: 300,
+                    // Indicadores propios de Tradeul (RVOL…): vía oficial de la
+                    // v31; la CL los lista y persiste como estudios normales.
+                    custom_indicators_getter: buildCustomIndicatorsGetter(),
                     // Celda headless: la ventana aporta SU toolbar y SU barra de
                     // dibujo únicas (estilo tradingview.com multichart).
                     disabled_features: [
@@ -499,6 +567,11 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                         // los dibujos (SaveChartOptions.includeDrawings
                         // default true) → los diseños no cambian.
                         'saveload_separate_drawings_storage',
+                        // resetData() (resync tras reconexión/background) solo
+                        // re-pide el rango visible: con 6-8 celdas evita una
+                        // tormenta de peticiones de histórico completo por
+                        // cada vuelta a la pestaña.
+                        'request_only_visible_range_on_reset',
                     ],
                 };
                 if (savedState) options.saved_data = savedState;
@@ -513,6 +586,19 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                     attemptsRef.current = 0;
                     stopWatchdog();
                     setFailed(false);
+
+                    // Logo Tradeul DENTRO del iframe, en la capa del logo de
+                    // TV que ocultamos: sus paneles quedan por encima.
+                    injectTradeulLogo(
+                        containerRef.current?.querySelector('iframe')?.contentDocument,
+                    );
+
+                    // El estado guardado (saved_data) restaura sus propias
+                    // propiedades y puede pisar los overrides del constructor:
+                    // re-aplicar el countdown SIEMPRE tras cargar.
+                    try {
+                        widget.applyOverrides({ 'mainSeriesProperties.showCountdown': true });
+                    } catch { /* opcional */ }
 
                     try {
                         widget.subscribe('onAutoSaveNeeded', persistNow);
@@ -532,10 +618,11 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                         });
                     } catch { /* opcional */ }
 
-                    // Teclas dentro del iframe (flujo TV). Los hotkeys nativos de
-                    // dígito/letra van ligados al header (aquí headless), así que
-                    // abrimos los diálogos NATIVOS vía executeActionById — mismo
-                    // diálogo que en tradingview.com, cero UI propia.
+                    // Teclas dentro del iframe (flujo TV). Los diálogos nativos
+                    // viven DENTRO del iframe (saldrían centrados en la celda):
+                    // se delega en los diálogos ÚNICOS de la ventana
+                    // (TVCommandDialogs), centrados en el conjunto y aplicados
+                    // a la celda enfocada — como en tradingview.com.
                     try {
                         const doc = containerRef.current?.querySelector('iframe')?.contentWindow?.document;
                         doc?.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -552,9 +639,11 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                             }
                             if (e.ctrlKey || e.metaKey || e.altKey) return;
                             if (/^[0-9]$/.test(e.key)) {
-                                widget.activeChart().executeActionById('changeInterval');
+                                e.preventDefault();
+                                onOpenIntervalDialogRef.current?.(cellId, e.key);
                             } else if (/^[a-zA-Z]$/.test(e.key)) {
-                                widget.activeChart().executeActionById('symbolSearch');
+                                e.preventDefault();
+                                onOpenSymbolSearchRef.current?.(cellId, e.key.toUpperCase());
                             }
                         });
                     } catch { /* iframe inaccesible */ }
@@ -615,10 +704,66 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mountEpoch]);
 
-    // Tras una reconexión del WS compartido, reemitir las suscripciones.
+    // ------------------------------------------------------------------
+    // Resync de datos (mecanismo oficial CL para cortes de conexión):
+    // invalidar la caché de barras del datafeed y forzar re-fetch con
+    // resetData(). Cierra huecos de velas de forma determinista — sin esto,
+    // la recuperación dependía de que el SIGUIENTE aggregate detectara gap,
+    // que en símbolos ilíquidos o resolución diaria puede no llegar nunca.
+    // ------------------------------------------------------------------
+    const resyncData = useCallback(() => {
+        if (!readyRef.current) return;
+        datafeedRef.current?.resyncAll();
+        try {
+            widgetRef.current?.activeChart().resetData();
+        } catch { /* widget en transición */ }
+    }, []);
+
+    // Tras una reconexión del WS compartido, reemitir las suscripciones y
+    // resincronizar el histórico. Solo en transiciones reales false→true:
+    // en el primer render el chart acaba de cargar y no hay hueco que cerrar.
+    const prevConnectedRef = useRef<boolean | null>(null);
     useEffect(() => {
-        if (isConnected) datafeedRef.current?.resubscribeAll();
-    }, [isConnected]);
+        const prev = prevConnectedRef.current;
+        prevConnectedRef.current = isConnected;
+        if (!isConnected) return;
+        datafeedRef.current?.resubscribeAll();
+        if (prev === false) resyncData();
+    }, [isConnected, resyncData]);
+
+    // Page Lifecycle: al volver de background (visibilitychange), de una
+    // congelación de pestaña (freeze/resume, Chrome) o de un corte de red
+    // (online), resincronizar si la ausencia superó el umbral. Mismo patrón
+    // ya validado en useLiveChartData para el chart legacy.
+    useEffect(() => {
+        const MIN_AWAY_MS = 5000;
+        let hiddenAt: number | null = null;
+
+        const onVisibility = () => {
+            if (document.visibilityState === 'hidden') {
+                hiddenAt = Date.now();
+                return;
+            }
+            const awayMs = hiddenAt ? Date.now() - hiddenAt : 0;
+            hiddenAt = null;
+            if (awayMs >= MIN_AWAY_MS) resyncData();
+        };
+        const onFreeze = () => {
+            if (hiddenAt == null) hiddenAt = Date.now();
+        };
+        const onOnline = () => resyncData();
+
+        document.addEventListener('visibilitychange', onVisibility);
+        document.addEventListener('freeze', onFreeze);
+        document.addEventListener('resume', onVisibility);
+        window.addEventListener('online', onOnline);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibility);
+            document.removeEventListener('freeze', onFreeze);
+            document.removeEventListener('resume', onVisibility);
+            window.removeEventListener('online', onOnline);
+        };
+    }, [resyncData]);
 
     return (
         <div
