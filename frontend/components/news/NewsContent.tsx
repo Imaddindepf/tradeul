@@ -3,14 +3,15 @@
 /**
  * NewsContent - Componente de PRESENTACIÓN de noticias
  * 
- * Arquitectura Enterprise:
- * - SOLO consume del NewsStore global (modo Live)
- * - Modo Search: query directa a Polygon API con filtros completos
+ * Arquitectura:
+ * - SIEMPRE en vivo (WS → NewsStore global); solo se detiene con el botón de pausa.
+ * - Búsqueda unificada, sin modos: filtra lo vivo en memoria Y consulta el
+ *   histórico persistido (/news/api/v1/news/history → news-persister/TimescaleDB),
+ *   fusionando ambos con dedupe por id/url. Lo nuevo que casa sigue entrando.
  * - VIRTUALIZADO con react-virtuoso para rendimiento óptimo
  */
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { TableVirtuoso, Virtuoso } from 'react-virtuoso';
 import { useNewsStore, NewsArticle, selectArticles, selectIsPaused, selectIsConnected, selectHasMore, selectIsLoadingMore, PAGE_SIZE } from '@/stores/useNewsStore';
@@ -23,12 +24,12 @@ import { ExternalLink, ArrowLeft, Loader2, SlidersHorizontal, Trash2 } from 'luc
 import { getUserTimezone } from '@/lib/date-utils';
 import { useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { decodeHtmlEntities } from '@/lib/html-utils';
+import { ExtractedBody } from '@/components/news/ArticleExtract';
 import {
   NewsFiltersPanel,
   NewsWindowFilters,
   EMPTY_WINDOW_FILTERS,
   countWindowFilters,
-  isServerSearch,
   PublisherEntry,
 } from '@/components/news/NewsFiltersPanel';
 import {
@@ -57,16 +58,29 @@ interface NewsContentProps {
   highlightArticleId?: string;
 }
 
-interface SearchFilters {
-  tickers: string;
-  channels: string;
-  tags: string;
-  author: string;
-  dateFrom: string;
-  dateTo: string;
+/** Capa de filtros por-ventana aplicada también a lo vivo (fechas, autor, canales, tags) */
+function matchesWindowLayer(article: NewsArticle, wf: NewsWindowFilters): boolean {
+  const ts = Date.parse(article.published);
+  if (wf.dateFrom && !isNaN(ts) && ts < Date.parse(`${wf.dateFrom}T00:00:00`)) return false;
+  if (wf.dateTo && !isNaN(ts) && ts > Date.parse(`${wf.dateTo}T23:59:59`)) return false;
+  if (wf.author && !(article.author || '').toLowerCase().includes(wf.author.toLowerCase())) return false;
+  if (wf.channels) {
+    const wanted = wf.channels.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (wanted.length && !(article.channels || []).some(c => wanted.includes(c.toLowerCase()))) return false;
+  }
+  if (wf.tags) {
+    const wanted = wf.tags.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const tags = ((article as { tags?: string[] }).tags) || [];
+    if (wanted.length && !tags.some(tg => wanted.includes(tg.toLowerCase()))) return false;
+  }
+  return true;
 }
 
-const EMPTY_FILTERS: SearchFilters = { tickers: '', channels: '', tags: '', author: '', dateFrom: '', dateTo: '' };
+// Los identificadores internos de feed jamás se muestran al usuario
+const CHANNEL_MASK: Record<string, string> = { Polygon: 'Newswire', FMP: 'Analysis' };
+function displayChannels(channels?: string[]): string {
+  return (channels || []).map((c) => CHANNEL_MASK[c] || c).join(', ');
+}
 
 function stripHtml(raw: string): string {
   return raw
@@ -105,15 +119,6 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const { t } = useTranslation();
   const { state: windowState, updateState: updateWindowState } = useWindowState<NewsWindowState>();
   const windowId = useCurrentWindowId();
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
-
-  // Find the portal target in the window title bar
-  useEffect(() => {
-    if (windowId) {
-      const el = document.getElementById(`window-header-extra-${windowId}`);
-      setPortalTarget(el);
-    }
-  }, [windowId]);
 
   // Fuente del usuario
   const userFont = useUserPreferencesStore((s) => s.theme.font);
@@ -162,16 +167,13 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const virtuosoRef = useRef<any>(null);
 
   // ================================================================
-  // SEARCH MODE STATE
+  // HISTORY STATE (búsqueda unificada sobre lo persistido; lo vivo no se para)
   // ================================================================
-  const [isSearchMode, setIsSearchMode] = useState(false);
-  const [searchFilters, setSearchFilters] = useState<SearchFilters>(EMPTY_FILTERS);
-  const [searchResults, setSearchResults] = useState<NewsArticle[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchNextUrl, setSearchNextUrl] = useState<string | null>(null);
-  const [searchLoadingMore, setSearchLoadingMore] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [searchExecuted, setSearchExecuted] = useState(false);
+  const [historyResults, setHistoryResults] = useState<NewsArticle[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyCursor, setHistoryCursor] = useState<{ before: string; before_id: string } | null>(null);
 
   // ================================================================
   // FILTROS: capa por-ventana + capa global (store persistido)
@@ -226,10 +228,13 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     return articles.filter(article => {
       if (tickerFilter && !article.tickers?.some(t => t.toUpperCase() === upperFilter)) return false;
       if (!matchesGlobalFilters(article, globalFilters)) return false;
-      if (textFilter && !article.title.toLowerCase().includes(textFilter)) return false;
+      if (!matchesWindowLayer(article, windowFilters)) return false;
+      if (textFilter
+        && !article.title.toLowerCase().includes(textFilter)
+        && !(article.teaser || '').toLowerCase().includes(textFilter)) return false;
       return true;
     });
-  }, [articles, tickerFilter, searchText, globalFilters]);
+  }, [articles, tickerFilter, searchText, globalFilters, windowFilters]);
 
   // Publishers observados en el feed cargado (para el panel de filtros)
   const publisherEntries: PublisherEntry[] = useMemo(() => {
@@ -248,97 +253,105 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     articles.filter(a => a.isLive).length
     , [articles]);
 
-  // Data source: search mode vs live mode
-  const displayedArticles = isSearchMode ? searchResults : filteredNews;
+  // ¿Hay criterios que ameritan consultar el pasado?
+  const historyOn = useMemo(() =>
+    searchText.trim().length >= 2 || !!tickerFilter || countWindowFilters(windowFilters) > 0,
+    [searchText, tickerFilter, windowFilters]);
 
-  // ================================================================
-  // SEARCH HANDLERS
-  // ================================================================
-  const handleSearch = useCallback(async (sf: SearchFilters) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    setSearchLoading(true);
-    setSearchError(null);
-    setSearchExecuted(true);
-
-    try {
-      const params = new URLSearchParams();
-      if (sf.tickers) params.set('tickers', sf.tickers.toUpperCase());
-      if (sf.channels) params.set('channels', sf.channels);
-      if (sf.tags) params.set('tags', sf.tags);
-      if (sf.author) params.set('author', sf.author);
-      if (sf.dateFrom) params.set('published_after', sf.dateFrom);
-      if (sf.dateTo) params.set('published_before', sf.dateTo);
-      params.set('limit', '200');
-
-      const response = await fetch(`${apiUrl}/news/api/v1/news/search?${params}`);
-      if (!response.ok) throw new Error(`Search failed: ${response.status}`);
-
-      const data = await response.json();
-      setSearchResults(data.results || []);
-      setSearchNextUrl(data.next_url || null);
-    } catch (e: any) {
-      console.error('[NewsContent] Search error:', e);
-      setSearchError(e.message || 'Search failed');
-      setSearchResults([]);
-    } finally {
-      setSearchLoading(false);
+  // Una sola lista: lo vivo filtrado + el histórico, dedupe por id y por url
+  const displayedArticles = useMemo(() => {
+    if (!historyOn || historyResults.length === 0) return filteredNews;
+    const seen = new Set<string>();
+    const out: NewsArticle[] = [];
+    for (const a of [...filteredNews, ...historyResults]) {
+      const idKey = String(a.id ?? a.benzinga_id ?? a.url);
+      const urlKey = a.url || idKey;
+      if (seen.has(idKey) || seen.has(urlKey)) continue;
+      seen.add(idKey);
+      seen.add(urlKey);
+      out.push(a);
     }
-  }, []);
+    out.sort((x, y) => (Date.parse(y.published) || 0) - (Date.parse(x.published) || 0));
+    return out;
+  }, [historyOn, filteredNews, historyResults]);
 
-  const handleLoadMoreSearch = useCallback(async () => {
-    if (!searchNextUrl || searchLoadingMore) return;
+  // ================================================================
+  // HISTORY ENGINE — consulta lo persistido; lo vivo nunca se detiene
+  // ================================================================
+  const buildHistoryParams = useCallback((cursor?: { before: string; before_id: string } | null) => {
+    const params = new URLSearchParams();
+    const q = searchText.trim();
+    if (q.length >= 2) params.set('q', q);
+    if (tickerFilter) params.set('tickers', tickerFilter);
+    if (windowFilters.channels) params.set('channels', windowFilters.channels);
+    if (windowFilters.tags) params.set('tags', windowFilters.tags);
+    if (windowFilters.author) params.set('publisher', windowFilters.author);
+    if (windowFilters.dateFrom) params.set('date_from', windowFilters.dateFrom);
+    if (windowFilters.dateTo) params.set('date_to', windowFilters.dateTo);
+    if (globalFilters.feeds.length) params.set('sources', globalFilters.feeds.join(','));
+    if (cursor) {
+      params.set('before', cursor.before);
+      params.set('before_id', cursor.before_id);
+    }
+    params.set('limit', '150');
+    return params;
+  }, [searchText, tickerFilter, windowFilters, globalFilters.feeds]);
+
+  const runHistorySearch = useCallback(async () => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    setSearchLoadingMore(true);
-
+    setHistoryLoading(true);
+    setHistoryError(null);
     try {
-      const response = await fetch(`${apiUrl}/news/api/v1/news/search/cursor?cursor_url=${encodeURIComponent(searchNextUrl)}`);
-      if (!response.ok) throw new Error('Cursor fetch failed');
-
+      const response = await fetch(`${apiUrl}/news/api/v1/news/history?${buildHistoryParams()}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      setSearchResults(prev => [...prev, ...(data.results || [])]);
-      setSearchNextUrl(data.next_url || null);
+      setHistoryResults(data.results || []);
+      setHistoryCursor(data.next_cursor || null);
     } catch (e) {
-      console.error('[NewsContent] Load more error:', e);
+      console.error('[NewsContent] History search error:', e);
+      setHistoryError('unavailable');
+      setHistoryResults([]);
+      setHistoryCursor(null);
     } finally {
-      setSearchLoadingMore(false);
+      setHistoryLoading(false);
     }
-  }, [searchNextUrl, searchLoadingMore]);
+  }, [buildHistoryParams]);
 
-  const handleExitSearch = useCallback(() => {
-    setIsSearchMode(false);
-    setSearchResults([]);
-    setSearchNextUrl(null);
-    setSearchError(null);
-    setSearchExecuted(false);
-    setSearchFilters(EMPTY_FILTERS);
-  }, []);
+  const loadMoreHistory = useCallback(async () => {
+    if (!historyCursor || historyLoadingMore) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    setHistoryLoadingMore(true);
+    try {
+      const response = await fetch(`${apiUrl}/news/api/v1/news/history?${buildHistoryParams(historyCursor)}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      setHistoryResults(prev => [...prev, ...(data.results || [])]);
+      setHistoryCursor(data.next_cursor || null);
+    } catch (e) {
+      console.error('[NewsContent] History load more error:', e);
+    } finally {
+      setHistoryLoadingMore(false);
+    }
+  }, [historyCursor, historyLoadingMore, buildHistoryParams]);
 
-  const handleEnterSearch = useCallback(() => {
-    setIsSearchMode(true);
-    setShowFilters(true);
-  }, []);
+  // Debounce: 400ms tras el último cambio de criterios; sin criterios, se limpia
+  useEffect(() => {
+    if (!historyOn) {
+      setHistoryResults([]);
+      setHistoryCursor(null);
+      setHistoryError(null);
+      return;
+    }
+    const timer = setTimeout(runHistorySearch, 400);
+    return () => clearTimeout(timer);
+  }, [historyOn, runHistorySearch]);
 
   // Aplicar configuración del panel de filtros (capa por-ventana;
   // la capa global la guarda el propio panel en el store)
   const handleApplyFilters = useCallback((next: NewsWindowFilters) => {
     setWindowFilters(next);
     setShowFilters(false);
-    if (isServerSearch(next)) {
-      const sf: SearchFilters = {
-        tickers: tickerFilter,
-        channels: next.channels,
-        tags: next.tags,
-        author: next.author,
-        dateFrom: next.dateFrom,
-        dateTo: next.dateTo,
-      };
-      setSearchFilters(sf);
-      setIsSearchMode(true);
-      handleSearch(sf);
-    } else if (isSearchMode) {
-      handleExitSearch();
-    }
-  }, [tickerFilter, isSearchMode, handleSearch, handleExitSearch]);
+  }, []);
 
   // Limpia la capa por-ventana (los filtros globales se mantienen)
   const handleClearAll = useCallback(() => {
@@ -346,16 +359,15 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     setTickerFilter('');
     setSearchText('');
     setWindowFilters(EMPTY_WINDOW_FILTERS);
-    if (isSearchMode) handleExitSearch();
-  }, [isSearchMode, handleExitSearch]);
+  }, []);
 
   // ================================================================
   // LIVE MODE: Infinite scroll
   // ================================================================
   const loadMoreRef = useRef(false);
   const handleEndReached = useCallback(async () => {
-    if (isSearchMode) return; // Don't load live articles in search mode
-    if (loadMoreRef.current || !hasMore || isLoadingMore || tickerFilter) return;
+    if (historyOn) { loadMoreHistory(); return; } // hacia el pasado persistido
+    if (loadMoreRef.current || !hasMore || isLoadingMore) return;
     loadMoreRef.current = true;
     setLoadingMore(true);
 
@@ -374,7 +386,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     } finally {
       loadMoreRef.current = false;
     }
-  }, [isSearchMode, hasMore, isLoadingMore, tickerFilter, articles.length, setLoadingMore, loadOlderArticles]);
+  }, [historyOn, loadMoreHistory, hasMore, isLoadingMore, articles.length, setLoadingMore, loadOlderArticles]);
 
   // ================================================================
   // EFFECTS
@@ -468,7 +480,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   // ================================================================
   // LOADING STATE
   // ================================================================
-  if (!stats.initialLoadComplete && !isSearchMode && articles.length === 0) {
+  if (!stats.initialLoadComplete && articles.length === 0) {
     return (
       <div className="flex items-center justify-center h-full bg-surface">
         <div className="text-center">
@@ -508,15 +520,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             <span>·</span>
             <span>{dt.time}</span>
           </div>
-          <a
-            href={selectedArticle.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium flex items-center gap-1"
-          >
-            <ExternalLink className="w-3 h-3" />
-            {t('news.openOriginal')}
-          </a>
+          <span className="w-16 shrink-0" />
         </div>
 
         <div className="flex-1 overflow-auto">
@@ -529,7 +533,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               <span>By {selectedArticle.author}</span>
               {selectedArticle.channels && selectedArticle.channels.length > 0 && (
                 <span className="text-muted-fg">
-                  {selectedArticle.channels.join(', ')}
+                  {displayChannels(selectedArticle.channels)}
                 </span>
               )}
               {selectedArticle.sentiment && (
@@ -565,21 +569,15 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 className="prose prose-sm max-w-none text-foreground leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: selectedArticle.body || '' }}
               />
-            ) : hasTeaser ? (
-              <div className="text-foreground leading-relaxed">
-                <p className="mb-4">{decodeHtmlEntities(selectedArticle.teaser || '')}</p>
-                <a href={selectedArticle.url} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-primary hover:text-primary-hover font-medium text-sm">
-                  {t('news.readMore')} <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              </div>
             ) : (
-              <div className="text-center py-8">
-                <p className="text-muted-fg mb-4">{t('news.fullContentNotAvailable')}</p>
-                <a href={selectedArticle.url} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-hover font-medium text-sm">
-                  <ExternalLink className="w-4 h-4" /> {t('news.openOnBenzinga')}
-                </a>
+              <div className="text-foreground leading-relaxed">
+                {hasTeaser && (
+                  <p className="text-[13px] leading-relaxed text-muted-fg mb-4">
+                    {decodeHtmlEntities(selectedArticle.teaser || '')}
+                  </p>
+                )}
+                {/* Cuerpo extraído en servidor y renderizado nativo (estilo terminal) */}
+                <ExtractedBody url={selectedArticle.url} />
               </div>
             )}
           </div>
@@ -602,25 +600,6 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           onApply={handleApplyFilters}
           onCancel={() => setShowFilters(false)}
         />
-      )}
-
-      {/* Title bar toggle via portal */}
-      {portalTarget && createPortal(
-        <div className="flex items-center bg-muted rounded p-0.5 mr-1.5" style={{ fontFamily }}>
-          <button
-            onClick={isSearchMode ? handleExitSearch : undefined}
-            className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${!isSearchMode ? 'bg-surface text-emerald-700 shadow-sm font-medium' : 'text-muted-fg hover:text-foreground'}`}
-          >
-            {t('news.liveMode')}
-          </button>
-          <button
-            onClick={!isSearchMode ? handleEnterSearch : undefined}
-            className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${isSearchMode ? 'bg-surface text-foreground shadow-sm font-medium' : 'text-muted-fg hover:text-foreground'}`}
-          >
-            {t('news.searchMode')}
-          </button>
-        </div>,
-        portalTarget
       )}
 
       {/* Header Row 1 */}
@@ -663,7 +642,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             )}
           </div>
 
-          {(tickerFilter || searchText || countWindowFilters(windowFilters) > 0 || isSearchMode) && (
+          {(tickerFilter || searchText || countWindowFilters(windowFilters) > 0) && (
             <button onClick={handleClearAll}
               className="px-1.5 py-0.5 text-[10px] rounded border border-border text-foreground/80 hover:bg-surface-hover transition-colors"
               style={{ fontFamily }}>
@@ -726,22 +705,37 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
         </div>
       </div>
 
-      {/* Search summary row (only in search mode) */}
-      {isSearchMode && (
+      {/* Estado de búsqueda unificada: histórico + live simultáneos */}
+      {historyOn && (
         <div className="flex items-center gap-1.5 flex-wrap px-2 py-1 bg-surface-hover border-b border-border text-[10px]" style={{ fontFamily }}>
-          <span className="text-foreground/80">
-            {searchLoading ? t('news.searching') : `${searchResults.length} ${t('news.filters.results')}`}
-          </span>
-          {(searchFilters.dateFrom || searchFilters.dateTo) && (
-            <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">
-              {searchFilters.dateFrom || '…'} → {searchFilters.dateTo || '…'}
+          {historyLoading ? (
+            <span className="flex items-center gap-1 text-foreground/80">
+              <Loader2 className="w-3 h-3 animate-spin" /> {t('news.searching')}
+            </span>
+          ) : (
+            <span className="text-foreground/80">
+              {displayedArticles.length} {t('news.filters.results')}
+              {historyResults.length > 0 && <span className="text-muted-fg"> · {historyResults.length} hist</span>}
             </span>
           )}
-          {searchFilters.tags && <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">{searchFilters.tags}</span>}
-          {searchFilters.author && <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">{searchFilters.author}</span>}
-          {searchFilters.channels && <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">{searchFilters.channels}</span>}
+          <span className="flex items-center gap-1 text-emerald-600">
+            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> live
+          </span>
+          {(windowFilters.dateFrom || windowFilters.dateTo) && (
+            <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">
+              {windowFilters.dateFrom || '…'} → {windowFilters.dateTo || '…'}
+            </span>
+          )}
+          {windowFilters.tags && <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">{windowFilters.tags}</span>}
+          {windowFilters.author && <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">{windowFilters.author}</span>}
+          {windowFilters.channels && <span className="px-1.5 py-0.5 rounded border border-border text-foreground/80">{windowFilters.channels}</span>}
+          {historyError && (
+            <span className="text-amber-500" title="El histórico no respondió; se muestra solo lo cargado en vivo">
+              {t('common.offline')}: hist
+            </span>
+          )}
           <button onClick={() => setShowFilters(true)}
-            className="ml-1 px-1.5 py-0.5 rounded border border-border text-foreground/80 hover:bg-surface transition-colors">
+            className="ml-auto px-1.5 py-0.5 rounded border border-border text-foreground/80 hover:bg-surface transition-colors">
             {t('news.filters.editFilters')}
           </button>
         </div>
@@ -794,30 +788,12 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
         </div>
       )}
 
-      {/* Search: loading/error/empty states */}
-      {isSearchMode && searchLoading && (
+      {/* Virtualized Content (lista única, vacío inline) */}
+      {displayedArticles.length === 0 && !historyLoading ? (
         <div className="flex flex-1 items-center justify-center bg-surface">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-fg mr-2" />
-          <span className="text-sm text-muted-fg">{t('news.searching')}</span>
+          <span className="text-sm text-muted-fg">{t('news.noSearchResults')}</span>
         </div>
-      )}
-
-      {isSearchMode && searchError && (
-        <div className="flex flex-1 items-center justify-center bg-surface">
-          <span className="text-sm text-red-500">{searchError}</span>
-        </div>
-      )}
-
-      {isSearchMode && !searchLoading && !searchError && searchResults.length === 0 && (
-        <div className="flex flex-1 items-center justify-center bg-surface">
-          <span className="text-sm text-muted-fg">
-            {searchExecuted ? t('news.noSearchResults') : t('news.filters.noSearchYet')}
-          </span>
-        </div>
-      )}
-
-      {/* Virtualized Content */}
-      {(!isSearchMode || (isSearchMode && searchResults.length > 0)) && !searchLoading && (
+      ) : (
         <div className="flex-1 flex flex-col">
           {newsViewMode === 'table' ? (
             <TableVirtuoso
@@ -825,7 +801,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               style={{ height: '100%' }}
               data={displayedArticles}
               overscan={20}
-              endReached={isSearchMode ? undefined : handleEndReached}
+              endReached={handleEndReached}
               fixedHeaderContent={() => (
                 <tr className="text-left uppercase tracking-wide text-foreground/80 bg-surface-inset">
                   <th className="px-1.5 py-1 font-medium text-[11px]" style={{ fontFamily }}>{t('news.headline')}</th>
@@ -838,7 +814,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               )}
               itemContent={(index, article) => {
                 const dt = formatDateTime(article.published);
-                const displayTicker = tickerFilter && !isSearchMode
+                const displayTicker = tickerFilter
                   ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
                   : (article.tickers?.[0] || '—');
                 const hasMultipleTickers = (article.tickers?.length || 0) > 1;
@@ -909,28 +885,10 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 ),
                 TableFoot: React.forwardRef(({ style, ...props }, ref) => (
                   <tfoot {...props} ref={ref} style={style}>
-                    {/* Live mode: loading more */}
-                    {!isSearchMode && isLoadingMore && (
+                    {(isLoadingMore || historyLoadingMore) && (
                       <tr>
                         <td colSpan={NEWS_COLS.length - hiddenCols.size} className="text-center py-2 text-xs text-muted-fg" style={{ fontFamily }}>
                           Loading more...
-                        </td>
-                      </tr>
-                    )}
-                    {/* Search mode: load more button */}
-                    {isSearchMode && searchNextUrl && (
-                      <tr>
-                        <td colSpan={NEWS_COLS.length - hiddenCols.size} className="text-center py-2">
-                          <button
-                            onClick={handleLoadMoreSearch}
-                            disabled={searchLoadingMore}
-                            className="px-3 py-1 text-[10px] bg-surface-inset text-foreground rounded hover:bg-surface-hover disabled:opacity-50 transition-colors"
-                            style={{ fontFamily }}
-                          >
-                            {searchLoadingMore ? (
-                              <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading...</span>
-                            ) : t('news.loadMore')}
-                          </button>
                         </td>
                       </tr>
                     )}
@@ -945,7 +903,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 style={{ height: '100%' }}
                 data={displayedArticles}
                 overscan={20}
-                endReached={isSearchMode ? undefined : handleEndReached}
+                endReached={handleEndReached}
                 itemContent={(index, article) => {
                   const dt = formatDateTime(article.published);
                   const articleId = String(article.benzinga_id || article.id || '');
@@ -983,23 +941,9 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                   );
                 }}
               />
-              {!isSearchMode && isLoadingMore && (
+              {(isLoadingMore || historyLoadingMore) && (
                 <div className="text-center py-2 text-xs text-muted-fg" style={{ fontFamily }}>
                   Loading more...
-                </div>
-              )}
-              {isSearchMode && searchNextUrl && (
-                <div className="text-center py-2 border-t border-border-subtle">
-                  <button
-                    onClick={handleLoadMoreSearch}
-                    disabled={searchLoadingMore}
-                    className="px-3 py-1 text-[10px] bg-surface-inset text-foreground rounded hover:bg-surface-hover disabled:opacity-50 transition-colors"
-                    style={{ fontFamily }}
-                  >
-                    {searchLoadingMore ? (
-                      <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading...</span>
-                    ) : t('news.loadMore')}
-                  </button>
                 </div>
               )}
             </>
@@ -1055,7 +999,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               {isConnected ? t('common.live') : t('common.offline')}
             </span>
           </div>
-          {!isSearchMode && liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
+          {liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
           {isPaused && pausedBuffer.length > 0 && (
             <span className="text-muted-fg">(+{pausedBuffer.length})</span>
           )}
@@ -1065,7 +1009,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
         </div>
         <span className="text-foreground/80">
           {t('news.filters.showing', { n: displayedArticles.length })}
-          {!isSearchMode && (tickerFilter || activeFilterCount > 0) ? ` / ${articles.length}` : ''}
+          {!historyOn && (tickerFilter || activeFilterCount > 0) ? ` / ${articles.length}` : ''}
         </span>
       </div>
     </div>

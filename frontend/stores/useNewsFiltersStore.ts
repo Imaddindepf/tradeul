@@ -29,16 +29,19 @@ export const NEWS_FEEDS: FeedDef[] = [
   { key: 'press', label: 'Press Releases', channel: 'Press Releases' },
   { key: 'general', label: 'General News', channel: 'General' },
   { key: 'forex', label: 'Forex News', channel: 'Forex' },
-  { key: 'articles', label: 'FMP Articles', channel: 'FMP' },
-  { key: 'polygon', label: 'Polygon News', channel: 'Polygon' },
+  { key: 'articles', label: 'Analysis', channel: 'FMP' },
+  { key: 'polygon', label: 'Newswire', channel: 'Polygon' },
 ];
 
 const FEED_BY_KEY: Record<string, FeedDef> = Object.fromEntries(NEWS_FEEDS.map(f => [f.key, f]));
 
 export function matchesFeeds(article: NewsArticle, feeds: string[]): boolean {
   if (feeds.length === 0) return true;
-  const isFmp = article.source === 'fmp' || String(article.id || '').startsWith('fmp_');
-  if (!isFmp) return feeds.includes('benzinga');
+  const id = String(article.id || '');
+  const source = article.source
+    || (id.startsWith('fmp_') ? 'fmp' : id.startsWith('poly_') ? 'polygon' : 'benzinga');
+  if (source === 'benzinga') return feeds.includes('benzinga');
+  if (source === 'polygon') return feeds.includes('polygon');
   const channels = article.channels || [];
   return feeds.some(key => {
     const feed = FEED_BY_KEY[key];

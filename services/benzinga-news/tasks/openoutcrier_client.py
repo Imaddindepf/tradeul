@@ -42,7 +42,7 @@ from typing import Optional, List, Dict, Any
 import httpx
 import structlog
 
-from models.news import BenzingaArticle, NewsFilterParams
+from models.news import BenzingaArticle
 
 logger = structlog.get_logger(__name__)
 
@@ -240,51 +240,6 @@ class OpenOutcrierBenzingaClient:
         pool = await self._paginate_back(max(limit * 10, 200))
         filtered = [a for a in pool if ticker in (a.tickers or [])]
         return filtered[:limit]
-
-    async def search_news(
-        self, params: Optional[NewsFilterParams] = None, **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Búsqueda con paginación por cursor. Trae un lote hacia atrás, filtra por
-        tickers en memoria y devuelve el id más antiguo como cursor `next_url`.
-        """
-        limit = (params.limit if params and params.limit else kwargs.get("limit", 100))
-        pool = await self._paginate_back(max(limit, self.page_size))
-
-        articles = pool
-        if params and params.tickers:
-            wanted = {t.strip().upper() for t in params.tickers.split(",") if t.strip()}
-            articles = [
-                a for a in pool if wanted.intersection(set(a.tickers or []))
-            ]
-
-        articles = articles[:limit]
-
-        next_url = None
-        if pool:
-            oldest = min(a.benzinga_id_cursor for a in pool)
-            next_url = f"ooc:bz:{oldest}"
-
-        return {"articles": articles, "next_url": next_url}
-
-    async def fetch_cursor_url(self, cursor_url: str) -> Dict[str, Any]:
-        """
-        Sigue el cursor devuelto por search_news. El cursor codifica el id
-        (snowflake) desde el que seguir hacia atrás.
-        """
-        cursor = cursor_url
-        if cursor.startswith("ooc:bz:"):
-            cursor = cursor.split(":", 2)[2]
-
-        items = await self._load(cursor, direction="pre")
-        articles = self._dedup_sort(self._parse_items(items))
-
-        next_url = None
-        if articles:
-            oldest = min(a.benzinga_id_cursor for a in articles)
-            next_url = f"ooc:bz:{oldest}"
-
-        return {"articles": articles, "next_url": next_url}
 
     def get_stats(self) -> Dict[str, Any]:
         return self.stats.copy()
