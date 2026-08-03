@@ -132,6 +132,8 @@ export const EVENT_CATEGORY_LABELS: Record<string, string> = {
  * Categorías de eventos del sistema (predefinidas)
  */
 export interface EventCategoryDefaults {
+  // Per-alert min quality thresholds (same contract as the events store)
+  [key: `aq:${string}`]: number | undefined;
   // Price & basics
   min_price?: number;
   max_price?: number;
@@ -196,9 +198,9 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     id: 'evt_parabolic_movers',
     label: 'Parabolic Movers',
     description: 'Extreme moves: +10%, massive volume, low float',
-    eventTypes: ['percent_up_10', 'volume_surge', 'new_high', 'running_up_confirmed'],
+    eventTypes: ['percent_up_day', 'volume_surge', 'new_high', 'running_up_confirmed'],
     icon: '🚀',
-    defaultFilters: { min_price: 2, min_rvol: 4, min_volume: 500000, max_market_cap: 5000000000, max_float_shares: 30000000, min_gap_percent: 3 },
+    defaultFilters: { min_price: 2, min_rvol: 4, min_volume: 500000, max_market_cap: 5000000000, max_float_shares: 30000000, min_gap_percent: 3, 'aq:percent_up_day': 10 },
   },
   // ══════════════════════════════════════════════════════════════════════
   // GAPS — Edge: Failed/recovered gaps = high probability reversal setups
@@ -248,7 +250,7 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     id: 'evt_squeeze_play',
     label: 'Squeeze Play',
     description: 'Low float + massive volume + Bollinger breakout',
-    eventTypes: ['running_up_confirmed', 'volume_surge', 'bb_upper_breakout', 'new_high'],
+    eventTypes: ['running_up_confirmed', 'volume_surge', 'std_dev_breakout', 'new_high'],
     icon: '💥',
     defaultFilters: { min_price: 2, max_float_shares: 20000000, min_rvol: 4, min_gap_percent: 3, max_market_cap: 2000000000, min_volume: 300000 },
   },
@@ -259,9 +261,9 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     id: 'evt_institutional_bid',
     label: 'Institutional Bid',
     description: 'Large cap momentum with institutional volume footprint',
-    eventTypes: ['volume_surge', 'percent_up_5', 'running_up_confirmed', 'crossed_daily_high_resistance'],
+    eventTypes: ['volume_surge', 'percent_up_day', 'running_up_confirmed', 'crossed_daily_high_resistance'],
     icon: '🏦',
-    defaultFilters: { min_market_cap: 5000000000, min_volume: 1000000, min_rvol: 2, min_price: 20, min_change_percent: 1 },
+    defaultFilters: { min_market_cap: 5000000000, min_volume: 1000000, min_rvol: 2, min_price: 20, min_change_percent: 1, 'aq:percent_up_day': 5 },
   },
   // ══════════════════════════════════════════════════════════════════════
   // REVERSAL — Edge: Oversold bounce with volume = mean reversion setup
@@ -278,7 +280,7 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     id: 'evt_breakdown_short',
     label: 'Breakdown Short',
     description: 'Technical breakdown with confirmed downward momentum',
-    eventTypes: ['running_down_confirmed', 'bb_lower_breakdown', 'crossed_daily_low_support'],
+    eventTypes: ['running_down_confirmed', 'std_dev_breakdown', 'crossed_daily_low_support'],
     icon: '⬇️',
     defaultFilters: { max_change_percent: -2, min_rvol: 2, min_volume: 200000, min_price: 5, min_market_cap: 300000000 },
   },
@@ -289,7 +291,7 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     id: 'evt_orb_play',
     label: 'Opening Range Play',
     description: 'ORB breakout with gap and volume',
-    eventTypes: ['orb_breakout_up', 'orb_breakout_down', 'volume_surge'],
+    eventTypes: ['orb_up_5min', 'orb_down_5min', 'volume_surge'],
     icon: '⏰',
     defaultFilters: { min_price: 3, min_rvol: 2, min_volume: 200000, min_gap_percent: 1, max_market_cap: 10000000000 },
   },
@@ -297,7 +299,7 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     id: 'evt_consolidation_break',
     label: 'Consolidation Break',
     description: 'Tight range breakout with volume confirmation',
-    eventTypes: ['consolidation_breakout_up', 'consolidation_breakout_down', 'volume_surge'],
+    eventTypes: ['channel_breakout', 'channel_breakdown', 'volume_surge'],
     icon: '📦',
     defaultFilters: { min_price: 3, min_rvol: 2, min_volume: 200000, max_market_cap: 10000000000 },
   },

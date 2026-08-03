@@ -203,7 +203,7 @@ export function TVToolbar({
             style={{
                 height: 38,
                 borderColor: 'var(--color-border, rgba(128,128,128,0.25))',
-                background: 'var(--color-bg, transparent)',
+                background: 'var(--color-surface, transparent)',
             }}
         >
             {/* Símbolo de la celda enfocada → diálogo nativo de búsqueda */}

@@ -169,6 +169,37 @@ if [ "$DAY_OF_WEEK" -eq 7 ]; then
 fi
 
 # =============================================================================
+# 5b. EVENT LAKE → R2 (sync incremental, SIN rotación)
+# =============================================================================
+# El lake (/data/lake: eventos archivados + point-in-time de referencia) es la
+# ÚNICA historia de eventos más allá de los 3 días de retención de la BD.
+# Es acumulativo e inmutable por diseño (particiones dt=YYYY-MM-DD cerradas),
+# así que va a su propia carpeta en R2, fuera de backups/ — la rotación de
+# 7 diarios NUNCA debe tocarlo. rclone copy es incremental: tras la subida
+# inicial (~16 GB), cada noche sube solo el día nuevo (~1.6 GB).
+LAKE_DIR="/var/lib/docker/volumes/tradeul_lake_data/_data"
+R2_LAKE="r2:tradeul-data/lake"
+
+log "Sincronizando event lake a R2..."
+if [ ! -d "$LAKE_DIR/events" ]; then
+    error "Event lake no encontrado en $LAKE_DIR"
+    false  # dispara el trap ERR: sin lake local no hay nada que proteger
+fi
+
+rclone copy "$LAKE_DIR/" "$R2_LAKE/" --transfers 8 --exclude "*.tmp" 2>&1 | tail -3
+
+# Verificación por conteo: el remoto es acumulativo, debe tener AL MENOS
+# tantos ficheros como el local (nunca menos — eso sería subida incompleta).
+LAKE_LOCAL_COUNT=$(find "$LAKE_DIR" -type f ! -name "*.tmp" | wc -l)
+LAKE_REMOTE_COUNT=$(rclone ls "$R2_LAKE/" 2>/dev/null | wc -l)
+if [ "$LAKE_REMOTE_COUNT" -lt "$LAKE_LOCAL_COUNT" ]; then
+    error "Sync del lake incompleto: ${LAKE_REMOTE_COUNT}/${LAKE_LOCAL_COUNT} archivos en R2"
+    false  # dispara el trap ERR
+fi
+LAKE_SIZE=$(du -sh "$LAKE_DIR" 2>/dev/null | cut -f1)
+log "Event lake en R2: ${LAKE_REMOTE_COUNT} archivos (local: ${LAKE_LOCAL_COUNT}, ${LAKE_SIZE})"
+
+# =============================================================================
 # 6. ROTACIÓN - Eliminar backups antiguos
 # =============================================================================
 log "Rotando backups antiguos..."
@@ -211,6 +242,7 @@ log "BACKUP COMPLETADO en ${DURATION}s"
 echo "  📦 TimescaleDB: $PGDUMP_SIZE"
 echo "  📦 Redis:       $REDIS_SIZE"
 echo "  📦 Config:      $CONFIG_SIZE"
+echo "  📦 Event lake:  ${LAKE_SIZE:-n/a} (${LAKE_REMOTE_COUNT:-0} archivos en R2, sin rotación)"
 echo "  ☁️  Destino:     $DAILY_PATH"
 echo "  🗓️  Retención:   ${DAILY_RETENTION} diarios + ${WEEKLY_RETENTION} semanales"
 echo "============================================================"

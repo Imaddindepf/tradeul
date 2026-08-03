@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import type { MutableRefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useFloatingWindowActions, useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
-import { useLinkGroupSubscription } from '@/hooks/useLinkGroup';
 import { useMarketSessionStore, selectSession, selectIsTrading } from '@/stores/useMarketSessionStore';
 import type { TickerSearchRef } from '@/components/common/TickerSearch';
 import type { ChartWindowState, Interval, TimeRange } from '../constants';
@@ -25,7 +24,6 @@ export function useTickerManagement(
     const { state: windowState, updateState: updateWindowState } = useWindowState<ChartWindowState>();
     const windowId = useCurrentWindowId?.();
     const { openWindow, updateWindow } = useFloatingWindowActions();
-    const linkBroadcast = useLinkGroupSubscription();
 
     // In layout mode the parent (ChartCell) owns the ticker. We always seed
     // from `initialTicker` and ignore `windowState.ticker` (which is shared
@@ -101,15 +99,6 @@ export function useTickerManagement(
         setCurrentTicker(initialTicker);
         setInputValue(initialTicker);
     }, [initialTicker, inLayoutMode]);
-
-    // Link group: subscribe to ticker broadcasts
-    useEffect(() => {
-        if (linkBroadcast?.ticker) {
-            tickerSearchRef.current?.suppressSearch();
-            setCurrentTicker(linkBroadcast.ticker.toUpperCase());
-            setInputValue(linkBroadcast.ticker.toUpperCase());
-        }
-    }, [linkBroadcast]);
 
     // Persist window state
     const persistState = useCallback((

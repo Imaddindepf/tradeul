@@ -25,6 +25,11 @@ interface TVLayoutGridProps {
     /** Devuelve el contenido de la celda con ese índice (0-based). */
     renderCell: (cellIndex: number) => ReactNode;
     gap?: number;
+    /**
+     * Índice (0-based) de la celda maximizada, o null para la rejilla normal.
+     * Ver la nota de `styleFor` sobre por qué esto solo toca estilos.
+     */
+    maximizedIndex?: number | null;
 }
 
 /** Longitud como fracción del contenedor raíz: `calc(pct% + px)`. */
@@ -89,7 +94,12 @@ function computeRects(tree: LayoutNode, gap: number): Map<number, CellRect> {
     return rects;
 }
 
-export function TVLayoutGrid({ layoutId, renderCell, gap = 2 }: TVLayoutGridProps) {
+export function TVLayoutGrid({
+    layoutId,
+    renderCell,
+    gap = 2,
+    maximizedIndex = null,
+}: TVLayoutGridProps) {
     const def = TV_LAYOUTS[layoutId] ?? TV_LAYOUTS.s;
     const rects = useMemo(() => computeRects(def.tree, gap), [def, gap]);
     // Orden de render SIEMPRE por índice de celda: si el orden de los hijos
@@ -99,20 +109,41 @@ export function TVLayoutGrid({ layoutId, renderCell, gap = 2 }: TVLayoutGridProp
     const ordered = Array.from(rects.entries()).sort(([a], [b]) => a - b);
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-            {ordered.map(([index, r]) => (
-                <div
-                    key={`cell-${index}`}
-                    style={{
-                        position: 'absolute',
-                        left: css(r.left),
-                        top: css(r.top),
-                        width: css(r.width),
-                        height: css(r.height),
-                    }}
-                >
-                    {renderCell(index)}
-                </div>
-            ))}
+            {ordered.map(([index, r]) => {
+                /*
+                  MAXIMIZAR = SOLO ESTILOS. Misma razón que la rejilla plana:
+                  las celdas son iframes de la Charting Library, así que ni se
+                  desmontan ni cambian de sitio en el DOM — la maximizada pasa
+                  a ocupar el 100% por encima y el resto se van a
+                  `visibility: hidden` CONSERVANDO su rect.
+
+                  Conservar el rect no es cosmético: es lo que evita que las
+                  ocultas se reduzcan a 0x0 y que al restaurar cada iframe
+                  tenga que rehacer su layout. Además siguen vivas, que es lo
+                  que hace TradingView — sus charts ocultos continúan
+                  recibiendo ticks y cerrando velas mientras no se ven.
+                */
+                const isMaximized = maximizedIndex === index;
+                const isHidden = maximizedIndex !== null && !isMaximized;
+                return (
+                    <div
+                        key={`cell-${index}`}
+                        style={{
+                            position: 'absolute',
+                            left: isMaximized ? 0 : css(r.left),
+                            top: isMaximized ? 0 : css(r.top),
+                            width: isMaximized ? '100%' : css(r.width),
+                            height: isMaximized ? '100%' : css(r.height),
+                            zIndex: isMaximized ? 1 : undefined,
+                            visibility: isHidden ? 'hidden' : undefined,
+                            pointerEvents: isHidden ? 'none' : undefined,
+                        }}
+                        aria-hidden={isHidden || undefined}
+                    >
+                        {renderCell(index)}
+                    </div>
+                );
+            })}
         </div>
     );
 }

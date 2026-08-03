@@ -1356,6 +1356,8 @@ services:
     volumes:
       - polygon_data:/data/polygon:ro
       - backtester_data:/data/backtester
+      - lake_data:/data/lake:ro
+      - ./shared/config:/app/shared/config:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -1392,6 +1394,8 @@ services:
     volumes:
       - polygon_data:/data/polygon:ro
       - backtester_data:/data/backtester
+      - lake_data:/data/lake:ro
+      - ./shared/config:/app/shared/config:ro
     depends_on:
       redis:
         condition: service_healthy

@@ -20,6 +20,7 @@ sys.path.append('/app')
 from shared.utils.logger import get_logger
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
+from tasks.archive_enriched_close import ArchiveEnrichedCloseTask
 from tasks.archive_market_events import ArchiveMarketEventsTask
 from tasks.archive_reference_snapshots import ArchiveReferenceSnapshotsTask
 from tasks.archive_scanner_categories import ArchiveScannerCategoriesTask
@@ -36,6 +37,7 @@ class LakeArchiverScheduler:
         self.events_task = ArchiveMarketEventsTask(timescale_client)
         self.reference_task = ArchiveReferenceSnapshotsTask(timescale_client)
         self.categories_task = ArchiveScannerCategoriesTask(redis_client)
+        self.enriched_task = ArchiveEnrichedCloseTask(redis_client)
 
     async def run(self) -> None:
         logger.info("lake_archiver_scheduler started (interval=%ss)", INTERVAL_SECONDS)
@@ -62,4 +64,9 @@ class LakeArchiverScheduler:
                 await self.categories_task.execute()
             except Exception as exc:  # noqa: BLE001
                 logger.error("lake_archiver categories pass failed: %s", exc)
+            try:
+                # Enriched del cierre: idempotente, 1×/sesión ET (TTL fuente 7d).
+                await self.enriched_task.execute()
+            except Exception as exc:  # noqa: BLE001
+                logger.error("lake_archiver enriched pass failed: %s", exc)
             await asyncio.sleep(INTERVAL_SECONDS)

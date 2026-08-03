@@ -197,6 +197,15 @@ def compute_advanced_metrics(
     sk = float(skew(daily_returns)) if T > 2 else 0.0
     kurt = float(scipy_kurtosis(daily_returns, fisher=False)) if T > 2 else 3.0
 
+    # Curva de equity plana (varianza cero): scipy devuelve NaN porque sin
+    # dispersión no hay asimetría ni curtosis que medir. Caemos a los mismos
+    # supuestos que con pocas observaciones (normal) en vez de propagar el NaN
+    # a PSR/DSR y tumbar la respuesta entera al validarla.
+    if not math.isfinite(sk):
+        sk = 0.0
+    if not math.isfinite(kurt):
+        kurt = 3.0
+
     # ── Standard error of SR estimator ──
     sr_var_numer = 1 - sk * observed_sharpe + ((kurt - 1) / 4) * observed_sharpe ** 2
     sr_std = math.sqrt(max(sr_var_numer, 0.0) / max(T, 1))

@@ -119,6 +119,9 @@ export const EXTRA_STUDY_ALIASES: Record<string, string[]> = {
     'Volume Profile Visible Range': ['Perfil de volumen de rango visible'],
     'Momentum': ['Momento'],
     'RVOL Volumen Relativo': ['Relative Volume'],
+    // Nombre EN oficial de TradingView para este estudio (el ES "VWAP
+    // autoanclado" sale literal del bundle es.500 de la propia CL).
+    'VWAP autoanclado': ['VWAP Auto Anchored', 'Auto Anchored VWAP', 'VWAP AA', 'AVWAP'],
 };
 
 /** lowercase + sin acentos: 'Índice' → 'indice' (búsqueda tolerante). */

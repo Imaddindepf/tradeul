@@ -15,3 +15,6 @@ redis>=5.2.0
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 kaleido>=0.2.1
+
+# duckdb lo exige para TIMESTAMP WITH TIME ZONE → objetos Python (lake de eventos)
+pytz>=2024.1

@@ -12,6 +12,8 @@ import {
     X,
     Plus,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
     ArrowUpDown,
     RefreshCw,
     Zap,
@@ -27,7 +29,9 @@ import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useScreenerTemplates, type ScreenerTemplate, type FilterCondition as TemplateFilterCondition } from '@/hooks/useScreenerTemplates';
-import { useWindowState } from '@/contexts/FloatingWindowContext';
+import { useWindowState, useFloatingWindowActions } from '@/contexts/FloatingWindowContext';
+import { useLinkGroupPublisher } from '@/hooks/useLinkGroup';
+import { openLinkedTVChart } from '@/lib/openLinkedTVChart';
 
 interface ScreenerWindowState {
     filters?: FilterCondition[];
@@ -553,6 +557,7 @@ function FieldSelect({
     variant = 'default',
     fontFamily,
     minWidth = 120,
+    block = false,
 }: {
     value: string;
     onChange: (value: string) => void;
@@ -562,6 +567,8 @@ function FieldSelect({
     variant?: 'default' | 'field-compare';
     fontFamily: string;
     minWidth?: number;
+    /** Ocupa todo el ancho disponible (panel lateral) en vez de minWidth/maxWidth. */
+    block?: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState('');
@@ -595,16 +602,17 @@ function FieldSelect({
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [open]);
 
+    // El modo fx se distingue por la cursiva del propio valor, no por color.
     const triggerClass = variant === 'field-compare'
-        ? 'bg-transparent text-primary border-border hover:border-primary'
-        : 'bg-transparent text-foreground border-border hover:border-primary';
+        ? 'bg-transparent text-foreground italic border-border hover:border-muted-fg'
+        : 'bg-transparent text-foreground border-border hover:border-muted-fg';
 
     return (
-        <div ref={containerRef} className="relative" style={{ fontFamily }}>
+        <div ref={containerRef} className={`relative ${block ? 'w-full' : ''}`} style={{ fontFamily }}>
             <button
                 onClick={() => setOpen(!open)}
-                className={`flex items-center gap-1 px-1.5 py-0.5 rounded border font-medium truncate ${triggerClass}`}
-                style={{ fontSize: '12px', minWidth, maxWidth: 160 }}
+                className={`flex items-center gap-1 px-1.5 py-[2px] rounded-sm border truncate ${block ? 'w-full justify-between' : ''} ${triggerClass}`}
+                style={block ? { fontSize: '11px' } : { fontSize: '11px', minWidth, maxWidth: 160 }}
             >
                 <span className="truncate">{currentOption?.label || value}</span>
                 <ChevronDown className={`w-3 h-3 shrink-0 text-muted-fg transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -612,7 +620,7 @@ function FieldSelect({
 
             {open && (
                 <div
-                    className="absolute top-full left-0 mt-0.5 bg-surface border border-border rounded shadow-lg z-50 overflow-hidden"
+                    className="absolute top-full left-0 mt-0.5 bg-surface border border-border rounded-sm shadow-lg z-50 overflow-hidden"
                     style={{ minWidth: Math.max(minWidth, 180), maxHeight: 280, fontFamily }}
                 >
                     <div className="px-1.5 py-1 border-b border-border-subtle">
@@ -622,8 +630,8 @@ function FieldSelect({
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder="Search..."
-                            className="w-full px-1.5 py-0.5 rounded bg-surface-hover border border-border text-foreground outline-none focus:border-primary"
-                            style={{ fontSize: '12px', fontFamily }}
+                            className="w-full px-1.5 py-0.5 rounded-sm bg-surface-hover border border-border text-foreground outline-none focus:border-muted-fg"
+                            style={{ fontSize: '11px', fontFamily }}
                         />
                     </div>
                     <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
@@ -636,7 +644,7 @@ function FieldSelect({
                                         key={o.value}
                                         onClick={() => { onChange(o.value); setOpen(false); }}
                                         className={`w-full text-left px-2 py-1 hover:bg-surface-hover transition-colors ${
-                                            o.value === value ? 'text-primary font-medium' : 'text-foreground'
+                                            o.value === value ? 'bg-foreground text-[var(--color-bg)]' : 'text-foreground'
                                         }`}
                                         style={{ fontSize: '12px', fontFamily }}
                                     >
@@ -658,7 +666,7 @@ function FieldSelect({
                                                 key={o.value}
                                                 onClick={() => { onChange(o.value); setOpen(false); }}
                                                 className={`w-full text-left px-2 py-1 hover:bg-surface-hover transition-colors ${
-                                                    o.value === value ? 'text-primary font-medium' : 'text-foreground'
+                                                    o.value === value ? 'bg-foreground text-[var(--color-bg)]' : 'text-foreground'
                                                 }`}
                                                 style={{ fontSize: '12px', fontFamily }}
                                             >
@@ -705,8 +713,8 @@ function OperatorSelect({
         <div ref={containerRef} className="relative" style={{ fontFamily }}>
             <button
                 onClick={() => setOpen(!open)}
-                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-transparent text-foreground font-medium hover:border-primary transition-colors border border-border"
-                style={{ fontSize: '12px', minWidth: 44 }}
+                className="flex items-center gap-0.5 px-1.5 py-[2px] rounded-sm bg-transparent text-foreground hover:border-muted-fg transition-colors border border-border"
+                style={{ fontSize: '11px', minWidth: 40 }}
             >
                 {current?.label || value}
                 <ChevronDown className={`w-2.5 h-2.5 text-muted-fg transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -714,7 +722,7 @@ function OperatorSelect({
 
             {open && (
                 <div
-                    className="absolute top-full left-0 mt-0.5 bg-surface border border-border rounded shadow-lg z-50 overflow-hidden"
+                    className="absolute top-full left-0 mt-0.5 bg-surface border border-border rounded-sm shadow-lg z-50 overflow-hidden"
                     style={{ minWidth: 100, fontFamily }}
                 >
                     {options.map(op => (
@@ -722,9 +730,9 @@ function OperatorSelect({
                             key={op.value}
                             onClick={() => { onChange(op.value); setOpen(false); }}
                             className={`w-full text-left px-2 py-1 hover:bg-surface-hover transition-colors ${
-                                op.value === value ? 'text-primary font-medium' : 'text-foreground'
+                                op.value === value ? 'bg-foreground text-[var(--color-bg)]' : 'text-foreground'
                             }`}
-                            style={{ fontSize: '12px', fontFamily }}
+                            style={{ fontSize: '11px', fontFamily }}
                         >
                             {op.label}
                         </button>
@@ -820,42 +828,10 @@ function FilterBuilder({
     // Check if a filter is a signal/boolean
     const isSignalFilter = (field: string) => SIGNAL_FIELDS.some(s => s.value === field);
 
-    // Active signal fields
-    const activeSignals = filters.filter(f => isSignalFilter(f.field)).map(f => f.field);
-
     return (
-        <div className="space-y-2">
-            {/* ── Signal Toggles (boolean conditions) ── */}
-            <div className="flex flex-wrap gap-1">
-                {SIGNAL_FIELDS.map((signal) => {
-                    const isActive = activeSignals.includes(signal.value);
-                    return (
-                        <button
-                            key={signal.value}
-                            onClick={() => {
-                                if (isActive) {
-                                    const idx = filters.findIndex(f => f.field === signal.value);
-                                    if (idx >= 0) removeFilter(idx);
-                                } else {
-                                    addSignal(signal.value);
-                                }
-                            }}
-                            className={`px-2 py-0.5 rounded-full border transition-all ${
-                                isActive
-                                    ? 'text-primary border-primary bg-primary/10'
-                                    : 'text-foreground border-border hover:border-border hover:text-foreground'
-                            }`}
-                            style={{ fontSize: '11px', fontFamily }}
-                            title={signal.label}
-                        >
-                            {signal.label}
-                        </button>
-                    );
-                })}
-            </div>
-
+        <div className="space-y-1.5">
             {/* ── Dynamic Filters (numeric / field-vs-field) ── */}
-            {filters.filter(f => !isSignalFilter(f.field)).map((filter, _visibleIdx) => {
+            {filters.filter(f => !isSignalFilter(f.field)).map((filter) => {
                 const realIndex = filters.indexOf(filter);
                 const fieldInfo = getFieldInfo(filter.field);
                 const hasParams = isParametric(fieldInfo);
@@ -864,35 +840,49 @@ function FilterBuilder({
                 const operators = isFieldMode ? FIELD_OPERATORS : VALUE_OPERATORS;
 
                 return (
-                    <div key={realIndex} className="flex items-center gap-1 bg-surface rounded-md border border-border px-1.5 py-1 shadow-sm">
-                        {/* ── Left Field ── */}
-                        <FieldSelect
-                            value={filter.field}
-                            onChange={(val) => updateFilter(realIndex, { field: val, params: undefined })}
-                            options={AVAILABLE_FIELDS}
-                            fontFamily={fontFamily}
-                            minWidth={120}
-                        />
+                    <div key={realIndex} className="group/f rounded-sm border border-border-subtle hover:border-border px-1.5 py-1">
+                        {/* ── Fila 1: campo + periodo + quitar ── */}
+                        <div className="flex items-center gap-1 mb-1">
+                            <div className="flex-1 min-w-0">
+                                <FieldSelect
+                                    value={filter.field}
+                                    onChange={(val) => updateFilter(realIndex, { field: val, params: undefined })}
+                                    options={AVAILABLE_FIELDS}
+                                    fontFamily={fontFamily}
+                                    block
+                                />
+                            </div>
 
-                        {/* Period for parametric */}
-                        {hasParams && (
-                            <input
-                                type="number"
-                                value={currentPeriod}
-                                onChange={(e) => {
-                                    const val = parseInt(e.target.value) || 14;
-                                    updateFilter(realIndex, {
-                                        params: { period: Math.max(2, Math.min(200, val)) }
-                                    });
-                                }}
-                                min={2}
-                                max={200}
-                                className="w-[36px] px-1 py-0.5 rounded bg-transparent text-primary font-medium border border-primary/30 text-center"
-                                style={{ fontSize: '11px', fontFamily }}
-                                title="Period (2-200)"
-                            />
-                        )}
+                            {/* Period for parametric */}
+                            {hasParams && (
+                                <input
+                                    type="number"
+                                    value={currentPeriod}
+                                    onChange={(e) => {
+                                        const val = parseInt(e.target.value) || 14;
+                                        updateFilter(realIndex, {
+                                            params: { period: Math.max(2, Math.min(200, val)) }
+                                        });
+                                    }}
+                                    min={2}
+                                    max={200}
+                                    className="w-[32px] shrink-0 px-1 py-[2px] rounded-sm bg-transparent text-foreground border border-border text-center"
+                                    style={{ fontSize: '11px', fontFamily }}
+                                    title="Period (2-200)"
+                                />
+                            )}
 
+                            <button
+                                onClick={() => removeFilter(realIndex)}
+                                className="shrink-0 p-0.5 text-muted-fg opacity-0 group-hover/f:opacity-100 hover:text-[var(--color-chart-down)] transition-opacity"
+                                title="Remove filter"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </div>
+
+                        {/* ── Fila 2: operador + modo + valor ── */}
+                        <div className="flex items-center gap-1 flex-wrap">
                         {/* ── Operator ── */}
                         <OperatorSelect
                             value={filter.operator}
@@ -902,27 +892,27 @@ function FilterBuilder({
                         />
 
                         {/* ── Mode toggle: Value vs Field ── */}
-                        <div className="flex rounded overflow-hidden border border-border">
+                        <div className="flex rounded-sm overflow-hidden border border-border shrink-0">
                             <button
                                 onClick={() => updateFilter(realIndex, { compareMode: 'value' })}
-                                className={`px-1.5 py-0.5 transition-colors ${
+                                className={`px-1.5 py-[2px] transition-colors ${
                                     !isFieldMode
-                                        ? 'text-primary bg-primary/10'
-                                        : 'text-foreground hover:text-foreground'
+                                        ? 'bg-foreground text-[var(--color-bg)]'
+                                        : 'text-muted-fg hover:text-foreground'
                                 }`}
-                                style={{ fontSize: '12px', fontWeight: 600, fontFamily }}
+                                style={{ fontSize: '11px', fontFamily }}
                                 title="Compare to numeric value"
                             >
                                 123
                             </button>
                             <button
                                 onClick={() => updateFilter(realIndex, { compareMode: 'field' })}
-                                className={`px-1.5 py-0.5 transition-colors border-l border-border ${
+                                className={`px-1.5 py-[2px] transition-colors border-l border-border ${
                                     isFieldMode
-                                        ? 'text-primary bg-primary/10'
-                                        : 'text-foreground hover:text-foreground'
+                                        ? 'bg-foreground text-[var(--color-bg)]'
+                                        : 'text-muted-fg hover:text-foreground'
                                 }`}
-                                style={{ fontSize: '12px', fontWeight: 600, fontStyle: 'italic', fontFamily }}
+                                style={{ fontSize: '11px', fontStyle: 'italic', fontFamily }}
                                 title="Compare to another indicator"
                             >
                                 fx
@@ -931,15 +921,17 @@ function FilterBuilder({
 
                         {/* ── Right Side: Value or Field selector ── */}
                         {isFieldMode ? (
-                            <FieldSelect
-                                value={typeof filter.value === 'string' ? filter.value : 'sma_50'}
-                                onChange={(val) => updateFilter(realIndex, { value: val })}
-                                options={AVAILABLE_FIELDS}
-                                exclude={filter.field}
-                                variant="field-compare"
-                                fontFamily={fontFamily}
-                                minWidth={120}
-                            />
+                            <div className="flex-1 min-w-[110px]">
+                                <FieldSelect
+                                    value={typeof filter.value === 'string' ? filter.value : 'sma_50'}
+                                    onChange={(val) => updateFilter(realIndex, { value: val })}
+                                    options={AVAILABLE_FIELDS}
+                                    exclude={filter.field}
+                                    variant="field-compare"
+                                    fontFamily={fontFamily}
+                                    block
+                                />
+                            </div>
                         ) : filter.operator === 'between' && fieldInfo?.type === 'units' ? (
                             (() => {
                                 // Backfill multiplier/displayMin/displayMax from the absolute
@@ -962,10 +954,10 @@ function FilterBuilder({
                                                     multiplier: currentMult
                                                 } as any);
                                             }}
-                                            className="w-[42px] px-1 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
-                                            style={{ fontSize: '12px', fontFamily }}
+                                            className="w-[44px] px-1 py-[2px] rounded-sm border border-border bg-surface text-foreground"
+                                            style={{ fontSize: '11px', fontFamily }}
                                         />
-                                        <span className="text-foreground" style={{ fontSize: '12px', fontFamily }}>to</span>
+                                        <span className="text-foreground" style={{ fontSize: '11px', fontFamily }}>to</span>
                                         <input
                                             type="number"
                                             value={currentMax}
@@ -978,8 +970,8 @@ function FilterBuilder({
                                                     multiplier: currentMult
                                                 } as any);
                                             }}
-                                            className="w-[42px] px-1 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
-                                            style={{ fontSize: '12px', fontFamily }}
+                                            className="w-[44px] px-1 py-[2px] rounded-sm border border-border bg-surface text-foreground"
+                                            style={{ fontSize: '11px', fontFamily }}
                                         />
                                         <select
                                             value={currentMult}
@@ -992,7 +984,7 @@ function FilterBuilder({
                                                     multiplier: mult
                                                 } as any);
                                             }}
-                                            className="px-1 py-0.5 rounded border border-border bg-surface-hover text-foreground"
+                                            className="px-1 py-[2px] rounded-sm border border-border bg-surface-hover text-foreground"
                                             style={{ fontSize: '11px', fontFamily }}
                                         >
                                             <option value={1000}>K</option>
@@ -1009,17 +1001,17 @@ function FilterBuilder({
                                     onChange={(val) => updateFilter(realIndex, {
                                         value: [val, Array.isArray(filter.value) ? filter.value[1] : 0]
                                     })}
-                                    className="w-[55px] px-1.5 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
-                                    style={{ fontSize: '12px' }}
+                                    className="w-[52px] px-1.5 py-[2px] rounded-sm border border-border bg-surface text-foreground"
+                                    style={{ fontSize: '11px' }}
                                 />
-                                <span className="text-foreground" style={{ fontSize: '12px', fontFamily }}>to</span>
+                                <span className="text-foreground" style={{ fontSize: '11px', fontFamily }}>to</span>
                                 <NumberInput
                                     value={Array.isArray(filter.value) ? filter.value[1] : 0}
                                     onChange={(val) => updateFilter(realIndex, {
                                         value: [Array.isArray(filter.value) ? filter.value[0] : 0, val]
                                     })}
-                                    className="w-[55px] px-1.5 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
-                                    style={{ fontSize: '12px', fontFamily }}
+                                    className="w-[52px] px-1.5 py-[2px] rounded-sm border border-border bg-surface text-foreground"
+                                    style={{ fontSize: '11px', fontFamily }}
                                 />
                                 {fieldInfo?.unit && (
                                     <span className="text-foreground" style={{ fontSize: '11px', fontFamily }}>{fieldInfo.unit}</span>
@@ -1041,8 +1033,8 @@ function FilterBuilder({
                                                 const num = parseFloat(e.target.value) || 0;
                                                 updateFilter(realIndex, { value: num * currentMult, displayValue: num, multiplier: currentMult } as any);
                                             }}
-                                            className="w-[48px] px-1.5 py-0.5 rounded-l border border-border bg-[var(--color-input-bg)] text-foreground font-medium"
-                                            style={{ fontSize: '12px', fontFamily }}
+                                            className="w-[48px] px-1.5 py-[2px] rounded-l-sm border border-border bg-surface text-foreground"
+                                            style={{ fontSize: '11px', fontFamily }}
                                         />
                                         <select
                                             value={currentMult}
@@ -1050,8 +1042,8 @@ function FilterBuilder({
                                                 const mult = parseInt(e.target.value);
                                                 updateFilter(realIndex, { value: currentDisplay * mult, displayValue: currentDisplay, multiplier: mult } as any);
                                             }}
-                                            className="px-1 py-0.5 rounded-r border border-l-0 border-border bg-surface-hover text-foreground"
-                                            style={{ fontSize: '12px', fontFamily }}
+                                            className="px-1 py-0.5 rounded-r-sm border border-l-0 border-border bg-surface-hover text-foreground"
+                                            style={{ fontSize: '11px', fontFamily }}
                                         >
                                             <option value={1000}>K</option>
                                             <option value={1000000}>M</option>
@@ -1065,8 +1057,8 @@ function FilterBuilder({
                                 <NumberInput
                                     value={typeof filter.value === 'number' ? filter.value : 0}
                                     onChange={(val) => updateFilter(realIndex, { value: val })}
-                                    className="w-[60px] px-1.5 py-0.5 rounded border border-border bg-surface text-foreground font-medium"
-                                    style={{ fontSize: '12px', fontFamily }}
+                                    className="w-[56px] px-1.5 py-[2px] rounded-sm border border-border bg-surface text-foreground"
+                                    style={{ fontSize: '11px', fontFamily }}
                                 />
                                 {fieldInfo?.unit && (
                                     <span className="text-foreground" style={{ fontSize: '11px', fontFamily }}>{fieldInfo.unit}</span>
@@ -1074,25 +1066,85 @@ function FilterBuilder({
                             </div>
                         )}
 
-                        {/* Remove */}
-                        <button
-                            onClick={() => removeFilter(realIndex)}
-                            className="p-0.5 text-muted-fg hover:text-red-500 ml-auto"
-                        >
-                            <X className="w-3 h-3" />
-                        </button>
+                        </div>
                     </div>
                 );
             })}
 
             <button
                 onClick={addFilter}
-                className="flex items-center gap-1 px-2 py-1 text-primary hover:bg-primary/10 rounded border border-dashed border-primary/30"
-                style={{ fontSize: '12px' }}
+                className="w-full flex items-center gap-1 px-1.5 py-1 text-muted-fg hover:text-foreground hover:border-muted-fg rounded-sm border border-dashed border-border transition-colors"
+                style={{ fontSize: '11px', fontFamily }}
             >
                 <Plus className="w-3 h-3" />
-                Add Filter
+                Add filter
             </button>
+        </div>
+    );
+}
+
+// ============================================================================
+// Etiqueta de seccion del panel lateral
+// ============================================================================
+
+function SectionLabel({ children, fontFamily }: { children: React.ReactNode; fontFamily: string }) {
+    return (
+        <div
+            className="text-muted-fg uppercase tracking-wide mb-1"
+            style={{ fontSize: '10px', fontFamily }}
+        >
+            {children}
+        </div>
+    );
+}
+
+// ============================================================================
+// Signal Chips — condiciones booleanas, en su propia seccion del panel
+// ============================================================================
+
+function SignalChips({
+    filters,
+    onFiltersChange,
+    fontFamily,
+}: {
+    filters: FilterCondition[];
+    onFiltersChange: (filters: FilterCondition[]) => void;
+    fontFamily: string;
+}) {
+    const activeSignals = filters
+        .filter(f => SIGNAL_FIELDS.some(s => s.value === f.field))
+        .map(f => f.field);
+
+    const toggle = (field: string) => {
+        const idx = filters.findIndex(f => f.field === field);
+        if (idx >= 0) {
+            onFiltersChange(filters.filter((_, i) => i !== idx));
+        } else {
+            onFiltersChange([...filters, { field, operator: 'eq', value: true, compareMode: 'value' }]);
+        }
+    };
+
+    return (
+        <div className="flex flex-wrap gap-1">
+            {SIGNAL_FIELDS.map((signal) => {
+                const isActive = activeSignals.includes(signal.value);
+                return (
+                    <button
+                        key={signal.value}
+                        onClick={() => toggle(signal.value)}
+                        // Activo = inversion (fondo fg, texto bg). Sin color de marca.
+                        className={`px-1.5 py-[2px] rounded-sm border transition-colors ${
+                            isActive
+                                ? 'bg-foreground text-[var(--color-bg)] border-foreground'
+                                : 'text-muted-fg border-border hover:text-foreground hover:border-muted-fg'
+                        }`}
+                        style={{ fontSize: '10px', fontFamily }}
+                        title={signal.label}
+                    >
+                        {signal.label}
+                    </button>
+                );
+            })}
         </div>
     );
 }
@@ -1140,9 +1192,16 @@ const formatNumber = (value: number | null, decimals = 1) => {
     return value.toFixed(decimals);
 };
 
+// ── Paleta ──────────────────────────────────────────────────────────────────
+// Solo dos acentos en toda la ventana: subida y bajada. Todo lo demas es
+// neutro (fg / muted-fg / borders). El estado activo se marca invirtiendo
+// fondo y texto, no con un color de marca.
+const UP = 'text-[var(--color-chart-up)]';
+const DOWN = 'text-[var(--color-chart-down)]';
+
 const getChangeColor = (value: number | null) => {
     if (value === null) return 'text-muted-fg';
-    return value >= 0 ? 'text-emerald-600' : 'text-red-500';
+    return value >= 0 ? UP : DOWN;
 };
 
 // Storage helpers for persistence
@@ -1166,6 +1225,11 @@ const saveScreenerStorage = (key: string, value: unknown) => {
     }
 };
 
+// ── Densidad de la rejilla ──────────────────────────────────────────────────
+// Fila de 20px con texto de 11px. El virtualizador asume este alto exacto.
+const ROW_HEIGHT = 20;
+const GRID_FONT = '11px';
+
 // Default visible columns (the rest start hidden)
 const DEFAULT_VISIBLE_COLUMNS: Record<string, boolean> = {
     symbol: true, price: true, change_1d: true, change_5d: true,
@@ -1186,7 +1250,7 @@ const screenerColumns = [
             return (
                 <button
                     onClick={() => onSymbolClick?.(symbol)}
-                    className="font-semibold text-primary hover:text-primary-hover hover:underline cursor-pointer"
+                    className="font-medium text-foreground hover:underline underline-offset-2 cursor-pointer"
                 >
                     {symbol}
                 </button>
@@ -1293,7 +1357,9 @@ const screenerColumns = [
         cell: (info) => {
             const v = info.getValue();
             const near = v !== null && v > -5;
-            return <span className={near ? 'text-emerald-600 font-medium' : 'text-foreground'}>{formatPercent(v)}</span>;
+            // Cerca del maximo se marca con peso, no con color: el color queda
+            // reservado a los valores con signo.
+            return <span className={near ? 'text-foreground font-medium' : 'text-muted-fg'}>{formatPercent(v)}</span>;
         },
     }),
     screenerColumnHelper.accessor('from_52w_low', {
@@ -1322,8 +1388,10 @@ const screenerColumns = [
         cell: (info) => {
             const v = info.getValue();
             if (v === null) return <span className="text-muted-fg">-</span>;
-            const color = v < 30 ? 'text-red-500' : v > 70 ? 'text-emerald-600' : 'text-foreground';
-            return <span className={color}>{v.toFixed(0)}</span>;
+            // Extremos (<30 / >70) destacan por peso. RSI no es direccion de
+            // precio, asi que no toma los acentos de subida/bajada.
+            const extreme = v < 30 || v > 70;
+            return <span className={extreme ? 'text-foreground font-medium' : 'text-muted-fg'}>{v.toFixed(0)}</span>;
         },
     }),
 
@@ -1416,7 +1484,10 @@ const screenerColumns = [
         cell: (info) => {
             const v = info.getValue();
             if (v === null) return <span className="text-muted-fg">-</span>;
-            return <span className={v === 1 ? 'text-amber-600 font-medium' : 'text-muted-fg'}>{v === 1 ? 'ON' : 'OFF'}</span>;
+            // Chip invertido en vez de un tercer color.
+            return v === 1
+                ? <span className="px-1 rounded-sm bg-foreground text-[var(--color-bg)] font-medium">ON</span>
+                : <span className="text-muted-fg">OFF</span>;
         },
     }),
     screenerColumnHelper.accessor('squeeze_momentum', {
@@ -1442,12 +1513,12 @@ const screenerColumns = [
     screenerColumnHelper.accessor('plus_di_14', {
         header: '+DI',
         size: 55,
-        cell: (info) => <span className="text-emerald-600">{formatNumber(info.getValue(), 0)}</span>,
+        cell: (info) => <span className={UP}>{formatNumber(info.getValue(), 0)}</span>,
     }),
     screenerColumnHelper.accessor('minus_di_14', {
         header: '-DI',
         size: 55,
-        cell: (info) => <span className="text-red-500">{formatNumber(info.getValue(), 0)}</span>,
+        cell: (info) => <span className={DOWN}>{formatNumber(info.getValue(), 0)}</span>,
     }),
 ];
 
@@ -1517,8 +1588,10 @@ function ResultsTable({
     const rowVirtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => scrollContainerRef.current,
-        estimateSize: () => 30,
-        overscan: 10,
+        // 11px + py-[3px] + 1px de separacion => 20px por fila. Debe coincidir
+        // con el alto real del <tr> o el scroll se desalinea.
+        estimateSize: () => ROW_HEIGHT,
+        overscan: 12,
     });
 
     const virtualRows = rowVirtualizer.getVirtualItems();
@@ -1529,9 +1602,9 @@ function ResultsTable({
         : 0;
 
     return (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
             {/* Table Settings */}
-            <div className="flex-shrink-0 flex justify-end px-2 py-1 bg-surface-hover/50 border-b border-border-subtle">
+            <div className="flex-shrink-0 flex justify-end px-2 py-0.5 border-b border-border-subtle">
                 <TableSettings
                     table={table}
                     fontFamily={fontFamily}
@@ -1550,8 +1623,10 @@ function ResultsTable({
 
             {/* Table (virtualized) */}
             <div ref={scrollContainerRef} className="overflow-auto flex-1">
-                <table className="w-full text-left" style={{ fontSize: '12px', fontFamily }}>
-                    <thead className="sticky top-0 bg-surface-hover border-b border-border z-10">
+                <table className="w-full text-left tabular-nums" style={{ fontSize: GRID_FONT, fontFamily }}>
+                    {/* Fondo opaco obligatorio: con sticky translucido las filas
+                        se transparentan por debajo de la cabecera al hacer scroll. */}
+                    <thead className="sticky top-0 bg-[var(--color-table-header)] border-b border-border z-10">
                         {table.getHeaderGroups().map((headerGroup) => (
                             <tr key={headerGroup.id}>
                                 {headerGroup.headers.map((header, headerIndex) => {
@@ -1588,15 +1663,17 @@ function ResultsTable({
                                                     table.setColumnOrder(newOrder);
                                                 }
                                             }}
-                                            className={`px-2 py-1.5 font-semibold text-foreground cursor-grab select-none hover:bg-surface-hover ${isFirstColumn ? 'text-left' : 'text-right'}`}
-                                            style={{ width: header.getSize(), fontSize: '11px' }}
+                                            // Cabecera mas alta que la fila (28 vs 20) para que
+                                            // lea como chrome y no como el primer registro.
+                                            className={`px-2 py-[7px] text-muted-fg uppercase tracking-wide cursor-grab select-none border-r border-border-subtle last:border-r-0 hover:text-foreground ${isFirstColumn ? 'text-left' : 'text-right'}`}
+                                            style={{ width: header.getSize(), fontSize: '10px' }}
                                             onClick={header.column.getToggleSortingHandler()}
                                         >
                                             <div className={`flex items-center gap-1 ${isFirstColumn ? 'justify-start' : 'justify-end'}`}>
                                                 {flexRender(header.column.columnDef.header, header.getContext())}
                                                 {{
-                                                    asc: ' ↑',
-                                                    desc: ' ↓',
+                                                    asc: <span className="text-foreground">↑</span>,
+                                                    desc: <span className="text-foreground">↓</span>,
                                                 }[header.column.getIsSorted() as string] ?? null}
                                             </div>
                                         </th>
@@ -1613,16 +1690,22 @@ function ResultsTable({
                             const row = rows[virtualRow.index];
                             const i = virtualRow.index;
                             return (
+                                // Sin regla horizontal: el zebra ya separa filas.
+                                // La tinta se gasta en separar columnas.
                                 <tr
                                     key={row.id}
-                                    className={`border-b border-border-subtle hover:bg-surface-hover/80 ${i % 2 === 0 ? 'bg-surface' : 'bg-surface-hover/30'}`}
+                                    className={`hover:bg-surface-hover ${i % 2 === 0 ? 'bg-surface' : 'bg-[var(--color-table-stripe)]'}`}
+                                    style={{ height: ROW_HEIGHT }}
                                 >
                                     {row.getVisibleCells().map((cell, cellIndex) => {
                                         const isFirstColumn = cellIndex === 0;
                                         return (
                                             <td
                                                 key={cell.id}
-                                                className={`px-2 py-1.5 ${isFirstColumn ? 'text-left' : 'text-right'}`}
+                                                // leading fijo: con line-height "normal" el alto real
+                                                // depende de la fuente elegida por el usuario y el
+                                                // virtualizador (que asume ROW_HEIGHT) se desalinea.
+                                                className={`px-2 py-[3px] leading-[14px] border-r border-border-subtle last:border-r-0 truncate ${isFirstColumn ? 'text-left' : 'text-right'}`}
                                             >
                                                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                             </td>
@@ -1675,6 +1758,18 @@ export function ScreenerContent() {
     const [activePreset, setActivePreset] = useState<string | null>(windowState.activePreset ?? null);
     const [showFilters, setShowFilters] = useState(true);
     const { executeCommand, executeTickerCommand } = useCommandExecutor();
+    const { openWindow } = useFloatingWindowActions();
+    const { publish: publishTicker, hasSubscribers, linkGroup } = useLinkGroupPublisher();
+
+    const handleSymbolClick = useCallback((symbol: string) => {
+        if (linkGroup) {
+            const hadSubs = hasSubscribers();
+            publishTicker(symbol);
+            if (!hadSubs) openLinkedTVChart(openWindow, symbol, linkGroup);
+            return;
+        }
+        executeTickerCommand(symbol, 'tvchart');
+    }, [linkGroup, hasSubscribers, publishTicker, openWindow, executeTickerCommand]);
 
     // User templates
     const {
@@ -1825,6 +1920,17 @@ export function ScreenerContent() {
         setSymbols(symbols.filter(s => s !== symbol));
     };
 
+    // Reset back to the window's opening state
+    const handleReset = () => {
+        setFilters(hydrateAllUnitsFilters([
+            { field: 'price', operator: 'between', value: [5, 500] },
+            { field: 'volume', operator: 'gt', value: 500000 },
+        ]));
+        setSymbols([]);
+        setActivePreset(null);
+        setActiveUserTemplate(null);
+    };
+
     // Apply preset - loads filters as editable template
     const applyPreset = (preset: Preset) => {
         const clonedFilters = preset.filters.map(f => ({
@@ -1915,148 +2021,29 @@ export function ScreenerContent() {
 
     return (
         <div className="h-full flex flex-col bg-surface text-foreground" style={{ fontFamily }}>
-            {/* Compact Header */}
-            <div className="flex-shrink-0 px-2 py-1.5 border-b border-border-subtle flex items-center gap-2" style={{ fontFamily }}>
-                <div className="w-[140px]">
-                    <TickerSearch
-                        value={symbolInput}
-                        onChange={setSymbolInput}
-                        onSelect={handleAddSymbol}
-                        placeholder="Symbol..."
-                        className="w-full"
-                    />
-                </div>
-                {symbols.length > 0 && (
-                    <div className="flex items-center gap-0.5">
-                        {symbols.map((s) => (
-                            <span
-                                key={s}
-                                className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-primary/10 text-primary rounded"
-                                style={{ fontSize: '11px' }}
-                            >
-                                {s}
-                                <button onClick={() => handleRemoveSymbol(s)} className="hover:text-red-500">
-                                    <X className="w-2 h-2" />
-                                </button>
-                            </span>
-                        ))}
-                    </div>
-                )}
-                <div className="flex-1" />
-                {queryTime !== null && (
-                    <span className="text-muted-fg" style={{ fontSize: '11px', fontFamily }}>
-                        {queryTime < 1000 ? `${queryTime.toFixed(0)}ms` : `${(queryTime / 1000).toFixed(1)}s`}
-                    </span>
-                )}
-                <button
-                    onClick={() => setShowFilters(!showFilters)}
-                    className={`p-1 rounded transition-colors ${showFilters ? 'bg-primary/10 text-primary' : 'text-muted-fg hover:text-foreground'}`}
-                >
-                    <Settings2 className="w-3.5 h-3.5" />
-                </button>
-                <button
-                    onClick={handleSearch}
-                    disabled={loading}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-50"
-                    style={{ fontSize: '12px', fontFamily }}
-                >
-                    {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
-                    Scan
-                </button>
-            </div>
-
-            {/* Templates Row - Compact with dropdown for system presets */}
-            <div className="flex-shrink-0 px-2 py-1.5 border-b border-border-subtle bg-surface-hover/30" style={{ fontFamily }}>
-                <div className="flex items-center gap-1.5">
-                    {/* System Presets Dropdown */}
-                    <div className="relative">
-                        <select
-                            value={activePreset || ''}
-                            onChange={(e) => {
-                                const preset = PRESETS.find(p => p.id === e.target.value);
-                                if (preset) {
-                                    applyPreset(preset);
-                                    setActiveUserTemplate(null);
-                                }
-                            }}
-                            className={`px-2 py-1 rounded border text-foreground bg-surface cursor-pointer appearance-none pr-6 ${activePreset && !activeUserTemplate ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-border'
-                                }`}
-                            style={{ fontSize: '12px', fontFamily }}
-                        >
-                            <option value="">Presets</option>
-                            {PRESETS.map((preset) => (
-                                <option key={preset.id} value={preset.id}>{preset.name}</option>
-                            ))}
-                        </select>
-                        <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-fg pointer-events-none" />
-                    </div>
-
-                    {/* Separator */}
-                    <div className="h-4 w-px bg-muted" />
-
-                    {/* User templates */}
-                    <div className="flex items-center gap-1 overflow-x-auto">
-                        {userTemplates.map((template) => (
-                            <div key={template.id} className="flex-shrink-0 flex items-center group">
-                                <button
-                                    onClick={() => applyUserTemplate(template)}
-                                    className={`flex items-center gap-1 px-2 py-1 rounded-l border transition-all ${activeUserTemplate === template.id
-                                        ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                                        : 'border-border text-foreground hover:border-primary hover:bg-primary/10'
-                                        }`}
-                                    style={{ fontSize: '12px', fontFamily }}
-                                    title={`${template.name} (${template.useCount}x)`}
-                                >
-                                    {template.isFavorite && <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />}
-                                    {template.name}
-                                </button>
-                                <button
-                                    onClick={() => deleteTemplate(template.id)}
-                                    className="px-1 py-1 border border-l-0 border-border rounded-r text-muted-fg hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    style={{ fontSize: '12px' }}
-                                    title="Delete"
-                                >
-                                    <X className="w-2.5 h-2.5" />
-                                </button>
-                            </div>
-                        ))}
-
-                        {/* Save button */}
-                        <button
-                            onClick={() => setShowSaveModal(true)}
-                            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded border border-dashed border-border text-muted-fg hover:border-primary hover:text-primary hover:bg-primary/10 transition-all"
-                            style={{ fontSize: '12px' }}
-                            title="Save current configuration"
-                        >
-                            <Save className="w-3 h-3" />
-                        </button>
-                    </div>
-                </div>
-            </div>
-
             {/* Save Template Modal */}
             {showSaveModal && (
-                <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowSaveModal(false)}>
+                <div className="fixed inset-0 bg-[var(--color-overlay)] flex items-center justify-center z-50" onClick={() => setShowSaveModal(false)}>
                     <div
-                        className="bg-surface rounded-lg shadow-xl p-4 w-80"
+                        className="bg-surface border border-border rounded-sm shadow-xl p-3 w-72"
                         onClick={e => e.stopPropagation()}
                         style={{ fontFamily }}
                     >
-                        <h3 className="font-medium text-foreground mb-3" style={{ fontSize: '13px' }}>Save Template</h3>
+                        <div className="text-muted-fg uppercase tracking-wide mb-2" style={{ fontSize: '10px' }}>Save screen</div>
                         <input
                             type="text"
                             value={templateName}
                             onChange={(e) => setTemplateName(e.target.value)}
-                            placeholder="Template name..."
-                            className="w-full px-3 py-2 border border-border rounded focus:outline-none focus:border-primary"
-                            style={{ fontSize: '12px' }}
+                            placeholder="Screen name..."
+                            className="w-full px-2 py-1 bg-surface-hover border border-border rounded-sm text-foreground outline-none focus:border-muted-fg"
+                            style={{ fontSize: '11px', fontFamily }}
                             autoFocus
                             onKeyDown={(e) => e.key === 'Enter' && handleSaveTemplate()}
                         />
-                        <div className="flex justify-end gap-2 mt-3">
+                        <div className="flex justify-end gap-1.5 mt-2.5">
                             <button
                                 onClick={() => setShowSaveModal(false)}
-                                className="px-3 py-1.5 text-foreground hover:bg-surface-hover rounded"
+                                className="px-2 py-1 rounded-sm border border-border text-muted-fg hover:text-foreground"
                                 style={{ fontSize: '11px', fontFamily }}
                             >
                                 Cancel
@@ -2064,8 +2051,8 @@ export function ScreenerContent() {
                             <button
                                 onClick={handleSaveTemplate}
                                 disabled={!templateName.trim()}
-                                className="px-3 py-1.5 bg-primary text-white rounded hover:bg-primary-hover disabled:opacity-50"
-                                style={{ fontSize: '11px' }}
+                                className="px-2 py-1 rounded-sm bg-foreground text-[var(--color-bg)] disabled:opacity-40"
+                                style={{ fontSize: '11px', fontFamily }}
                             >
                                 Save
                             </button>
@@ -2074,97 +2061,288 @@ export function ScreenerContent() {
                 </div>
             )}
 
-            {/* Filters Panel - Always editable */}
-            {showFilters && (
-                <div className="flex-shrink-0 px-2 py-2 border-b border-border-subtle bg-surface-hover/50">
-                    <FilterBuilder filters={filters} onFiltersChange={handleFiltersChange} fontFamily={fontFamily} />
+            {/* ── Cuerpo: panel de configuracion a la izquierda, resultados a la derecha ── */}
+            <div className="flex-1 flex min-h-0">
 
-                    {/* Sort controls */}
-                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
-                        <span className="text-foreground" style={{ fontSize: '11px', fontFamily }}>Sort:</span>
-                        <select
-                            value={sortBy}
-                            onChange={(e) => setSortBy(e.target.value)}
-                            className="px-1.5 py-0.5 rounded border border-border bg-surface text-foreground"
-                            style={{ fontSize: '12px', fontFamily }}
-                        >
-                            {SORT_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                        </select>
-                        <button
-                            onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
-                            className={`px-1.5 py-0.5 rounded border text-foreground hover:bg-surface-hover ${sortOrder === 'asc' ? 'border-primary bg-primary/10' : 'border-border'
-                                }`}
-                            style={{ fontSize: '12px', fontFamily }}
-                        >
-                            {sortOrder === 'desc' ? 'DESC' : 'ASC'}
-                        </button>
-                        <div className="flex-1" />
-                        <button
-                            onClick={() => executeCommand('glossary')}
-                            className="p-1 rounded hover:bg-surface-hover text-muted-fg hover:text-foreground"
-                            title="Indicator glossary"
-                        >
-                            <HelpCircle className="w-3.5 h-3.5" />
-                        </button>
-                        <select
-                            value={limit}
-                            onChange={(e) => setLimit(parseInt(e.target.value))}
-                            className="px-1.5 py-0.5 rounded border border-border bg-surface text-foreground"
-                            style={{ fontSize: '12px', fontFamily }}
-                        >
-                            <option value={25}>25 results</option>
-                            <option value={50}>50 results</option>
-                            <option value={100}>100 results</option>
-                        </select>
-                    </div>
-                </div>
-            )}
-
-            {/* Error */}
-            {error && (
-                <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/20">
-                    <div className="flex items-center gap-2 text-red-600" style={{ fontSize: '11px' }}>
-                        <AlertCircle className="w-4 h-4" />
-                        {error}
-                    </div>
-                </div>
-            )}
-
-            {/* Results */}
-            {results.length > 0 ? (
-                <ResultsTable
-                    results={results}
-                    onSymbolClick={(symbol) => executeTickerCommand(symbol, 'chart')}
-                    fontFamily={fontFamily}
-                />
-            ) : (
-                <div className="flex-1 flex items-center justify-center text-foreground" style={{ fontSize: '13px', fontFamily }}>
-                    {loading ? (
-                        <div className="flex items-center gap-1.5">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Scanning...
+                {showFilters ? (
+                    <aside className="w-[250px] shrink-0 flex flex-col min-h-0 border-r border-border">
+                        {/* Cabecera del panel */}
+                        <div className="shrink-0 flex items-center justify-between px-2 py-1 border-b border-border-subtle">
+                            <span className="text-muted-fg uppercase tracking-wide" style={{ fontSize: '10px', fontFamily }}>
+                                Filters:
+                            </span>
+                            <button
+                                onClick={() => setShowFilters(false)}
+                                className="flex items-center gap-0.5 text-muted-fg hover:text-foreground transition-colors"
+                                style={{ fontSize: '10px', fontFamily }}
+                                title="Hide panel"
+                            >
+                                <ChevronLeft className="w-3 h-3" />
+                                Hide
+                            </button>
                         </div>
-                    ) : (
-                        <div className="text-center">
-                            <Filter className="w-6 h-6 mx-auto mb-2 opacity-30" />
-                            <p className="mb-1">Select a preset or customize filters</p>
-                            <p className="text-muted-fg">Then click Scan</p>
+
+                        {/* Contenido desplazable */}
+                        <div className="flex-1 overflow-y-auto min-h-0 px-2 py-2 space-y-3">
+
+                            {/* ── Universo ── */}
+                            <section>
+                                <SectionLabel fontFamily={fontFamily}>Universe</SectionLabel>
+                                <TickerSearch
+                                    value={symbolInput}
+                                    onChange={setSymbolInput}
+                                    onSelect={handleAddSymbol}
+                                    placeholder="Limit to symbols..."
+                                    className="w-full"
+                                />
+                                {symbols.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                                        {symbols.map((s) => (
+                                            <span
+                                                key={s}
+                                                className="inline-flex items-center gap-1 px-1.5 py-[2px] rounded-sm border border-border text-foreground"
+                                                style={{ fontSize: '10px', fontFamily }}
+                                            >
+                                                {s}
+                                                <button
+                                                    onClick={() => handleRemoveSymbol(s)}
+                                                    className="text-muted-fg hover:text-[var(--color-chart-down)]"
+                                                >
+                                                    <X className="w-2.5 h-2.5" />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
+
+                            {/* ── Screens guardadas ── */}
+                            <section>
+                                <SectionLabel fontFamily={fontFamily}>Screens</SectionLabel>
+
+                                <div className="relative">
+                                    <select
+                                        value={activePreset || ''}
+                                        onChange={(e) => {
+                                            const preset = PRESETS.find(p => p.id === e.target.value);
+                                            if (preset) {
+                                                applyPreset(preset);
+                                                setActiveUserTemplate(null);
+                                            }
+                                        }}
+                                        className={`w-full px-1.5 py-[2px] pr-6 rounded-sm border bg-surface cursor-pointer appearance-none truncate ${
+                                            activePreset && !activeUserTemplate
+                                                ? 'border-muted-fg text-foreground'
+                                                : 'border-border text-muted-fg'
+                                        }`}
+                                        style={{ fontSize: '11px', fontFamily }}
+                                    >
+                                        <option value="">Presets...</option>
+                                        {PRESETS.map((preset) => (
+                                            <option key={preset.id} value={preset.id}>{preset.name}</option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-fg pointer-events-none" />
+                                </div>
+
+                                {/* Screens del usuario — una por linea */}
+                                {userTemplates.length > 0 && (
+                                    <div className="mt-1 space-y-0.5">
+                                        {userTemplates.map((template) => {
+                                            const isActive = activeUserTemplate === template.id;
+                                            return (
+                                                <div key={template.id} className="group/t flex items-stretch">
+                                                    <button
+                                                        onClick={() => applyUserTemplate(template)}
+                                                        className={`flex-1 min-w-0 flex items-center gap-1 px-1.5 py-[2px] rounded-l-sm border text-left truncate transition-colors ${
+                                                            isActive
+                                                                ? 'bg-foreground text-[var(--color-bg)] border-foreground'
+                                                                : 'text-foreground border-border hover:border-muted-fg'
+                                                        }`}
+                                                        style={{ fontSize: '11px', fontFamily }}
+                                                        title={`${template.name} — used ${template.useCount}x`}
+                                                    >
+                                                        {template.isFavorite && (
+                                                            <Star className={`w-2.5 h-2.5 shrink-0 ${isActive ? 'fill-current' : 'fill-foreground text-foreground'}`} />
+                                                        )}
+                                                        <span className="truncate">{template.name}</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => toggleFavorite(template.id)}
+                                                        className="px-1 border-y border-border text-muted-fg hover:text-foreground opacity-0 group-hover/t:opacity-100 transition-opacity"
+                                                        title={template.isFavorite ? 'Unfavorite' : 'Favorite'}
+                                                    >
+                                                        <Star className="w-2.5 h-2.5" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => deleteTemplate(template.id)}
+                                                        className="px-1 rounded-r-sm border border-l-0 border-border text-muted-fg hover:text-[var(--color-chart-down)] opacity-0 group-hover/t:opacity-100 transition-opacity"
+                                                        title="Delete"
+                                                    >
+                                                        <X className="w-2.5 h-2.5" />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={() => setShowSaveModal(true)}
+                                    className="w-full mt-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded-sm border border-dashed border-border text-muted-fg hover:text-foreground hover:border-muted-fg transition-colors"
+                                    style={{ fontSize: '10px', fontFamily }}
+                                    title="Save current configuration as a screen"
+                                >
+                                    <Save className="w-3 h-3" />
+                                    Save current
+                                </button>
+                            </section>
+
+                            {/* ── Senales ── */}
+                            <section>
+                                <SectionLabel fontFamily={fontFamily}>Signals</SectionLabel>
+                                <SignalChips
+                                    filters={filters}
+                                    onFiltersChange={handleFiltersChange}
+                                    fontFamily={fontFamily}
+                                />
+                            </section>
+
+                            {/* ── Condiciones ── */}
+                            <section>
+                                <SectionLabel fontFamily={fontFamily}>Conditions</SectionLabel>
+                                <FilterBuilder
+                                    filters={filters}
+                                    onFiltersChange={handleFiltersChange}
+                                    fontFamily={fontFamily}
+                                />
+                            </section>
+                        </div>
+
+                        {/* Pie del panel: orden, limite y acciones */}
+                        <div className="shrink-0 border-t border-border-subtle px-2 py-2 space-y-1.5">
+                            <div className="flex items-center gap-1">
+                                <span className="text-muted-fg shrink-0" style={{ fontSize: '10px', fontFamily }}>Sort</span>
+                                <select
+                                    value={sortBy}
+                                    onChange={(e) => setSortBy(e.target.value)}
+                                    className="flex-1 min-w-0 px-1 py-[2px] rounded-sm border border-border bg-surface text-foreground truncate"
+                                    style={{ fontSize: '11px', fontFamily }}
+                                >
+                                    {SORT_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                                    className="shrink-0 px-1.5 py-[2px] rounded-sm border border-border text-foreground hover:border-muted-fg"
+                                    style={{ fontSize: '11px', fontFamily }}
+                                    title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
+                                >
+                                    {sortOrder === 'desc' ? '↓' : '↑'}
+                                </button>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                                <span className="text-muted-fg shrink-0" style={{ fontSize: '10px', fontFamily }}>Max</span>
+                                <select
+                                    value={limit}
+                                    onChange={(e) => setLimit(parseInt(e.target.value))}
+                                    className="flex-1 min-w-0 px-1 py-[2px] rounded-sm border border-border bg-surface text-foreground"
+                                    style={{ fontSize: '11px', fontFamily }}
+                                >
+                                    <option value={25}>25 rows</option>
+                                    <option value={50}>50 rows</option>
+                                    <option value={100}>100 rows</option>
+                                </select>
+                                <button
+                                    onClick={() => executeCommand('glossary')}
+                                    className="shrink-0 px-1.5 py-[2px] rounded-sm border border-border text-muted-fg hover:text-foreground hover:border-muted-fg"
+                                    title="Indicator glossary"
+                                >
+                                    <HelpCircle className="w-3 h-3" />
+                                </button>
+                            </div>
+
+                            <div className="flex items-center gap-1 pt-0.5">
+                                <button
+                                    onClick={handleReset}
+                                    className="px-2 py-1 rounded-sm border border-border text-muted-fg hover:text-foreground hover:border-muted-fg transition-colors"
+                                    style={{ fontSize: '11px', fontFamily }}
+                                >
+                                    Reset
+                                </button>
+                                <button
+                                    onClick={handleSearch}
+                                    disabled={loading}
+                                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-sm bg-foreground text-[var(--color-bg)] hover:opacity-80 disabled:opacity-40 transition-opacity"
+                                    style={{ fontSize: '11px', fontFamily }}
+                                >
+                                    {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                                    Scan
+                                </button>
+                            </div>
+                        </div>
+                    </aside>
+                ) : (
+                    <button
+                        onClick={() => setShowFilters(true)}
+                        className="w-5 shrink-0 flex items-start justify-center pt-1.5 border-r border-border text-muted-fg hover:text-foreground hover:bg-surface-hover transition-colors"
+                        title="Show filters"
+                    >
+                        <ChevronRight className="w-3 h-3" />
+                    </button>
+                )}
+
+                {/* ── Resultados ── */}
+                <div className="flex-1 flex flex-col min-w-0">
+                    {error && (
+                        <div className="shrink-0 flex items-start gap-1.5 px-2 py-1 border-b border-border bg-surface-hover text-[var(--color-chart-down)]" style={{ fontSize: '11px', fontFamily }}>
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                            <span className="min-w-0 break-words">{error}</span>
                         </div>
                     )}
-                </div>
-            )}
 
-            {/* Footer */}
-            {results.length > 0 && (
-                <div className="flex-shrink-0 px-2 py-1 border-t border-border-subtle bg-surface-hover/50">
-                    <div className="flex items-center justify-between text-foreground" style={{ fontSize: '11px', fontFamily }}>
-                        <span>{results.length} results</span>
-                        <span>Daily Data</span>
+                    {results.length > 0 ? (
+                        <ResultsTable
+                            results={results}
+                            onSymbolClick={handleSymbolClick}
+                            fontFamily={fontFamily}
+                        />
+                    ) : (
+                        <div className="flex-1 flex items-center justify-center text-muted-fg" style={{ fontSize: '11px', fontFamily }}>
+                            {loading ? (
+                                <div className="flex items-center gap-1.5">
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    Scanning...
+                                </div>
+                            ) : (
+                                <div className="text-center">
+                                    <Filter className="w-5 h-5 mx-auto mb-2 opacity-20" />
+                                    <p>Pick a screen or build your conditions</p>
+                                    <p className="mt-0.5 opacity-60">Then hit Scan</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Pie: recuento real y latencia */}
+                    <div className="shrink-0 flex items-center justify-between px-2 py-1 border-t border-border-subtle text-muted-fg" style={{ fontSize: '10px', fontFamily }}>
+                        {/* El "+" avisa de que el corte por limite oculta el total real. */}
+                        <span>
+                            {results.length > 0
+                                ? `1–${results.length} of ${results.length}${results.length >= limit ? '+' : ''}`
+                                : '—'}
+                        </span>
+                        <span className="flex items-center gap-2">
+                            {queryTime !== null && (
+                                <span>{queryTime < 1000 ? `${queryTime.toFixed(0)}ms` : `${(queryTime / 1000).toFixed(1)}s`}</span>
+                            )}
+                            <span>Daily Data</span>
+                        </span>
                     </div>
                 </div>
-            )}
+            </div>
         </div>
     );
 }

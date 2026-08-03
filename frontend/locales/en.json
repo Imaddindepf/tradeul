@@ -288,7 +288,7 @@
       "description": "Wall Street analyst consensus & price targets"
     },
     "backtest": {
-      "name": "OddsMaker — Backtester",
+      "name": "Backtester",
       "description": "Run strategy backtests with natural language"
     },
     "opn": {

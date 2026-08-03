@@ -542,25 +542,14 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               const tickerData = info.row.original;
               const currentLinkGroup = linkGroupRef.current;
               if (currentLinkGroup) {
-                if (hasSubscribersRef.current()) {
-                  publishTickerRef.current(symbol, tickerData.exchange);
-                } else {
-                  const sw = typeof window !== 'undefined' ? window.innerWidth : 1920;
-                  const sh = typeof window !== 'undefined' ? window.innerHeight : 1080;
-                  openWindowRef.current({
-                    title: `Chart: ${symbol}`,
-                    content: React.createElement(
-                      require('@/components/chart/ChartContent').ChartContent,
-                      { ticker: symbol, exchange: tickerData.exchange }
-                    ),
-                    width: 900, height: 600,
-                    x: Math.max(50, sw / 2 - 450), y: Math.max(80, sh / 2 - 300),
-                    minWidth: 600, minHeight: 400,
-                    linkGroup: currentLinkGroup,
-                  } as any);
+                const hadSubs = hasSubscribersRef.current();
+                publishTickerRef.current(symbol, tickerData.exchange);
+                if (!hadSubs) {
+                  const { openLinkedTVChart } = require('@/lib/openLinkedTVChart') as typeof import('@/lib/openLinkedTVChart');
+                  openLinkedTVChart(openWindowRef.current, symbol, currentLinkGroup);
                 }
               } else {
-                executeTickerCommandRef.current(symbol, 'chart', tickerData.exchange);
+                executeTickerCommandRef.current(symbol, 'tvchart', tickerData.exchange);
               }
             }}
             title={t('scanner.clickDescription')}

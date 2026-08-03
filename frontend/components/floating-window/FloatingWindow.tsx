@@ -415,6 +415,8 @@ function FloatingWindowImpl({ window }: FloatingWindowProps) {
               {/* Link group selector: only on scanner/chart/relevant windows */}
               {(window.title.startsWith('Scanner:') ||
                 window.title.startsWith('Chart') ||
+                window.title.startsWith('TradingView') ||
+                window.title === 'Stock Screener' ||
                 window.title === 'Dilution Tracker' ||
                 window.title === 'SEC Filings' ||
                 window.title === 'News' ||

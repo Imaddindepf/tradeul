@@ -200,7 +200,9 @@ export default function ScannerPage() {
     if (title === 'Futures' || title === 'Futuros') return <FuturesMonitorContent />;
     if (title === 'Forex') return <ForexMonitorContent />;
     if (title === 'Top News' || title === 'Newswire') return <TopNewsContent />;
-    if (title === 'OddsMaker — Backtester') return <BacktestPanelContent />;
+    // 'OddsMaker — Backtester' es el título antiguo: los layouts ya guardados
+    // lo llevan dentro y sin este alias la ventana se pierde al recargar.
+    if (title === 'Backtester' || title === 'OddsMaker — Backtester') return <BacktestPanelContent />;
     if (title === 'API — Developer Access' || title === 'API — Acceso desarrollador') return <APIContent />;
     // Alias ES de Indicators (el título guardado depende del idioma activo)
     if (title === 'Indicadores') return <GlossaryContent />;

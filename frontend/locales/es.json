@@ -288,7 +288,7 @@
       "description": "Consenso de analistas de Wall Street y price targets"
     },
     "backtest": {
-      "name": "OddsMaker — Backtester",
+      "name": "Backtester",
       "description": "Ejecutar backtests de estrategias con lenguaje natural"
     },
     "opn": {

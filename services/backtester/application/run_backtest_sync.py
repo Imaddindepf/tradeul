@@ -60,6 +60,7 @@ async def _run_template(
     request: BacktestRequest,
     data_layer: DataLayer,
     engine: BacktestEngine | None,
+    progress_callback: Callable[[str, float], None] = _noop_progress,
 ) -> BacktestResponse:
     if engine is None:
         raise RuntimeError("Engine not available")

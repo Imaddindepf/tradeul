@@ -17,12 +17,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useCurrentWindowId } from '@/contexts/FloatingWindowContext';
+import { useLinkGroupSubscription } from '@/hooks/useLinkGroup';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { tvDesignsApi, tvDrawingsApi } from './tvDesignsApi';
 import { DEFAULT_SYNC_FLAGS, type SyncFlags } from '@/components/chart/multichart/types';
 import { TV_LAYOUTS } from './tvLayouts';
 import { closeAllTVPopovers } from './tvPopovers';
 import { TVLayoutGrid } from './TVLayoutGrid';
+import { TVBottomBar } from './TVBottomBar';
 import { drawTradeulLogoOnCanvas } from './TradeulLogo';
 import { TVIndicatorsDialog, TVIntervalDialog, TVSymbolSearchDialog } from './TVCommandDialogs';
 import { TVLayoutPicker } from './TVLayoutPicker';
@@ -130,6 +132,9 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
     const [restoring, setRestoring] = useState(() => freshWindowRef.current);
     /** Símbolo pedido explícitamente (comando `TICKER TVC`) a aplicar tras restaurar. */
     const pendingSymbolRef = useRef<string | null>(null);
+    /** Símbolo del link group pendiente hasta que la celda activa esté lista. */
+    const linkPendingRef = useRef<string | null>(null);
+    const linkBroadcast = useLinkGroupSubscription();
     /** Última celda que llegó a ready (la barra de dibujo re-aplica su estado). */
     const [readyCell, setReadyCell] = useState<{ id: string; seq: number }>({ id: '', seq: 0 });
 
@@ -190,6 +195,36 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
         () => Array.from({ length: cellCount }, (_, i) => `cell-${i + 1}`),
         [cellCount],
     );
+
+    // ── Celda maximizada ──────────────────────────────────────────────────
+    // Estado de vista puro y a propósito efímero: TradingView lo guarda en un
+    // único valor de su colección de charts, NO lo escribe en el layout
+    // guardado y al recargar vuelve la rejilla entera. Dejarlo fuera del
+    // diseño persistido reproduce eso exactamente.
+    const [maximizedCellId, setMaximizedCellId] = useState<string | null>(null);
+
+    // Cambiar de layout desmaximiza — igual que TradingView, donde `setLayout`
+    // pasa por `_recalculateMaximizedChartDef` y resuelve a null en escritorio.
+    // Cargar un diseño (designEpoch) cuenta como cambio de layout. El guard de
+    // cellCount cubre encoger por debajo de la celda maximizada, que si no
+    // dejaría TODAS las celdas ocultas a la vez.
+    useEffect(() => {
+        setMaximizedCellId(null);
+    }, [layoutId, designEpoch]);
+
+    const maximizedIndex = useMemo(() => {
+        if (maximizedCellId === null) return null;
+        const n = Number(maximizedCellId.split('-')[1]);
+        if (!Number.isFinite(n) || n < 1 || n > cellCount) return null;
+        return n - 1;
+    }, [maximizedCellId, cellCount]);
+
+    // Maximizar apunta SIEMPRE a la celda enfocada: el `requestFullscreen` por
+    // chart de TradingView maximiza y activa en la misma llamada, así que la
+    // maximizada es por definición la activa.
+    const handleToggleMaximize = useCallback(() => {
+        setMaximizedCellId((cur) => (cur !== null ? null : activeCellIdRef.current));
+    }, []);
 
     // ── Montaje ESCALONADO de celdas ──────────────────────────────────────
     // Los iframes same-origin comparten el hilo principal de la página:
@@ -339,6 +374,25 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
         setTimeout(() => applyGlobalDrawingsRef.current(cellId), 500);
     }, [persistWindow, refreshActiveInfo]);
 
+    const applyLinkedSymbol = useCallback((symbol: string) => {
+        const cellId = activeCellIdRef.current;
+        const api = cellApisRef.current[cellId];
+        if (!api) {
+            linkPendingRef.current = symbol;
+            return;
+        }
+        linkPendingRef.current = null;
+        api.setSymbol(symbol);
+        handleSymbolChanged(cellId, symbol);
+    }, [handleSymbolChanged]);
+
+    // Link group → TC: clicks en SC / EVN / Screener cambian el símbolo activo.
+    useEffect(() => {
+        const ticker = linkBroadcast?.ticker;
+        if (!ticker) return;
+        applyLinkedSymbol(ticker.toUpperCase());
+    }, [linkBroadcast, applyLinkedSymbol]);
+
     const handleCellReady = useCallback((cellId: string) => {
         setReadyCell((prev) => ({ id: cellId, seq: prev.seq + 1 }));
         // Modo global: la celda recién lista recibe los dibujos de su símbolo.
@@ -351,6 +405,13 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
             cellApisRef.current['cell-1']?.setSymbol(symbol);
             // setSymbol va con guard anti-eco: registrar el cambio a mano.
             handleSymbolChanged('cell-1', symbol);
+        }
+        // Link group pendiente (broadcast llegó antes de que la celda estuviera lista).
+        if (linkPendingRef.current && cellId === activeCellIdRef.current) {
+            const symbol = linkPendingRef.current;
+            linkPendingRef.current = null;
+            cellApisRef.current[cellId]?.setSymbol(symbol);
+            handleSymbolChanged(cellId, symbol);
         }
     }, [handleSymbolChanged]);
 
@@ -646,6 +707,11 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
             if (!api) continue;
             const el = root.querySelector(`[data-cell-id="${cellId}"]`);
             if (!el) continue;
+            // Con una celda maximizada el resto siguen en el DOM y conservan
+            // su rect (así no se recargan los iframes), pero están ocultas: si
+            // no las saltamos, la captura compondría la rejilla entera encima
+            // de la maximizada.
+            if (getComputedStyle(el).visibility === 'hidden') continue;
             const canvas = await api.captureCanvas();
             if (canvas) shots.push({ rect: el.getBoundingClientRect(), canvas });
         }
@@ -966,70 +1032,85 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
                     escSignal={escSignal}
                 />
 
-                {/* Rejilla PLANA de los 55 layouts TV (celdas absolutas con key
-                    estable): cambiar de layout no remonta las supervivientes —
-                    solo cambian estilos y se monta/desmonta el delta. La key
-                    lleva SOLO el epoch: cargar un diseño sí remonta todo
-                    (savedState nuevo); cambiar de layout, nunca.
-                    Durante la restauración de /last no se montan celdas. */}
-                <div ref={gridRootRef} className="min-h-0 min-w-0 flex-1">
-                    {!restoring && <TVLayoutGrid
-                        key={`epoch-${designEpoch}`}
-                        layoutId={layoutId}
-                        renderCell={(cellIndex) => {
-                            const cellId = `cell-${cellIndex + 1}`;
-                            const snap = cellsRef.current[cellId];
-                            const isActive = cellCount > 1 && cellId === activeCellId;
-                            if (!mountedIds.has(cellId)) {
-                                // Turno de montaje aún no llegó: placeholder.
+                {/* Columna del chart: rejilla + barra inferior. La barra vive
+                    AQUÍ dentro, no como pie de la ventana: en tradingview.com
+                    la toolbar vertical ocupa toda la altura (x:0 → abajo del
+                    todo) y la barra inferior arranca a su derecha (x:56, ya
+                    dentro de `layout__area--center`). Colgarla del root la
+                    haría cruzar por debajo de TVDrawingBar. */}
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    {/* Rejilla PLANA de los 55 layouts TV (celdas absolutas con key
+                        estable): cambiar de layout no remonta las supervivientes —
+                        solo cambian estilos y se monta/desmonta el delta. La key
+                        lleva SOLO el epoch: cargar un diseño sí remonta todo
+                        (savedState nuevo); cambiar de layout, nunca.
+                        Durante la restauración de /last no se montan celdas. */}
+                    <div ref={gridRootRef} className="min-h-0 min-w-0 flex-1">
+                        {!restoring && <TVLayoutGrid
+                            key={`epoch-${designEpoch}`}
+                            layoutId={layoutId}
+                            maximizedIndex={maximizedIndex}
+                            renderCell={(cellIndex) => {
+                                const cellId = `cell-${cellIndex + 1}`;
+                                const snap = cellsRef.current[cellId];
+                                const isActive = cellCount > 1 && cellId === activeCellId;
+                                if (!mountedIds.has(cellId)) {
+                                    // Turno de montaje aún no llegó: placeholder.
+                                    return (
+                                        <div
+                                            data-cell-id={cellId}
+                                            style={{
+                                                width: '100%',
+                                                height: '100%',
+                                                background: 'var(--color-bg, #0d1117)',
+                                                outline: '1px solid transparent',
+                                                outlineOffset: -1,
+                                            }}
+                                        />
+                                    );
+                                }
                                 return (
                                     <div
                                         data-cell-id={cellId}
                                         style={{
                                             width: '100%',
                                             height: '100%',
-                                            background: 'var(--color-bg, #0d1117)',
-                                            outline: '1px solid transparent',
+                                            minWidth: 0,
+                                            minHeight: 0,
+                                            outline: isActive
+                                                ? '1px solid var(--color-accent, #2962ff)'
+                                                : '1px solid transparent',
                                             outlineOffset: -1,
                                         }}
-                                    />
+                                    >
+                                        <TVChartCell
+                                            ref={registerCellApi(cellId)}
+                                            cellId={cellId}
+                                            initialSymbol={symbolForNewCell(cellId)}
+                                            initialInterval={snap?.interval ?? DEFAULT_TV_INTERVAL}
+                                            savedState={snap?.tvState}
+                                            onPersist={handleCellPersist}
+                                            onSymbolChanged={handleSymbolChanged}
+                                            onIntervalChanged={handleIntervalChanged}
+                                            onActivate={handleActivate}
+                                            onDrawingEvent={handleDrawingEvent}
+                                            onEscape={handleCellEscape}
+                                            onSaveShortcut={handleCellSaveShortcut}
+                                            onReady={handleCellReady}
+                                            onOpenSymbolSearch={(id, seed) => openCmdDialog('symbol', id, seed)}
+                                            onOpenIntervalDialog={(id, seed) => openCmdDialog('interval', id, seed)}
+                                        />
+                                    </div>
                                 );
-                            }
-                            return (
-                                <div
-                                    data-cell-id={cellId}
-                                    style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        minWidth: 0,
-                                        minHeight: 0,
-                                        outline: isActive
-                                            ? '1px solid var(--color-accent, #2962ff)'
-                                            : '1px solid transparent',
-                                        outlineOffset: -1,
-                                    }}
-                                >
-                                    <TVChartCell
-                                        ref={registerCellApi(cellId)}
-                                        cellId={cellId}
-                                        initialSymbol={symbolForNewCell(cellId)}
-                                        initialInterval={snap?.interval ?? DEFAULT_TV_INTERVAL}
-                                        savedState={snap?.tvState}
-                                        onPersist={handleCellPersist}
-                                        onSymbolChanged={handleSymbolChanged}
-                                        onIntervalChanged={handleIntervalChanged}
-                                        onActivate={handleActivate}
-                                        onDrawingEvent={handleDrawingEvent}
-                                        onEscape={handleCellEscape}
-                                        onSaveShortcut={handleCellSaveShortcut}
-                                        onReady={handleCellReady}
-                                        onOpenSymbolSearch={(id, seed) => openCmdDialog('symbol', id, seed)}
-                                        onOpenIntervalDialog={(id, seed) => openCmdDialog('interval', id, seed)}
-                                    />
-                                </div>
-                            );
-                        }}
-                    />}
+                            }}
+                        />}
+                    </div>
+
+                    <TVBottomBar
+                        cellCount={cellCount}
+                        maximized={maximizedIndex !== null}
+                        onToggleMaximize={handleToggleMaximize}
+                    />
                 </div>
             </div>
 

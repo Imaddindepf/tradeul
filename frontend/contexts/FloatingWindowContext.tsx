@@ -300,6 +300,8 @@ export interface FloatingWindowActions {
   broadcastTicker: (linkGroup: LinkGroup, broadcast: TickerBroadcast) => void;
   subscribeTicker: (linkGroup: LinkGroup, callback: LinkGroupSubscriberCallback) => () => void;
   getSubscriberCount: (linkGroup: LinkGroup) => number;
+  /** Último ticker publicado en el grupo (para seed al unirse / abrir TC). */
+  getLastTicker: (linkGroup: LinkGroup) => TickerBroadcast | null;
   setWindowLinkGroup: (windowId: string, linkGroup: LinkGroup) => void;
   /** Cerrar todas las ventanas */
   closeAllWindows: () => void;
@@ -479,6 +481,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   // Link Group Pub/Sub Mechanism
   // ============================================================================
   const linkGroupSubscribersRef = useRef<Map<string, Set<LinkGroupSubscriberCallback>>>(new Map());
+  const lastTickerByGroupRef = useRef<Map<string, TickerBroadcast>>(new Map());
 
   const subscribeTicker = useCallback((linkGroup: LinkGroup, callback: LinkGroupSubscriberCallback): (() => void) => {
     if (!linkGroup) return () => {};
@@ -496,6 +499,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
 
   const broadcastTicker = useCallback((linkGroup: LinkGroup, broadcast: TickerBroadcast) => {
     if (!linkGroup) return;
+    lastTickerByGroupRef.current.set(linkGroup, broadcast);
     const subscribers = linkGroupSubscribersRef.current.get(linkGroup);
     if (subscribers) {
       subscribers.forEach(cb => cb(broadcast));
@@ -505,6 +509,11 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   const getSubscriberCount = useCallback((linkGroup: LinkGroup): number => {
     if (!linkGroup) return 0;
     return linkGroupSubscribersRef.current.get(linkGroup)?.size ?? 0;
+  }, []);
+
+  const getLastTicker = useCallback((linkGroup: LinkGroup): TickerBroadcast | null => {
+    if (!linkGroup) return null;
+    return lastTickerByGroupRef.current.get(linkGroup) ?? null;
   }, []);
 
   const setWindowLinkGroup = useCallback((windowId: string, linkGroup: LinkGroup) => {
@@ -606,6 +615,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
       broadcastTicker,
       subscribeTicker,
       getSubscriberCount,
+      getLastTicker,
       setWindowLinkGroup,
       closeAllWindows,
     }),
@@ -622,6 +632,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
       broadcastTicker,
       subscribeTicker,
       getSubscriberCount,
+      getLastTicker,
       setWindowLinkGroup,
       closeAllWindows,
     ],

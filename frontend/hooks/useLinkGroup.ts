@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useFloatingWindowActions, useFloatingWindowsList, useCurrentWindowId, type LinkGroup, type TickerBroadcast } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindowActions, useFloatingWindowsList, useCurrentWindowId, type TickerBroadcast } from '@/contexts/FloatingWindowContext';
 
 /**
- * Hook for subscriber windows (chart, FAN, etc.)
+ * Hook for subscriber windows (TC / TAS, etc.)
  * Subscribes to ticker broadcasts for the window's link group.
- * Returns the latest broadcasted ticker, or null.
+ * Seeds with the last ticker published to that group (if any).
  */
 export function useLinkGroupSubscription(): TickerBroadcast | null {
-  const { subscribeTicker } = useFloatingWindowActions();
+  const { subscribeTicker, getLastTicker } = useFloatingWindowActions();
   const windows = useFloatingWindowsList();
   const windowId = useCurrentWindowId();
   const linkGroup = windowId ? (windows.find(w => w.id === windowId)?.linkGroup ?? null) : null;
@@ -17,19 +17,22 @@ export function useLinkGroupSubscription(): TickerBroadcast | null {
 
   useEffect(() => {
     if (!linkGroup) {
+      setLastBroadcast(null);
       return;
     }
+    const seeded = getLastTicker(linkGroup);
+    if (seeded) setLastBroadcast(seeded);
     const unsubscribe = subscribeTicker(linkGroup, (broadcast) => {
       setLastBroadcast(broadcast);
     });
     return unsubscribe;
-  }, [linkGroup, subscribeTicker]);
+  }, [linkGroup, subscribeTicker, getLastTicker]);
 
   return lastBroadcast;
 }
 
 /**
- * Hook for publisher windows (scanner, watchlist, etc.)
+ * Hook for publisher windows (scanner, events, screener, etc.)
  * Returns a publish function and helper to check for subscribers.
  */
 export function useLinkGroupPublisher() {

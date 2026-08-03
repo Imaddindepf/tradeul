@@ -496,7 +496,7 @@ export function TVDrawingBar({ getActiveCell, getCells, getCellById, readyCell, 
             style={{
                 width: 44,
                 borderColor: 'var(--color-border, rgba(128,128,128,0.25))',
-                background: 'var(--color-bg, transparent)',
+                background: 'var(--color-surface, transparent)',
             }}
         >
             {/* Grupos con flyout */}

@@ -48,6 +48,7 @@ import { APIContent } from '@/components/floating-window/APIContent';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
+import { pickActiveLinkGroup } from '@/lib/openLinkedTVChart';
 import type { UserFilter } from '@/lib/types/scannerFilters';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
@@ -71,7 +72,7 @@ export interface WindowRect {
  */
 export function useCommandExecutor() {
     const { t } = useTranslation();
-    const { openWindow, closeWindow } = useFloatingWindowActions();
+    const { openWindow, closeWindow, getLastTicker } = useFloatingWindowActions();
     const windows = useFloatingWindowsList();
 
     // Obtener categorías del scanner con traducciones
@@ -440,18 +441,24 @@ export function useCommandExecutor() {
                 });
                 return null;
 
-            case 'tvc':
+            case 'tvc': {
+                // Auto-join al link group activo de SC/EVN/Screener + seed del último ticker.
+                const linkGroup = pickActiveLinkGroup(windows);
+                const last = linkGroup ? getLastTicker(linkGroup) : null;
+                const seed = last?.ticker?.toUpperCase();
                 openWindow({
-                    title: 'TradingView',
-                    content: <TVChartContent />,
+                    title: seed ? `TradingView: ${seed}` : 'TradingView',
+                    content: <TVChartContent initialSymbol={seed} />,
                     width: Math.min(1100, screenWidth - 120),
                     height: Math.min(660, screenHeight - 160),
                     x: Math.max(50, screenWidth / 2 - 550),
                     y: Math.max(80, screenHeight / 2 - 330),
                     minWidth: 560,
                     minHeight: 380,
+                    ...(linkGroup ? { linkGroup } : {}),
                 });
                 return null;
+            }
 
             case 'fut':
                 openWindow({
@@ -906,7 +913,7 @@ export function useCommandExecutor() {
 
         console.warn(`Unknown command: ${commandId}`);
         return null;
-    }, [openWindow, openScannerTable, getScannerCategory, openEventTable, getEventCategory, t]);
+    }, [openWindow, openScannerTable, getScannerCategory, openEventTable, getEventCategory, t, windows, getLastTicker]);
 
     /**
      * Ejecutar un comando con ticker específico
@@ -964,7 +971,8 @@ export function useCommandExecutor() {
                 });
                 break;
 
-            case 'tvchart':
+            case 'tvchart': {
+                const linkGroup = pickActiveLinkGroup(windows);
                 openWindow({
                     title: `TradingView: ${normalizedTicker}`,
                     content: <TVChartContent initialSymbol={normalizedTicker} />,
@@ -974,8 +982,10 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 330),
                     minWidth: 560,
                     minHeight: 380,
+                    ...(linkGroup ? { linkGroup } : {}),
                 });
                 break;
+            }
 
             case 'dilution-tracker':
                 openWindow({
@@ -1112,7 +1122,7 @@ export function useCommandExecutor() {
             default:
                 console.warn(`Unknown ticker command: ${commandId}`);
         }
-    }, [openWindow]);
+    }, [openWindow, windows, getLastTicker, t]);
 
     /**
      * Abrir la ventana de News con un artículo específico destacado

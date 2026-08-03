@@ -1358,25 +1358,14 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
               const symbol = info.getValue();
               const currentLinkGroup = linkGroupRef.current;
               if (currentLinkGroup) {
-                if (hasSubscribersRef.current()) {
-                  publishTickerRef.current(symbol);
-                } else {
-                  const sw = typeof window !== 'undefined' ? window.innerWidth : 1920;
-                  const sh = typeof window !== 'undefined' ? window.innerHeight : 1080;
-                  openWindowRef.current({
-                    title: `Chart: ${symbol}`,
-                    content: React.createElement(
-                      require('@/components/chart/ChartContent').ChartContent,
-                      { ticker: symbol }
-                    ),
-                    width: 900, height: 600,
-                    x: Math.max(50, sw / 2 - 450), y: Math.max(80, sh / 2 - 300),
-                    minWidth: 600, minHeight: 400,
-                    linkGroup: currentLinkGroup,
-                  } as any);
+                const hadSubs = hasSubscribersRef.current();
+                publishTickerRef.current(symbol);
+                if (!hadSubs) {
+                  const { openLinkedTVChart } = require('@/lib/openLinkedTVChart') as typeof import('@/lib/openLinkedTVChart');
+                  openLinkedTVChart(openWindowRef.current, symbol, currentLinkGroup);
                 }
               } else {
-                executeTickerCommandRef.current(symbol, 'chart');
+                executeTickerCommandRef.current(symbol, 'tvchart');
               }
             }}
             title="Click to open Chart"
@@ -2938,7 +2927,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     >
       {ctxMenu.symbol && (
         <>
-          <button onClick={() => { executeTickerCommandRef.current(ctxMenu.symbol!, 'chart'); setCtxMenu(null); }}
+          <button onClick={() => { executeTickerCommandRef.current(ctxMenu.symbol!, 'tvchart'); setCtxMenu(null); }}
             className="w-full text-left px-3 py-1.5 text-foreground hover:bg-[var(--color-table-row-hover)] hover:text-primary">
             Trade {ctxMenu.symbol}
           </button>

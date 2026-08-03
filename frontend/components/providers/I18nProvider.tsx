@@ -1,31 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { I18nextProvider } from 'react-i18next';
-import i18n from '@/lib/i18n';
+import i18n, { detectLanguage } from '@/lib/i18n';
 
 interface I18nProviderProps {
   children: React.ReactNode;
 }
 
 /**
- * Provider de internacionalización
- * Inicializa i18next y lo proporciona a toda la app
+ * Provider de internacionalización.
+ *
+ * i18n arranca en 'en' (idéntico al HTML del SSR) para que la hidratación
+ * coincida; el idioma guardado/detectado se aplica aquí, en un efecto
+ * post-hidratación. Cambiarlo antes de hidratar reintroduce React #425/#422.
  */
 export function I18nProvider({ children }: I18nProviderProps) {
-  const [isReady, setIsReady] = useState(false);
-
   useEffect(() => {
-    // Marcar como listo cuando i18n esté inicializado
-    if (i18n.isInitialized) {
-      setIsReady(true);
-    } else {
-      i18n.on('initialized', () => setIsReady(true));
+    const lang = detectLanguage();
+    if (lang !== getBaseLanguage()) {
+      void i18n.changeLanguage(lang);
     }
   }, []);
 
-  // Renderizar children incluso si i18n no está listo
-  // para evitar flash de contenido vacío
   return (
     <I18nextProvider i18n={i18n}>
       {children}
@@ -33,3 +30,6 @@ export function I18nProvider({ children }: I18nProviderProps) {
   );
 }
 
+function getBaseLanguage(): string {
+  return i18n.language?.split('-')[0] || 'en';
+}

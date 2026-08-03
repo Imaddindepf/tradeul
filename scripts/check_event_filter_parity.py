@@ -14,6 +14,11 @@ Zones checked:
   5. Pydantic FilterParameters declares every catalog param key
   6. Frontend ConfigWindow / EventTableContent use the generated assets
   7. Frontend event filters store declares every events-scope param key
+  8. EVENT catalog: generated assets in sync (gen_event_assets --check),
+     alert-catalog.ts is a facade over the generated file (no inline
+     definitions), and every preset eventType exists in the engine
+  9. MATCHER port: generated defs in sync with index.js and verdict parity
+     against the frozen fixtures (backtester/parity/check_matcher_parity.py)
 
 Exit 1 on any divergence. Run in CI and before deploys.
 """
@@ -146,6 +151,58 @@ def main() -> int:
             + ", ".join(missing_store[:30])
         )
 
+    # ── 8) EVENT catalog: generated assets + facade + preset vocab ───────
+    gen_ev = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/gen_event_assets.py"), "--check"],
+        capture_output=True, text=True,
+    )
+    if gen_ev.returncode != 0:
+        errors.append("Event catalog assets STALE/invalid. Run: python3 scripts/gen_event_assets.py")
+
+    event_catalog = json.loads((ROOT / "shared/config/event_catalog.json").read_text())
+    valid_event_types = {e["event_type"] for e in event_catalog["events"]}
+
+    fe_alert_path = ROOT / "frontend/lib/alert-catalog.ts"
+    fe_alert = fe_alert_path.read_text()
+    if "./alert-catalog.generated" not in fe_alert:
+        errors.append("alert-catalog.ts no longer re-exports the generated catalog")
+    inline_defs = len(re.findall(r"eventType: '", fe_alert))
+    if inline_defs:
+        errors.append(
+            f"alert-catalog.ts has {inline_defs} inline alert definitions "
+            "(they must live in the backend registry; run gen_event_assets.py)"
+        )
+
+    for fname in ("frontend/lib/alert-catalog.ts", "frontend/lib/commands.ts"):
+        src = (ROOT / fname).read_text()
+        used = set()
+        for arr in re.findall(r"eventTypes:\s*\[([^\]]*)\]", src):
+            used.update(re.findall(r"'([a-z0-9_]+)'", arr))
+        unknown = sorted(used - valid_event_types)
+        if unknown:
+            errors.append(
+                f"{fname}: eventTypes the engine cannot emit ({len(unknown)}): "
+                + ", ".join(unknown[:15])
+            )
+
+    # ── 9) MATCHER port: defs generadas + paridad contra fixtures ────────
+    gen_m = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/gen_matcher_port_assets.py"), "--check"],
+        capture_output=True, text=True,
+    )
+    if gen_m.returncode != 0:
+        errors.append("Matcher port defs STALE. Run: python3 scripts/gen_matcher_port_assets.py")
+
+    parity_script = ROOT / "services/backtester/parity/check_matcher_parity.py"
+    fixtures_root = ROOT / "services/backtester/parity/fixtures"
+    if parity_script.exists() and fixtures_root.exists() and any(fixtures_root.iterdir()):
+        par = subprocess.run(
+            [sys.executable, str(parity_script)], capture_output=True, text=True,
+        )
+        if par.returncode != 0:
+            tail = (par.stdout or par.stderr).strip().splitlines()[-6:]
+            errors.append("Matcher parity FAILED: " + " | ".join(tail))
+
     if errors:
         return fail(errors)
 
@@ -153,6 +210,8 @@ def main() -> int:
     print(f"- catalog filters: {len(entries)} (events={len(events_entries)}, scanner={len(scanner_entries)})")
     print(f"- websocket checks covered: {len(covered)} subKeys")
     print("- generated assets in sync (TS, RETE mapping, v1 events json)")
+    print(f"- event catalog: {len(valid_event_types)} tipos, facade + presets OK")
+    print("- matcher port: defs al dia + paridad de veredictos OK")
     return 0
 
 

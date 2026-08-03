@@ -1,0 +1,30 @@
+{
+  "generated_by": "freeze_matcher_verdicts.js",
+  "source_file": "services/websocket_server/src/index.js",
+  "source_sha256": "54972f8cf0d2bce38447fe4120306fa546e6d770098ccec8f9ef6216a25955c7",
+  "extracted_regions_sha256": "e25993616bda965a6a837b91882dfa5b1dba39bba4c22daf706d2b99b1d95dc3",
+  "catalog_path": "shared/config/event_filter_catalog.json",
+  "catalog_sha256": "55bf1b258630a6a1e59cc43593fe84cd3be1eba0330d36189ed9bef2253d5ddf",
+  "node_version": "v22.21.0",
+  "cases": 1113,
+  "passed": 380,
+  "pass_rate": 0.3414,
+  "by_origin": {
+    "real": {
+      "total": 721,
+      "passed": 365
+    },
+    "real_negative_type": {
+      "total": 327,
+      "passed": 0
+    },
+    "real_aq_spectrum": {
+      "total": 5,
+      "passed": 3
+    },
+    "synthetic": {
+      "total": 60,
+      "passed": 12
+    }
+  }
+}
