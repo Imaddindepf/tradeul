@@ -171,7 +171,7 @@ consume `forceSync`/`lastSyncedAt` desde su contexto.
 | PR | Contenido | Quitar | Poner | Riesgo |
 |----|-----------|--------|-------|--------|
 | PR1 | Sync unificado: `prefsSyncClient.ts` + `ClientStateProvider` + payloads parciales + dirty + beacon condicional + activeWorkspaceId solo en switch | Q3,Q4,Q5,Q6 | §2.4, §2.6 | Medio (toca el guardado — probar layouts a fondo) |
-| PR2 | Versionado optimista extremo a extremo | — | §2.7 | Bajo (10 líneas SQL + handler 409) |
+| PR2 | Versionado optimista extremo a extremo. **+ hallazgo post-PR1 (visto en Network durante la verificación): `useCatalystAlertsStore` y `useNewsFiltersStore` hacen PUT propios a `/user/preferences` (2 PUT por carga); el de news-filters es un read-modify-write de `savedFilters` — carrera entre pestañas de libro. Migrarlos como dominios `newsAlerts`/`savedFilters` del prefsSyncClient** | PUTs ad hoc de 2 stores | §2.7 + 2 dominios nuevos | Bajo (10 líneas SQL + handler 409) |
 | PR3 | Tema sin next-themes + crossTab | Q1,Q2,Q8 | §2.2, §2.3 | Medio (FOUC — el head script ya cubre) |
 | PR4 | Registro de claves + reclasificar per-tab | Q9 | §2.1 | Bajo |
 | PR5 | Líder + ownership de workspace | — | §2.5 | Bajo |

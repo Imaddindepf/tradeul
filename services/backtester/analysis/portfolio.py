@@ -277,6 +277,15 @@ class PortfolioSimulator:
                 "max_consecutive_losses": max_consec_loss,
                 "by_exit_reason": dict(Counter(x["reason"] for x in trades)),
             },
+            # La calidad de la señal viene de la MISMA pasada del análisis L0:
+            # un solo informe con las dos mitades (operaciones + señal).
+            "signal": {
+                "triggers_total": trig["triggers_total"],
+                "by_type": trig["by_type"],
+                "by_hour_et": trig["by_hour_et"],
+                "top_symbols": trig["top_symbols"],
+                "forward_returns": trig["forward_returns"],
+            },
             "daily_pnl": {d: round(v, 2) for d, v in sorted(daily.items())},
             "equity_curve": curve[::step],
             "trades_sample": trades[:100],

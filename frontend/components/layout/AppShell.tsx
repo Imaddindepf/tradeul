@@ -17,7 +17,7 @@ import { InsightsProvider } from '@/components/insights';
 import { OpenULProvider } from '@/contexts/OpenULContext';
 import { useTradingDayReset } from '@/hooks/useTradingDayReset';
 import { useMarketClockSync } from '@/hooks/useMarketClockSync';
-import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
+import { useClientStateSync } from '@/components/providers/ClientStateProvider';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { useEffect } from 'react';
 
@@ -37,7 +37,8 @@ function GlobalHooksHandler() {
 
   useTradingDayReset();
   useMarketClockSync();
-  useWorkspaceSync({ enableInitialLoad: true });
+  // Única instancia por pestaña del ciclo de sync de preferencias (PR1).
+  useClientStateSync();
   return null;
 }
 

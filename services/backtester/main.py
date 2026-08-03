@@ -455,6 +455,48 @@ def _trigger_analysis_capabilities() -> dict:
     }
 
 
+@app.post("/api/v1/backtest/triggers/simulate")
+async def simulate_portfolio(request: dict):
+    """Cartera sobre disparos L0 (Fase 2 MVP): entradas = alertas reales,
+    ejecución simulada con stops/objetivos intrabar sobre el minuto.
+
+    Request: {"strategy": {...BUILD...}, "date_from", "date_to",
+              "execution": {direction, stop_pct, target_pct, max_hold_min,
+                            initial_capital, position_size_pct, max_positions,
+                            slippage_bps, commission_per_trade}}
+    Los supuestos de ejecución vuelven en `assumptions`; los avisos de
+    fidelidad del L0 se heredan. 422 con listas exactas si el vocabulario
+    no se reconoce.
+    """
+    import json as _json
+    import os as _os2
+
+    import anyio
+
+    from analysis.portfolio import PortfolioSimulator
+
+    strategy = request.get("strategy") or {}
+    date_from = request.get("date_from")
+    date_to = request.get("date_to")
+    if not strategy or not date_from or not date_to:
+        raise HTTPException(422, detail={"error": "strategy, date_from y date_to son obligatorios"})
+
+    sim = PortfolioSimulator(
+        lake_dir=_os2.getenv("LAKE_DIR", "/data/lake"),
+        minute_dir=_os2.getenv("MINUTE_AGGS_DIR", "/data/polygon/minute_aggs"),
+    )
+    try:
+        return await anyio.to_thread.run_sync(
+            lambda: sim.run(strategy, str(date_from), str(date_to),
+                            request.get("execution") or {})
+        )
+    except ValueError as exc:
+        try:
+            raise HTTPException(422, detail=_json.loads(str(exc)))
+        except _json.JSONDecodeError:
+            raise HTTPException(422, detail={"error": str(exc)})
+
+
 @app.get("/api/v1/backtest/capabilities")
 async def list_capabilities():
     """

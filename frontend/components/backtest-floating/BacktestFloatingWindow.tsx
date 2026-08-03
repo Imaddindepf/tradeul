@@ -35,7 +35,7 @@ import {
 } from './ui';
 import { useCatalog, eventLabel, INDICATORS, type CatalogEntry, type EntryKind } from './catalog';
 import { CatalogPicker } from './CatalogPicker';
-import { TriggersPanel } from './TriggersPanel';
+import { PortfolioPanel } from './PortfolioPanel';
 import { ResultsPane } from './ResultsPane';
 import { Sparkline } from './Sparkline';
 import type { Overlay } from './ResultsChart';
@@ -151,11 +151,11 @@ export function BacktestPanelContent({
 
   /* ── UI ─────────────────────────────────────────────────────────────── */
   const { ref: rootRef, narrow } = useNarrow(680);
-  /* Dos productos, dos fidelidades (§7 del diseño): 'triggers' = análisis de
-     disparos L0 (eventos reales, vocabulario BUILD completo, exacto por
-     construcción); 'portfolio' = simulador vectorizado legacy (73 eventos /
-     34 filtros hasta la Fase 2). Por defecto, el que no miente. */
-  const [mode, setMode] = useState<'triggers' | 'portfolio'>('triggers');
+  /* UN flujo (estrategia → salidas → run → informe con operaciones + señal).
+     Los motores son detalle interno; el único desvío visible es el simulador
+     viejo de señales/diario, detrás de un enlace, hasta que la Fase 3 lo
+     retire. La lección: no exponer la arquitectura al usuario. */
+  const [mode, setMode] = useState<'main' | 'legacy'>('main');
   const [tab, setTab] = useState<'define' | 'results'>('define');
   const { width: paneW, setWidth: setPaneW, persist } = useSplitWidth(SPLIT_KEY, 452, 340, 760);
   const [picker, setPicker] = useState<null | { kinds: readonly EntryKind[]; target: 'entryEvents' | 'entryFilters' | 'universeFilters' | 'signal' }>(null);
@@ -373,35 +373,17 @@ export function BacktestPanelContent({
 
   const showResults = runs.length > 0 || isRunning || status === 'error';
 
-  const modeSeg = (
-    <Seg
-      value={mode}
-      onChange={setMode}
-      ariaLabel="Producto"
-      options={[
-        { value: 'triggers', label: 'Disparos' },
-        { value: 'portfolio', label: 'Cartera' },
-      ]}
-    />
-  );
-
-  if (mode === 'triggers') {
+  if (mode === 'main') {
+    /* Sin cabecera propia: el título lo pone el chrome de la ventana, y el
+       chrome no habla — los datos hablan. El motor viejo (señales/diario)
+       queda en el código sin entrada visible hasta que la Fase 3 lo retire;
+       su UI sigue debajo por si hay que reactivarla puntualmente. */
     return (
       <div
         className="h-full flex flex-col text-foreground overflow-hidden relative"
         style={{ backgroundColor: 'var(--color-surface)' }}
       >
-        <div className="shrink-0 flex items-center gap-2 px-3 h-11 border-b" style={{ borderColor: RULE }}>
-          {modeSeg}
-          <span className="text-[11px] text-foreground/45">
-            Eventos reales del motor · vocabulario BUILD completo
-          </span>
-          <span className="flex-1" />
-          <Badge title="Los disparos son alertas que el motor vivo emitió de verdad; el filtrado usa el matcher de producción portado y verificado">
-            Exacto (L0)
-          </Badge>
-        </div>
-        <TriggersPanel
+        <PortfolioPanel
           events={entryEvents}
           setEvents={setEntryEvents}
           filters={entryFilters}
@@ -420,7 +402,7 @@ export function BacktestPanelContent({
     >
       {/* ── Barra de herramientas ─────────────────────────────────────── */}
       <div className="shrink-0 flex items-center gap-2 px-3 h-11 border-b" style={{ borderColor: RULE }}>
-        {modeSeg}
+        <TextButton onClick={() => setMode('main')}>←</TextButton>
         {narrow && showResults && (
           <Seg
             value={tab}

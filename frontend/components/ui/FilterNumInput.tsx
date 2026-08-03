@@ -2,12 +2,24 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 import {
   deriveDisplayUnit,
   displayToRaw,
+  formatCompact,
+  formatLocaleNumber,
   formatPlaceholder,
-  parseHumanNumber,
+  parseLocaleNumber,
+  resolveInputLocale,
 } from '@/lib/utils/numberFormat';
+
+/** Locale de ENTRADA de la app (i18n del usuario): decide coma/punto. */
+export function useInputLocale(): string {
+  const { i18n } = useTranslation();
+  return resolveInputLocale(i18n.language);
+}
+
+const INVALID_CLS = 'border-rose-500/60';
 
 /**
  * Tokens de densidad alineados con el panel original (Trade Ideas–style):
@@ -66,9 +78,11 @@ export function ScaledNumInput({
   className?: string;
 }) {
   const opts = unitOpts.length > 0 ? unitOpts : [''];
+  const locale = useInputLocale();
   const [displayStr, setDisplayStr] = useState('');
   const [unit, setUnit] = useState(defaultUnit || opts[0] || '');
   const [focused, setFocused] = useState(false);
+  const [invalid, setInvalid] = useState(false);
 
   useEffect(() => {
     if (focused) return;
@@ -87,21 +101,28 @@ export function ScaledNumInput({
     (disp: string, u: string) => {
       const trimmed = disp.trim();
       if (trimmed === '') {
+        setInvalid(false);
         onChange(undefined);
         return;
       }
-      const num = parseHumanNumber(trimmed);
-      if (num === null) return;
-      onChange(displayToRaw(num, u));
+      const parsed = parseLocaleNumber(trimmed, locale);
+      if (parsed.invalid || parsed.value === null) {
+        // entrada no reconocida: se conserva el último valor válido, NUNCA 0
+        setInvalid(true);
+        return;
+      }
+      setInvalid(false);
+      onChange(displayToRaw(parsed.value, u));
     },
-    [onChange],
+    [onChange, locale],
   );
 
   return (
-    <div className={cn(scaledGroupBase, className)}>
+    <div className={cn(scaledGroupBase, invalid && INVALID_CLS, className)}>
       <input
         type="text"
         inputMode="decimal"
+        aria-invalid={invalid || undefined}
         value={displayStr}
         placeholder={placeholder}
         className={scaledInputInner}
@@ -145,29 +166,37 @@ export function PlainNumInput({
   placeholder?: string;
   className?: string;
 }) {
+  const locale = useInputLocale();
   const [editing, setEditing] = useState(false);
   const [editStr, setEditStr] = useState('');
+  const [invalid, setInvalid] = useState(false);
 
   const display =
     value !== undefined && Number.isFinite(value)
-      ? value.toLocaleString('en-US', { maximumFractionDigits: 6 })
+      ? formatLocaleNumber(value, locale)
       : '';
 
   return (
     <input
       type="text"
       inputMode="decimal"
+      aria-invalid={invalid || undefined}
       value={editing ? editStr : display}
       placeholder={placeholder}
-      className={cn(fieldBase, FIELD_W, className)}
+      className={cn(fieldBase, FIELD_W, invalid && INVALID_CLS, className)}
       onFocus={() => {
         setEditing(true);
         setEditStr(value !== undefined ? String(value) : '');
       }}
       onBlur={() => {
         setEditing(false);
-        const parsed = parseHumanNumber(editStr);
-        onChange(parsed === null ? undefined : parsed);
+        const parsed = parseLocaleNumber(editStr, locale);
+        if (parsed.invalid) {
+          setInvalid(true); // conserva el último valor válido
+          return;
+        }
+        setInvalid(false);
+        onChange(parsed.value === null ? undefined : parsed.value);
       }}
       onChange={(e) => setEditStr(e.target.value)}
     />
@@ -191,6 +220,7 @@ export function AlertThresholdInput({
   title?: string;
   onClick?: (e: React.MouseEvent) => void;
 }) {
+  const locale = useInputLocale();
   return (
     <div className="flex items-center gap-0.5 shrink-0" title={title}>
       <input
@@ -203,8 +233,8 @@ export function AlertThresholdInput({
           const v = e.target.value.trim();
           if (v === '') onChange(undefined);
           else {
-            const n = parseHumanNumber(v);
-            onChange(n === null ? undefined : n);
+            const parsed = parseLocaleNumber(v, locale);
+            if (!parsed.invalid && parsed.value !== null) onChange(parsed.value);
           }
         }}
         className={cn(
@@ -311,6 +341,143 @@ export function FilterRangeRow({
         <span className="w-4 shrink-0" />
       )}
       {warn}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   NumericField — EL campo numérico de la app (BUILD, Screener, Backtester).
+
+   La semántica del campo (unidad fija, escalas K/M/B, compacto) NO se
+   escribe en los consumidores: viene de un FieldSpec derivado del catálogo
+   (specFromFilterDef) o del esquema del screener (specFromScreenerField).
+   Una lógica, un módulo, cero espagueti.
+   ════════════════════════════════════════════════════════════════════ */
+
+export interface FieldSpec {
+  /** Sufijo fijo dentro del campo: '$', '%', 'x', 'bps', 'min'… */
+  suffix?: string;
+  /** Escalas seleccionables (['','K','M'] o ['K','M','B']): activa el selector. */
+  units?: readonly string[];
+  defaultUnit?: string;
+  /** Mostrar compacto (5M) al perder el foco, sin selector. */
+  compact?: boolean;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+}
+
+/** FilterDef del catálogo generado (filter-catalog.generated.ts) → spec. */
+export function specFromFilterDef(def: {
+  suf?: string;
+  units?: readonly string[];
+  defU?: string;
+  phMin?: string;
+}): FieldSpec {
+  return {
+    suffix: def.suf || undefined,
+    units: def.units && def.units.length > 0 ? def.units : undefined,
+    defaultUnit: def.defU,
+    placeholder: formatPlaceholder(def.phMin, def.defU),
+  };
+}
+
+/** AVAILABLE_FIELDS del screener ({type, unit, min, max}) → spec. */
+export function specFromScreenerField(f: {
+  type?: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+}): FieldSpec {
+  if (f.type === 'units') return { compact: true };
+  return {
+    suffix: f.unit || undefined,
+    min: f.min,
+    max: f.max,
+  };
+}
+
+export function NumericField({
+  value,
+  onChange,
+  spec,
+  className,
+  id,
+  ariaLabel,
+}: {
+  value: number | null | undefined;
+  onChange: (v: number | null) => void;
+  spec: FieldSpec;
+  className?: string;
+  id?: string;
+  ariaLabel?: string;
+}) {
+  const locale = useInputLocale();
+  const [editing, setEditing] = useState(false);
+  const [editStr, setEditStr] = useState('');
+  const [invalid, setInvalid] = useState(false);
+
+  if (spec.units && spec.units.length > 1) {
+    return (
+      <ScaledNumInput
+        rawValue={value === null ? undefined : value}
+        onChange={(v) => onChange(v === undefined ? null : v)}
+        unitOpts={spec.units}
+        defaultUnit={spec.defaultUnit}
+        placeholder={spec.placeholder}
+        className={className}
+      />
+    );
+  }
+
+  const display =
+    value === null || value === undefined || !Number.isFinite(value)
+      ? ''
+      : spec.compact
+        ? formatCompact(value)
+        : formatLocaleNumber(value, locale);
+
+  const commit = (raw: string) => {
+    setEditing(false);
+    const parsed = parseLocaleNumber(raw, locale);
+    if (parsed.invalid) {
+      setInvalid(true); // conserva el último valor válido, NUNCA 0
+      return;
+    }
+    setInvalid(false);
+    if (parsed.value === null) {
+      onChange(null);
+      return;
+    }
+    let v = parsed.value;
+    if (spec.min !== undefined && v < spec.min) v = spec.min;
+    if (spec.max !== undefined && v > spec.max) v = spec.max;
+    onChange(v);
+  };
+
+  return (
+    <div className={cn(scaledGroupBase, invalid && INVALID_CLS, className)}>
+      <input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        aria-label={ariaLabel}
+        aria-invalid={invalid || undefined}
+        value={editing ? editStr : display}
+        placeholder={spec.placeholder ?? '–'}
+        className={scaledInputInner}
+        onFocus={() => {
+          setEditing(true);
+          setEditStr(value === null || value === undefined ? '' : String(value));
+        }}
+        onBlur={(e) => commit(e.target.value)}
+        onChange={(e) => setEditStr(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { commit((e.target as HTMLInputElement).value); (e.target as HTMLInputElement).blur(); }
+          if (e.key === 'Escape') { setEditing(false); setInvalid(false); (e.target as HTMLInputElement).blur(); }
+        }}
+      />
+      {spec.suffix ? <span className={cn(scaledUnitInner, 'cursor-default select-none')}>{spec.suffix}</span> : null}
     </div>
   );
 }

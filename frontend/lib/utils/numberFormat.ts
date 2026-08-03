@@ -184,3 +184,137 @@ export function formatPlaceholder(ph?: string, _defaultUnit?: string): string | 
 export function formatHumanNumber(value: number | null | undefined): string {
   return formatCompact(value).toLowerCase();
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   PARSEO POR LOCALE — la entrada de TODOS los campos numéricos de la app
+   (BUILD, Screener, Backtester) pasa por aquí. Especificación validada en
+   el prototipo NumericField (matriz es-ES / en-US / de-DE).
+
+   Reglas:
+   1. Separadores decimal/miles del locale vía Intl.NumberFormat.
+   2. Separador repetido o dos distintos ⇒ miles+decimal, validados por
+      grupos de 3 ("1.234.567", "1.234,56", "1,234.56").
+   3. Un único separador: el locale decide SOLO el caso ambiguo ("1.000");
+      los hábitos cruzados ("1.5" en es, "0,5" en en) se aceptan como
+      decimal porque no casan con el patrón de miles.
+   4. Sufijos de trader k/m/b/t, componibles con decimales ("1,5b").
+   5. $ € % y espacios se ignoran; la unidad la pone el campo.
+   6. Inválido ⇒ {invalid:true} — el campo conserva el último valor válido
+      y marca aria-invalid. NUNCA 0 en silencio. Vacío ⇒ {value:null}.
+   ════════════════════════════════════════════════════════════════════ */
+
+export interface ParsedInput {
+  value: number | null;
+  invalid?: boolean;
+}
+
+const _symbolsCache = new Map<string, { group: string; decimal: string }>();
+
+export function localeSymbols(locale: string): { group: string; decimal: string } {
+  let sym = _symbolsCache.get(locale);
+  if (!sym) {
+    let group = ',';
+    let decimal = '.';
+    try {
+      for (const p of new Intl.NumberFormat(locale).formatToParts(12345.6)) {
+        if (p.type === 'group') group = p.value;
+        if (p.type === 'decimal') decimal = p.value;
+      }
+    } catch { /* locale desconocido: en-US */ }
+    sym = { group, decimal };
+    _symbolsCache.set(locale, sym);
+  }
+  return sym;
+}
+
+/** i18n de la app ('es' | 'en') → locale BCP-47 para parseo/formato. */
+export function resolveInputLocale(lang: string | undefined): string {
+  if (!lang) return 'en-US';
+  if (lang.includes('-')) return lang;
+  return { es: 'es-ES', en: 'en-US', de: 'de-DE', fr: 'fr-FR' }[lang] ?? 'en-US';
+}
+
+function isGroupPattern(s: string, sep: string): boolean {
+  return new RegExp(`^\\d{1,3}(\\${sep}\\d{3})+$`).test(s);
+}
+
+export function parseLocaleNumber(
+  input: string | number | null | undefined,
+  locale: string,
+): ParsedInput {
+  if (input === null || input === undefined) return { value: null };
+  if (typeof input === 'number') {
+    return Number.isFinite(input) ? { value: input } : { value: null, invalid: true };
+  }
+  let s = input.trim().toLowerCase();
+  if (s === '') return { value: null };
+
+  s = s.replace(/[\s$%€\u00a0\u202f]/g, '');
+  let neg = false;
+  if (s[0] === '-' || s[0] === '\u2212') {
+    neg = true;
+    s = s.slice(1);
+  }
+
+  let mult = 1;
+  const last = s[s.length - 1] || '';
+  if (/[kmbt]/.test(last)) {
+    mult = UNIT_MUL[last.toUpperCase()] ?? 1;
+    s = s.slice(0, -1);
+  }
+
+  if (!/^[\d.,]+$/.test(s) || s === '') return { value: null, invalid: true };
+
+  const sym = localeSymbols(locale);
+  const dots = (s.match(/\./g) || []).length;
+  const commas = (s.match(/,/g) || []).length;
+  let intPart = s;
+  let fracPart = '';
+
+  const splitAt = (idx: number) => {
+    intPart = s.slice(0, idx);
+    fracPart = s.slice(idx + 1);
+  };
+
+  if (dots > 0 && commas > 0) {
+    // dos separadores distintos: el último es el decimal
+    const decIdx = Math.max(s.lastIndexOf('.'), s.lastIndexOf(','));
+    const decSep = s[decIdx];
+    const grpSep = decSep === '.' ? ',' : '.';
+    if ((decSep === '.' ? dots : commas) > 1) return { value: null, invalid: true };
+    splitAt(decIdx);
+    if (!isGroupPattern(intPart, grpSep)) return { value: null, invalid: true };
+    intPart = intPart.split(grpSep).join('');
+  } else if (dots + commas === 1) {
+    const sep = dots === 1 ? '.' : ',';
+    const idx = s.indexOf(sep);
+    if (sep === sym.decimal) {
+      splitAt(idx);
+    } else if (isGroupPattern(s, sep)) {
+      intPart = s.split(sep).join('');
+    } else {
+      splitAt(idx); // tolerancia: decimal "extranjero" que no casa con miles
+    }
+  } else if (dots + commas > 1) {
+    const sep = dots > 0 ? '.' : ',';
+    if (!isGroupPattern(s, sep)) return { value: null, invalid: true };
+    intPart = s.split(sep).join('');
+  }
+
+  if (!/^\d+$/.test(intPart) || (fracPart !== '' && !/^\d+$/.test(fracPart))) {
+    return { value: null, invalid: true };
+  }
+  const num = parseFloat(`${intPart}.${fracPart || '0'}`);
+  if (!Number.isFinite(num)) return { value: null, invalid: true };
+  return { value: (neg ? -num : num) * mult };
+}
+
+/** Formato de visualización por locale (agrupación de miles del usuario). */
+export function formatLocaleNumber(
+  value: number | null | undefined,
+  locale: string,
+  maxDecimals = 6,
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '';
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: maxDecimals }).format(value);
+}

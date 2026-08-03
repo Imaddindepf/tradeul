@@ -16,10 +16,11 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  ActionButton, Badge, CenterMessage, Field, RULE, SectionHead, TextButton, NumInput,
+  ActionButton, Badge, CenterMessage, Field, RULE, SectionHead, TextButton,
 } from './ui';
 import { useCatalog, eventLabel, type CatalogEntry, type EntryKind } from './catalog';
 import { CatalogPicker } from './CatalogPicker';
+import { NumericField, specFromFilterDef } from '@/components/ui/FilterNumInput';
 
 /* ── Contrato de /api/backtest/triggers ─────────────────────────────────── */
 
@@ -102,13 +103,20 @@ export function TriggersPanel({
   const selectedUids = useMemo(() => {
     const s = new Set<string>();
     for (const e of events) s.add(`event:${e}`);
-    for (const k of Object.keys(filters)) s.add(`filter:${k.replace(/^(min|max)_/, '')}`);
+    for (const k of Object.keys(filters)) {
+      if (k.startsWith('aq:')) continue;
+      s.add(`filter:${k.replace(/^(min|max)_/, '')}`);
+    }
     return s;
   }, [events, filters]);
 
   const filterKeys = useMemo(() => {
     const keys = new Set<string>();
-    for (const k of Object.keys(filters)) keys.add(k.replace(/^(min|max)_/, ''));
+    for (const k of Object.keys(filters)) {
+      // aq: viaja en la estrategia pero no es una fila min/max editable
+      if (k.startsWith('aq:')) continue;
+      keys.add(k.replace(/^(min|max)_/, ''));
+    }
     return [...keys];
   }, [filters]);
 
@@ -289,7 +297,7 @@ export function TriggersPanel({
 
 /* ── Filtros min/max (mismo lenguaje que el modo cartera) ───────────────── */
 
-function TriggerFilterRows({
+export function TriggerFilterRows({
   filters, keys, catalog, onChange,
 }: {
   filters: Record<string, number | null>;
@@ -302,7 +310,7 @@ function TriggerFilterRows({
   }
   return (
     <div className="flex flex-col">
-      <div className="grid grid-cols-[1fr_78px_78px] gap-1.5 pb-1 border-b" style={{ borderColor: RULE }}>
+      <div className="grid grid-cols-[1fr_92px_92px] gap-1.5 pb-1 border-b" style={{ borderColor: RULE }}>
         <span className="text-[10px] uppercase tracking-wider text-foreground/55">Filtro</span>
         <span className="text-[10px] uppercase tracking-wider text-foreground/55 text-right pr-1">Mín</span>
         <span className="text-[10px] uppercase tracking-wider text-foreground/55 text-right pr-1">Máx</span>
@@ -310,7 +318,7 @@ function TriggerFilterRows({
       {keys.map(k => {
         const meta = catalog.find(c => c.uid === `filter:${k}`);
         return (
-          <div key={k} className="grid grid-cols-[1fr_78px_78px] gap-1.5 items-center py-1 border-b" style={{ borderColor: RULE }}>
+          <div key={k} className="grid grid-cols-[1fr_92px_92px] gap-1.5 items-center py-1 border-b" style={{ borderColor: RULE }}>
             <span className="text-[12px] truncate flex items-center gap-1.5" title={meta?.reason}>
               {meta?.label ?? k}
               {meta?.suffix && <span className="text-[10px] text-foreground/45">{meta.suffix}</span>}
@@ -330,13 +338,17 @@ function TriggerFilterRows({
                 ×
               </button>
             </span>
-            <NumInput
+            <NumericField
               value={filters[`min_${k}`] ?? null}
               onChange={(v) => onChange({ ...filters, [`min_${k}`]: v })}
+              spec={specFromFilterDef({ suf: meta?.suffix, units: meta?.units, defU: meta?.defU })}
+              ariaLabel={`${meta?.label ?? k} min`}
             />
-            <NumInput
+            <NumericField
               value={filters[`max_${k}`] ?? null}
               onChange={(v) => onChange({ ...filters, [`max_${k}`]: v })}
+              spec={specFromFilterDef({ suf: meta?.suffix, units: meta?.units, defU: meta?.defU })}
+              ariaLabel={`${meta?.label ?? k} max`}
             />
           </div>
         );

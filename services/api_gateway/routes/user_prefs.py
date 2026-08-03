@@ -469,9 +469,12 @@ async def update_layout(
 
 
 class WorkspacesUpdateRequest(BaseModel):
-    """Request para actualizar workspaces y opcionalmente otras preferencias"""
-    workspaces: List[Workspace]
-    activeWorkspaceId: str = "main"
+    """Request para actualizar preferencias. PR1: TODOS los campos opcionales —
+    el cliente manda payloads parciales (solo los dominios que cambió) y aquí
+    cada campo ausente se conserva con COALESCE. Retrocompatible con el cliente
+    anterior, que manda siempre el estado completo."""
+    workspaces: Optional[List[Workspace]] = None
+    activeWorkspaceId: Optional[str] = None
     colors: Optional[ColorPreferences] = None
     theme: Optional[ThemePreferences] = None
     columnVisibility: Optional[Dict[str, Dict[str, bool]]] = None
@@ -500,9 +503,11 @@ async def update_workspaces(
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
+    # PR1: payload parcial — un campo ausente (None) se conserva en BD.
+    # 'workspaces' distingue ausente (None → conservar) de lista vacía enviada.
     data = WorkspacesUpdateRequest(
-        workspaces=[Workspace(**w) for w in body.get('workspaces', [])],
-        activeWorkspaceId=body.get('activeWorkspaceId', 'main'),
+        workspaces=[Workspace(**w) for w in body['workspaces']] if body.get('workspaces') is not None else None,
+        activeWorkspaceId=body.get('activeWorkspaceId'),
         colors=ColorPreferences(**body['colors']) if body.get('colors') else None,
         theme=ThemePreferences(**body['theme']) if body.get('theme') else None,
         columnVisibility=body.get('columnVisibility'),
@@ -511,22 +516,27 @@ async def update_workspaces(
 
     try:
         user_id = user.id
-        workspaces_json = json.dumps([w.model_dump() for w in data.workspaces])
+        workspaces_json = (
+            json.dumps([w.model_dump() for w in data.workspaces])
+            if data.workspaces is not None else None
+        )
         colors_json = json.dumps(data.colors.model_dump()) if data.colors else None
         theme_json = json.dumps(data.theme.model_dump()) if data.theme else None
         col_vis_json = json.dumps(data.columnVisibility) if data.columnVisibility else None
         col_ord_json = json.dumps(data.columnOrder) if data.columnOrder else None
-        
+
         query = """
             INSERT INTO user_preferences (user_id, workspaces, active_workspace_id, colors, theme, column_visibility, column_order)
-            VALUES ($1, $2::jsonb, $3,
+            VALUES ($1,
+                COALESCE($2::jsonb, '[]'::jsonb),
+                COALESCE($3, 'main'),
                 COALESCE($4::jsonb, '{"tickUp":"#10b981","tickDown":"#ef4444","background":"#ffffff","primary":"#3b82f6"}'::jsonb),
                 COALESCE($5::jsonb, '{"font":"jetbrains-mono","colorScheme":"light","newsSquawkEnabled":false,"timezone":"America/New_York","newsViewMode":"table"}'::jsonb),
                 COALESCE($6::jsonb, '{}'::jsonb),
                 COALESCE($7::jsonb, '{}'::jsonb))
             ON CONFLICT (user_id) DO UPDATE SET
-                workspaces = $2::jsonb,
-                active_workspace_id = $3,
+                workspaces = COALESCE($2::jsonb, user_preferences.workspaces),
+                active_workspace_id = COALESCE($3, user_preferences.active_workspace_id),
                 colors = COALESCE($4::jsonb, user_preferences.colors),
                 theme = COALESCE($5::jsonb, user_preferences.theme),
                 column_visibility = COALESCE($6::jsonb, user_preferences.column_visibility),
@@ -534,21 +544,34 @@ async def update_workspaces(
                 updated_at = NOW()
             RETURNING updated_at
         """
-        
+
         result = await db.fetchrow(query, user_id, workspaces_json, data.activeWorkspaceId,
                                    colors_json, theme_json, col_vis_json, col_ord_json)
-        
-        total_windows = sum(len(w.windowLayouts) for w in data.workspaces)
-        
-        logger.info("workspaces_saved", 
-                   user_id=user_id, 
-                   workspace_count=len(data.workspaces),
+
+        domains = [name for name, present in [
+            ("workspaces", workspaces_json is not None),
+            ("activeWorkspace", data.activeWorkspaceId is not None),
+            ("colors", colors_json is not None),
+            ("theme", theme_json is not None),
+            ("columns", col_vis_json is not None or col_ord_json is not None),
+        ] if present]
+        workspace_count = len(data.workspaces) if data.workspaces is not None else None
+        total_windows = (
+            sum(len(w.windowLayouts) for w in data.workspaces)
+            if data.workspaces is not None else None
+        )
+
+        logger.info("prefs_patch",
+                   user_id=user_id,
+                   domains=domains,
+                   workspace_count=workspace_count,
                    total_windows=total_windows,
                    active_workspace=data.activeWorkspaceId)
-        
+
         return {
             "success": True,
-            "workspaceCount": len(data.workspaces),
+            "domains": domains,
+            "workspaceCount": workspace_count,
             "totalWindows": total_windows,
             "activeWorkspaceId": data.activeWorkspaceId,
             "updatedAt": result['updated_at'].isoformat()

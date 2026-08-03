@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@clerk/nextjs';
 import { TickerSearch } from '@/components/common/TickerSearch';
+import { useInputLocale } from '@/components/ui/FilterNumInput';
+import { formatLocaleNumber, parseLocaleNumber } from '@/lib/utils/numberFormat';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useScreenerTemplates, type ScreenerTemplate, type FilterCondition as TemplateFilterCondition } from '@/hooks/useScreenerTemplates';
@@ -504,41 +506,41 @@ function NumberInput({
     className?: string;
     style?: React.CSSProperties;
 }) {
-    // Key to force re-mount when value changes externally (preset, template, etc.)
-    const [resetKey, setResetKey] = useState(0);
-    const lastEmittedValue = useRef(value);
+    /* Sobre la lógica única de la app (parseLocaleNumber): coma/punto según
+       el idioma del usuario, sufijos k/m/b, y una entrada inválida CONSERVA
+       el último valor válido — nunca 0 en silencio. Confirma en blur/Enter. */
+    const locale = useInputLocale();
+    const [editing, setEditing] = useState(false);
+    const [editStr, setEditStr] = useState('');
+    const [invalid, setInvalid] = useState(false);
 
-    // When parent value changes externally, reset the uncontrolled input
-    useEffect(() => {
-        if (value !== lastEmittedValue.current) {
-            lastEmittedValue.current = value;
-            setResetKey(k => k + 1);
+    const display = Number.isFinite(value) ? formatLocaleNumber(value, locale) : '';
+
+    const commit = (raw: string) => {
+        setEditing(false);
+        const parsed = parseLocaleNumber(raw, locale);
+        if (parsed.invalid || parsed.value === null) {
+            setInvalid(true);
+            return;
         }
-    }, [value]);
+        setInvalid(false);
+        onChange(parsed.value);
+    };
 
     return (
         <input
-            key={resetKey}
-            type="number"
-            step="any"
-            defaultValue={value}
-            onChange={(e) => {
-                const raw = e.target.value;
-                if (raw === '') return; // intermediate state (typing "-", clearing, etc.)
-                const parsed = parseFloat(raw);
-                if (!Number.isNaN(parsed)) {
-                    lastEmittedValue.current = parsed;
-                    onChange(parsed);
-                }
+            type="text"
+            inputMode="decimal"
+            aria-invalid={invalid || undefined}
+            value={editing ? editStr : display}
+            onFocus={() => { setEditing(true); setEditStr(String(value)); }}
+            onBlur={(e) => commit(e.target.value)}
+            onChange={(e) => setEditStr(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') { commit(e.currentTarget.value); e.currentTarget.blur(); }
+                if (e.key === 'Escape') { setEditing(false); setInvalid(false); e.currentTarget.blur(); }
             }}
-            onBlur={(e) => {
-                // On blur, if empty or invalid, reset to last valid value
-                const raw = e.target.value;
-                if (raw === '' || Number.isNaN(parseFloat(raw))) {
-                    setResetKey(k => k + 1);
-                }
-            }}
-            className={className}
+            className={`${className ?? ''}${invalid ? ' border-rose-500/60' : ''}`}
             style={style}
         />
     );
@@ -855,20 +857,15 @@ function FilterBuilder({
 
                             {/* Period for parametric */}
                             {hasParams && (
-                                <input
-                                    type="number"
+                                <NumberInput
                                     value={currentPeriod}
-                                    onChange={(e) => {
-                                        const val = parseInt(e.target.value) || 14;
+                                    onChange={(val) => {
                                         updateFilter(realIndex, {
-                                            params: { period: Math.max(2, Math.min(200, val)) }
+                                            params: { period: Math.max(2, Math.min(200, Math.round(val))) }
                                         });
                                     }}
-                                    min={2}
-                                    max={200}
                                     className="w-[32px] shrink-0 px-1 py-[2px] rounded-sm bg-transparent text-foreground border border-border text-center"
                                     style={{ fontSize: '11px', fontFamily }}
-                                    title="Period (2-200)"
                                 />
                             )}
 
@@ -942,11 +939,9 @@ function FilterBuilder({
                                 const currentMax = (hydrated as any).displayMax ?? 100;
                                 return (
                                     <div className="flex items-center gap-1">
-                                        <input
-                                            type="number"
+                                        <NumberInput
                                             value={currentMin}
-                                            onChange={(e) => {
-                                                const num = parseFloat(e.target.value) || 0;
+                                            onChange={(num) => {
                                                 updateFilter(realIndex, {
                                                     value: [num * currentMult, currentMax * currentMult],
                                                     displayMin: num,
@@ -958,11 +953,9 @@ function FilterBuilder({
                                             style={{ fontSize: '11px', fontFamily }}
                                         />
                                         <span className="text-foreground" style={{ fontSize: '11px', fontFamily }}>to</span>
-                                        <input
-                                            type="number"
+                                        <NumberInput
                                             value={currentMax}
-                                            onChange={(e) => {
-                                                const num = parseFloat(e.target.value) || 0;
+                                            onChange={(num) => {
                                                 updateFilter(realIndex, {
                                                     value: [currentMin * currentMult, num * currentMult],
                                                     displayMin: currentMin,
@@ -1026,11 +1019,9 @@ function FilterBuilder({
                                 const currentDisplay = (hydrated as any).displayValue ?? (typeof filter.value === 'number' ? filter.value : 0);
                                 return (
                                     <div className="flex items-center gap-0.5">
-                                        <input
-                                            type="number"
+                                        <NumberInput
                                             value={currentDisplay}
-                                            onChange={(e) => {
-                                                const num = parseFloat(e.target.value) || 0;
+                                            onChange={(num) => {
                                                 updateFilter(realIndex, { value: num * currentMult, displayValue: num, multiplier: currentMult } as any);
                                             }}
                                             className="w-[48px] px-1.5 py-[2px] rounded-l-sm border border-border bg-surface text-foreground"

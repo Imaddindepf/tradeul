@@ -43,6 +43,7 @@ import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useTabVisibilityResync } from '@/hooks/useTabVisibilityResync';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
+import { BacktestPanelContent } from '@/components/backtest-floating/BacktestFloatingWindow';
 import type { ActiveEventFilters } from '@/stores/useEventFiltersStore';
 import { useAlertStrategies } from '@/hooks/useAlertStrategies';
 import { useEventsStore } from '@/stores/useEventsStore';
@@ -2934,6 +2935,10 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           <div className="border-t border-border-subtle my-0.5" />
         </>
       )}
+      <button onClick={() => { openBacktestWindow(); setCtxMenu(null); }}
+        className="w-full text-left px-3 py-1.5 text-foreground hover:bg-[var(--color-table-row-hover)] hover:text-primary">
+        Backtest
+      </button>
       <button onClick={() => { openConfigWindow(); setCtxMenu(null); }}
         className="w-full text-left px-3 py-1.5 text-foreground hover:bg-[var(--color-table-row-hover)] hover:text-primary">
         Configure...
@@ -2990,6 +2995,34 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
       });
     }
   }, [categoryId, categoryName, currentWindowId, updateWindowComponentState]);
+
+  // Backtest de ESTA estrategia: abre el Backtester con los eventos y filtros
+  // vivos de la ventana ya cargados. Solo viajan claves numéricas min_/max_ y
+  // los umbrales aq: (el resto — strings, símbolos — no aplica al backtest).
+  const openBacktestWindow = useCallback(() => {
+    const live = eventFiltersRef.current || {};
+    const initialFilters: Record<string, number> = {};
+    for (const [k, v] of Object.entries(live)) {
+      if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+      if (/^(min|max)_/.test(k) || k.startsWith('aq:')) initialFilters[k] = v;
+    }
+    openWindow({
+      title: 'Backtester',
+      content: (
+        <BacktestPanelContent
+          initialEvents={activeEventTypesRef.current}
+          initialFilters={initialFilters}
+          initialName={categoryName}
+        />
+      ),
+      width: 860,
+      height: 640,
+      x: 220,
+      y: 120,
+      minWidth: 640,
+      minHeight: 420,
+    });
+  }, [openWindow, categoryName]);
 
   // Open Strategy Builder reading live filters from the store (no stale closure)
   const openConfigWindow = useCallback(() => {

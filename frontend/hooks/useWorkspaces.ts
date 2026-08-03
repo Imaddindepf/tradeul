@@ -8,14 +8,12 @@
  * - Crear nuevos workspaces con diferentes layouts
  * - Cambiar entre workspaces preservando estado de cada uno
  * 
- * Sincronización:
- * - Auto-sync a backend con debounce cuando cambian workspaces
- * - Carga inicial desde backend si hay sesión activa
+ * Sincronización (PR1): la hace useClientStateSync/prefsSyncClient — aquí solo
+ * se fuerza un flush inmediato en los cambios estructurales.
  */
 
-import { useCallback, useMemo, useRef, useEffect } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useFloatingWindowActions, useFloatingWindowsList, type LinkGroup } from '@/contexts/FloatingWindowContext';
-import { useAuth } from '@clerk/nextjs';
 import {
   useUserPreferencesStore,
   Workspace,
@@ -25,9 +23,7 @@ import {
   selectActiveWorkspace,
 } from '@/stores/useUserPreferencesStore';
 import { getWindowType } from '@/lib/window-config';
-
-// Debounce delay para sync al backend (3 segundos)
-const SYNC_DEBOUNCE_MS = 3000;
+import { flush } from '@/lib/client-state/prefsSyncClient';
 
 interface UseWorkspacesReturn {
   /** Lista de todos los workspaces */
@@ -53,8 +49,6 @@ interface UseWorkspacesReturn {
 export function useWorkspaces(): UseWorkspacesReturn {
   const { openWindow, closeWindow } = useFloatingWindowActions();
   const windows = useFloatingWindowsList();
-  const { getToken, isSignedIn } = useAuth();
-  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Store actions
   const storeCreateWorkspace = useUserPreferencesStore((s) => s.createWorkspace);
@@ -62,7 +56,6 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const storeRenameWorkspace = useUserPreferencesStore((s) => s.renameWorkspace);
   const storeSetActiveWorkspace = useUserPreferencesStore((s) => s.setActiveWorkspace);
   const storeSaveWorkspaceLayouts = useUserPreferencesStore((s) => s.saveWorkspaceLayouts);
-  const syncWorkspacesToBackend = useUserPreferencesStore((s) => s.syncWorkspacesToBackend);
   const setWorkspaceSwitching = useUserPreferencesStore((s) => s.setWorkspaceSwitching);
 
   // Store selectors
@@ -70,33 +63,9 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const activeWorkspaceId = useUserPreferencesStore(selectActiveWorkspaceId);
   const activeWorkspace = useUserPreferencesStore(selectActiveWorkspace);
 
-  /**
-   * Debounced sync to backend
-   * Se llama después de cualquier cambio en workspaces
-   */
-  const scheduleSyncToBackend = useCallback((immediate = false) => {
-    if (!isSignedIn) return;
-
-    if (syncTimeoutRef.current) {
-      clearTimeout(syncTimeoutRef.current);
-    }
-    if (immediate) {
-      syncWorkspacesToBackend(getToken);
-      return;
-    }
-    syncTimeoutRef.current = setTimeout(() => {
-      syncWorkspacesToBackend(getToken);
-    }, SYNC_DEBOUNCE_MS);
-  }, [syncWorkspacesToBackend, getToken, isSignedIn]);
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current);
-      }
-    };
-  }, []);
+  // PR1: el sync al backend ya no vive aquí. El watcher de useClientStateSync
+  // detecta los cambios del store y los sincroniza con debounce; las acciones
+  // estructurales (crear/borrar/renombrar) fuerzan un flush inmediato.
 
   /**
    * Exportar layout actual de las ventanas abiertas.
@@ -132,9 +101,8 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const saveCurrentLayout = useCallback(() => {
     const layouts = exportCurrentLayout();
     storeSaveWorkspaceLayouts(activeWorkspaceId, layouts);
-    // Sync to backend (debounced)
-    scheduleSyncToBackend();
-  }, [exportCurrentLayout, activeWorkspaceId, storeSaveWorkspaceLayouts, scheduleSyncToBackend]);
+    // El watcher de useClientStateSync marca 'workspaces' dirty y sincroniza.
+  }, [exportCurrentLayout, activeWorkspaceId, storeSaveWorkspaceLayouts]);
 
   /**
    * Crear nuevo workspace
@@ -142,25 +110,25 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const createWorkspace = useCallback((name: string): string => {
     saveCurrentLayout();
     const id = storeCreateWorkspace(name);
-    scheduleSyncToBackend(true);
+    void flush('manual'); // cambio estructural: no esperar al debounce
     return id;
-  }, [saveCurrentLayout, storeCreateWorkspace, scheduleSyncToBackend]);
+  }, [saveCurrentLayout, storeCreateWorkspace]);
 
   /**
    * Eliminar workspace
    */
   const deleteWorkspace = useCallback((workspaceId: string) => {
     storeDeleteWorkspace(workspaceId);
-    scheduleSyncToBackend(true);
-  }, [storeDeleteWorkspace, scheduleSyncToBackend]);
+    void flush('manual');
+  }, [storeDeleteWorkspace]);
 
   /**
    * Renombrar workspace
    */
   const renameWorkspace = useCallback((workspaceId: string, newName: string) => {
     storeRenameWorkspace(workspaceId, newName);
-    scheduleSyncToBackend(true);
-  }, [storeRenameWorkspace, scheduleSyncToBackend]);
+    void flush('manual');
+  }, [storeRenameWorkspace]);
 
   /**
    * Cambiar al workspace especificado.
@@ -234,9 +202,10 @@ export function useWorkspaces(): UseWorkspacesReturn {
       });
 
       // ── 6. Desbloquear auto-save ──
+      // El watcher ya marcó 'workspaces' y 'activeWorkspace' dirty al guardar
+      // el layout y cambiar de workspace; el debounce del client sincroniza.
       setTimeout(() => {
         setWorkspaceSwitching(false);
-        scheduleSyncToBackend();
       }, 100);
     }, 50);
   }, [
@@ -246,7 +215,6 @@ export function useWorkspaces(): UseWorkspacesReturn {
     setWorkspaceSwitching,
     closeWindow,
     openWindow,
-    scheduleSyncToBackend,
   ]);
 
   /**

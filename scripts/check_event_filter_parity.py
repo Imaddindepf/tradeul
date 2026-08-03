@@ -19,6 +19,8 @@ Zones checked:
      definitions), and every preset eventType exists in the engine
   9. MATCHER port: generated defs in sync with index.js and verdict parity
      against the frozen fixtures (backtester/parity/check_matcher_parity.py)
+ 10. NUMERIC inputs: parser por locale verde (check-number-parser.mjs) y
+     prohibidos type="number" / parseFloat(x)||0 en componentes de filtros
 
 Exit 1 on any divergence. Run in CI and before deploys.
 """
@@ -203,6 +205,36 @@ def main() -> int:
             tail = (par.stdout or par.stderr).strip().splitlines()[-6:]
             errors.append("Matcher parity FAILED: " + " | ".join(tail))
 
+    # ── 10) Inputs numéricos: una sola lógica, sin patrones peligrosos ───
+    parser_check = ROOT / "frontend/scripts/check-number-parser.mjs"
+    if parser_check.exists():
+        pr = subprocess.run(
+            ["node", "--experimental-strip-types", str(parser_check)],
+            capture_output=True, text=True, cwd=str(ROOT / "frontend"),
+        )
+        if pr.returncode != 0:
+            tail = (pr.stderr or pr.stdout).strip().splitlines()[-4:]
+            errors.append("Number parser FAILED: " + " | ".join(tail))
+
+    _INPUT_DIRS = [
+        "frontend/components/screener",
+        "frontend/components/config",
+        "frontend/components/events",
+        "frontend/components/backtest-floating",
+        "frontend/components/ui/FilterNumInput.tsx",
+    ]
+    for d in _INPUT_DIRS:
+        p = ROOT / d
+        files = [p] if p.is_file() else list(p.rglob("*.tsx")) if p.is_dir() else []
+        for f in files:
+            if ".bak" in f.name or f.name.endswith(".backup"):
+                continue
+            src2 = f.read_text(encoding="utf-8", errors="replace")
+            if 'type="number"' in src2:
+                errors.append(f'{f.relative_to(ROOT)}: input type="number" prohibido en filtros (usa NumericField)')
+            if re.search(r"parseFloat\([^)]*\)\s*\|\|\s*0", src2):
+                errors.append(f"{f.relative_to(ROOT)}: parseFloat(x) || 0 convierte entrada inválida en 0 (usa parseLocaleNumber)")
+
     if errors:
         return fail(errors)
 
@@ -212,6 +244,7 @@ def main() -> int:
     print("- generated assets in sync (TS, RETE mapping, v1 events json)")
     print(f"- event catalog: {len(valid_event_types)} tipos, facade + presets OK")
     print("- matcher port: defs al dia + paridad de veredictos OK")
+    print("- inputs numericos: parser por locale OK, sin patrones peligrosos")
     return 0
 
 

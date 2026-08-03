@@ -28,6 +28,9 @@ export interface CatalogEntry {
   /** Texto extra para buscar (código de alerta, nombre en el otro idioma). */
   alias?: string;
   suffix?: string;
+  /** Escalas del catálogo (['','K','M'] / ['K','M','B']): selector de unidad. */
+  units?: readonly string[];
+  defU?: string;
   capability: Capability;
   /** Por qué está degradado o no soportado. Se muestra tal cual. */
   reason?: string;
@@ -274,6 +277,8 @@ function buildTriggerCatalog(caps: Capabilities | null): CatalogEntry[] {
         group: g.group,
         alias: `${f.minK} ${f.maxK}`,
         suffix: f.suf || undefined,
+        units: f.units && f.units.length > 0 ? f.units : undefined,
+        defU: f.defU,
         capability: sem?.capability ?? (ta ? 'degraded' : 'unknown'),
         reason: sem?.reason,
       });
