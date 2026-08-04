@@ -40,6 +40,7 @@ COLUMNS = [
     "vol_1min_pct", "vol_5min_pct",
     "rsi", "ema_20", "ema_50",
     "details", "context",
+    "quality",
 ]
 
 ALERT_KEY_TO_COL = {
@@ -81,6 +82,7 @@ ALERT_KEY_TO_COL = {
     "ema_20": "ema_20",
     "ema_50": "ema_50",
     "details": "details",
+    "quality": "quality",
 }
 
 _MAPPED_COL_SET = set(ALERT_KEY_TO_COL.values())
@@ -335,6 +337,7 @@ class AlertWriter:
                 _safe_float(mapped.get("ema_50")),
                 details_json,
                 context_json,
+                _safe_float(mapped.get("quality")),
             )
             records.append(row)
 
