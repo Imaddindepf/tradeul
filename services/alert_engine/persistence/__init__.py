@@ -41,6 +41,7 @@ COLUMNS = [
     "rsi", "ema_20", "ema_50",
     "details", "context",
     "quality",
+    "bid", "ask", "bid_size", "ask_size",
 ]
 
 ALERT_KEY_TO_COL = {
@@ -83,7 +84,19 @@ ALERT_KEY_TO_COL = {
     "ema_50": "ema_50",
     "details": "details",
     "quality": "quality",
+    # Cotizacion en el instante del disparo. Vivian solo en `context`, que el
+    # archivador del lake excluye y la BD retiene 3 dias: la familia de quotes
+    # (19 tipos) guardaba el evento pero perdia su propio valor para siempre.
+    "bid": "bid",
+    "ask": "ask",
+    "bid_size": "bid_size",
+    "ask_size": "ask_size",
 }
+
+# Columnas de cotizacion: los detectores de quotes las traen en la alerta; el
+# resto de familias solo las tiene en el enriched. Se toman de la alerta y, si
+# no viene, del enriched (mismo criterio que el matcher del websocket).
+_QUOTE_COLS = ("bid", "ask", "bid_size", "ask_size")
 
 _MAPPED_COL_SET = set(ALERT_KEY_TO_COL.values())
 _SKIP_CONTEXT_KEYS = {"quality", "description", "__meta__"}
@@ -264,6 +277,10 @@ class AlertWriter:
                 if v is not None:
                     mapped[col] = v
 
+            for col in _QUOTE_COLS:
+                if mapped.get(col) is None and enriched.get(col) is not None:
+                    mapped[col] = enriched[col]
+
             context: Dict[str, Any] = {}
             for k, v in enriched.items():
                 if v is not None and k not in _SKIP_CONTEXT_KEYS:
@@ -338,6 +355,10 @@ class AlertWriter:
                 details_json,
                 context_json,
                 _safe_float(mapped.get("quality")),
+                _safe_float(mapped.get("bid")),
+                _safe_float(mapped.get("ask")),
+                _safe_int(mapped.get("bid_size")),
+                _safe_int(mapped.get("ask_size")),
             )
             records.append(row)
 
