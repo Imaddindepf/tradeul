@@ -586,7 +586,33 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
             setProgress(0);
             setStatus({ kind: 'error', msg: t('l2replay.loadError') });
         }
-    }, [dateStr, timeStr, fetchBlock, extend, setPlay, t]);
+    }, [dateStr, timeStr, fetchBlock, extend, setPlay, t, clock]);
+
+    // ---- petición del gráfico: señalar una vela manda aquí ---------------
+    // Manda el gráfico. Cuando el usuario señala una vela, esta ventana adopta
+    // ese día y esa hora (y su símbolo) y carga sola, sin que haya que tocar
+    // los campos de arriba. El nonce distingue dos clics en la misma vela.
+    const request = useReplayClockStore((s) => s.request);
+    const lastNonce = useRef(0);
+    useEffect(() => {
+        if (!request || request.nonce === lastNonce.current) return;
+        lastNonce.current = request.nonce;
+        updateState({
+            symbol: request.symbol || symbol,
+            date: request.date,
+            time: request.time,
+        });
+    }, [request, symbol, updateState]);
+
+    // Cargar en cuanto los campos reflejan la vela pedida.
+    const pendingLoad = useRef(false);
+    useEffect(() => {
+        if (!request || lastNonce.current !== request.nonce) return;
+        if (dateStr !== request.date || timeStr !== request.time) return;
+        if (pendingLoad.current) return;
+        pendingLoad.current = true;
+        void load().finally(() => { pendingLoad.current = false; });
+    }, [request, dateStr, timeStr, load]);
 
     const queryCost = useCallback(async () => {
         setCost('…');

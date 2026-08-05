@@ -32,6 +32,15 @@ import { TVChartCell, type TVChartCellApi, type TVCellSnapshot } from './TVChart
 import { TVDesignManager, type ActiveDesign } from './TVDesignManager';
 import { TVToolbar, type TVToolbarActions } from './TVToolbar';
 import { TVDrawingBar, type DrawingsSyncMode } from './TVDrawingBar';
+import { useReplayClockStore } from '@/stores/useReplayClockStore';
+
+/** La vela señalada se traduce a día y hora de Nueva York, que es lo que
+ *  entiende el resto de la cadena de reproducción. */
+const etPartsFmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+});
 
 const DEFAULT_SYMBOL = 'AAPL';
 const DEFAULT_TV_INTERVAL = '5';
@@ -180,6 +189,8 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
     const cellsRef = useRef<Record<string, TVCellPersisted>>(initialRef.current.cells);
     // API imperativa de cada celda montada (para sync y toolbar).
     const cellApisRef = useRef<Record<string, TVChartCellApi | null>>({});
+    /** Cancela el modo "señalar vela" si se pide otro o se desmonta. */
+    const cancelPickRef = useRef<(() => void) | null>(null);
 
     const windowIdRef = useRef(windowId);
     windowIdRef.current = windowId;
@@ -780,6 +791,24 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
                     return;
                 }
                 active()?.exec(actionId);
+            },
+            pickReplayBar: () => {
+                // El gráfico manda: se señala la vela aquí y el instante viaja
+                // al reloj compartido, que es quien lo reparte al libro y a la
+                // cinta. Se cancela una selección previa si la hubiera.
+                cancelPickRef.current?.();
+                cancelPickRef.current = active()?.pickBar((timeSec) => {
+                    cancelPickRef.current = null;
+                    const d = new Date(timeSec * 1000);
+                    const p = etPartsFmt.formatToParts(d)
+                        .reduce<Record<string, string>>((a, x) => (a[x.type] = x.value, a), {});
+                    const cell = cellsRef.current[activeCellIdRef.current];
+                    useReplayClockStore.getState().requestSession({
+                        symbol: String(cell?.symbol ?? '').toUpperCase(),
+                        date: `${p.year}-${p.month}-${p.day}`,
+                        time: `${p.hour}:${p.minute}:${p.second}`,
+                    });
+                }) ?? null;
             },
             setInterval: (resolution) => {
                 active()?.setInterval(resolution);

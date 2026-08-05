@@ -23,6 +23,8 @@ export interface TVToolbarActions {
     undo: () => void;
     redo: () => void;
     screenshot: () => void;
+    /** Entra en modo "señalar vela" para arrancar una reproducción. */
+    pickReplayBar: () => void;
 }
 
 interface TVToolbarProps {
@@ -187,7 +189,7 @@ function TbDropdown<T>({
  * libro, que es quien pide el flujo; a partir de ahí gráfico, libro y cinta
  * comparten reloj y no hace falta sincronizarlos a mano.
  */
-function ReplayControl({ symbol, lang }: { symbol: string; lang: keyof Bi }) {
+function ReplayControl({ symbol, lang, actions }: { symbol: string; lang: keyof Bi; actions: TVToolbarActions }) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
     // Se reusa el camino del comando L2R: asi la ventana nace con el mismo
@@ -199,9 +201,13 @@ function ReplayControl({ symbol, lang }: { symbol: string; lang: keyof Bi }) {
 
     useTVPopover(open, () => setOpen(false), (t) => rootRef.current?.contains(t) ?? false);
 
-    const abrirL2 = () => {
+    // Señalar la vela ES el arranque: se entra en modo selección y, al hacer
+    // clic, el gráfico publica el instante y abre la ventana del libro.
+    const empezar = () => {
         setOpen(false);
-        if (symbol) executeTickerCommand(symbol, 'l2replay');
+        if (!symbol) return;
+        executeTickerCommand(symbol, 'l2replay');
+        actions.pickReplayBar();
     };
 
     return (
@@ -226,11 +232,11 @@ function ReplayControl({ symbol, lang }: { symbol: string; lang: keyof Bi }) {
                     }}
                 >
                     <button
-                        onClick={abrirL2}
+                        onClick={empezar}
                         disabled={!symbol}
                         className="block w-full px-3 py-1.5 text-left text-xs font-medium hover:bg-black/10 dark:hover:bg-white/10"
                     >
-                        {L(bi('Replay with Level 2', 'Reproducción con Level 2'))}
+                        {L(bi('Replay with Level 2 — pick a bar', 'Reproducción con Level 2 — señala una vela'))}
                     </button>
                     <div
                         className="my-1 h-px"
@@ -300,7 +306,7 @@ export function TVToolbar({
             {/* Reproducción. El desplegable elige el alcance; con Level 2 abre
                 la ventana del libro, que es la que sirve el flujo y arrastra al
                 gráfico y a la cinta por el reloj compartido. */}
-            <ReplayControl symbol={symbol} lang={lang} />
+            <ReplayControl symbol={symbol} lang={lang} actions={actions} />
 
             <Sep />
 

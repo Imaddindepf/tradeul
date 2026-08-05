@@ -71,9 +71,31 @@ type PrintSub = (p: ReplayPrint) => void;
 /** Aviso de salto. Quien tenga estado acumulado debe reconstruirlo. */
 type SeekSub = (tMs: number) => void;
 
+/**
+ * Instante pedido DESDE EL GRÁFICO, señalando una vela.
+ *
+ * Manda el gráfico, no el libro: es donde se ve el contexto y donde se decide
+ * "quiero estar aquí". El libro y la cinta son el detalle, y siguen.
+ */
+export interface ReplayRequest {
+    symbol: string;
+    /** Día de la vela señalada, ISO `YYYY-MM-DD` en hora de Nueva York. */
+    date: string;
+    /** Hora de la vela señalada, `HH:MM:SS` en hora de Nueva York. */
+    time: string;
+    /** Cambia en cada petición: distingue dos clics en la misma vela. */
+    nonce: number;
+}
+
 export interface ReplayClockState {
     /** Hay una sesión de reproducción abierta. */
     active: boolean;
+
+    /**
+     * Última vela señalada en el gráfico. La ventana del libro la observa y
+     * carga ese instante; el gráfico se queda esperando a que abra la sesión.
+     */
+    request: ReplayRequest | null;
     playing: boolean;
     /** Esperando datos: el reloj está detenido a propósito. */
     stalled: boolean;
@@ -101,6 +123,8 @@ export interface ReplayClockState {
     tMs: number;
 
     // --- acciones ---
+    /** El gráfico señala una vela: pide reproducir desde ese instante. */
+    requestSession: (r: Omit<ReplayRequest, 'nonce'>) => void;
     open: (opts: { sessionDate: string; originMs: number; loadedMs?: number }) => void;
     close: () => void;
     play: () => void;
@@ -248,6 +272,7 @@ function stopLoop() {
 
 export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
     active: false,
+    request: null,
     playing: false,
     stalled: false,
     speed: 1,
@@ -255,6 +280,12 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
     originMs: 0,
     loadedMs: 0,
     tMs: 0,
+
+    requestSession: (r) => {
+        // El nonce distingue dos clics sobre la misma vela: sin él, volver a
+        // señalar el mismo instante no dispararia nada.
+        set({ request: { ...r, nonce: Date.now() } });
+    },
 
     open: ({ sessionDate, originMs, loadedMs = 0 }) => {
         anchorSim = 0;
@@ -270,7 +301,10 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
         tickSubs.clear();
         printSubs.clear();
         seekSubs.clear();
-        set({ active: false, playing: false, stalled: false, sessionDate: null, originMs: 0, loadedMs: 0, tMs: 0 });
+        set({
+            active: false, request: null, playing: false, stalled: false,
+            sessionDate: null, originMs: 0, loadedMs: 0, tMs: 0,
+        });
     },
 
     play: () => {

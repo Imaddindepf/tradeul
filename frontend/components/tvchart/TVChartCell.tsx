@@ -110,6 +110,13 @@ export interface TVChartCellApi {
     setHideAllStudies: (on: boolean) => void;
     /** Alejar el zoom del chart. */
     zoomOut: () => void;
+    /**
+     * Modo "elegir vela": el siguiente clic sobre el gráfico devuelve el
+     * instante de esa vela. Es como se arranca una reproducción — señalando en
+     * el gráfico, que es donde se ve el contexto y se decide dónde ir.
+     * Devuelve una función para cancelar el modo.
+     */
+    pickBar: (onPick: (timeSec: number) => void) => () => void;
     /** Lista de estudios disponibles (nativos + custom) para el diálogo único. */
     listStudies: () => string[];
     /** Añade un indicador por nombre al chart de la celda. */
@@ -327,6 +334,37 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
             try {
                 widgetRef.current?.activeChart().zoomOut();
             } catch { /* no listo */ }
+        },
+        pickBar: (onPick: (timeSec: number) => void) => {
+            const w = widgetRef.current;
+            if (!w || !readyRef.current) return () => { };
+            // `mouse_down` solo trae píxeles; el instante lo da la cruz. Se
+            // combinan: la cruz mantiene la última vela apuntada y el clic la
+            // confirma. Es como se comporta la selección de barra estándar.
+            let hovered: number | null = null;
+            let sub: { unsubscribe: (obj: unknown, cb: unknown) => void } | null = null;
+            const onCross = (p: { time?: number }) => {
+                if (typeof p?.time === 'number') hovered = p.time;
+            };
+            const onDown = () => {
+                if (hovered != null) { const t = hovered; cancel(); onPick(t); }
+            };
+            const cancel = () => {
+                try { sub?.unsubscribe(null, onCross); } catch { /* ya suelto */ }
+                try { w.unsubscribe('mouse_down', onDown); } catch { /* ya suelto */ }
+                try { document.body.style.cursor = ''; } catch { /* sin DOM */ }
+            };
+            try {
+                sub = w.activeChart().crossHairMoved() as typeof sub;
+                (sub as unknown as { subscribe: (o: unknown, c: unknown) => void })
+                    .subscribe(null, onCross);
+                w.subscribe('mouse_down', onDown);
+                document.body.style.cursor = 'crosshair';
+            } catch {
+                cancel();
+                return () => { };
+            }
+            return cancel;
         },
         listStudies: () => {
             try {
