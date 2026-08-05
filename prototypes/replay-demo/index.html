@@ -1,0 +1,1214 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Tradeul · Replay</title>
+<style>
+  /* Chrome en superficie, datos sobre negro puro: la misma regla que en
+     producción (--color-bg no vale para barras). */
+  :root{
+    --bg:#000; --surface:#10141b; --surface2:#171d27; --line:#212836;
+    --txt:#d7dde8; --dim:#7b8697; --dim2:#4d5666;
+    --up:#2fbf71; --down:#ef5350;
+    --bid:#26a269; --ask:#c01c28;
+    --accent:#4a9eff; --warn:#e5a50a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--txt);
+       font:11px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       display:flex;flex-direction:column;overflow:hidden}
+  .num{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  /* ---------- barra superior ---------- */
+  header{display:flex;align-items:center;gap:9px;padding:7px 12px;background:var(--surface);
+         border-bottom:1px solid var(--line);flex-wrap:wrap;flex-shrink:0}
+  header .brand{font-weight:700;letter-spacing:.4px;font-size:12px;margin-right:4px}
+  header .brand span{color:var(--accent)}
+  label{color:var(--dim);font-size:11px;display:flex;align-items:center;gap:5px}
+  input,select,button{background:var(--surface2);color:var(--txt);border:1px solid var(--line);
+        border-radius:5px;padding:4px 8px;font-size:11px;font-family:inherit}
+  input:focus,select:focus{outline:1px solid var(--accent);border-color:var(--accent)}
+  input[type=date],input[type=time]{color-scheme:dark}
+  button{cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--accent)}
+  button:disabled{opacity:.4;cursor:default}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:600}
+  button.danger{background:var(--warn);border-color:var(--warn);color:#221a02;font-weight:600}
+  #sym{width:64px;text-transform:uppercase;font-weight:600}
+  #status{margin-left:auto;color:var(--dim);display:flex;align-items:center;gap:7px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim2);display:inline-block}
+  .dot.on{background:var(--up);box-shadow:0 0 6px var(--up)}
+  .dot.load{background:var(--warn);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.25}}
+  .chip{color:var(--dim);font-size:10px;border:1px solid var(--line);border-radius:10px;
+        padding:2px 8px;white-space:nowrap}
+  .chip.ok{color:var(--up);border-color:rgba(47,191,113,.4)}
+  .chip.pay{color:var(--warn);border-color:rgba(229,165,10,.4)}
+  #err{color:var(--down);font-size:11px;padding:2px 12px;flex-shrink:0;min-height:0}
+
+  /* ---------- cuerpo ---------- */
+  main{flex:1;display:flex;min-height:0;gap:7px;padding:7px}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;
+         display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+  .phead{padding:5px 10px;border-bottom:1px solid var(--line);color:var(--dim);
+         font-size:10px;letter-spacing:.7px;text-transform:uppercase;display:flex;
+         gap:10px;align-items:center;flex-shrink:0}
+  .phead .sp{margin-left:auto}
+
+  /* chart */
+  #chartPanel{flex:1}
+  #ohlc{display:flex;gap:10px;align-items:baseline;text-transform:none;letter-spacing:0}
+  #ohlc b{color:var(--txt);font-weight:600}
+  #ohlc .t{font-size:13px;font-weight:700;letter-spacing:.4px;color:var(--txt)}
+  #cwrap{flex:1;position:relative;background:var(--bg);min-height:0}
+  #chart{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+  .resbtn{padding:2px 7px;border-radius:4px;font-size:10px}
+  .resbtn.on{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:700}
+  #follow{font-size:10px;padding:2px 7px}
+  #countdown{color:var(--dim);font-size:10px}
+
+  /* columna derecha */
+  #right{width:430px;display:flex;flex-direction:column;gap:7px;flex-shrink:0}
+  #l2{flex:1.45}
+  #tas{flex:1}
+
+  /* cabecera de cotizacion dentro del L2 */
+  #quote{display:flex;align-items:baseline;gap:12px;padding:7px 10px;flex-wrap:wrap;
+         border-bottom:1px solid var(--line);flex-shrink:0;background:var(--surface)}
+  #quote .last{font-size:19px;font-weight:700}
+  #quote .kv{display:flex;flex-direction:column;gap:0}
+  #quote .kv i{font-style:normal;color:var(--dim);font-size:9px;text-transform:uppercase;letter-spacing:.5px}
+  #quote .kv b{font-weight:600;font-size:12px}
+  .up{color:var(--up)} .down{color:var(--down)}
+
+  /* montaje */
+  #bookwrap{flex:1;display:flex;min-height:0;background:var(--bg)}
+  .side{flex:1;min-width:0;overflow:hidden;display:flex;flex-direction:column}
+  .side.asks{border-left:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse}
+  th{color:var(--dim);font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.6px;
+     padding:4px 9px;text-align:right;border-bottom:1px solid var(--line);position:sticky;top:0;
+     background:var(--surface)}
+  th.v{text-align:left}
+  td{padding:0 9px;height:20px;font-size:11px;text-align:right;white-space:nowrap}
+  td.v{text-align:left;color:var(--dim);font-size:10px;letter-spacing:.4px;width:46px}
+  tr.row{border-bottom:1px solid rgba(33,40,54,.5)}
+  tr.stale td{opacity:.38}
+  tr.stale td.v::after{content:"·";color:var(--warn);margin-left:4px}
+  td.v,td.num{text-shadow:0 1px 2px rgba(0,0,0,.5)}
+  .bids tr.row td.v{border-left:3px solid transparent}
+  .asks tr.row td:last-child{border-right:3px solid transparent}
+  .bids tr.d0 td.v{border-left-color:var(--eb0)} .asks tr.d0 td:last-child{border-right-color:var(--ea0)}
+  .bids tr.d1 td.v{border-left-color:var(--eb1)} .asks tr.d1 td:last-child{border-right-color:var(--ea1)}
+  .bids tr.d2 td.v{border-left-color:var(--eb2)} .asks tr.d2 td:last-child{border-right-color:var(--ea2)}
+  .bids tr.d3 td.v{border-left-color:var(--eb2);border-left-width:1px}
+  .asks tr.d3 td:last-child{border-right-color:var(--ea2);border-right-width:1px}
+  tr.d0 td{font-weight:600}
+  tr.d0 td.p{font-weight:700;font-size:11.5px}
+  tr.d0 td.p span,tr.d1 td.p span,tr.d2 td.p span{color:#f2f6fb}
+  tr.d0 td,tr.d1 td,tr.d2 td{color:#eaf0f8}
+  .bids tr.d3 td.p{color:var(--deep-b)} .asks tr.d3 td.p{color:var(--deep-a)}
+  tr.newlevel td{border-top:1px solid rgba(255,255,255,.13)}
+  .bar{position:relative;overflow:hidden}
+  .bar em{position:absolute;top:3px;bottom:3px;border-radius:2px;opacity:.17;pointer-events:none}
+  .bids .bar em{right:0;background:var(--bid)}
+  .asks .bar em{left:0;background:var(--ask)}
+  .bar span{position:relative;z-index:1}
+  .legend{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--dim2);
+          text-transform:none;letter-spacing:0}
+  .legend .sw{width:10px;height:8px;border-radius:2px;display:inline-block}
+  .legend .sw+.sw{margin-left:-3px}
+  .b0{background:var(--swb0)} .b1{background:var(--swb1)} .b2{background:var(--swb2)}
+  .a0{background:var(--swa0);margin-left:4px} .a1{background:var(--swa1)} .a2{background:var(--swa2)}
+
+  /* tape */
+  #tapebody{flex:1;overflow:hidden;background:var(--bg)}
+  #tapebody td{height:18px;font-size:10.5px}
+  .atbid{color:var(--down)} .atask{color:var(--up)} .mid{color:var(--dim)}
+
+  /* ---------- transporte ---------- */
+  footer{display:flex;align-items:center;gap:10px;padding:7px 12px;background:var(--surface);
+         border-top:1px solid var(--line);flex-shrink:0}
+  #play{width:36px;font-size:13px}
+  .step{width:28px}
+  #clock{font-size:15px;font-weight:700;letter-spacing:.5px;min-width:88px}
+  #clockdate{color:var(--dim);font-size:10px;min-width:70px}
+  #scrubwrap{flex:1;position:relative;height:14px;display:flex;align-items:center}
+  #scrub{width:100%;-webkit-appearance:none;height:4px;border-radius:2px;background:var(--surface2);outline:none;margin:0}
+  #scrub::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+        background:var(--accent);cursor:pointer;border:2px solid var(--surface)}
+  #stall{display:none;color:var(--warn);font-size:10px;font-weight:700;letter-spacing:.6px}
+  #stall.on{display:inline;animation:pulse 1s infinite}
+  #debug{font-size:9.5px;color:var(--dim2)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">TRADEUL <span>REPLAY</span></div>
+  <label>Símbolo <input id="sym" value="NVDA"></label>
+  <label>Fecha <input id="date" type="date" value="2026-07-01"></label>
+  <label>Hora ET <input id="time" type="time" step="1" value="09:35:00"></label>
+  <label>Bloque
+    <select id="minutes">
+      <option value="1">1 min</option>
+      <option value="5" selected>5 min</option>
+      <option value="15">15 min</option>
+      <option value="30">30 min</option>
+    </select>
+  </label>
+  <label>Fidelidad
+    <select id="schema">
+      <option value="mbp-1" selected>Tick a tick</option>
+      <option value="bbo-1s">1 seg</option>
+    </select>
+  </label>
+  <label>Paleta L2
+    <select id="palette">
+      <option value="neutral">Neutra</option>
+      <option value="safe">Azul / Ámbar</option>
+      <option value="classic">Verde / Rojo</option>
+    </select>
+  </label>
+  <label title="Ventanas ya descargadas: reproducirlas no cuesta nada">En caché
+    <select id="cachedwins"><option value="">—</option></select>
+  </label>
+  <label title="Historia detrás del arranque: desde la apertura, o desde el premarket">Pasado
+    <select id="pre">
+      <option value="0" selected>desde 09:30</option>
+      <option value="1">desde 04:00 (premarket)</option>
+    </select>
+  </label>
+  <label title="Sin esto, solo se sirve lo que ya está pagado en la caché">
+    <input type="checkbox" id="spend" style="accent-color:var(--warn)"> permitir compras
+  </label>
+  <button id="load" class="primary">Cargar</button>
+  <span class="chip" id="chipCache">caché —</span>
+  <div id="status"><span class="dot" id="dot"></span><span id="stxt">en espera</span></div>
+</header>
+<div id="err"></div>
+
+<main>
+  <div class="panel" id="chartPanel">
+    <div class="phead">
+      <label style="text-transform:none">Motor
+        <select id="engine">
+          <option value="canvas">Lienzo</option>
+          <option value="tv">TradingView CL</option>
+        </select>
+      </label>
+      <span id="ohlc"><span class="t" id="csym">—</span>
+        <span>O <b class="num" id="co">—</b></span><span>H <b class="num" id="ch">—</b></span>
+        <span>L <b class="num" id="cl">—</b></span><span>C <b class="num" id="cc">—</b></span>
+        <span>Vol <b class="num" id="cv">—</b></span>
+        <span id="cchg" class="num"></span></span>
+      <span class="sp"></span>
+      <span id="countdown" class="num">—</span>
+      <button class="resbtn" data-res="1000">1s</button>
+      <button class="resbtn on" data-res="5000">5s</button>
+      <button class="resbtn" data-res="15000">15s</button>
+      <button class="resbtn" data-res="60000">1m</button>
+      <button id="follow" title="Seguir la última vela">SEGUIR</button>
+    </div>
+    <div id="cwrap">
+      <canvas id="chart"></canvas>
+      <div id="tvwrap" style="display:none;position:absolute;inset:0"></div>
+    </div>
+  </div>
+
+  <div id="right">
+    <div class="panel" id="l2">
+      <div class="phead"><span>Level 2 · montaje por venue</span>
+        <span class="legend">prof.<b class="sw b0"></b><b class="sw b1"></b><b class="sw b2"></b><b class="sw a0"></b><b class="sw a1"></b><b class="sw a2"></b></span>
+        <span class="sp num" id="bookinfo">—</span></div>
+      <div id="quote">
+        <span class="last num" id="qlast">—</span>
+        <div class="kv"><i>Bid</i><b class="num up" id="qbid">—</b></div>
+        <div class="kv"><i>Ask</i><b class="num down" id="qask">—</b></div>
+        <div class="kv"><i>Spr</i><b class="num" id="qspr">—</b></div>
+        <div class="kv"><i>Vol</i><b class="num" id="qvol">—</b></div>
+        <div class="kv"><i>VWAP</i><b class="num" id="qvwap">—</b></div>
+        <div class="kv"><i>Venues</i><b class="num" id="qven">—</b></div>
+      </div>
+      <div id="bookwrap">
+        <div class="side bids">
+          <table><thead><tr><th class="v">Venue</th><th>Size</th><th>Bid</th></tr></thead>
+          <tbody id="bidbody"><tr><td colspan="3" style="color:var(--dim2);text-align:center;padding:24px">Carga una ventana</td></tr></tbody></table>
+        </div>
+        <div class="side asks">
+          <table><thead><tr><th>Ask</th><th>Size</th><th class="v" style="text-align:right">Venue</th></tr></thead>
+          <tbody id="askbody"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="tas">
+      <div class="phead"><span>Time &amp; Sales</span><span class="sp num" id="tapeinfo">—</span></div>
+      <div id="tapebody">
+        <table><thead><tr><th class="v">Hora</th><th>Precio</th><th>Size</th><th>Venue</th></tr></thead>
+        <tbody id="tapetb"></tbody></table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <button id="play" disabled>▶</button>
+  <button class="step" id="back1" disabled title="−1 s">−1s</button>
+  <button class="step" id="fwd1" disabled title="+1 s">+1s</button>
+  <span id="clock" class="num">--:--:--</span>
+  <span id="clockdate" class="num"></span>
+  <div id="scrubwrap"><input id="scrub" type="range" min="0" max="1000" value="0" disabled></div>
+  <label>Vel.
+    <select id="speed">
+      <option value="0.5">0,5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+      <option value="3">3×</option>
+      <option value="5">5×</option>
+      <option value="10">10×</option>
+      <option value="60">1 MPS</option>
+      <option value="300">5 MPS</option>
+    </select>
+  </label>
+  <span id="stall">BUFFERING</span>
+  <span class="chip" id="chipNext">—</span>
+  <span id="debug" class="num">—</span>
+</footer>
+
+<script src="/vendor/charting_library/charting_library.standalone.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const fmtP = v => v == null ? "—" : v.toFixed(2);
+const fmtS = v => v == null ? "—" : (v >= 1e6 ? (v/1e6).toFixed(2)+"M" : v >= 1000 ? (v/1000).toFixed(1)+"k" : String(v));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* =====================================================================
+   EL RELOJ  (decisiones D1/D2/D6 del diseño)
+
+   · Acumulador sobre requestAnimationFrame: tCont += dt * velocidad.
+     Continuo y fraccionario — es el que manda la EMISIÓN.
+   · La emisión va por timestamp real de cada evento (ms), no por tick
+     cuantizado: el ritmo intrasegundo de la cinta se conserva. Esto es
+     lo que TradingSim hace mal (late a 1 Hz) y aquí no.
+   · El reloj es esclavo del dato: si el siguiente bloque no ha llegado,
+     se PARA (stalled), jamás avanza sin datos.                        */
+const Clock = {
+  t: 0, speed: 1, playing: false, stalled: false, lastRaf: 0,
+  anchorWall: 0, anchorSim: 0,   // t = anchorSim + (pared - anchorWall) × velocidad
+  stallMs: 0,                    // tiempo total esperando datos (chip debug)
+  anchor(now){ this.anchorWall = now ?? performance.now(); this.anchorSim = this.t; },
+  reset(){ this.t = 0; this.playing = false; this.stalled = false; this.stallMs = 0; this.anchor(); }
+};
+
+let D = null;              // bloque(s) cargados: frames, tape, startUtc, durationMs
+let book = [];             // venueIdx -> {bp,bs,ap,as,t}
+let cursor = 0, tcursor = 0;
+let tape = [];             // filas emitidas (últimas 60 para el DOM)
+let candles = [], vwapPts = [];      // velas + vwap por vela
+let cumV = 0, cumPV = 0;
+let lastPx = null, prevPx = null;
+let bestBid = null, bestAsk = null;  // NBBO vigente (lo calcula el render del libro)
+let hitB = {}, hitA = {};
+let RES = 5000;            // resolución de vela (ms)
+let follow = true, panOff = 0, barW = 7;
+let prefetching = false, exhausted = false, nextCached = null;
+
+/* =====================================================================
+   PRECARGA POR COLCHÓN REAL  (no por porcentaje)
+
+   El umbral del 70% era un fallo: el 70% de un bloque de 5 min son 90 s de
+   mercado, que a 1x dan 90 s reales para descargar — de sobra — pero a 5x
+   se consumen en 18 s. Medido con el umbral viejo: 7,1 s de parón a 5x.
+
+   Lo que importa no es cuánto mercado queda, sino **cuánto tiempo de pared**
+   queda antes de agotarlo, comparado con lo que tarda una petición:
+
+       colchón_real = (T_cargado − T_reloj) / velocidad
+       pedir cuando  colchón_real < latencia_medida × K + margen
+
+   Así, a 10x dispara diez veces antes que a 1x sin tocar nada, y si la red
+   se degrada la latencia medida sube y el sistema pide todavía antes.       */
+const Net = { lat: 1500, n: 0 };          // EMA de latencia de bloque (ms)
+const PREFETCH_K = 2.5, PREFETCH_MARGEN = 1000;
+
+function colchonRealMs(){ return D ? (D.durationMs - Clock.t) / Clock.speed : 0; }
+function umbralMs(){ return Net.lat * PREFETCH_K + PREFETCH_MARGEN; }
+function hacenFaltaDatos(){ return !exhausted && colchonRealMs() < umbralMs(); }
+let evCount = 0, evStamp = performance.now(), evRate = 0, fpsCount = 0, fpsStamp = performance.now(), fps = 0;
+let tapeDirty = false;
+
+function setStatus(txt, mode){
+  $("stxt").textContent = txt;
+  $("dot").className = "dot" + (mode === "on" ? " on" : mode === "load" ? " load" : "");
+}
+
+/* ---------------- paletas del libro (las 3 validadas del l2demo) ------- */
+const PALETTES = {
+  neutral:{bid:[[107,118,129],[87,98,109],[68,78,89]],ask:[[107,118,129],[87,98,109],[68,78,89]],
+    edgeB:["#8b97a4","#6b7681","#57626d"],edgeA:["#8b97a4","#6b7681","#57626d"],deepB:"#9aa6b3",deepA:"#9aa6b3"},
+  safe:{bid:[[64,120,176],[43,99,153],[20,79,132]],ask:[[153,106,6],[131,86,0],[110,66,0]],
+    edgeB:["#5c95cf","#4078b0","#2b6399"],edgeA:["#c08b1e","#996a06","#835600"],deepB:"#7fb0e0",deepA:"#d0a03a"},
+  classic:{bid:[[42,136,88],[5,115,69],[0,95,50]],ask:[[186,91,85],[162,69,65],[138,47,45]],
+    edgeB:["#3fd292","#1c9c63","#0d7546"],edgeA:["#ff7b74","#c85a54","#993e3a"],deepB:"#5fcf9a",deepA:"#e08b85"}
+};
+let PAL = PALETTES.neutral;
+const PX_MS = 450, SZ_MS = 320;
+function applyPalette(key){
+  PAL = PALETTES[key] || PALETTES.neutral;
+  localStorage.setItem("l2pal", key);
+  const r = document.documentElement.style;
+  PAL.edgeB.forEach((c,i)=>r.setProperty("--eb"+i,c));
+  PAL.edgeA.forEach((c,i)=>r.setProperty("--ea"+i,c));
+  r.setProperty("--deep-b", PAL.deepB); r.setProperty("--deep-a", PAL.deepA);
+  const hx = a => "#" + a.map(v=>v.toString(16).padStart(2,"0")).join("");
+  PAL.bid.forEach((c,i)=>r.setProperty("--swb"+i,hx(c)));
+  PAL.ask.forEach((c,i)=>r.setProperty("--swa"+i,hx(c)));
+}
+function bgOf(lv, h, side){
+  const ramp = PAL[side === "bid" ? "bid" : "ask"];
+  if (lv >= ramp.length && !(Clock.playing && h && h.dir === "px")) return "";
+  let [r,g,b] = ramp[Math.min(lv, ramp.length-1)];
+  let a = lv >= ramp.length ? 0 : 1;
+  if (Clock.playing && h && h.dir === "px"){
+    const e = Clock.t - h.t;
+    if (e >= 0 && e < PX_MS){
+      const k = 0.26 * (1 - e/PX_MS);
+      r += (255-r)*k; g += (255-g)*k; b += (255-b)*k;
+      a = Math.max(a, (k/0.26)*0.42);
+    }
+  }
+  if (a <= 0) return "";
+  return a >= 1 ? `background:rgb(${r|0},${g|0},${b|0})`
+                : `background:rgba(${r|0},${g|0},${b|0},${a.toFixed(3)})`;
+}
+function szTint(h){
+  if (!Clock.playing || !h || (h.dir !== "up" && h.dir !== "dn")) return "";
+  const e = Clock.t - h.t;
+  if (e < 0 || e > SZ_MS) return "";
+  const k = 1 - e/SZ_MS;
+  const to = h.dir === "up" ? [88,240,160] : [255,120,120];
+  const base = [234,240,248];
+  const c = base.map((v,i)=>Math.round(v+(to[i]-v)*k));
+  return `color:rgb(${c[0]},${c[1]},${c[2]});font-weight:700`;
+}
+const MAX_PX = 1e6;   // misma barrera que dbn_sanitize.MAX_PLAUSIBLE_PRICE
+const quotable = (p,s) => p != null && s != null && p > 0 && p < MAX_PX && s > 0;
+
+/* ---------------- carga ------------------------------------------------ */
+function params(extra){
+  const p = new URLSearchParams({
+    symbol: $("sym").value.trim().toUpperCase() || "NVDA",
+    date: $("date").value,
+    time: $("time").value.length === 5 ? $("time").value + ":00" : $("time").value,
+    minutes: $("minutes").value,
+    schema: $("schema").value,
+    spend: $("spend").checked ? "1" : "0"
+  });
+  for (const k in (extra||{})) p.set(k, extra[k]);
+  return p;
+}
+
+async function refreshCachedChip(){
+  try{
+    const j = await (await fetch("/api/cached?" + params())).json();
+    if (!j.ok) return;
+    const el = $("chipCache");
+    if (j.hits === j.total){ el.textContent = `caché ${j.hits}/${j.total} · gratis`; el.className = "chip ok"; }
+    else { el.textContent = `caché ${j.hits}/${j.total} · faltan ${j.missing.join(",")}`; el.className = "chip pay"; }
+  }catch(e){}
+}
+
+async function loadCachedWindows(){
+  try{
+    const j = await (await fetch("/api/cache_windows?symbol=" + encodeURIComponent($("sym").value.trim().toUpperCase()))).json();
+    if (!j.ok) return;
+    const sel = $("cachedwins");
+    sel.innerHTML = '<option value="">—</option>' + j.windows.map((w,i) =>
+      `<option value="${i}">${w.symbol} ${w.date} ${w.time} · ${w.minutes}min · ${w.schema}${w.quotes < w.totalVenues ? " ("+w.quotes+"/"+w.totalVenues+")" : ""}</option>`).join("");
+    sel._wins = j.windows;
+  }catch(e){}
+}
+
+async function load(){
+  $("err").textContent = "";
+  $("load").disabled = true;
+  const t0 = Date.now();
+  setStatus("iniciando…", "load");
+  try{
+    const s = await (await fetch("/api/start?" + params())).json();
+    if (!s.ok) throw new Error(s.error || "no se pudo iniciar");
+    let p = null;
+    while (true){
+      await sleep(350);
+      p = await (await fetch("/api/progress?job=" + s.job)).json();
+      if (!p.ok) throw new Error(p.error || "progreso perdido");
+      const pct = p.total ? Math.round(100*p.done/p.total) : 0;
+      setStatus(`descargando ${p.done}/${p.total} · ${pct}% · ${((Date.now()-t0)/1000)|0}s`, "load");
+      if (p.ready) break;
+    }
+    if (p.error) throw new Error(p.error);
+    setStatus("montando…", "load");
+    const j = await (await fetch("/api/result?job=" + s.job)).json();
+    if (!j.ok) throw new Error(j.error || "error desconocido");
+    // Siembra de la latencia con lo que ha costado ESTE bloque. Sin esto, el
+    // primer encadenado dispara con una estimación optimista y llega tarde.
+    Net.lat = Math.max(1000, Date.now() - t0); Net.n = 1;
+    D = j;
+    setStatus("trayendo el pasado…", "load");
+    await loadHistory();          // el rango visible nace lleno
+    resetPlayback();
+    setStatus("listo" + (j.cached ? " (caché)" : ""), "on");
+    if ((j.misses || []).length)
+      $("err").textContent = "Sin caché (no facturado, activa compras si los quieres): " + j.misses.join(", ");
+    else if (Object.keys(j.errors || {}).length)
+      $("err").textContent = "Venues sin datos: " + Object.keys(j.errors).join(", ");
+    $("play").disabled = $("scrub").disabled = $("back1").disabled = $("fwd1").disabled = false;
+    probeNext();
+    play(true);
+  }catch(e){
+    setStatus("error", "");
+    $("err").textContent = "No se pudo cargar: " + e.message;
+  }finally{
+    $("load").disabled = false;
+  }
+}
+
+function resetPlayback(){
+  Clock.reset();
+  book = D.venues.map(()=>null);
+  (D.initial||[]).forEach(([vi,bp,bs,ap,as])=>{ book[vi] = {bp,bs,ap,as,t:-1}; });
+  cursor = 0; tcursor = 0; tape = []; hitB = {}; hitA = {};
+  const H0 = histCandles(RES);
+  candles = H0.candles; vwapPts = H0.vwap;
+  cumV = histV; cumPV = histPV;
+  lastPx = prevPx = null; bestBid = bestAsk = null;
+  exhausted = false; follow = true; panOff = 0;
+  $("csym").textContent = D.symbol;
+  tapeDirty = true;
+  if (ENGINE === "tv" && tvReady){
+    // carga nueva: si cambió el símbolo la CL debe re-resolver; si no, basta
+    // con que re-pida la historia (ya recortada al nuevo bloque)
+    try{
+      const cur = tvWidget.activeChart().symbol();
+      if (cur !== D.symbol) tvWidget.activeChart().setSymbol(D.symbol);
+      else tvReset();
+    }catch(e){ tvReset(); }
+  }
+  renderAll();
+}
+
+/* ---------------- avance: emisión por timestamp real ------------------- */
+function advance(){
+  // libro: frames conflacionados a 50 ms (estado por venue, último gana)
+  while (cursor < D.frames.length && D.frames[cursor][0] <= Clock.t){
+    for (const [vi,bp,bs,ap,as] of D.frames[cursor][1]){
+      const old = book[vi];
+      if (old){
+        hitB[vi] = {t: Clock.t, dir: old.bp !== bp ? "px" : bs > old.bs ? "up" : bs < old.bs ? "dn" : null};
+        hitA[vi] = {t: Clock.t, dir: old.ap !== ap ? "px" : as > old.as ? "up" : as < old.as ? "dn" : null};
+      } else hitB[vi] = hitA[vi] = {t: Clock.t, dir: "px"};
+      book[vi] = {bp,bs,ap,as,t:Clock.t};
+      evCount++;
+    }
+    cursor++;
+  }
+  // cinta y velas: cada print en SU milisegundo, con la condición calculada
+  // contra el NBBO vigente EN ESE MOMENTO (la emisión va en orden temporal,
+  // así que "ahora" es el instante correcto del print)
+  while (tcursor < D.tape.length && D.tape[tcursor][0] <= Clock.t){
+    const [tms, p, s, vi] = D.tape[tcursor];
+    const cls = (bestAsk != null && p >= bestAsk) ? "atask"
+              : (bestBid != null && p <= bestBid) ? "atbid" : "mid";
+    tape.unshift([tms, p, s, vi, cls]);
+    if (tape.length > 60) tape.pop();
+    prevPx = lastPx; lastPx = p;
+    cumV += s; cumPV += p * s;
+    addPrintToCandles(tms, p, s);
+    if (ENGINE === "tv") tvEmit(tms, p, s);
+    evCount++; tapeDirty = true;
+    tcursor++;
+  }
+  if (!prefetching && hacenFaltaDatos()) maybeExtend();
+}
+
+/* =====================================================================
+   EL PASADO
+
+   El gráfico nace con el rango visible LLENO, no vacío llenándose. La historia
+   detrás del arranque no se pide a los 15 feeds por plaza (serían euros por
+   unas horas): se pide al consolidado en velas de 1 s, que para una sesión
+   entera cuesta céntimos. Cada ventana pide en su moneda:
+
+     · gráfico -> el rango visible entero (horas)  -> ohlcv-1s consolidado
+     · cinta   -> las últimas ~250 impresiones     -> ya viene en el bloque
+     · libro   -> solo calentamiento para poblarse -> los 30 s del l2demo   */
+let HIST = [];              // [[tsMs, o,h,l,c,v], ...] de 1 s, antes del arranque
+let histV = 0, histPV = 0;  // acumulados de sesión previos al arranque
+
+async function loadHistory(){
+  HIST = []; histV = 0; histPV = 0;
+  try{
+    const p = params(); p.set("pre", $("pre").value);
+    const j = await (await fetch("/api/history?" + p)).json();
+    if (!j.ok || !j.bars.length) return;
+    HIST = j.bars;
+    for (const [,o,h,l,c,v] of HIST){
+      histV += v;
+      // VWAP de sesión sembrado con precio típico (h+l+c)/3 por vela, que es la
+      // aproximación estándar cuando solo tienes barras y no impresiones.
+      histPV += ((h + l + c) / 3) * v;
+    }
+  }catch(e){}
+}
+
+// Velas de la historia agregadas al tamaño pedido, CON su VWAP corriente.
+// El VWAP tiene que calcularse sobre las velas de 1 s según se agregan: si se
+// asigna el total al tramo entero sale una línea plana que luego cae en picado.
+function histCandles(rms){
+  const out = [], vw = [];
+  let rv = 0, rpv = 0;
+  for (const [ts,o,h,l,c,v] of HIST){
+    rv += v; rpv += ((h + l + c) / 3) * v;
+    const t0 = Math.floor(ts / rms) * rms;
+    const last = out[out.length-1];
+    if (!last || t0 > last.t0){ out.push({t0, o, h, l, c, v}); vw.push(rv ? rpv/rv : null); }
+    else { last.h = Math.max(last.h,h); last.l = Math.min(last.l,l); last.c = c; last.v += v;
+           vw[vw.length-1] = rv ? rpv/rv : null; }
+  }
+  return { candles: out, vwap: vw };
+}
+
+/* ---------------- velas ------------------------------------------------ */
+function addPrintToCandles(tms, p, s){
+  const abs = new Date(D.startUtc).getTime() + tms;
+  const t0 = Math.floor(abs / RES) * RES;
+  const last = candles[candles.length - 1];
+  if (!last || t0 > last.t0){
+    candles.push({t0, o:p, h:p, l:p, c:p, v:s});
+    vwapPts.push(cumPV / cumV);
+  } else {
+    last.h = Math.max(last.h, p); last.l = Math.min(last.l, p);
+    last.c = p; last.v += s;
+    vwapPts[vwapPts.length-1] = cumPV / cumV;
+  }
+}
+function rebuildCandles(){
+  // Arranca con la historia ya agregada, y encima se aplican las impresiones
+  // reproducidas. Como la historia termina donde empieza el bloque, empalman.
+  const H = histCandles(RES);
+  candles = H.candles; vwapPts = H.vwap;
+  cumV = histV; cumPV = histPV;
+  for (let i = 0; i < tcursor; i++){
+    const [tms, p, s] = D.tape[i];
+    cumV += s; cumPV += p * s;
+    addPrintToCandles(tms, p, s);
+  }
+}
+
+/* ---------------- encadenado de bloques (con guardia de gasto) --------- */
+function nextBlockParams(){
+  const base = new Date(D.startUtc);
+  const nextUtc = new Date(base.getTime() + D.durationMs);
+  const et = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York",year:"numeric",
+    month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false})
+    .formatToParts(nextUtc).reduce((a,x)=>(a[x.type]=x.value,a),{});
+  return params({date:`${et.year}-${et.month}-${et.day}`, time:`${et.hour}:${et.minute}:${et.second}`});
+}
+async function probeNext(){
+  try{
+    const j = await (await fetch("/api/cached?" + nextBlockParams())).json();
+    nextCached = !j.ok ? null : j.hits === j.total ? "full" : j.hits > 0 ? "partial" : "none";
+    const txt = nextCached === "full" ? "siguiente: en caché"
+              : nextCached === "partial" ? `siguiente: caché ${j.hits}/${j.total}`
+              : $("spend").checked ? "siguiente: se facturará" : "siguiente: sin caché (fin)";
+    $("chipNext").textContent = txt;
+    $("chipNext").className = "chip " + (nextCached === "full" ? "ok"
+      : (nextCached === "none" && $("spend").checked) ? "pay" : "");
+  }catch(e){ nextCached = null; }
+}
+async function maybeExtend(){
+  // Con la guardia de gasto (spend=0) encadenar NUNCA factura: lo que no esté
+  // en caché vuelve vacío. Si el bloque llega vacío, se acabó lo pagado.
+  if (prefetching || exhausted) return;
+  prefetching = true;
+  try{
+    // Sigue pidiendo mientras el colchón no cubra el umbral: a velocidad alta
+    // un solo bloque puede no bastar, y encadenar aquí evita el parón que se
+    // produciría al esperar a la siguiente vuelta del bucle.
+    let vueltas = 0;
+    while (hacenFaltaDatos() && vueltas++ < 6){
+      const t0 = performance.now();
+      const j = await (await fetch("/api/replay?" + nextBlockParams())).json();
+      const dt = performance.now() - t0;
+      Net.lat = Net.n++ ? Net.lat * 0.7 + dt * 0.3 : dt;      // EMA
+      if (!j.ok || (!j.frames.length && !j.tape.length)){ exhausted = true; break; }
+      const off = D.durationMs;
+      for (const f of j.frames) D.frames.push([f[0] + off, f[1]]);
+      for (const t of j.tape)   D.tape.push([t[0] + off, t[1], t[2], t[3]]);
+      D.durationMs += j.durationMs;
+    }
+    probeNext();
+  }catch(e){ exhausted = true; }
+  finally{ prefetching = false; }
+}
+
+/* ---------------- bucle ------------------------------------------------ */
+function play(on){
+  if (!D) return;
+  Clock.playing = on === undefined ? !Clock.playing : on;
+  $("play").textContent = Clock.playing ? "❚❚" : "▶";
+  if (Clock.playing){
+    Clock.lastRaf = performance.now();
+    Clock.anchor();                    // reanclar: la pausa no cuenta como tiempo
+    const tok = ++rafToken;            // invalida cualquier cadena anterior
+    requestAnimationFrame(t => tick(t, tok));
+  }
+}
+let rafToken = 0;
+function tick(now, tok){
+  if (!D) return;
+  fpsCount++;
+  if (now - fpsStamp > 1000){ fps = fpsCount; fpsCount = 0; fpsStamp = now;
+    evRate = evCount; evCount = 0; }
+  if (Clock.playing){
+    Clock.lastRaf = now;
+    // Reloj ANCLADO a la pared, no acumulado por deltas: una congelación del
+    // hilo (pestaña de fondo, GC, lo que sea) se recupera exacta al despertar.
+    const want = Clock.anchorSim + (now - Clock.anchorWall) * Clock.speed;
+    if (want >= D.durationMs){
+      // fin de lo cargado: el reloj es esclavo del dato (D6). Mientras se
+      // espera, se reancla en cada tick para no dar un salto al reanudar.
+      if (Clock.stalled) Clock.stallMs += now - Clock.anchorWall;
+      Clock.t = D.durationMs;
+      Clock.anchor(now);
+      if (!exhausted){
+        Clock.stalled = true; maybeExtend();
+      } else {
+        Clock.stalled = false;
+        play(false); setStatus("fin de lo cargado", "on");
+      }
+    } else {
+      Clock.t = want; Clock.stalled = false;
+    }
+    advance();
+  }
+  renderAll();
+  // SOLO la cadena rAF vigente se re-encola (token). Si también lo hicieran el
+  // metrónomo o una cadena vieja tras pausa/play, se apilarían N bucles
+  // dibujando a la vez (pasó: 515 "fps" tras un rato en segundo plano).
+  if (Clock.playing && tok === rafToken) requestAnimationFrame(t => tick(t, tok));
+}
+
+/* ---------------- seek ------------------------------------------------- */
+function seek(t){
+  t = Math.max(0, Math.min(D.durationMs, t));
+  if (t < Clock.t){
+    // hacia atrás: reconstruir desde el origen (estado inicial + aplicar)
+    const wasPlaying = Clock.playing;
+    book = D.venues.map(()=>null);
+    (D.initial||[]).forEach(([vi,bp,bs,ap,as])=>{ book[vi] = {bp,bs,ap,as,t:-1}; });
+    cursor = 0; tcursor = 0; tape = []; hitB = {}; hitA = {};
+    lastPx = prevPx = null; bestBid = bestAsk = null;
+    Clock.t = t;
+    advance();
+    rebuildCandles();
+    Clock.playing = wasPlaying;
+  } else {
+    Clock.t = t;
+    advance();
+  }
+  Clock.anchor();
+  tapeDirty = true;
+  // la CL no tolera ticks hacia atrás ni huecos: tras CUALQUIER seek se le
+  // hace re-pedir la historia (que getBars sirve ya recortada a Clock.t)
+  if (ENGINE === "tv") tvReset();
+  renderAll();
+}
+
+/* ---------------- render: libro + cinta + cabecera --------------------- */
+function renderBook(){
+  const bids = [], asks = [];
+  let live = 0;
+  book.forEach((b,vi)=>{
+    if (!b) return;
+    if (b.t >= 0) live++;
+    const stale = b.t >= 0 ? (Clock.t - b.t) > 8000 : true;
+    if (quotable(b.bp, b.bs)) bids.push({vi,p:b.bp,s:b.bs,stale});
+    if (quotable(b.ap, b.as)) asks.push({vi,p:b.ap,s:b.as,stale});
+  });
+  bids.sort((a,b)=> b.p - a.p || a.vi - b.vi);
+  asks.sort((a,b)=> a.p - b.p || a.vi - b.vi);
+  bestBid = bids.length ? bids[0].p : null;
+  bestAsk = asks.length ? asks[0].p : null;
+
+  const lvlOf = arr => { const m = new Map(); let i = 0;
+    for (const x of arr) if (!m.has(x.p)) m.set(x.p, i++); return m; };
+  const lb = lvlOf(bids), la = lvlOf(asks);
+  const maxB = Math.max(1, ...bids.map(x=>x.s)), maxA = Math.max(1, ...asks.map(x=>x.s));
+
+  let pb = null;
+  $("bidbody").innerHTML = bids.map(x=>{
+    const lv = lb.get(x.p);
+    const c = "row" + (pb !== null && lv !== pb ? " newlevel" : "") + (x.stale ? " stale" : "");
+    pb = lv; const h = hitB[x.vi];
+    return `<tr class="${c} d${Math.min(lv,3)}" style="${bgOf(lv,h,'bid')}"><td class="v">${D.venues[x.vi]}</td>
+      <td class="num" style="${szTint(h)}">${fmtS(x.s)}</td>
+      <td class="num p bar"><em style="width:${(100*x.s/maxB).toFixed(1)}%"></em><span>${fmtP(x.p)}</span></td></tr>`;
+  }).join("") || '<tr><td colspan="3" style="color:var(--dim2);text-align:center;padding:20px">esperando…</td></tr>';
+
+  let pa = null;
+  $("askbody").innerHTML = asks.map(x=>{
+    const lv = la.get(x.p);
+    const c = "row" + (pa !== null && lv !== pa ? " newlevel" : "") + (x.stale ? " stale" : "");
+    pa = lv; const h = hitA[x.vi];
+    return `<tr class="${c} d${Math.min(lv,3)}" style="${bgOf(lv,h,'ask')}"><td class="num p bar"><em style="width:${(100*x.s/maxA).toFixed(1)}%"></em><span>${fmtP(x.p)}</span></td>
+      <td class="num" style="${szTint(h)}">${fmtS(x.s)}</td>
+      <td class="v" style="text-align:right">${D.venues[x.vi]}</td></tr>`;
+  }).join("");
+
+  $("qbid").textContent = fmtP(bestBid);
+  $("qask").textContent = fmtP(bestAsk);
+  $("qspr").textContent = (bestBid != null && bestAsk != null) ? (bestAsk-bestBid).toFixed(2) : "—";
+  $("qven").textContent = live + "/" + D.venues.length;
+  $("qvol").textContent = fmtS(cumV || null);
+  $("qvwap").textContent = cumV ? (cumPV/cumV).toFixed(3) : "—";
+  const ql = $("qlast");
+  ql.textContent = fmtP(lastPx);
+  ql.className = "last num " + (prevPx == null || lastPx === prevPx ? "" : lastPx > prevPx ? "up" : "down");
+  $("bookinfo").textContent = D.schema === "mbp-1" ? "tick a tick" : "1 s";
+}
+
+function renderTape(){
+  if (!tapeDirty) return;
+  tapeDirty = false;
+  $("tapetb").innerHTML = tape.map(([t,p,s,vi,cls])=>
+    `<tr class="row"><td class="v num">${hhmmss(t)}</td>
+     <td class="num ${cls}">${fmtP(p)}</td><td class="num">${fmtS(s)}</td>
+     <td class="v" style="text-align:right">${D.venues[vi]}</td></tr>`).join("");
+  $("tapeinfo").textContent = tcursor ? tcursor.toLocaleString("es") + " prints" : "—";
+}
+
+function hhmmss(ms){
+  return new Intl.DateTimeFormat("es-ES",{timeZone:"America/New_York",hour:"2-digit",
+    minute:"2-digit",second:"2-digit",hour12:false})
+    .format(new Date(new Date(D.startUtc).getTime() + ms));
+}
+
+/* ---------------- chart (canvas) --------------------------------------- */
+const cv = $("chart"), ctx = cv.getContext("2d");
+let cw = 0, chh = 0, hover = null;
+function sizeCanvas(){
+  const r = cv.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cw = r.width; chh = r.height;
+}
+new ResizeObserver(sizeCanvas).observe($("cwrap"));
+
+const AXW = 56, AXH = 18, VOLF = 0.16;
+function renderChart(){
+  if (!cw) sizeCanvas();
+  ctx.clearRect(0, 0, cw, chh);
+  if (!candles.length){
+    ctx.fillStyle = "#4d5666"; ctx.font = "11px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(D ? "esperando prints…" : "carga una ventana para empezar", cw/2, chh/2);
+    return;
+  }
+  const plotW = cw - AXW, plotH = chh - AXH;
+  const volH = plotH * VOLF, priceH = plotH - volH;
+  const RPAD = 70;                      // margen derecho: la última vela no toca el eje
+  const n = Math.max(5, Math.floor((plotW - RPAD) / barW));
+  let end = follow ? candles.length : Math.min(candles.length, candles.length - panOff);
+  const start = Math.max(0, end - n);
+  const vis = candles.slice(start, end);
+  if (!vis.length) return;
+  // en modo seguir, la última vela va anclada a la derecha (como en producción)
+  const baseX = follow ? Math.max(0, plotW - RPAD - vis.length * barW) : 0;
+
+  let lo = Infinity, hi = -Infinity, vmax = 1;
+  for (const c of vis){ lo = Math.min(lo, c.l); hi = Math.max(hi, c.h); vmax = Math.max(vmax, c.v); }
+  for (let i = start; i < end; i++){ const w = vwapPts[i]; if (w){ lo = Math.min(lo, w); hi = Math.max(hi, w); } }
+  if (bestBid != null) { lo = Math.min(lo, bestBid); hi = Math.max(hi, bestBid); }
+  if (bestAsk != null) { lo = Math.min(lo, bestAsk); hi = Math.max(hi, bestAsk); }
+  const pad = (hi - lo) * 0.08 || 0.05;
+  lo -= pad; hi += pad;
+  const y = p => priceH * (1 - (p - lo) / (hi - lo));
+  const x = i => baseX + (i - start) * barW + barW/2;
+
+  // rejilla + eje de precio
+  ctx.font = "9.5px ui-monospace,Menlo,monospace";
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  const step = niceStep((hi - lo) / 6);
+  for (let p = Math.ceil(lo/step)*step; p < hi; p += step){
+    const yy = y(p);
+    ctx.strokeStyle = "rgba(255,255,255,.05)";
+    ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(plotW, yy); ctx.stroke();
+    ctx.fillStyle = "#7b8697"; ctx.fillText(p.toFixed(2), plotW + 5, yy);
+  }
+  // eje de tiempo
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  // Etiquetas cada N VELAS, no por timestamp: el gráfico va indexado por vela
+  // (como TradingView), así que con huecos de premarket el módulo temporal
+  // amontona las marcas en el tramo denso y deja vacío el resto.
+  const tEvery = Math.max(1, Math.round(78 / barW));
+  for (let i = start; i < end; i++){
+    if ((i - start) % tEvery !== 0) continue;
+    const lbl = new Intl.DateTimeFormat("es-ES",{timeZone:"America/New_York",
+      hour:"2-digit",minute:"2-digit",second:RES<60000?"2-digit":undefined,hour12:false})
+      .format(new Date(candles[i].t0));
+    ctx.fillStyle = "#5b6577"; ctx.fillText(lbl, x(i), plotH + 4);
+    ctx.strokeStyle = "rgba(255,255,255,.04)";
+    ctx.beginPath(); ctx.moveTo(x(i), 0); ctx.lineTo(x(i), plotH); ctx.stroke();
+  }
+
+  // volumen
+  for (let i = start; i < end; i++){
+    const c = candles[i];
+    const h = volH * (c.v / vmax);
+    ctx.fillStyle = c.c >= c.o ? "rgba(47,191,113,.35)" : "rgba(239,83,80,.35)";
+    ctx.fillRect(x(i) - barW*0.36, priceH + (volH - h), barW*0.72, h);
+  }
+
+  // vwap
+  ctx.strokeStyle = "rgba(74,158,255,.8)"; ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  let started = false;
+  for (let i = start; i < end; i++){
+    const w = vwapPts[i]; if (w == null) continue;
+    const xx = x(i), yy = y(w);
+    if (!started){ ctx.moveTo(xx, yy); started = true; } else ctx.lineTo(xx, yy);
+  }
+  ctx.stroke(); ctx.lineWidth = 1;
+
+  // velas
+  for (let i = start; i < end; i++){
+    const c = candles[i];
+    const up = c.c >= c.o;
+    const col = up ? "#2fbf71" : "#ef5350";
+    ctx.strokeStyle = col; ctx.fillStyle = col;
+    ctx.beginPath(); ctx.moveTo(x(i), y(c.h)); ctx.lineTo(x(i), y(c.l)); ctx.stroke();
+    const t = y(Math.max(c.o, c.c)), b = y(Math.min(c.o, c.c));
+    const bw = Math.max(1, barW * 0.72);
+    if (up){ ctx.fillStyle = "#000"; ctx.fillRect(x(i)-bw/2, t, bw, Math.max(1, b-t));
+             ctx.strokeRect(x(i)-bw/2, t, bw, Math.max(1, b-t)); }
+    else ctx.fillRect(x(i)-bw/2, t, bw, Math.max(1, b-t));
+  }
+
+  // NBBO + último precio en el eje
+  const tag = (p, bg, fg) => {
+    if (p == null) return;
+    const yy = Math.max(7, Math.min(priceH-7, y(p)));
+    ctx.fillStyle = bg;
+    ctx.fillRect(plotW, yy-7, AXW, 14);
+    ctx.fillStyle = fg; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText(p.toFixed(2), plotW + 5, yy);
+  };
+  tag(bestBid, "rgba(38,162,105,.85)", "#eafff3");
+  tag(bestAsk, "rgba(192,28,40,.85)", "#ffecec");
+  if (lastPx != null) tag(lastPx, "#d7dde8", "#0b0e13");
+
+  // línea del último precio
+  if (lastPx != null){
+    ctx.strokeStyle = "rgba(215,221,232,.35)"; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(0, y(lastPx)); ctx.lineTo(plotW, y(lastPx)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // crosshair
+  if (hover){
+    const i = Math.min(end-1, Math.max(start, start + Math.floor(hover.px / barW)));
+    const c = candles[i];
+    if (c){
+      ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.setLineDash([4,4]);
+      ctx.beginPath(); ctx.moveTo(x(i), 0); ctx.lineTo(x(i), plotH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, hover.py); ctx.lineTo(plotW, hover.py); ctx.stroke();
+      ctx.setLineDash([]);
+      setOHLC(c);
+    }
+  } else if (candles.length){
+    setOHLC(candles[candles.length-1]);
+  }
+}
+function niceStep(raw){
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1,2,2.5,5,10]) if (raw <= m*p) return m*p;
+  return 10*p;
+}
+function setOHLC(c){
+  $("co").textContent = fmtP(c.o); $("ch").textContent = fmtP(c.h);
+  $("cl").textContent = fmtP(c.l); $("cc").textContent = fmtP(c.c);
+  $("cv").textContent = fmtS(c.v);
+  const chg = (c.c - c.o) / c.o * 100;
+  const el = $("cchg");
+  el.textContent = (chg >= 0 ? "+" : "") + chg.toFixed(2) + "%";
+  el.className = "num " + (chg >= 0 ? "up" : "down");
+}
+
+cv.addEventListener("mousemove", e => {
+  const r = cv.getBoundingClientRect();
+  hover = { px: e.clientX - r.left, py: e.clientY - r.top };
+});
+cv.addEventListener("mouseleave", () => { hover = null; });
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  barW = Math.max(3, Math.min(26, barW + (e.deltaY < 0 ? 1 : -1)));
+}, {passive:false});
+let dragX = null;
+cv.addEventListener("mousedown", e => { dragX = e.clientX; });
+window.addEventListener("mouseup", () => { dragX = null; });
+window.addEventListener("mousemove", e => {
+  if (dragX == null) return;
+  const dBars = Math.round((e.clientX - dragX) / barW);
+  if (dBars){
+    follow = false; $("follow").style.opacity = .5;
+    panOff = Math.max(0, panOff + dBars);
+    if (panOff === 0){ follow = true; $("follow").style.opacity = 1; }
+    dragX = e.clientX;
+  }
+});
+cv.addEventListener("dblclick", () => { follow = true; panOff = 0; $("follow").style.opacity = 1; });
+$("follow").onclick = () => { follow = true; panOff = 0; $("follow").style.opacity = 1; };
+document.querySelectorAll(".resbtn").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".resbtn").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on");
+  RES = parseInt(b.dataset.res, 10);
+  if (D) rebuildCandles();
+});
+
+/* =====================================================================
+   TRADINGVIEW CHARTING LIBRARY — modo replay por datafeed
+
+   La CL NO trae replay (eso es de tradingview.com, con sus sesiones de
+   servidor). El truco, el mismo que usa el TC de producción para el vivo:
+   la librería cree que ve el mercado en directo.
+
+     · getBars sirve la historia SOLO hasta Clock.t (el pasado del replay
+       es "toda la historia que existe").
+     · subscribeBars recibe cada trade reproducido: la vela viva se forma
+       en la CL exactamente igual que con el mercado real.
+     · seek = onResetCacheNeeded() + resetData(): la CL re-pide getBars,
+       que vuelve a servir ≤ Clock.t. Nunca se le mandan ticks hacia
+       atrás (la CL revienta con "time violation").
+     · Al cruzar frontera de vela se SELLA la anterior antes de abrir la
+       nueva: a alta velocidad puede haber varias fronteras por frame y
+       si solo se emitiera la última, quedarían huecos.                  */
+let tvWidget = null, tvReady = false, tvSub = null, tvPlaced = false;
+const TV_RES = { "1S":1000, "5S":5000, "15S":15000, "30S":30000, "1":60000, "5":300000 };
+const tvResMs = r => TV_RES[r] || 60000;
+const TV_SUPPORTED = ["1S","5S","15S","30S","1","5"];
+
+function tvBarsUpTo(tCut, rms){
+  const out = histCandles(rms).candles.map(c => ({time: c.t0, open: c.o, high: c.h,
+                                                  low: c.l, close: c.c, volume: c.v}));
+  const base = new Date(D.startUtc).getTime();
+  for (let i = 0; i < D.tape.length; i++){
+    const [tms, p, s] = D.tape[i];
+    if (tms > tCut) break;
+    const t0 = Math.floor((base + tms) / rms) * rms;
+    const last = out[out.length - 1];
+    if (!last || t0 > last.time) out.push({time: t0, open: p, high: p, low: p, close: p, volume: s});
+    else { last.high = Math.max(last.high, p); last.low = Math.min(last.low, p);
+           last.close = p; last.volume += s; }
+  }
+  return out;
+}
+
+const tvDatafeed = {
+  onReady: cb => setTimeout(() => cb({ supported_resolutions: TV_SUPPORTED }), 0),
+  searchSymbols: (u, e, t, cb) => cb([]),
+  resolveSymbol: (name, onResolve, onError) => setTimeout(() => {
+    if (!D) return onError("sin datos");
+    onResolve({
+      name: D.symbol, ticker: D.symbol, description: D.symbol + " · Replay",
+      type: "stock", session: "0930-1600", timezone: "America/New_York",
+      exchange: "REPLAY", listed_exchange: "REPLAY", format: "price",
+      minmov: 1, pricescale: 100, has_intraday: true,
+      has_seconds: true, seconds_multipliers: ["1"], intraday_multipliers: ["1"],
+      supported_resolutions: TV_SUPPORTED, volume_precision: 0, data_status: "streaming"
+    });
+  }, 0),
+  getBars: (si, res, pp, onResult, onError) => {
+    try{
+      if (!D) return onResult([], {noData: true});
+      const rms = tvResMs(res);
+      let bars = tvBarsUpTo(Clock.t, rms).filter(b => b.time < pp.to * 1000);
+      bars = pp.countBack ? bars.slice(-pp.countBack)
+                          : bars.filter(b => b.time >= pp.from * 1000);
+      if (!bars.length) return onResult([], {noData: true});
+      onResult(bars, {noData: false});
+      // primera historia servida: AHORA es cuando tiene sentido llevar el
+      // viewport al reloj del replay y asegurar el tema (antes no hay velas)
+      if (!tvPlaced){
+        tvPlaced = true;
+        setTimeout(() => {
+          try{ const p = tvWidget.changeTheme("dark"); if (p && p.then) p.then(()=>{}); }catch(e){}
+          tvGoto();
+        }, 150);
+      }
+    }catch(e){ onError(String(e)); }
+  },
+  subscribeBars: (si, res, onTick, uid, onResetCacheNeeded) => {
+    tvSub = { res: tvResMs(res), onTick, resetCache: onResetCacheNeeded, uid, bar: null, dirty: false };
+  },
+  unsubscribeBars: uid => { if (tvSub && tvSub.uid === uid) tvSub = null; }
+};
+
+function tvEmit(tms, p, s){
+  if (!tvSub) return;
+  const t0 = Math.floor((new Date(D.startUtc).getTime() + tms) / tvSub.res) * tvSub.res;
+  if (!tvSub.bar || t0 > tvSub.bar.time){
+    if (tvSub.bar) tvSub.onTick({...tvSub.bar});     // sella la vela que cierra
+    tvSub.bar = {time: t0, open: p, high: p, low: p, close: p, volume: s};
+  } else {
+    const b = tvSub.bar;
+    b.high = Math.max(b.high, p); b.low = Math.min(b.low, p); b.close = p; b.volume += s;
+  }
+  tvSub.dirty = true;
+}
+function tvFlush(){                                   // 1 onTick por frame (conflación)
+  if (tvSub && tvSub.dirty && tvSub.bar){ tvSub.onTick({...tvSub.bar}); tvSub.dirty = false; }
+}
+function tvGoto(){
+  // La CL asume que "ahora" es el reloj de pared real y deja el viewport en
+  // agosto mientras las velas viven en julio: hay que llevar la vista al
+  // reloj del REPLAY tras cada carga/reset.
+  if (!tvReady || !D) return;
+  const nowS = (new Date(D.startUtc).getTime() + Clock.t) / 1000;
+  try{
+    tvWidget.activeChart().setVisibleRange({ from: nowS - 150, to: nowS + 40 });
+  }catch(e){}
+}
+function tvReset(){                                   // tras seek o carga nueva
+  tvPlaced = false;                   // el goto se re-dispara con el próximo getBars
+  if (tvSub){ tvSub.bar = null; tvSub.dirty = false;
+              if (tvSub.resetCache) tvSub.resetCache(); }
+  if (tvReady){ try{ tvWidget.activeChart().resetData(); }catch(e){} }
+}
+
+function initTV(){
+  if (tvWidget || typeof TradingView === "undefined") return;
+  tvWidget = new TradingView.widget({
+    container: "tvwrap", library_path: "/vendor/charting_library/",
+    symbol: D ? D.symbol : "NVDA", interval: "5S", datafeed: tvDatafeed,
+    autosize: true, theme: "dark", timezone: "America/New_York", locale: "es",
+    disabled_features: ["header_symbol_search", "header_compare", "header_saveload",
+                        "use_localstorage_for_settings", "popup_hints", "symbol_search_hot_key"],
+    enabled_features: ["seconds_resolution"],
+    loading_screen: { backgroundColor: "#000000" },
+    overrides: { "paneProperties.background": "#000000",
+                 "paneProperties.backgroundType": "solid" }
+  });
+  tvWidget.onChartReady(() => {
+    tvReady = true;
+    // el theme del constructor no siempre aplica en frío: se fuerza aquí
+    try{
+      const p = tvWidget.changeTheme("dark");
+      const after = () => {
+        try{ tvWidget.applyOverrides({ "paneProperties.background": "#000000",
+                                       "paneProperties.backgroundType": "solid" }); }catch(e){}
+        tvGoto();
+      };
+      p && p.then ? p.then(after) : setTimeout(after, 100);
+    }catch(e){ tvGoto(); }
+  });
+}
+
+let ENGINE = "canvas";
+function setEngine(mode){
+  ENGINE = mode;
+  const tv = mode === "tv";
+  $("tvwrap").style.display = tv ? "block" : "none";
+  cv.style.display = tv ? "none" : "block";
+  // los mandos del lienzo no pintan nada en modo CL (la CL trae los suyos)
+  document.querySelectorAll(".resbtn").forEach(b => b.style.display = tv ? "none" : "");
+  $("follow").style.display = tv ? "none" : "";
+  $("ohlc").style.display = tv ? "none" : "flex";
+  $("countdown").style.display = tv ? "none" : "";
+  if (tv){ initTV(); tvReset(); }
+}
+$("engine").onchange = e => setEngine(e.target.value);
+
+/* ---------------- render global + transporte --------------------------- */
+function renderAll(){
+  if (!D) { if (ENGINE === "canvas") renderChart(); return; }
+  renderBook();
+  renderTape();
+  if (ENGINE === "canvas") renderChart(); else tvFlush();
+  $("clock").textContent = hhmmss(Clock.t);
+  $("clockdate").textContent = new Intl.DateTimeFormat("es-ES",{timeZone:"America/New_York",
+    weekday:"short", day:"2-digit", month:"short"}).format(new Date(new Date(D.startUtc).getTime()+Clock.t)) + " ET";
+  $("scrub").value = Math.round(1000 * Clock.t / Math.max(1, D.durationMs));
+  $("stall").className = Clock.stalled ? "on" : "";
+  // vela en curso: cuenta atrás hasta el cierre
+  if (candles.length){
+    const c = candles[candles.length-1];
+    const left = Math.max(0, (c.t0 + RES) - (new Date(D.startUtc).getTime() + Clock.t));
+    const s = Math.ceil(left/1000);
+    $("countdown").textContent = "cierre en " + (s >= 60 ? Math.floor(s/60)+":"+String(s%60).padStart(2,"0") : s + "s");
+  }
+  // deriva instantánea contra el ancla de pared: 0 por construcción — el chip
+  // demuestra que el reloj no acumula error (D1); el stall es tiempo esperando dato (D6)
+  const drift = Clock.playing && !Clock.stalled
+    ? (Clock.t - Clock.anchorSim) - (performance.now() - Clock.anchorWall) * Clock.speed : 0;
+  // colchón: segundos de PARED que quedan antes de agotar lo cargado, y el
+  // umbral vivo que lo dispara. Si el colchón nunca baja de 0, no hay parón.
+  const col = colchonRealMs() / 1000, umb = umbralMs() / 1000;
+  $("debug").textContent =
+    `drift ${Math.abs(drift) < 20 ? "0" : Math.round(drift)} ms · colchón ${col.toFixed(1)}s/${umb.toFixed(1)}s` +
+    `${prefetching ? " ⟳" : ""} · stall ${Math.round(Clock.stallMs/100)/10}s · ${evRate.toLocaleString("es")} ev/s · ${fps} fps`;
+}
+
+/* ---------------- controles -------------------------------------------- */
+$("play").onclick = () => play();
+$("back1").onclick = () => { if (D) seek(Clock.t - 1000); };
+$("fwd1").onclick = () => { if (D) seek(Clock.t + 1000); };
+$("scrub").oninput = e => { if (D) seek(D.durationMs * e.target.value / 1000); };
+$("speed").onchange = e => {
+  Clock.anchor();                      // reanclar ANTES de cambiar el factor
+  Clock.speed = parseFloat(e.target.value);
+};
+$("spend").onchange = () => { refreshCachedChip(); if (D) probeNext(); };
+$("load").onclick = load;
+["sym","date","time","minutes","schema"].forEach(id =>
+  $(id).addEventListener("change", () => { refreshCachedChip(); if (id === "sym") loadCachedWindows(); }));
+$("cachedwins").onchange = e => {
+  const w = e.target._wins && e.target._wins[e.target.value];
+  if (!w) return;
+  $("sym").value = w.symbol; $("date").value = w.date; $("time").value = w.time;
+  $("minutes").value = String(w.minutes); $("schema").value = w.schema;
+  refreshCachedChip();
+};
+$("palette").value = localStorage.getItem("l2pal") || "neutral";
+$("palette").onchange = e => { applyPalette(e.target.value); };
+applyPalette($("palette").value);
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (e.code === "Space"){ e.preventDefault(); play(); }
+  if (e.code === "ArrowLeft" && D){ seek(Clock.t - 1000); }
+  if (e.code === "ArrowRight" && D){ seek(Clock.t + 1000); }
+});
+
+// pintado también en pausa (crosshair, zoom): bucle ligero
+(function idle(){ if (!Clock.playing) renderAll(); requestAnimationFrame(idle); })();
+
+// El navegador estrangula los timers de la página en segundo plano (1/s, y
+// tras ~5 min de fondo, 1/min: "intensive throttling") y el rAF directamente
+// se para. Los timers de un WORKER no sufren ese recorte — el metrónomo vive
+// ahí y despierta al reloj cuando el rAF lleva >300 ms sin disparar. Con la
+// pestaña visible el rAF va a 60 fps y el worker no llega a entrar nunca.
+// (Es la misma lección del diseño: el tiempo no puede depender del hilo que pinta.)
+const metronome = new Worker(URL.createObjectURL(new Blob(
+  ["setInterval(() => postMessage(0), 100);"], {type:"text/javascript"})));
+metronome.onmessage = () => {
+  if (Clock.playing && D && performance.now() - Clock.lastRaf > 300) tick(performance.now(), -1);
+};
+
+refreshCachedChip();
+loadCachedWindows();
+</script>
+</body>
+</html>
