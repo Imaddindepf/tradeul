@@ -784,7 +784,6 @@ async def backtest_node(state: dict) -> dict:
     """Parse NL strategy and execute backtest — auto-selects template vs code mode."""
     start_time = time.time()
     query = state.get("query", "")
-    language = state.get("language", "en")
     strategy_prompt = _strip_backtest_prefix(query)
 
     result: dict[str, Any] = {}
@@ -794,34 +793,19 @@ async def backtest_node(state: dict) -> dict:
     if not _has_strategy_content(strategy_prompt):
         logger.info("Backtest agent: no strategy content detected, returning info")
         elapsed_ms = int((time.time() - start_time) * 1000)
-        if language == "es":
-            info_msg = (
-                "Para ejecutar un backtest necesito:\n\n"
-                "1. **Tickers** (obligatorio, máximo 3): ej. SPY, AAPL, MSFT\n"
-                "2. **Estrategia de entrada**: ej. \"comprar cuando RSI < 30\", \"gap up > 5%\"\n"
-                "3. **Reglas de salida**: ej. \"vender cuando RSI > 70\", \"stop loss 5%\", \"take profit 10%\"\n"
-                "4. **Rango de fechas** (opcional): ej. \"de 2023-01-01 a 2024-12-31\"\n"
-                "5. **Timeframe** (opcional): 1d (diario), 5min, 1min\n\n"
-                "**Ejemplo:**\n"
-                "\"Backtest RSI < 30 mean reversion en SPY, vender cuando RSI > 70, "
-                "stop loss 5%, de 2023 a 2024\"\n\n"
-                "**Límites:** Máximo 3 tickers por backtest. "
-                "Para intradía (1min/5min), máximo 60 días de datos."
-            )
-        else:
-            info_msg = (
-                "To run a backtest I need:\n\n"
-                "1. **Tickers** (required, max 3): e.g. SPY, AAPL, MSFT\n"
-                "2. **Entry strategy**: e.g. \"buy when RSI < 30\", \"gap up > 5%\"\n"
-                "3. **Exit rules**: e.g. \"sell when RSI > 70\", \"stop loss 5%\", \"take profit 10%\"\n"
-                "4. **Date range** (optional): e.g. \"from 2023-01-01 to 2024-12-31\"\n"
-                "5. **Timeframe** (optional): 1d (daily), 5min, 1min\n\n"
-                "**Example:**\n"
-                "\"Backtest RSI < 30 mean reversion on SPY, sell when RSI > 70, "
-                "stop loss 5%, from 2023 to 2024\"\n\n"
-                "**Limits:** Max 3 tickers per backtest. "
-                "For intraday (1min/5min), max 60 days of data."
-            )
+        info_msg = (
+            "To run a backtest I need:\n\n"
+            "1. **Tickers** (required, max 3): e.g. SPY, AAPL, MSFT\n"
+            "2. **Entry strategy**: e.g. \"buy when RSI < 30\", \"gap up > 5%\"\n"
+            "3. **Exit rules**: e.g. \"sell when RSI > 70\", \"stop loss 5%\", \"take profit 10%\"\n"
+            "4. **Date range** (optional): e.g. \"from 2023-01-01 to 2024-12-31\"\n"
+            "5. **Timeframe** (optional): 1d (daily), 5min, 1min\n\n"
+            "**Example:**\n"
+            "\"Backtest RSI < 30 mean reversion on SPY, sell when RSI > 70, "
+            "stop loss 5%, from 2023 to 2024\"\n\n"
+            "**Limits:** Max 3 tickers per backtest. "
+            "For intraday (1min/5min), max 60 days of data."
+        )
         return {
             "agent_results": {
                 "backtest": {"status": "info", "message": info_msg},
@@ -837,18 +821,11 @@ async def backtest_node(state: dict) -> dict:
     if not planner_tickers:
         logger.info("Backtest agent: no tickers provided, requesting clarification")
         elapsed_ms = int((time.time() - start_time) * 1000)
-        if language == "es":
-            missing_msg = (
-                "Tu estrategia se ve bien, pero necesito saber **en qué ticker(s)** quieres ejecutarla "
-                f"(máximo {MAX_TICKERS}).\n\n"
-                "Por ejemplo: \"en SPY\", \"en AAPL y MSFT\", \"en QQQ, SPY, IWM\""
-            )
-        else:
-            missing_msg = (
-                "Your strategy looks good, but I need to know **which ticker(s)** to run it on "
-                f"(max {MAX_TICKERS}).\n\n"
-                "For example: \"on SPY\", \"on AAPL and MSFT\", \"on QQQ, SPY, IWM\""
-            )
+        missing_msg = (
+            "Your strategy looks good, but I need to know **which ticker(s)** to run it on "
+            f"(max {MAX_TICKERS}).\n\n"
+            "For example: \"on SPY\", \"on AAPL and MSFT\", \"on QQQ, SPY, IWM\""
+        )
         return {
             "agent_results": {
                 "backtest": {"status": "needs_tickers", "message": missing_msg},
@@ -862,18 +839,11 @@ async def backtest_node(state: dict) -> dict:
     if len(planner_tickers) > MAX_TICKERS:
         logger.info("Backtest agent: too many tickers (%d), max %d", len(planner_tickers), MAX_TICKERS)
         elapsed_ms = int((time.time() - start_time) * 1000)
-        if language == "es":
-            limit_msg = (
-                f"Has indicado {len(planner_tickers)} tickers, pero el máximo permitido es **{MAX_TICKERS}**.\n\n"
-                f"Tickers recibidos: {', '.join(planner_tickers)}\n\n"
-                f"Por favor, elige máximo {MAX_TICKERS} tickers para el backtest."
-            )
-        else:
-            limit_msg = (
-                f"You specified {len(planner_tickers)} tickers, but the maximum allowed is **{MAX_TICKERS}**.\n\n"
-                f"Tickers received: {', '.join(planner_tickers)}\n\n"
-                f"Please choose up to {MAX_TICKERS} tickers for the backtest."
-            )
+        limit_msg = (
+            f"You specified {len(planner_tickers)} tickers, but the maximum allowed is **{MAX_TICKERS}**.\n\n"
+            f"Tickers received: {', '.join(planner_tickers)}\n\n"
+            f"Please choose up to {MAX_TICKERS} tickers for the backtest."
+        )
         return {
             "agent_results": {
                 "backtest": {"status": "too_many_tickers", "message": limit_msg},
@@ -967,7 +937,7 @@ async def backtest_node(state: dict) -> dict:
         logger.error("Backtest agent: JSON parse error — %s", exc)
         result = {
             "status": "error",
-            "error": f"No se pudo interpretar la estrategia: {exc}",
+            "error": f"Could not parse the strategy: {exc}",
         }
     except httpx.HTTPStatusError as exc:
         logger.error("Backtest agent: API error %s", exc.response.status_code)

@@ -173,7 +173,7 @@ def _build_system_prompt(agents_desc: str, market_context: str, scanner_cats: st
     Uses f-string with doubled braces for literal JSON in examples.
     """
     return f"""<role>
-You are the senior query router for Tradeul, a professional stock trading intelligence platform serving day traders and institutional analysts. You have deep expertise in financial markets, trading terminology in both English and Spanish, and precise information routing. Your routing decisions directly determine the quality of answers for thousands of active traders.
+You are the senior query router for Tradeul, a professional stock trading intelligence platform serving day traders and institutional analysts. You have deep expertise in financial markets, trading terminology, and precise information routing. Your routing decisions directly determine the quality of answers for thousands of active traders.
 </role>
 
 <task>
@@ -221,9 +221,7 @@ Follow-up resolution rules:
 </conversation_awareness>
 
 <date_format_awareness>
-The user message starts with [Language: XX]. Use this to parse ambiguous dates:
-- Language: es (Spanish) → dates are DD/MM/YYYY. "07/01/2026" = January 7, 2026.
-- Language: en (English) → dates are MM/DD/YYYY. "07/01/2026" = July 1, 2026.
+Numeric dates in queries follow the day-first convention: "07/01/2026" = January 7, 2026 (DD/MM/YYYY). If the second number is greater than 12 the date can only be month-first, read it as MM/DD/YYYY.
 When you output dates (in "plan" or elsewhere), ALWAYS use ISO format YYYY-MM-DD to avoid ambiguity.
 </date_format_awareness>
 
@@ -271,7 +269,7 @@ Example: "What's NVAX's dilution risk and cash runway?" = DILUTION_ANALYSIS → 
 
 7. THEMATIC queries ask for stocks by theme, sector, or industry vertical. Route to market_data ONLY — it resolves themes via the classification database (124 pre-computed themes, no LLM needed at query time). You MUST populate the "theme_tags" field with canonical tags from the thematic catalog below. Map the user's natural language to one or more canonical tags. Examples: "robótica" → ["robotics"], "chips de memoria" → ["memory_chips"], "IA generativa" → ["generative_ai"], "cybersecurity zero trust" → ["cybersecurity", "identity_zero_trust"]. CAVEAT: themes are for NICHE verticals that GICS/SIC classification does not capture. When the user names a BROAD industry (pharma, banks, semiconductors, insurers, oil...), use a universe screen with an "industry"/"sector" field filter instead (see universe_screen rule 7) — NEVER approximate a broad industry with a union of niche themes: diversified large caps (e.g. JNJ) are not tagged in niche themes and get silently dropped.
 
-8. Write the plan field in the same language the user used in their query.
+8. Write the plan field in English.
 
 9. CHART_ANALYSIS queries come with a chart_context containing the user's visible chart data (OHLCV bars, indicators, drawings). Always include market_data for enrichment. Add research if the user asks "why" something happened.
 
@@ -332,6 +330,14 @@ Rules:
    (max 4), each with a short "label" naming its list, repeating the shared
    constraint filters in every spec. The "down"/losers direction is the SAME
    sort field with "sort_order": "asc" — there are no *_losers fields.
+10. EVENT-RESTRICTED rankings CANNOT be expressed as a screen: the universe
+   has NO earnings/news/event fields. "Top EARNINGS movers after hours" is a
+   ranking over companies that REPORTED, not over the whole market — route it
+   to news_events (earnings.get_earnings_results with sort_by="move") and do
+   NOT emit a screen with only a volume filter: that returns the full market
+   and has shipped non-reporters as "earnings movers". The same applies to any
+   "top X that <did some event>" — the event source must provide the symbol
+   set.
 </universe_screen>
 
 <thematic_catalog>
@@ -361,7 +367,7 @@ Extract valid US stock ticker symbols (1-5 uppercase letters):
 - Map company names: "tesla" → TSLA, "apple" → AAPL, "nvidia" → NVDA, "palantir" → PLTR
 - Accept any format: $TSLA, TSLA, tsla, Tesla
 - Abbreviations that are organizations/concepts, not tickers: SEC, CEO, CFO, IPO, ETF, GDP, CPI, FDA, EPS, RSI, AI, ER, ATR, MACD, VWAP, BB
-- Spanish words that are not tickers: HA (ha hecho), SI (si puede), DE, LA, EL, ES, UN, MAS, POR, QUE
+- Common short words in queries that are NOT tickers even when uppercased: HA, SI, DE, LA, EL, ES, UN, MAS, POR, QUE
 - Return an empty array when no specific stock is referenced
 </ticker_extraction>
 
@@ -388,7 +394,7 @@ Respond with ONLY a JSON object containing these exact fields:
   "pulse_metrics": null,
   "pulse_drilldown": null,
   "agent_tasks": null,
-  "plan": "Brief execution plan in the user's language",
+  "plan": "Brief execution plan in English",
   "confidence": 0.95,
   "reasoning": "One sentence explaining why you chose these agents",
   "clarification": null
@@ -406,13 +412,13 @@ IMPORTANT: "pulse_queries" MUST be populated when intent is MARKET_PULSE. It is 
 
 <examples>
 User: "hola buenos días"
-{{"intent": "GREETING", "tickers": [], "agents": [], "theme_tags": [], "plan": "Saludo — responder conversacionalmente", "confidence": 1.0, "reasoning": "Non-financial greeting in Spanish", "clarification": null}}
+{{"intent": "GREETING", "tickers": [], "agents": [], "theme_tags": [], "plan": "Greeting — respond conversationally", "confidence": 1.0, "reasoning": "Non-financial greeting", "clarification": null}}
 
 User: "NVDA price"
 {{"intent": "DATA_LOOKUP", "tickers": ["NVDA"], "agents": ["market_data"], "theme_tags": [], "plan": "Fetch current NVDA price and technicals", "confidence": 1.0, "reasoning": "Simple price lookup for a specific ticker", "clarification": null}}
 
 User: "why is LFS moving?"
-{{"intent": "CAUSAL", "tickers": ["LFS"], "agents": ["research", "news_events", "market_data"], "theme_tags": [], "agent_tasks": {{"research": "Why is LFS stock moving right now? Find the specific catalyst: earnings, analyst action, news, partnership, or breaking event.", "news_events": "Latest Benzinga news and real-time market events for LFS", "market_data": "Current price, volume, RVOL, and technicals for LFS"}}, "plan": "Investigar por qué se mueve LFS: buscar catalizador en web/X.com, noticias, datos de precio", "confidence": 0.95, "reasoning": "Causal query — research searches real-time sources for catalysts", "clarification": null}}
+{{"intent": "CAUSAL", "tickers": ["LFS"], "agents": ["research", "news_events", "market_data"], "theme_tags": [], "agent_tasks": {{"research": "Why is LFS stock moving right now? Find the specific catalyst: earnings, analyst action, news, partnership, or breaking event.", "news_events": "Latest Benzinga news and real-time market events for LFS", "market_data": "Current price, volume, RVOL, and technicals for LFS"}}, "plan": "Investigate why LFS is moving: search web/X.com for the catalyst, news, price data", "confidence": 0.95, "reasoning": "Causal query — research searches real-time sources for catalysts", "clarification": null}}
 
 User: "top 20 gappers"
 {{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "screen": null, "plan": "Fetch top 20 gappers from scanner", "confidence": 1.0, "reasoning": "Ranking query for gappers_up scanner category — no constraints, category is enough", "clarification": null}}
@@ -655,33 +661,6 @@ async def _get_market_context_str(state: dict) -> str:
     return "Session: UNKNOWN. Assume last-session data is available."
 
 
-_NUMERIC_DATE_RE = re.compile(r'\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})\b')
-
-
-def _normalize_dates_to_iso(text: str, language: str) -> str:
-    """Convert numeric dates in text to unambiguous ISO YYYY-MM-DD format.
-
-    Spanish (es): DD/MM/YYYY → YYYY-MM-DD
-    English (en): MM/DD/YYYY → YYYY-MM-DD
-    Already ISO (YYYY-MM-DD): left unchanged.
-    """
-    def _replace(m: re.Match) -> str:
-        a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        if y < 100:
-            return m.group(0)
-        if language == "es":
-            d, mo = a, b
-        else:
-            mo, d = a, b
-        if not (1 <= mo <= 12 and 1 <= d <= 31):
-            d, mo = mo, d
-        if not (1 <= mo <= 12 and 1 <= d <= 31):
-            return m.group(0)
-        return f"{y:04d}-{mo:02d}-{d:02d}"
-
-    return _NUMERIC_DATE_RE.sub(_replace, text)
-
-
 # ── Conversation context formatting ──────────────────────────────
 
 def _format_conversation_context(memory_context: list[dict]) -> str:
@@ -737,7 +716,6 @@ async def query_planner_node(state: dict) -> dict:
       4. Return routing decision or clarification request
     """
     query = state.get("query", "")
-    language = state.get("language", "en")
 
     # Brief threads (Fase 3b): el agente news_brief solo existe para el
     # planner cuando el thread nació de un "Contexto de noticia".
@@ -824,7 +802,7 @@ async def query_planner_node(state: dict) -> dict:
         }
 
     # ── Standard LLM-based routing ──
-    user_content = f"[Language: {language}] {query}"
+    user_content = query
 
     conversation_block = _format_conversation_context(state.get("memory_context") or [])
     if conversation_block:
@@ -978,6 +956,34 @@ async def query_planner_node(state: dict) -> dict:
     if agent_tasks and not isinstance(agent_tasks, dict):
         agent_tasks = None
 
+    # ── Deterministic constraint guard ────────────────────────────
+    # The LLM plans; this code enforces. If the query names earnings, the
+    # earnings source is mandatory — run 4b6275b0323b4bc5 (2026-08-04) shipped
+    # a full-market ranking as "earnings movers" because RANKING+screen won
+    # the routing coin flip and nothing downstream could veto it. Regex in,
+    # invariant out (same pattern as agents/_when.py for dates).
+    from agents._constraints import extract_constraints
+    constraints = extract_constraints(query)
+    if constraints.earnings and "news_events" not in requested_agents:
+        requested_agents.append("news_events")
+        sort_hint = constraints.earnings_sort or "surprise"
+        win_hint = "; ".join(
+            f"date={d or 'today'}, slot={sl or 'any'}" for d, sl in constraints.windows
+        ) or "date=today"
+        forced_task = (
+            "MANDATORY (deterministic constraint, independent of the plan): the "
+            "query names earnings. Fetch the reported earnings via "
+            f"earnings.get_earnings_results ({win_hint}) with sort_by='{sort_hint}' "
+            "so the list is restricted to companies that actually reported. A "
+            "market-wide ranking is NOT an answer to an earnings question."
+        )
+        agent_tasks = {**(agent_tasks or {}), "news_events": forced_task}
+        logger.info(
+            "Constraint guard: 'earnings' in query but planner chose %s — "
+            "news_events forced (sort=%s)",
+            decision.get("agents"), sort_hint,
+        )
+
     logger.info(
         "Query planner: intent=%s confidence=%.2f mode=%s tickers=%s agents=%s themes=%s screen=%s pulse=%s tasks=%s ctx_turns=%d plan=%s",
         decision.get("intent", "?"), confidence, mode, llm_tickers,
@@ -999,6 +1005,9 @@ async def query_planner_node(state: dict) -> dict:
         "plan": decision.get("plan", ""),
         "clarification": None,
         "market_context": state.get("market_context", {}),
+        # Deterministic constraints travel in the state: news_events uses the
+        # sort axis, the synthesizer's closing guard checks coverage.
+        "constraints": constraints.to_state(),
     }
 
     if pulse_queries and isinstance(pulse_queries, list):

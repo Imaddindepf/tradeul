@@ -636,7 +636,6 @@ class TriggerEngine:
                 ],
                 "user_id": trigger.user_id,
                 "query": f"Trigger '{trigger.name}' fired for {event.symbol}",
-                "language": "en",
                 "mode": "auto",
                 "tickers": [],
                 "plan": "",

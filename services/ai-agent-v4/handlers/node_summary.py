@@ -235,7 +235,7 @@ def summarize_node_output(node_name: str, node_output: Any) -> tuple[str, dict |
         if table.get("title"):
             preview = f"{table['title']}: {table['total']} filas"
     elif code:
-        preview = "Spec compilada" if code["language"] == "json" else "Código generado"
+        preview = "Compiled spec" if code["language"] == "json" else "Generated code"
     elif metrics:
         preview = ", ".join(f"{k}: {v}" for k, v in list(metrics.items())[:3])
     else:

@@ -242,8 +242,11 @@ TOOL_DESCS: dict[str, str] = {
     "earnings.get_earnings_results": (
         "Actual REPORTED earnings results for a day: who has ALREADY reported "
         "and how the numbers came in — EPS/revenue actual vs estimate, "
-        "surprise % and post-earnings move, sorted best-to-worst. Args: date, "
-        "time_slot (amc/bmo), sort_by (surprise/mkt_cap). Prefer over the "
+        "surprise % and price reaction, sorted server-side. Args: date, "
+        "time_slot (amc/bmo), sort_by (surprise/mkt_cap/move), sort_order "
+        "(desc/asc). sort_by='move' ranks reporters by their session price "
+        "reaction — THE tool for 'top earnings movers after hours/premarket'; "
+        "never answer that with a market-wide ranking. Prefer over the "
         "calendar tools when the user asks how results WERE, not who WILL "
         "report."
     ),

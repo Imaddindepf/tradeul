@@ -1,63 +1,64 @@
-# Tradeul — Lente de "Changing Fundamentals" (Metodología base)
+# Tradeul — "Changing Fundamentals" lens (base methodology)
 
-> NOTA: Marco BASE. Se sustituirá por el tratado propietario del usuario
-> ("Tradeul Changing Fundamentals — Tratado Definitivo") cuando esté en docs/.
-> El brief debe razonar dentro de este lente, NO citarlo literalmente.
+> NOTE: BASE framework. It will be replaced by the owner's proprietary
+> treatise ("Tradeul Changing Fundamentals — Definitive Treatise") once it
+> lands in docs/. The brief must reason within this lens, NOT quote it
+> literally.
 
-## Idea central
+## Core idea
 
-Lo que mueve una acción de forma sostenible no es el titular en sí, sino
-**en qué medida la noticia CAMBIA el fundamento** de la empresa: su capacidad
-de generar caja, su supervivencia, su mercado direccionable, su estructura de
-capital o su narrativa. El trabajo del brief es responder, en segundos:
-**"¿qué fundamento ha cambiado aquí, y cuánto importa?"**
+What moves a stock in a sustainable way is not the headline itself, but
+**to what extent the news CHANGES the company's fundamentals**: its ability
+to generate cash, its survival, its addressable market, its capital
+structure or its narrative. The brief's job is to answer, in seconds:
+**"which fundamental changed here, and how much does it matter?"**
 
-## El brief NO trata de
+## The brief is NOT about
 
-- Métricas técnicas intradía (RVOL, VWAP, ATR, niveles). Eso ya lo tiene el
-  trader en la plataforma. No las menciones salvo que sean imprescindibles.
-- Recomendaciones de entrada/salida o tamaño de posición.
+- Intraday technical metrics (RVOL, VWAP, ATR, levels). The trader already
+  has them on the platform. Do not mention them unless indispensable.
+- Entry/exit recommendations or position sizing.
 
-## El brief SÍ trata de
+## The brief IS about
 
-1. **Qué es la empresa**: a qué se dedica, en qué sector, tamaño aproximado,
-   y su situación reciente (¿iba bien o mal antes de esta noticia?).
-2. **Qué dice realmente la noticia**: descifrar el titular a lenguaje claro,
-   sin jerga ni humo corporativo. Separar sustancia de marketing.
-3. **Qué cambia en el fundamento** (lo más importante): clasificar el tipo de
-   cambio y su magnitud:
-   - **Ingresos / demanda**: contrato, pedido, guía, pérdida de cliente.
-   - **Estructura de capital**: ampliación/offering, shelf, ATM, deuda,
-     recompra → ¿diluye o fortalece al accionista?
-   - **Supervivencia / caja**: runway, financiación, bancarrota, going concern.
-   - **Regulatorio / legal**: FDA, demanda, multa, aprobación, patente.
-   - **Estratégico**: M&A, spin-off, cambio de CEO, pivote de negocio.
-   - **Narrativa / hype**: PR sin sustancia, "carta a accionistas", asociación
-     vaga → señal de cambio fundamental BAJO (a menudo cero).
-4. **El trasfondo**: cómo se llegó aquí. ¿Es la continuación de una historia
-   (ej. una empresa que diluye repetidamente, una biotech esperando datos)?
-   El contexto histórico cambia el significado del titular.
-5. **Qué vigilar**: próximos hitos fundamentales (fecha de datos, vencimiento,
-   junta, presentación SEC) que confirmarían o negarían el cambio.
+1. **What the company is**: what it does, in which sector, approximate size,
+   and its recent situation (was it doing well or badly before this news?).
+2. **What the news really says**: decode the headline into plain language,
+   free of jargon and corporate smoke. Separate substance from marketing.
+3. **What changes in the fundamentals** (the most important part): classify
+   the type of change and its magnitude:
+   - **Revenue / demand**: contract, order, guidance, customer loss.
+   - **Capital structure**: raise/offering, shelf, ATM, debt,
+     buyback → does it dilute or strengthen the shareholder?
+   - **Survival / cash**: runway, financing, bankruptcy, going concern.
+   - **Regulatory / legal**: FDA, lawsuit, fine, approval, patent.
+   - **Strategic**: M&A, spin-off, CEO change, business pivot.
+   - **Narrative / hype**: substance-free PR, "letter to shareholders", vague
+     partnership → signal of LOW fundamental change (often zero).
+4. **The background**: how we got here. Is it the continuation of a story
+   (e.g. a company that dilutes repeatedly, a biotech awaiting data)?
+   Historical context changes what the headline means.
+5. **What to watch**: upcoming fundamental milestones (data date, expiry,
+   shareholder meeting, SEC filing) that would confirm or negate the change.
 
-## Cómo calibrar la "magnitud del cambio"
+## How to calibrate the "magnitude of the change"
 
-- **Alto**: altera la tesis de inversión (supervivencia, ingresos materiales,
-  aprobación clave). Sostenible si hay sustancia.
-- **Medio**: relevante pero no transforma la tesis (un contrato pequeño, un
-  upgrade de analista).
-- **Bajo / nulo**: titular cosmético, hype, o algo ya descontado.
+- **High**: alters the investment thesis (survival, material revenue, key
+  approval). Sustainable if there is substance.
+- **Medium**: relevant but does not transform the thesis (a small contract,
+  an analyst upgrade).
+- **Low / none**: cosmetic headline, hype, or something already priced in.
 
-## Sesgo escéptico (clave en small caps)
+## Skeptical bias (key in small caps)
 
-Muchas noticias de small caps existen para **crear volumen y permitir emitir
-acciones** (dilución). Ante un titular llamativo sin números concretos,
-pregúntate: ¿hay sustancia financiera real, o es preparación para un offering?
-Señala explícitamente este riesgo cuando el patrón encaje.
+Many small-cap headlines exist to **create volume and enable share
+issuance** (dilution). Faced with a flashy headline without concrete numbers,
+ask yourself: is there real financial substance, or is this preparation for
+an offering? Explicitly flag this risk when the pattern fits.
 
-## Tono y honestidad
+## Tone and honesty
 
-Directo y accionable para que el trader ENTIENDA rápido el contexto. Cita la
-fuente de cada afirmación (la noticia, un dato financiero, una fuente web).
-Si un dato no se conoce o no se puede verificar, dilo claramente — nunca
-inventes cifras ni hechos.
+Direct and actionable so the trader QUICKLY understands the context. Cite the
+source of every claim (the news item, a financial datum, a web source).
+If something is unknown or cannot be verified, say so clearly — never invent
+figures or facts.

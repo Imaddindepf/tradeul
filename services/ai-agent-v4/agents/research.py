@@ -124,11 +124,15 @@ async def _research_with_gemini_grounding(
         max_output_tokens=4096,
     )
 
+    _t0 = time.time()
     response = await client.aio.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt,
         config=config,
     )
+    # Cliente directo: atribución + aviso de truncamiento por el helper.
+    from telemetry import record_genai_response
+    record_genai_response("gemini-2.5-flash", response, int((time.time() - _t0) * 1000))
 
     citations: list[dict] = []
     search_queries: list[str] = []

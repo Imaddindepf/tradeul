@@ -232,7 +232,6 @@ async def _market_data_node_native(state: dict, start_time: float) -> dict | Non
 
     query = state.get("query", "")
     task = state.get("agent_task") or query
-    language = state.get("language", "en")
     tickers = list(state.get("tickers", []))[:10]
 
     selected = await select_tools("market_data", task)
@@ -245,7 +244,7 @@ async def _market_data_node_native(state: dict, start_time: float) -> dict | Non
 
     # Fecha para movers/bars históricos (reutiliza el parser de news_events).
     from agents._when import date_reference as _extract_date_reference
-    date_from, _date_to = _extract_date_reference(task, language)
+    date_from, _date_to = _extract_date_reference(task)
     q_low = f"{task} {query}".lower()
     direction = "down" if re.search(
         r"\b(losers?|perdedor\w*|bajaron|cayeron|caídas?|down)\b", q_low) else "up"
@@ -373,6 +372,17 @@ async def _run_universe_screen(screen: dict) -> tuple[dict[str, Any], list[str]]
             "matched_total": raw.get("count", 0),
             "universe_size": raw.get("total_scanned", 0),
             "tickers": raw.get("tickers", []),
+            "sort_key_coverage": raw.get("sort_key_coverage"),
+            # Mismo aviso que categories_scope, en el camino que de verdad se
+            # ejecuta: el 2026-08-04 este screen (mercado ENTERO) se presentó
+            # como "earnings movers" — 9 de 10 filas sin reporte. El dato
+            # declara su alcance; el sintetizador tiene orden de respetarlo.
+            "scope": (
+                "Ranking of the FULL market snapshot filtered only by the "
+                "fields in `spec`. NOT restricted to earnings, news or any "
+                "event: a row here is no evidence the company reported or "
+                "announced anything."
+            ),
         },
     }, []
 
@@ -944,14 +954,19 @@ async def market_data_node(state: dict) -> dict:
             results["historical_daily"] = hist_daily
 
     if tickers and _wants_historical_minute(query):
-        try:
-            raw = await MCP.historical.get_minute_bars({
-                "date": "yesterday", "symbols": tickers[:2],
-            })
-            if raw and not raw.get("error"):
-                results["historical_minute"] = raw
-        except Exception as exc:
-            errors.append(f"historical_minute: {exc}")
+        # La tool exige `symbol` (singular): la llamada histórica con
+        # `symbols` era inválida de nacimiento y falló TODAS las veces
+        # (ValidationError ×2 la semana del 2026-08-05) sin que nadie lo
+        # viera — el error se convertía en resultado ausente.
+        for t in tickers[:2]:
+            try:
+                raw = await MCP.historical.get_minute_bars({
+                    "date": "yesterday", "symbol": t,
+                })
+                if raw and not raw.get("error"):
+                    results.setdefault("historical_minute", {})[t] = raw
+            except Exception as exc:
+                errors.append(f"historical_minute[{t}]: {exc}")
 
     # 4. Scanner snapshot — parallelized
     categories = explicit_categories

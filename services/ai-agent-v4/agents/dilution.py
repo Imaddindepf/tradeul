@@ -1105,11 +1105,11 @@ async def dilution_node(state: dict) -> dict:
                 instrument_ctx_raw = {"detail": "not found"}
         if _db_has_no_data(profile_raw, instrument_ctx_raw):
             logger.info("dilution_fallback_triggered ticker=%s existing_keys=%s", ticker, list(t_data.keys()))
-            await _progress(f"${ticker} no está en nuestra BD — buscando en EDGAR (XBRL + filings)…")
+            await _progress(f"${ticker} is not in our DB — searching EDGAR (XBRL + filings)…")
             # Grab basic ticker info from the profile error response (if any)
             ticker_info_extra = profile_raw or {}
             fallback = await _dilution_fallback_research(ticker, focuses, ticker_info_extra)
-            await _progress(f"${ticker}: análisis EDGAR completado ({(fallback.get('data_freshness') or {}).get('filings_analyzed', 0)} filings leídos)")
+            await _progress(f"${ticker}: EDGAR analysis complete ({(fallback.get('data_freshness') or {}).get('filings_analyzed', 0)} filings read)")
             # Merge: keep existing financial data (cash_position, cash_runway, shares_history),
             # overlay with EDGAR RAG instrument data (warrants, shelf, ATM, etc.)
             t_data["profile"] = fallback
@@ -1125,7 +1125,7 @@ async def dilution_node(state: dict) -> dict:
 
     # ── Emit initial progress so the UI shows the step immediately ────────────
     focus_label = ", ".join(sorted(focuses)[:3]) if focuses else "overview"
-    await _progress(f"Consultando base de datos de dilución para {ticker_str} ({focus_label})…")
+    await _progress(f"Querying the dilution database for {ticker_str} ({focus_label})…")
 
     # Fetch for up to 3 tickers in parallel
     ticker_results = await asyncio.gather(*[

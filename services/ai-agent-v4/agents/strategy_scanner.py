@@ -138,7 +138,6 @@ RULES:
 7. Session defaults to "regular" unless user mentions premarket/afterhours.
 8. Pick the FEWEST steps that capture the setup — day_conditions are cheaper
    than steps. Only use multiple steps for genuine sequences (A then B).
-9. Spanish and English are both common — translate faithfully.
 
 EVENT TYPES (core setup vocabulary):
 """ + _CORE_EVENTS + """
@@ -216,7 +215,7 @@ async def strategy_scanner_node(state: dict) -> dict:
     results: dict[str, Any] = {}
     errors: list[str] = []
 
-    await _progress("Compilando tu setup a una spec de secuencia de eventos...")
+    await _progress("Compiling your setup into an event-sequence spec...")
 
     # ── Step 1: live catalog + LLM spec compilation ──
     await canvas_step(

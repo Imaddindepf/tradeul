@@ -226,6 +226,28 @@ async def apply_dynamic_filter(
         for f in filters
         if isinstance(f, dict)
     ]
+
+    # Frontera: un argumento inválido es un ERROR, nunca un resultado que se
+    # parece al éxito. Antes: op desconocido → filtro DESCARTADO en silencio
+    # (falso positivo: 11.668 filas en vez de 2.702); campo inexistente →
+    # count=0 sin error (falso negativo); sort desconocido → todo a 0.0 y el
+    # eco afirmando haber ordenado. Los tres, verificados 2026-08-05.
+    _VALID_OPS = ("gt", "gte", "lt", "lte", "eq", "neq", "contains")
+    if sort_order not in ("desc", "asc"):
+        return {"error": f"unknown sort_order '{sort_order}'. Valid: desc, asc",
+                "tickers": [], "count": 0}
+    for f in filters:
+        op = f.get("op", "gt")
+        if op not in _VALID_OPS:
+            return {"error": f"unknown op '{op}' in filter on "
+                             f"'{f.get('field', '?')}'. Valid: {list(_VALID_OPS)}",
+                    "tickers": [], "count": 0}
+        if not f.get("field"):
+            return {"error": "filter missing 'field'", "tickers": [], "count": 0}
+        if f.get("value") is None:
+            return {"error": f"filter on '{f['field']}' missing 'value'",
+                    "tickers": [], "count": 0}
+
     r = await get_redis()
     keys = ["snapshot:enriched:latest", "snapshot:enriched:last_close"]
     if snapshot == "close":
@@ -246,7 +268,15 @@ async def apply_dynamic_filter(
         "contains": lambda a, b: str(b).lower() in str(a).lower(),
     }
 
+    # Presencia de cada campo pedido sobre TODO lo escaneado (no solo lo que
+    # pasa el filtro): distingue "el campo no existe / no tiene datos" (error)
+    # de "existe y nada cumple la condición" (vacío legítimo).
+    field_hits = {f["field"]: 0 for f in filters}
+    field_hits.setdefault(sort_by, 0)
+    known_keys: set = set()
+
     matched = []
+    sort_covered = 0
     for sym, raw_val in raw_all.items():
         if sym == "__meta__":
             continue
@@ -255,13 +285,17 @@ async def apply_dynamic_filter(
         except Exception:
             continue
 
+        if len(known_keys) < 500:
+            known_keys.update(ticker.keys())
+        for fld in field_hits:
+            if ticker.get(fld) is not None:
+                field_hits[fld] += 1
+
         passes = True
         for f in filters:
             field = f.get("field", "")
             op = f.get("op", "gt")
             value = f.get("value")
-            if not field or value is None or op not in OPS:
-                continue
 
             actual = ticker.get(field)
             if actual is None:
@@ -294,7 +328,33 @@ async def apply_dynamic_filter(
             for extra in [f.get("field") for f in filters] + [sort_by]:
                 if extra and extra not in _OUTPUT_BASE_FIELDS and extra not in row:
                     row[extra] = ticker.get(extra)
-            matched.append((ticker.get(sort_by), row))
+            sort_val = ticker.get(sort_by)
+            if sort_val is not None:
+                sort_covered += 1
+            matched.append((sort_val, row))
+
+    # Campo pedido sin un solo dato en todo el snapshot → error con
+    # sugerencias, no un count=0 (ni una ordenación nominal) que se lee como
+    # "no hay ninguna acción así".
+    dead_fields = [fld for fld, hits in field_hits.items() if hits == 0]
+    if dead_fields:
+        import difflib
+        suggestions = {
+            fld: difflib.get_close_matches(fld, sorted(known_keys), n=3, cutoff=0.6)
+            for fld in dead_fields
+        }
+        which = "sort field" if dead_fields == [sort_by] else "field(s)"
+        return {
+            "error": (
+                f"{which} {dead_fields} carry no data in any of the "
+                f"{len(raw_all)} scanned rows — unknown field or a metric with "
+                "no data right now (e.g. postmarket_* outside post-market)"
+            ),
+            "did_you_mean": suggestions,
+            "tickers": [],
+            "count": 0,
+            "total_scanned": len(raw_all),
+        }
 
     def _sort_key(value):
         try:
@@ -316,6 +376,9 @@ async def apply_dynamic_filter(
         "total_scanned": len(raw_all),
         "filters_applied": filters,
         "sort": {"by": sort_by, "order": sort_order},
+        # De las filas que pasaron los filtros, cuántas llevan la clave de
+        # orden de verdad (las que no, ordenan como 0.0 y van al montón).
+        "sort_key_coverage": f"{sort_covered}/{len(matched)}",
     }
 
 

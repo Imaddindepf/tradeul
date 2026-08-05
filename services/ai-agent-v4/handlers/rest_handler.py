@@ -32,7 +32,6 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=8000, description="User query text")
     thread_id: Optional[str] = Field(None, description="Conversation thread ID")
     mode: str = Field("auto", description="Execution mode: auto, quick, deep")
-    language: Optional[str] = Field(None, description="Response language: en, es")
     market_context: dict[str, Any] = Field(
         default_factory=dict,
         description="Optional market context (session, time, etc.)",
@@ -126,7 +125,6 @@ async def run_query(
         "user_id": user_id,
         "run_id": run_id,
         "query": request.query,
-        "language": request.language or "en",
         "mode": request.mode if request.mode in ("auto", "quick", "deep") else "auto",
         "tickers": [],
         "ticker_info": {},

@@ -54,7 +54,6 @@ async def _plan(query: str, extra_state: dict | None = None) -> dict:
         "user_id": "eval_user",
         "run_id": "eval",
         "query": query,
-        "language": "es",
         "mode": "auto",
         "tickers": [],
         "ticker_info": {},

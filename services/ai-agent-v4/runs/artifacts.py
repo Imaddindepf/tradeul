@@ -314,6 +314,42 @@ def _build(node_name: str, node_output: Any) -> list[dict[str, Any]]:
             arts.append({"kind": "json", "title": "Respuesta estructurada", "data": sr})
         return arts
 
+    # ── Context enricher: escribe bajo _market_pulse_context, no bajo su
+    # nombre de nodo. Era el nodo con más tool-calls (30% en la semana del
+    # 2026-08-05) y CERO artifacts: sus 60 cotizaciones descubiertas eran
+    # inauditables por run. Ahora el inspector las enseña.
+    if node_name == "context_enricher":
+        ctx = (node_output.get("agent_results") or {}).get("_market_pulse_context")
+        if not isinstance(ctx, dict) or not ctx:
+            return []
+        arts.append({"kind": "chips", "title": "Claves añadidas",
+                     "items": [str(k) for k in ctx.keys()]})
+        quotes = ctx.get("discovered_quotes")
+        if isinstance(quotes, dict) and quotes:
+            rows = []
+            for sym, q in list(quotes.items())[:_MAX_TABLE_ROWS]:
+                if not isinstance(q, dict):
+                    continue
+                rows.append([
+                    str(sym), str(q.get("current_price")),
+                    str(q.get("todaysChangePerc")),
+                    str(q.get("premarket_change_percent")),
+                    str(q.get("postmarket_change_percent")),
+                    str(q.get("rvol")),
+                ])
+            if rows:
+                arts.append({
+                    "kind": "table",
+                    "title": "Cotizaciones descubiertas",
+                    "columns": ["symbol", "price", "chg%", "pm%", "ah%", "rvol"],
+                    "rows": rows,
+                    "total": len(rows),
+                })
+        raw = _raw_artifact(ctx)
+        if raw:
+            arts.append(raw)
+        return arts
+
     # ── Agentes: agent_results[node] ──
     ar = node_output.get("agent_results", {})
     result = ar.get(node_name) if isinstance(ar, dict) else None

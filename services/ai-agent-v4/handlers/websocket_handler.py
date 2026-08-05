@@ -103,38 +103,18 @@ async def _deliver(websocket: WebSocket, client_id: str, payload: dict) -> bool:
     return False
 
 
-# ── Language detection ──────────────────────────────────────────────
-_SPANISH_MARKERS = re.compile(
-    r'\b(?:de|del|la|el|los|las|que|por|para|con|una|como|más|hoy|'
-    r'dame|muestra|quiero|busca|analiza|cuáles|mejores|peores|'
-    r'acciones|mercado|ganancias|perdedoras|ganadoras|volumen|'
-    r'qué|cómo|cuánto|dónde|viernes|lunes|martes|miércoles|jueves|'
-    r'sábado|domingo|ayer|semana|mes|año|últimos?|primeros?|'
-    r'premarket|después|antes|cierre|apertura)\b',
-    re.IGNORECASE,
-)
-
-
-def _detect_language(text: str) -> str:
-    """Detect if the query is in Spanish or English.
-    Returns 'es' or 'en'."""
-    matches = _SPANISH_MARKERS.findall(text)
-    # If 2+ Spanish markers found, it's Spanish
-    return "es" if len(matches) >= 2 else "en"
-
-
 # Etapas mostradas en vivo mientras Opus trabaja (no son medibles, son guía UX).
 _BRIEF_STAGES = [
-    "Leyendo la noticia que ya tenemos…",
-    "Consultando datos internos de Tradeul…",
-    "Buscando contexto y antecedentes en la web…",
-    "Evaluando qué cambia en el fundamento…",
-    "Redactando el brief…",
+    "Reading the news we already have…",
+    "Querying Tradeul internal data…",
+    "Searching the web for context and background…",
+    "Assessing what changes in the fundamentals…",
+    "Writing the brief…",
 ]
 _FOLLOWUP_STAGES = [
-    "Repasando el contexto del hilo…",
-    "Buscando lo que haga falta…",
-    "Redactando la respuesta…",
+    "Reviewing the thread context…",
+    "Fetching whatever is missing…",
+    "Writing the response…",
 ]
 
 
@@ -276,7 +256,7 @@ async def _handle_context_brief(
         })
         await _deliver(websocket, client_id, {
             "type": "error",
-            "message": f"El brief de contexto falló: {exc}",
+            "message": f"Context brief failed: {exc}",
         })
         if run_id:
             await get_run_store().finish_run(run_id, "error")
@@ -439,7 +419,7 @@ async def handle_websocket(
                 except RateLimitExceeded as rl:
                     await _safe_send(websocket, {
                         "type": "error",
-                        "message": f"Vas demasiado rápido. Reintenta en {rl.retry_after}s.",
+                        "message": f"You're going too fast. Retry in {rl.retry_after}s.",
                         "retry_after": rl.retry_after,
                     })
                     continue
@@ -449,9 +429,6 @@ async def handle_websocket(
             mode = message.get("mode", "auto")
             clarification_hint = message.get("clarification_hint", "")
             chart_context = message.get("chart_context", None)
-
-            # ── Detect language from query ──
-            language = _detect_language(query)
 
             # ── Run persistido: cada query es un run con artifacts completos
             # (inspector de nodo). run_id viaja en ack y en cada node_completed.
@@ -507,7 +484,6 @@ async def handle_websocket(
                 "user_id": user_id,
                 "run_id": run_id,
                 "query": effective_query,
-                "language": language,
                 "mode": mode if mode in ("auto", "quick", "deep") else "auto",
                 "intent": "",
                 "tickers": [],
@@ -849,7 +825,6 @@ async def handle_websocket(
                     "metadata": {
                         "total_elapsed_ms": total_ms,
                         "client_id": client_id,
-                        "language": language,
                     },
                 }
 

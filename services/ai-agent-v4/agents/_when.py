@@ -240,7 +240,7 @@ _MONTH_ONLY_RE = re.compile(
 )
 
 
-def _extract_date_reference(q: str, language: str = "en") -> tuple[str | None, str | None]:
+def _extract_date_reference(q: str) -> tuple[str | None, str | None]:
     """Extract date_from and date_to from natural language references."""
     ql = q.lower()
     today = datetime.now()
@@ -257,10 +257,14 @@ def _extract_date_reference(q: str, language: str = "en") -> tuple[str | None, s
     num_m = _DATE_NUMERIC_RE.search(ql)
     if num_m:
         a, b, y = int(num_m.group(1)), int(num_m.group(2)), int(num_m.group(3))
-        if language == "es":
-            d, m = a, b
-        else:
+        # Sin detección de idioma: se desambigua por valor. a>12 no puede ser
+        # mes → día primero (DD/MM); b>12 no puede ser mes → mes primero
+        # (MM/DD). Ambiguo (ambos ≤12) → DD/MM, la convención de la casa.
+        # El swap del except cubre el resto.
+        if b > 12:
             m, d = a, b
+        else:
+            d, m = a, b
         try:
             target = datetime(y, m, d)
             return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")

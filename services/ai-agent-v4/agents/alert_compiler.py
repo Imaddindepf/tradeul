@@ -166,15 +166,15 @@ sma_thrust_up_2m / sma_thrust_down_2m
 
 COMPILER_PROMPT = """\
 You are the alert-spec compiler for Tradeul. The user describes, in natural
-language (Spanish or English), a market alert they want to be notified
+language, a market alert they want to be notified
 about. You compile it into a strict AlertSpec JSON. A deterministic engine
 — not you — will evaluate it in real time, so precision matters more than
 creativity.
 
 OUTPUT: ONLY a JSON object (no markdown fences) with these keys:
 {
-  "name": "short human name for the alert (user's language, <=60 chars)",
-  "paraphrase": "1-2 sentences in the USER'S LANGUAGE restating EXACTLY what \
+  "name": "short human name for the alert (<=60 chars)",
+  "paraphrase": "1-2 sentences restating EXACTLY what \
 will be watched and when it fires. The user will confirm this text.",
   "tier": "event_match" | "sequence" | "membership" | "scheduled",
   "universe": {
@@ -223,7 +223,7 @@ will be watched and when it fires. The user will confirm this text.",
     "cooldown_seconds": 900,        // min seconds between fires per symbol
     "max_fires_per_day": 20
   },
-  "message_template": "{symbol}: <short fire message in the user's language>",
+  "message_template": "{symbol}: <short fire message>",
   "dry_run_days": 5                 // 1-10, how many past days to preview
 }
 
@@ -266,7 +266,7 @@ RULES:
    - "top losers" -> membership losers enter
 4. Numbers: "1B" = 1000000000, "500M" = 500000000, "$5" -> min/max_price 5.
 5. cooldown: scalping alerts 300-900s; slower setups 1800-3600s. Default 900.
-6. paraphrase MUST be faithful and in the user's language — it is the
+6. paraphrase MUST be faithful — it is the
    contract the user confirms. Mention universe filters, the event(s), the
    order, and the cooldown.
 7. Direction matters: "cruce a la baja"/"short" versions use the _down /
@@ -431,7 +431,7 @@ async def alert_compiler_node(state: dict) -> dict:
     results: dict[str, Any] = {}
     errors: list[str] = []
 
-    await _progress("Compilando tu alerta a una spec ejecutable...")
+    await _progress("Compiling your alert into an executable spec...")
 
     # ── 1-3: catalog grounding + compile + validate (with 1 repair) ──
     await canvas_step(
@@ -552,8 +552,8 @@ async def alert_compiler_node(state: dict) -> dict:
     dry_days = int((meta or {}).get("dry_run_days", 5))
     if dry_days > 0 and (spec.steps or spec.price_levels):
         await _progress(
-            f"Spec validada ({spec.tier}). Comprobando cuándo habría disparado "
-            f"en los últimos {dry_days} días de mercado..."
+            f"Spec validated ({spec.tier}). Checking when it would have fired "
+            f"over the last {dry_days} market days..."
         )
         try:
             dry = await run_dry_run(

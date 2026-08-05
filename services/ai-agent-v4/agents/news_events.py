@@ -33,13 +33,10 @@ from agents.mcp_catalog import MCP
 
 # -- Intent detection --
 
-_EARNINGS_KEYWORDS = [
-    "earnings", "earning", "eps", "revenue",
-    "quarterly", "quarter", "q1", "q2", "q3", "q4",
-    "beat", "miss", "guidance", "forecast",
-    "resultados", "ganancias", "trimestral", "reportan", "reporta",
-    "reportes", "reporte",
-]
+# Un solo vocabulario de earnings para todo el agente: vive en _constraints
+# (lo usa también la guarda determinista del supervisor). Forkearlo aquí de
+# nuevo es exactamente como planner y agentes acabaron en desacuerdo.
+from agents._constraints import EARNINGS_KEYWORDS as _EARNINGS_KEYWORDS
 
 _NEWS_KEYWORDS = [
     "news", "noticias", "noticia", "headlines", "article",
@@ -346,7 +343,6 @@ async def _news_events_node_native(state: dict, start_time: float) -> dict | Non
 
     query = state.get("query", "")
     task = state.get("agent_task") or query
-    language = state.get("language", "en")
     tickers = list(state.get("tickers", []))[:5]
 
     from agents._tool_args import start_run, take_warnings
@@ -356,9 +352,9 @@ async def _news_events_node_native(state: dict, start_time: float) -> dict | Non
     if not selected:
         return None
 
-    date_from, date_to = _extract_date_reference(task, language)
+    date_from, date_to = _extract_date_reference(task)
     if not date_from and task != query:
-        date_from, date_to = _extract_date_reference(query, language)
+        date_from, date_to = _extract_date_reference(query)
     event_type = _detect_event_type(task) or _detect_event_type(query)
 
     # Las ventanas se resuelven una sola vez y las comparten TODAS las ramas
@@ -478,10 +474,14 @@ async def _news_events_node_native(state: dict, start_time: float) -> dict | Non
                 # fila. El total se mantiene como el de una consulta simple.
                 per_window = max(8, 40 // max(1, len(wins)))
 
+                # Eje de orden: lo fija la restricción determinista si existe
+                # ("por movimiento" → 'move'); si no, sorpresa como siempre.
+                e_sort = (state.get("constraints") or {}).get("earnings_sort") or "surprise"
+
                 async def _one_window(date: str | None, slot: str | None) -> dict:
                     # Sin fecha explícita el tool resuelve el día en ET: el
                     # reloj del contenedor puede ir por delante de NY.
-                    params: dict = {"sort_by": "surprise", "limit": per_window}
+                    params: dict = {"sort_by": e_sort, "limit": per_window}
                     if date and date != today_str:
                         params["date"] = date
                     if slot:
@@ -596,7 +596,6 @@ async def news_events_node(state: dict) -> dict:
 
     query = state.get("query", "")
     tickers = list(state.get("tickers", []))
-    language = state.get("language", "en")
     intent = state.get("intent", "")
     chart_context = state.get("chart_context")
 
@@ -697,7 +696,7 @@ async def news_events_node(state: dict) -> dict:
                 next_day = (datetime.strptime(target_candle_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
                 date_to = next_day
             else:
-                date_from, date_to = _extract_date_reference(query, language)
+                date_from, date_to = _extract_date_reference(query)
             event_type = _detect_event_type(query)
             for ticker in tickers[:3]:
                 tasks.append(_fetch_ticker_hist(ticker, date_from, date_to, event_type))
@@ -801,7 +800,7 @@ async def news_events_node(state: dict) -> dict:
                         errors.append(f"today_earnings: {exc}")
 
         if wants_hist_events:
-            date_from, date_to = _extract_date_reference(query, language)
+            date_from, date_to = _extract_date_reference(query)
             event_type = _detect_event_type(query)
             try:
                 params = {

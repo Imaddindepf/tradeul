@@ -106,11 +106,36 @@ async def get_minute_bars(
 
     Returns: timestamp, open, high, low, close, volume for each minute.
     """
+    # El símbolo viaja a un f-string SQL: se restringe a forma de ticker.
+    # Y una fecha fuera de la retención (~31 días de minute aggs) devuelve
+    # el porqué — en producción se pidió 2025-08-15, un año atrás, y el
+    # "No minute data found" no decía que la fecha era el problema.
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z][A-Za-z0-9.\-]{0,9}", symbol or ""):
+        return {"error": f"invalid symbol {symbol!r}"}
     date_str = _resolve_date(date)
     filepath = _minute_filepath(date_str, date == "today")
 
     if not filepath:
-        return {"error": f"No minute data found for {date_str}"}
+        # Rango real, no supuesto: el 2026-08-05 se comprobó que los minute
+        # aggs guardan mucho más que los "31 días" que decía el diseño.
+        rng = ""
+        try:
+            import glob
+            import re as _re2
+            names = sorted(
+                m.group(1)
+                for f in glob.glob(os.path.join(config.minute_aggs_path, "*.parquet"))
+                if (m := _re2.search(r"(\d{4}-\d{2}-\d{2})", os.path.basename(f)))
+            )
+            if names:
+                rng = f" Available minute files: {names[0]} to {names[-1]}."
+        except Exception:  # noqa: BLE001
+            pass
+        return {"error": (
+            f"No minute data found for {date_str}.{rng} "
+            "For dates outside that range use get_day_bars."
+        )}
 
     conn = _get_duckdb()
     try:

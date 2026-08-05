@@ -35,7 +35,6 @@ class AgentState(TypedDict):
 
     # ── Query ──
     query: str                           # Original user query
-    language: str                        # Detected language (es/en)
     tickers: list[str]                   # Tickers extracted by planner LLM + validated against Redis
     ticker_info: dict[str, dict]         # Company metadata per ticker {TICKER: {company_name, sector, ...}}
 
@@ -62,6 +61,9 @@ class AgentState(TypedDict):
     final_response: str                  # Synthesized response for the user (markdown fallback)
     structured_response: Optional[dict]  # Structured JSON response from synthesizer (primary)
     execution_metadata: Annotated[dict, merge_dicts]  # Timing, tokens used, agents activated
+
+    # ── Deterministic constraints (agents/_constraints.py) ──
+    constraints: Optional[dict]          # {"earnings": bool, "earnings_sort": "move"|"surprise"|None, "windows": [...]}
 
     # ── Thematic ──
     theme_tags: list[str]                # Canonical theme tags resolved by supervisor (e.g. ["robotics", "memory_chips"])

@@ -93,19 +93,22 @@ picture from the data you have now. Honesty about a prior mistake beats a fabric
 rationalization, always.
 </past_answer_questions>
 
-<language>
-<<language_instruction>>
-All text fields (session_context, section titles, section content, bullets, key_takeaways) must be in the specified language.
-Financial terms can stay in English: Ticker, Price, Volume, RSI, VWAP, RVOL, ADX, EPS, Revenue.
-</language>
+<constraint_coverage_rules>
+If agent_results.constraint_coverage exists, a hard constraint of the query
+was NOT satisfied by the executed tools. Open the answer by stating that
+limitation plainly, and do NOT present other data as if it satisfied the
+constraint. Honesty about a gap beats a plausible-looking wrong table.
+Likewise, when a result carries a "scope" or "categories_scope" note, respect
+it: a full-market ranking is not evidence about earnings, news or any event.
+</constraint_coverage_rules>
 
 <market_session_rules>
 Check "market_session" in the data. Use the "current_session" field:
-- CLOSED + weekend/holiday → "El mercado está cerrado (fin de semana/festivo). Datos de la última sesión."
-- CLOSED + weekday before 4am → "El mercado aún no ha abierto. Datos del cierre anterior."
-- PRE_MARKET → "Sesión de pre-market activa (apertura a las 9:30 ET)." NEVER say the market is closed during pre-market.
-- MARKET_OPEN → "Mercado abierto — datos en tiempo real."
-- POST_MARKET → "Sesión after-hours activa."
+- CLOSED + weekend/holiday → "Market closed (weekend/holiday). Data from the last session."
+- CLOSED + weekday before 4am → "Market has not opened yet. Data from the previous close."
+- PRE_MARKET → "Pre-market session active (open at 9:30 ET)." NEVER say the market is closed during pre-market.
+- MARKET_OPEN → "Market open — real-time data."
+- POST_MARKET → "After-hours session active."
 Put this in the session_context field.
 For CHART_ANALYSIS queries, leave session_context empty.
 </market_session_rules>
@@ -160,29 +163,30 @@ occur and suggest loosening the thresholds (e.g. smaller opening drop).
 
 ALERT_CREATE (agent_results.alert_compiler present):
 CRITICAL UX RULE: the UI already renders an interactive card ABOVE your text
-with the paraphrase, filters, dry-run evidence and an "Activar alerta" button.
+with the paraphrase, filters, dry-run evidence and an activate-alert button.
 Your text is ONLY a short companion — never a second copy of the card.
 
 FORBIDDEN (never do these — they confuse the user):
-- Do NOT create sections "Cuándo habría disparado" or "Siguiente paso"
+- Do NOT create sections like "When it would have fired" or "Next step"
 - Do NOT include any evidence table or per-day match list
 - Do NOT repeat the paraphrase verbatim
 - Do NOT mention the raw spec_id / UUID
 - Do NOT say the alert is "not live", "not active", "still a draft", or that
-  the user must go to a panel to arm it — the card above already has Activar
+  the user must go to a panel to arm it — the card above already has the
+  activate button
 
-REQUIRED: exactly ONE section titled "Tu alerta", 2-4 sentences:
+REQUIRED: exactly ONE section titled "Your alert", 2-4 sentences:
 - Confirm what will be watched in your own brief words
 - Honest dry-run read: 0 fires → rare/restrictive, offer to loosen;
   >100/day → noisy, suggest tighter filters; otherwise frequency looks fine
-- Close with: if armable_now, "actívala con el botón de la tarjeta de arriba";
+- Close with: if armable_now, "activate it with the button on the card above";
   if not armable_now, say live sequence runtime is coming (dry-run works today)
 - Offer to recompile if the preview doesn't match intent
 
-GOOD example: "He montado la alerta de MSFT para el cruce del máximo del día.
-En los últimos 5 días habría saltado 2 veces — frecuencia razonable. Actívala
-con el botón de la tarjeta de arriba (o desde AI Alerts) y avísame si quieres
-ajustar el cooldown o añadir un filtro de RVOL."
+GOOD example: "I set up the MSFT alert for the high-of-day cross.
+Over the last 5 days it would have fired twice — reasonable frequency.
+Activate it with the button on the card above (or from AI Alerts) and let me
+know if you want to adjust the cooldown or add an RVOL filter."
 
 If alert_compiler.error exists, explain the compile failure plainly and ask
 for the missing detail (event, threshold, or universe).
@@ -223,16 +227,6 @@ For conversational queries, leave key_takeaways empty.
 If agent_results.research contains citations, include them in the citations list.
 Each citation needs a title and url.
 </citations_rules>"""
-
-
-def _build_language_instruction(language: str) -> str:
-    if language == "es":
-        return (
-            "RESPOND ENTIRELY IN SPANISH (Español). "
-            "All headers, descriptions, insights, and text must be in Spanish. "
-            "Financial terms and column headers can stay in English."
-        )
-    return "Respond in English."
 
 
 def _safe_json_size(obj: Any) -> int:
@@ -518,7 +512,6 @@ def _structured_to_markdown(resp: SynthesizerResponse) -> str:
 
 async def _synthesize_structured(
     query: str,
-    language: str,
     results_payload: dict,
     market_session: dict,
     ticker_info: dict,
@@ -530,11 +523,9 @@ async def _synthesize_structured(
     from google.genai import types
 
     client = _get_genai_client()
-    language_instruction = _build_language_instruction(language)
 
     user_payload = {
         "query": query,
-        "language": language,
         "market_session": market_session,
         "agent_results": results_payload,
     }
@@ -572,7 +563,6 @@ async def _synthesize_structured(
     # reconoce <<name>> y falla si algo queda sin sustituir.
     system_prompt = render(
         STRUCTURED_PROMPT,
-        language_instruction=language_instruction,
         current_date=_now.strftime("%B %d, %Y"),
         last_fy=_now.year - 1,
     )
@@ -592,11 +582,17 @@ async def _synthesize_structured(
         thinking_config=types.ThinkingConfig(thinking_budget=2048),
     )
 
+    _t0 = time.time()
     response = await client.aio.models.generate_content(
         model="gemini-2.5-flash",
         contents=user_content,
         config=config,
     )
+    # Cliente directo (sin callback LangChain): la atribución y el aviso de
+    # truncamiento van por el helper — este nodo escribe TODO lo que ve el
+    # usuario y era el menos instrumentado del grafo.
+    from telemetry import record_genai_response
+    record_genai_response("gemini-2.5-flash", response, int((time.time() - _t0) * 1000))
 
     parsed = response.parsed
     if parsed is not None:
@@ -611,7 +607,6 @@ async def _synthesize_structured(
 
 async def _synthesize_fallback(
     query: str,
-    language: str,
     results_payload: dict,
     market_session: dict,
     ticker_info: dict,
@@ -623,7 +618,6 @@ async def _synthesize_fallback(
     import re
 
     llm = _get_fallback_llm()
-    language_instruction = _build_language_instruction(language)
 
     # Use the legacy prompt inline (simplified)
     from datetime import datetime, timezone
@@ -633,13 +627,11 @@ async def _synthesize_fallback(
         f"Today is {_now.strftime('%B %d, %Y')}; the most recent completed fiscal year is "
         f"typically {_now.year - 1} — lead with the newest data and label every figure's period. "
         "Respond with structured markdown. Use ## headers, tables, bullet points. "
-        f"{language_instruction} "
         "ONLY use data from agent_results. NEVER hallucinate. Keep response under 2000 words."
     )
 
     user_payload = {
         "query": query,
-        "language": language,
         "market_session": market_session,
         "agent_results": results_payload,
     }
@@ -671,7 +663,6 @@ async def synthesizer_node(state: dict) -> dict:
 
     query = state.get("query", "")
     agent_results = state.get("agent_results", {})
-    language = state.get("language", "en")
     ticker_info = state.get("ticker_info", {})
 
     # ── News-brief fast-path (Fase 3b) ──
@@ -700,7 +691,6 @@ async def synthesizer_node(state: dict) -> dict:
                     "elapsed_ms": elapsed_ms,
                     "result_agents": ["news_brief"],
                     "response_length": len(nb_result["brief_markdown"]),
-                    "language": language,
                     "news_brief_fast_path": True,
                 },
             },
@@ -720,20 +710,12 @@ async def synthesizer_node(state: dict) -> dict:
         wr = cm.get("win_rate", 0)
         elapsed_ms = int((time.time() - start_time) * 1000)
 
-        if language == "es":
-            summary = (
-                f"Backtest completado: **{name}** - "
-                f"{trades} operaciones, retorno {ret:+.1f}%, "
-                f"Sharpe {sharpe:.2f}, Max DD {dd:.1f}%, Win Rate {wr*100:.0f}%. "
-                f"Los resultados detallados se muestran en el panel interactivo."
-            )
-        else:
-            summary = (
-                f"Backtest complete: **{name}** - "
-                f"{trades} trades, return {ret:+.1f}%, "
-                f"Sharpe {sharpe:.2f}, Max DD {dd:.1f}%, Win Rate {wr*100:.0f}%. "
-                f"Detailed results are shown in the interactive panel."
-            )
+        summary = (
+            f"Backtest complete: **{name}** - "
+            f"{trades} trades, return {ret:+.1f}%, "
+            f"Sharpe {sharpe:.2f}, Max DD {dd:.1f}%, Win Rate {wr*100:.0f}%. "
+            f"Detailed results are shown in the interactive panel."
+        )
 
         return {
             "final_response": summary,
@@ -743,7 +725,6 @@ async def synthesizer_node(state: dict) -> dict:
                     "elapsed_ms": elapsed_ms,
                     "result_agents": list(agent_results.keys()),
                     "response_length": len(summary),
-                    "language": language,
                     "backtest_fast_path": True,
                 },
             },
@@ -757,37 +738,53 @@ async def synthesizer_node(state: dict) -> dict:
             "final_response": msg,
             "execution_metadata": {
                 **(state.get("execution_metadata", {})),
-                "synthesizer": {"elapsed_ms": elapsed_ms, "language": language, "backtest_validation": bt_status},
+                "synthesizer": {"elapsed_ms": elapsed_ms, "backtest_validation": bt_status},
             },
         }
 
     if isinstance(bt_result, dict) and bt_status == "error":
-        error_msg = bt_result.get("error", "Error desconocido")
+        error_msg = bt_result.get("error", "Unknown error")
         elapsed_ms = int((time.time() - start_time) * 1000)
-        if language == "es":
-            helpful_suffix = (
-                "\n\n**Consejos:**\n"
-                "- Asegúrate de especificar tickers concretos (máx 3): ej. SPY, AAPL\n"
-                "- Para intradía, usa un rango de máximo 60 días\n"
-                "- Ejemplo: \"backtest RSI < 30 en SPY de 2023 a 2024\""
-            )
-        else:
-            helpful_suffix = (
-                "\n\n**Tips:**\n"
-                "- Make sure to specify concrete tickers (max 3): e.g. SPY, AAPL\n"
-                "- For intraday, use a max 60-day range\n"
-                "- Example: \"backtest RSI < 30 on SPY from 2023 to 2024\""
-            )
+        helpful_suffix = (
+            "\n\n**Tips:**\n"
+            "- Make sure to specify concrete tickers (max 3): e.g. SPY, AAPL\n"
+            "- For intraday, use a max 60-day range\n"
+            "- Example: \"backtest RSI < 30 on SPY from 2023 to 2024\""
+        )
         return {
-            "final_response": f"Error en backtest: {error_msg}{helpful_suffix}",
+            "final_response": f"Backtest error: {error_msg}{helpful_suffix}",
             "execution_metadata": {
                 **(state.get("execution_metadata", {})),
-                "synthesizer": {"elapsed_ms": elapsed_ms, "language": language},
+                "synthesizer": {"elapsed_ms": elapsed_ms},
             },
         }
 
     # ── Prepare payload ──
     results_payload = _prepare_results_payload(agent_results)
+
+    # ── Closing constraint guard ──
+    # If the query carried a deterministic constraint (e.g. it names earnings)
+    # and no executed tool covered it, the writer must SAY so instead of
+    # presenting whatever data exists as the answer. This is the second half
+    # of the supervisor's constraint guard: route it, and if routing still
+    # failed, disclose it. Silence here is how a full-market ranking shipped
+    # as "earnings movers" on 2026-08-04.
+    cons = state.get("constraints") or {}
+    if cons.get("earnings"):
+        from agents._constraints import covers_earnings
+        if not covers_earnings(results_payload):
+            results_payload["constraint_coverage"] = {
+                "earnings": (
+                    "UNMET: the query names earnings but NO earnings source "
+                    "was queried in this run. Any ranking below is NOT an "
+                    "earnings result set — state this limitation plainly and "
+                    "do not present any list as earnings-related."
+                )
+            }
+            logger.warning(
+                "Constraint guard: earnings constraint UNCOVERED by run results"
+            )
+
     payload_size = _safe_json_size(results_payload)
     logger.info("Synthesizer payload: %d chars for %d agents", payload_size, len(results_payload))
 
@@ -798,12 +795,7 @@ async def synthesizer_node(state: dict) -> dict:
         n_agents = len(results_payload)
         await adispatch_custom_event(
             "synthesizer",
-            {"message": (
-                f"Redactando la respuesta con los resultados de "
-                f"{n_agents} {'agente' if n_agents == 1 else 'agentes'}…"
-                if language == "es" else
-                f"Writing the response from {n_agents} agent result(s)…"
-            )},
+            {"message": f"Writing the response from {n_agents} agent result(s)…"},
         )
     except Exception:  # noqa: BLE001 — progress is cosmetic, never fail the node
         pass
@@ -895,7 +887,7 @@ async def synthesizer_node(state: dict) -> dict:
 
     try:
         structured_response = await _synthesize_structured(
-            query, language, results_payload, market_session, ticker_info, chart_context,
+            query, results_payload, market_session, ticker_info, chart_context,
             conversation=thread_conversation, mode=mode,
         )
         logger.info(
@@ -929,7 +921,7 @@ async def synthesizer_node(state: dict) -> dict:
         structured_data = structured_response.model_dump(mode="json")
     else:
         final_response = await _synthesize_fallback(
-            query, language, results_payload, market_session, ticker_info, chart_context,
+            query, results_payload, market_session, ticker_info, chart_context,
         )
         structured_data = None
 
@@ -944,7 +936,6 @@ async def synthesizer_node(state: dict) -> dict:
                 "result_agents": list(agent_results.keys()),
                 "response_length": len(final_response),
                 "payload_size": payload_size,
-                "language": language,
                 "structured": structured_response is not None,
                 "fallback": used_fallback,
             },

@@ -148,13 +148,12 @@ NOT AVAILABLE (do NOT use): close, open, high, low, vwap, dollar_volume,
 RULES:
 1. Output ONLY the JSON array — no markdown, no explanation.
 2. Use sensible defaults (e.g. "penny stocks" → price < 5, "oversold" → rsi_14 < 30).
-3. Translate Spanish / English equally.
-4. Maximum 6 filters — pick the most impactful.
-5. For price use "price" NOT "close".
-6. For % change: change_1d (today), change_3d, change_5d (week), change_10d, change_20d (month).
-7. For volume screening use relative_volume (RVOL), not raw volume.
-8. For Bollinger squeeze use squeeze_on = 1 or bb_width < small_value.
-9. For sector filtering use "=" with standard sector names (e.g., "Technology", "Healthcare").
+3. Maximum 6 filters — pick the most impactful.
+4. For price use "price" NOT "close".
+5. For % change: change_1d (today), change_3d, change_5d (week), change_10d, change_20d (month).
+6. For volume screening use relative_volume (RVOL), not raw volume.
+7. For Bollinger squeeze use squeeze_on = 1 or bb_width < small_value.
+8. For sector filtering use "=" with standard sector names (e.g., "Technology", "Healthcare").
 
 EXAMPLES:
 User: "small cap stocks under $10 with high volume"

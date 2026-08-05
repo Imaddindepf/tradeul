@@ -72,7 +72,6 @@ _now = datetime.now(timezone.utc)
 try:
     rendered = render(
         STRUCTURED_PROMPT,
-        language_instruction="Answer in Spanish.",
         current_date=_now.strftime("%B %d, %Y"),
         last_fy=_now.year - 1,
     )

@@ -86,9 +86,17 @@ def _provider_of(model: str) -> str:
     return "unknown"
 
 
+_unpriced_models: set = set()
+
+
 def _cost_usd(model: str, in_tok: int, out_tok: int) -> float:
     p = _PRICING.get(model)
     if not p:
+        # Un 0,0 silencioso hace que cada auditoría de coste dé un número
+        # distinto. Se avisa una vez por modelo, no por llamada.
+        if model and model not in _unpriced_models:
+            _unpriced_models.add(model)
+            logger.warning("telemetry: no pricing for model %r — cost recorded as 0.0", model)
         return 0.0
     return round((in_tok / 1e6) * p["in"] + (out_tok / 1e6) * p["out"], 6)
 
@@ -403,6 +411,39 @@ def get_telemetry() -> _Telemetry:
     if _telemetry is None:
         _telemetry = _Telemetry()
     return _telemetry
+
+
+def record_genai_response(model: str, response, latency_ms: int) -> None:
+    """Atribuye una llamada DIRECTA a google-genai (sin callback LangChain)
+    al contexto run/user/node ambiente, y convierte un truncamiento en un
+    WARNING visible.
+
+    Razón de existir: los nodos que usan `genai.Client()` directo (synthesizer
+    estructurado, research) eran invisibles — 8 filas de synthesizer en ~85
+    runs la semana del 2026-08-05 — y `finish_reason` no se leía en ningún
+    punto del agente, así que cada truncamiento se parcheaba a ciegas.
+    Nunca lanza.
+    """
+    try:
+        usage = getattr(response, "usage_metadata", None)
+        in_tok = int(getattr(usage, "prompt_token_count", 0) or 0)
+        out_tok = int(getattr(usage, "candidates_token_count", 0) or 0)
+        out_tok += int(getattr(usage, "thoughts_token_count", 0) or 0)
+        if in_tok or out_tok:
+            get_telemetry().record(
+                model=model, input_tokens=in_tok,
+                output_tokens=out_tok, latency_ms=latency_ms,
+            )
+        cands = getattr(response, "candidates", None)
+        fr = getattr(cands[0], "finish_reason", None) if cands else None
+        if fr is not None and "STOP" not in str(fr).upper():
+            ctx = _call_ctx.get() or {}
+            logger.warning(
+                "LLM finish_reason=%s at node=%s model=%s — output likely truncated",
+                fr, ctx.get("node", "?"), model,
+            )
+    except Exception:  # noqa: BLE001 — la telemetría jamás rompe el camino del LLM
+        pass
 
 
 # ── Callback LangChain (adjuntado en make_llm) ───────────────────

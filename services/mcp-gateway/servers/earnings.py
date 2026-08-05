@@ -54,8 +54,10 @@ _METRIC_DEFINITIONS = {
         "overnight gap, so it is NOT the move from the open."
     ),
     "live_reaction_pct": (
-        "TODAY only. Regular close -> last price for AMC reports; previous "
-        "close -> last price for BMO. Includes the gap."
+        "Today, or AMC reports of the LAST closed session: change from the "
+        "report-day regular close to the last price. Includes the gap. For "
+        "yesterday's AMC reporters this is their post-earnings reaction so "
+        "far, still unfolding."
     ),
     "eps_basis": (
         "UNKNOWN. The source does not state whether eps_actual/eps_estimate "
@@ -230,6 +232,7 @@ async def get_earnings_results(
     date: Optional[str] = None,
     time_slot: Optional[str] = None,
     sort_by: str = "surprise",
+    sort_order: str = "desc",
     limit: int = 40,
 ) -> dict:
     """Get actual reported earnings results for a given day.
@@ -241,7 +244,12 @@ async def get_earnings_results(
     Args:
         date: 'YYYY-MM-DD' (default: today, US/Eastern)
         time_slot: 'amc' (after market close) or 'bmo' (before market open)
-        sort_by: 'surprise' (EPS surprise % desc, default) or 'mkt_cap'
+        sort_by: 'surprise' (EPS surprise %, default), 'mkt_cap', or 'move'.
+            'move' ranks the reporters by their price reaction — THE tool for
+            "top earnings movers": for today it uses the live session reaction
+            (post-market move for AMC reports, regular-session move for BMO);
+            for past dates it uses post_move_pct (prev close -> close).
+        sort_order: 'desc' (default) or 'asc' ('asc' + 'move' = biggest losers)
         limit: Max rows to return (default 40)
 
     Returns per company: symbol, company, time_slot, eps_estimate, eps_actual,
@@ -268,8 +276,10 @@ async def get_earnings_results(
     """
     if time_slot and time_slot.upper() not in ("AMC", "BMO"):
         return {"error": "time_slot must be 'amc' or 'bmo'"}
-    if sort_by not in ("surprise", "mkt_cap"):
-        return {"error": "sort_by must be 'surprise' or 'mkt_cap'"}
+    if sort_by not in ("surprise", "mkt_cap", "move"):
+        return {"error": "sort_by must be 'surprise', 'mkt_cap' or 'move'"}
+    if sort_order not in ("desc", "asc"):
+        return {"error": "sort_order must be 'desc' or 'asc'"}
     slot = time_slot.upper() if time_slot else None
 
     if not date:
@@ -289,14 +299,15 @@ async def get_earnings_results(
     reported = [r for r in reports if _has_actuals(r)]
     pending = [r for r in reports if not _has_actuals(r)]
 
-    # Rank on market cap, which the day view carries and keeps current, then
-    # cut to `limit`. Only the rows that survive the cut are worth completing.
-    reported.sort(key=lambda r: (_num(r.get("market_cap")) is None,
-                                 -(_num(r.get("market_cap")) or 0.0)))
-    keep = reported[: max(1, min(int(limit), 200))]
+    limit_n = max(1, min(int(limit), 200))
 
+    # Build a row for EVERY reported company. The cut happens AFTER the
+    # requested sort key exists on the rows: cutting by market cap first threw
+    # away exactly the rows the ranking asked for (2026-08-04: 89 AMC
+    # reporters, limit 40 → the 49 smallest caps — where the big after-hours
+    # moves live — never reached the ranking).
     rows: dict[str, dict] = {}
-    for r in keep:
+    for r in reported:
         sym = r["symbol"].upper()
         rows[sym] = {
             "symbol": sym,
@@ -327,12 +338,69 @@ async def get_earnings_results(
             "_currency": r.get("currency"),
         }
 
-    # Estimates live only on the per-ticker view, so every returned row gets a
+    is_today = report_date == datetime.now(_ET).date()
+
+    # 'move' needs the live session reaction BEFORE sorting in two cases:
+    # the date is today, or it is the LAST closed session — the provider's
+    # post_earnings_move_1d arrives a day late (verified 2026-08-05 premarket:
+    # 0/89 AMC rows of the prior evening had it), and for those AMC reporters
+    # todaysChangePerc IS their reaction so far (change vs the report-day
+    # close). One HMGET covers every reporter at once.
+    live_move_used = False
+    if sort_by == "move" and rows:
+        is_last_session = False
+        if not is_today:
+            try:
+                from clients.day_aggs import resolve_date
+                is_last_session = date == resolve_date("yesterday")
+            except Exception:
+                is_last_session = False
+        if is_today or is_last_session:
+            try:
+                import orjson
+                from clients.redis_client import get_redis
+                rd = await get_redis()
+                raws = await rd.hmget("snapshot:enriched:latest", list(rows))
+                for sym, raw in zip(rows, raws):
+                    if not raw:
+                        continue
+                    snap = orjson.loads(raw)
+                    row = rows[sym]
+                    slot_r = (row.get("time_slot") or "").upper()
+                    if is_today:
+                        if slot_r == "BMO":
+                            row["live_reaction_pct"] = _num(snap.get("todaysChangePerc"))
+                        else:
+                            row["live_reaction_pct"] = _num(snap.get("postmarket_change_percent"))
+                    elif slot_r != "BMO":
+                        # AMC de la última sesión: todaysChangePerc mide contra
+                        # el cierre del día del reporte — SU reacción, aún viva.
+                        # Para los BMO de ayer NO vale (mediría otra cosa).
+                        row["live_reaction_pct"] = _num(snap.get("todaysChangePerc"))
+                live_move_used = True
+            except Exception:
+                pass  # best-effort: rows sort as key-missing and coverage says so
+
+    def _sort_value(row: dict):
+        if sort_by == "mkt_cap":
+            return row.get("market_cap")
+        if sort_by == "move":
+            if is_today:
+                return row.get("live_reaction_pct")
+            pm = row.get("post_move_pct")
+            return pm if pm is not None else row.get("live_reaction_pct")
+        return row.get("eps_surprise_pct")
+
+    def _ranked(values: list[dict]) -> list[dict]:
+        # None-last regardless of direction: a missing key never wins a rank.
+        sign = -1.0 if sort_order == "desc" else 1.0
+        return sorted(values, key=lambda r: (
+            _sort_value(r) is None, sign * (_sort_value(r) or 0.0)))
+
+    # Estimates live only on the per-ticker view, so completed rows get a
     # lookup. What it returns replaces the day-view numbers wholesale: actual
     # and estimate then come from the same view, and the surprise computed
     # below is a property of that pair.
-    targets = list(rows)[:_DETAIL_HARD_CAP]
-    skipped = len(rows) - len(targets)
     sem = asyncio.Semaphore(_DETAIL_CONCURRENCY)
 
     async def _complete(sym: str) -> bool:
@@ -364,23 +432,36 @@ async def get_earnings_results(
             return True
         return False
 
-    completed = 0
-    if targets:
-        done = await asyncio.gather(*(_complete(s) for s in targets))
-        completed = sum(1 for ok in done if ok)
+    async def _run_completion(symbols: list[str]) -> int:
+        if not symbols:
+            return 0
+        done = await asyncio.gather(*(_complete(s) for s in symbols))
+        return sum(1 for ok in done if ok)
 
-    # Derived from the pair in the row — never copied from upstream.
-    for row in rows.values():
-        row["eps_surprise_pct"] = _surprise_pct(row["eps_actual"], row["eps_estimate"])
-        row["revenue_surprise_pct"] = _surprise_pct(row["revenue_actual"],
-                                                    row["revenue_estimate"])
-
-    out_rows = list(rows.values())
-    if sort_by == "mkt_cap":
-        out_rows.sort(key=lambda r: (r["market_cap"] is None, -(r["market_cap"] or 0)))
+    skipped = 0
+    if sort_by == "surprise":
+        # The sort key IS the estimate pair: it has to exist before the cut,
+        # so every reported row gets completed (the hard cap is the valve for
+        # a pathological day, and it reports itself instead of hiding).
+        targets = list(rows)[:_DETAIL_HARD_CAP]
+        skipped = len(rows) - len(targets)
+        completed = await _run_completion(targets)
+        for row in rows.values():
+            row["eps_surprise_pct"] = _surprise_pct(row["eps_actual"], row["eps_estimate"])
+            row["revenue_surprise_pct"] = _surprise_pct(row["revenue_actual"],
+                                                        row["revenue_estimate"])
+        out_rows = _ranked(list(rows.values()))[:limit_n]
     else:
-        out_rows.sort(key=lambda r: (r["eps_surprise_pct"] is None,
-                                     -(r["eps_surprise_pct"] or 0)))
+        # mkt_cap and move sort on keys the day view / snapshot already carry:
+        # rank the FULL reported set, cut, and complete only the returned rows
+        # — the per-ticker fan-out stays at `limit` calls.
+        out_rows = _ranked(list(rows.values()))[:limit_n]
+        targets = [r["symbol"] for r in out_rows]
+        completed = await _run_completion(targets)
+        for row in out_rows:
+            row["eps_surprise_pct"] = _surprise_pct(row["eps_actual"], row["eps_estimate"])
+            row["revenue_surprise_pct"] = _surprise_pct(row["revenue_actual"],
+                                                        row["revenue_estimate"])
 
     # Movimiento apertura -> cierre de la sesión del reporte. Es la pregunta
     # que más se hace ("cómo se movió desde que abrió") y hasta ahora no se
@@ -401,7 +482,7 @@ async def get_earnings_results(
     # only carries the NEXT day's move, which arrives late. For today's rows
     # the reaction is the post-market move for AMC, the regular-session move
     # for BMO. Best-effort: if the cache is down, rows just lack the field.
-    if out_rows and report_date == datetime.now(_ET).date():
+    if out_rows and is_today:
         try:
             import orjson
             from clients.redis_client import get_redis
@@ -440,10 +521,15 @@ async def get_earnings_results(
         for r in out_rows:
             r["currency"] = r.pop("_currency", None)
 
+    covered = sum(1 for r in out_rows if _sort_value(r) is not None)
     out = {
         "date": date,
         "time_slot": slot,
         "sort_by": sort_by,
+        "sort_order": sort_order,
+        # Rows in the returned set that actually carry the requested sort key.
+        # 0 means the ranking is nominal: say so instead of presenting order.
+        "sort_key_coverage": f"{covered}/{len(out_rows)}",
         "count": len(out_rows),
         # Scheduled but not yet reported, straight from the day view.
         "scheduled_pending": len(pending),
@@ -454,12 +540,29 @@ async def get_earnings_results(
         "metric_definitions": _METRIC_DEFINITIONS,
         "results": out_rows,
     }
+    if sort_by == "move":
+        if is_today:
+            out["move_key"] = "live_reaction_pct"
+        elif live_move_used:
+            out["move_key"] = (
+                "post_move_pct, with live_reaction_pct fallback (change vs the "
+                "report-day close) for rows where the provider's 1-day move is "
+                "not published yet"
+            )
+        else:
+            out["move_key"] = "post_move_pct"
+    if out_rows and covered == 0:
+        out["sort_key_available"] = False
+        out["sort_note"] = (
+            f"no returned row carries the '{sort_by}' key for {date}: the rows "
+            "are NOT meaningfully ordered — do not present them as a ranking"
+        )
     if len(monedas) == 1:
         out["currency"] = next(iter(monedas))
     if skipped:
         out["truncated"] = (
-            f"{skipped} row(s) returned without estimates: per-ticker completion "
-            f"capped at {_DETAIL_HARD_CAP}"
+            f"{skipped} reported row(s) beyond the completion cap of "
+            f"{_DETAIL_HARD_CAP} were ranked without estimates"
         )
     if targets and completed < len(targets):
         out["partial"] = (

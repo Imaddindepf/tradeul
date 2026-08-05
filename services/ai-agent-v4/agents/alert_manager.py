@@ -84,16 +84,16 @@ async def alert_manager_node(state: dict) -> dict:
 
     if action == "list":
         result["message"] = (
-            f"Tienes {len(specs)} alerta(s). Ábrelas en el panel AI Alerts (comando AIA)."
+            f"You have {len(specs)} alert(s). Open them in the AI Alerts panel (AIA command)."
             if specs else
-            "No tienes alertas IA todavía. Crea una con «avísame cuando…»."
+            "You have no AI alerts yet. Create one with \"alert me when…\"."
         )
     else:
         target = _match_spec(query, specs)
         if target is None:
             result["error"] = (
-                "No identifiqué qué alerta quieres. Di el ticker o el nombre, "
-                "o usa el panel AI Alerts (AIA)."
+                "I couldn't identify which alert you mean. Say the ticker or the name, "
+                "or use the AI Alerts panel (AIA)."
             )
         else:
             sid = target["id"]
@@ -112,8 +112,8 @@ async def alert_manager_node(state: dict) -> dict:
                         logger.exception("alert_manager pause unregister failed")
                 updated = await store.set_status(sid, user_id, AlertStatus.PAUSED)
                 result["message"] = (
-                    f"Alerta «{target.get('name')}» pausada."
-                    if updated else "No pude pausar la alerta."
+                    f"Alert \"{target.get('name')}\" paused."
+                    if updated else "I couldn't pause the alert."
                 )
                 result["new_status"] = "paused"
 
@@ -125,8 +125,8 @@ async def alert_manager_node(state: dict) -> dict:
                         logger.exception("alert_manager archive unregister failed")
                 updated = await store.set_status(sid, user_id, AlertStatus.ARCHIVED)
                 result["message"] = (
-                    f"Alerta «{target.get('name')}» archivada."
-                    if updated else "No pude archivar la alerta."
+                    f"Alert \"{target.get('name')}\" archived."
+                    if updated else "I couldn't archive the alert."
                 )
                 result["new_status"] = "archived"
 
@@ -134,18 +134,18 @@ async def alert_manager_node(state: dict) -> dict:
                 try:
                     spec = AlertSpec(**target)
                 except Exception as exc:
-                    result["error"] = f"Spec inválida: {exc}"
+                    result["error"] = f"Invalid spec: {exc}"
                     spec = None
                 if spec is not None:
                     if not spec.is_live_armable():
                         result["message"] = (
-                            f"«{spec.name}» no se puede armar en vivo "
-                            "(necesita contexto de fin de día). Usa dry-run."
+                            f"\"{spec.name}\" cannot be armed live "
+                            "(it needs end-of-day context). Use dry-run."
                         )
                     elif eng is None:
                         result["message"] = (
-                            f"Motor no disponible ahora. Activa «{spec.name}» "
-                            "desde el panel AI Alerts (AIA)."
+                            f"Engine unavailable right now. Arm \"{spec.name}\" "
+                            "from the AI Alerts panel (AIA)."
                         )
                         result["needs_panel"] = True
                     else:
@@ -154,11 +154,11 @@ async def alert_manager_node(state: dict) -> dict:
                             await store.set_status(
                                 sid, user_id, AlertStatus.ARMED, trigger_id=cfg.id,
                             )
-                            result["message"] = f"Alerta «{spec.name}» activada en el motor en vivo."
+                            result["message"] = f"Alert \"{spec.name}\" armed on the live engine."
                             result["new_status"] = "armed"
                             result["live"] = True
                         except Exception as exc:
-                            result["error"] = f"No pude activar: {exc}"
+                            result["error"] = f"Couldn't arm it: {exc}"
 
     elapsed = int((time.time() - start) * 1000)
     return {

@@ -195,12 +195,12 @@ def _validate_code(code: str) -> str | None:
     programa— se caza aquí sin consumir sandbox ni tokens.
     """
     if not code.strip():
-        return "No se generó código."
+        return "No code was generated."
     try:
         tree = ast.parse(code)
     except SyntaxError as exc:
         linea = (code.splitlines() or [""])[max(0, (exc.lineno or 1) - 1)]
-        return f"SyntaxError en la línea {exc.lineno}: {exc.msg}\n  {linea.strip()[:120]}"
+        return f"SyntaxError at line {exc.lineno}: {exc.msg}\n  {linea.strip()[:120]}"
     return _hardcoded_market_data(tree)
 
 
