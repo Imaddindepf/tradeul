@@ -20,6 +20,12 @@ export interface ChartSeriesField {
     label: string;
     values: (number | null)[];   // aligned to `periods` (newest-first, as in the table)
     dataType?: string;           // monetary | percent | perShare | shares | multiple | number | ratio
+    /**
+     * Scale of `values` for percent series: 'fraction' (0.1249 = 12.49%) or
+     * 'points' (12.49 = 12.49%). Defaults to 'fraction' — the convention of
+     * every statement/ratios/key-stats payload from the gateway.
+     */
+    percentScale?: 'fraction' | 'points';
     balance?: 'debit' | 'credit' | null;
     /** Optional display unit for non-monetary series, e.g. "Units", "MW". */
     unitLabel?: string;
@@ -154,6 +160,33 @@ function isFlowUnit(u: UnitKind): boolean {
     return u === 'monetary' || u === 'perShare' || u === 'shares' || u === 'number';
 }
 
+/**
+ * Factor that turns a field's raw values into the chart's working scale.
+ *
+ * The chart works in percentage points, because that is what the YoY / %Rev
+ * transforms below produce. Percent fields, however, arrive from the gateway as
+ * fractions (operating_margin = 0.1249 for 12.49%) — the same convention the
+ * statement tables already undo when they render. Without this the chart drew a
+ * 12.5% margin as "0.1%".
+ */
+function valueScale(f: ChartSeriesField | undefined): number {
+    if (!f) return 1;
+    if (unitFromDataType(f.dataType, f.label) !== 'percent') return 1;
+    return f.percentScale === 'points' ? 1 : 100;
+}
+
+/**
+ * Untruncated decimal text for a number, used by the read-out (header + tooltip)
+ * so the figure as filed is always reachable: a 12.4961% margin reads
+ * "12.4961%" there, while the canvas shows the terminal-style "12.5%". The only
+ * trimming is IEEE-754 noise (0.124961 * 100 === 12.496099999999998) at the
+ * 12th significant digit, past the precision of anything the filings carry.
+ */
+export function exactNum(v: number, grouped = false): string {
+    const cleaned = Number(v.toPrecision(12));
+    return grouped ? cleaned.toLocaleString('en-US', { maximumFractionDigits: 12 }) : String(cleaned);
+}
+
 function compactMagnitude(abs: number, units: UnitsMode = 'auto'): string {
     const forced = units !== 'auto';
     const div = units === 'B' ? 1e9 : units === 'M' ? 1e6 : units === 'K' ? 1e3 : 1;
@@ -168,9 +201,25 @@ function compactMagnitude(abs: number, units: UnitsMode = 'auto'): string {
     return abs.toFixed(2);
 }
 
+/**
+ * Decimals a percentage needs on the canvas. One, as every terminal does — but
+ * escalated for small readings so a non-zero value never prints as "0.0%".
+ */
+function percentDecimals(v: number): number {
+    const abs = Math.abs(v);
+    if (abs === 0 || abs >= 0.05) return 1;
+    if (abs >= 0.005) return 2;
+    return 3;
+}
+
+/**
+ * Canvas form (axis ticks, point labels, last-value tags): fixed precision, so
+ * a column of numbers lines up and reads at a glance. The untruncated figure is
+ * one hover away — see `fmtFull`.
+ */
 export function fmtCompact(v: number | null | undefined, unit: UnitKind, currency = 'USD', units: UnitsMode = 'auto'): string {
     if (v === null || v === undefined || Number.isNaN(v)) return '—';
-    if (unit === 'percent') return `${v.toFixed(1)}%`;
+    if (unit === 'percent') return `${v.toFixed(percentDecimals(v))}%`;
     if (unit === 'multiple') return `${v.toFixed(2)}x`;
     const abs = Math.abs(v);
     const sign = v < 0 ? '-' : '';
@@ -188,10 +237,15 @@ export function fmtCompact(v: number | null | undefined, unit: UnitKind, currenc
     return `${sign}${sym}${compactMagnitude(abs, units)}`;
 }
 
+/** Read-out form (header + tooltip): exact, and never abbreviated. */
 function fmtFull(v: number | null | undefined, unit: UnitKind, currency = 'USD', units: UnitsMode = 'auto'): string {
     if (v === null || v === undefined || Number.isNaN(v)) return '—';
-    if (unit === 'percent') return `${v.toFixed(2)}%`;
-    if (unit === 'multiple') return `${v.toFixed(2)}x`;
+    if (unit === 'percent') return `${exactNum(v)}%`;
+    if (unit === 'multiple') return `${exactNum(v)}x`;
+    const abs = Math.abs(v);
+    const sign = v < 0 ? '-' : '';
+    if (unit === 'monetary' || unit === 'perShare') return `${sign}${curSymbol(currency)}${exactNum(abs, true)}`;
+    if (unit === 'shares' || unit === 'number') return `${sign}${exactNum(abs, true)}`;
     return fmtCompact(v, unit, currency, units);
 }
 
@@ -286,7 +340,10 @@ export function FinancialChartPro({
         (key: string): (number | null)[] => {
             const f = fieldByKey.get(key);
             if (!f) return chronoPeriods.map(() => null);
-            return [...f.values].reverse();
+            const scale = valueScale(f);
+            const vals = [...f.values].reverse();
+            if (scale === 1) return vals;
+            return vals.map(v => (v === null || Number.isNaN(v) ? null : v * scale));
         },
         [fieldByKey, chronoPeriods],
     );
@@ -349,7 +406,7 @@ export function FinancialChartPro({
 
             setInjected(prev => (prev.some(f => f.key === p.key)
                 ? prev
-                : [...prev, { key: p.key, label: p.label, values: aligned, dataType: p.dataType, balance: p.balance }]));
+                : [...prev, { key: p.key, label: p.label, values: aligned, dataType: p.dataType, percentScale: p.percentScale, balance: p.balance }]));
             setSelectedKeys(prev => (prev.includes(p.key) ? prev : [...prev, p.key]));
             return true;
         };
@@ -358,7 +415,7 @@ export function FinancialChartPro({
 
     // ---- Derived series ----------------------------------------------------
     const prepared = useMemo<PreparedSeries[]>(() => {
-        return selectedKeys.map((key, i) => {
+        const series = selectedKeys.map((key, i) => {
             const f = fieldByKey.get(key);
             const label = f?.label || key;
             const rawUnit = unitFromDataType(f?.dataType, label);
@@ -412,6 +469,15 @@ export function FinancialChartPro({
                 values,
             };
         });
+
+        // Nothing on the left axis (e.g. only ratio/% series are shown): move
+        // them over instead of drawing an empty monetary axis next to them.
+        // Panel mode already forces every series onto its own primary axis.
+        if (!series.some(s => s.axis === 'primary' && s.rep !== 'ironBars')) {
+            for (const s of series) if (s.rep !== 'ironBars') s.axis = 'primary';
+        }
+
+        return series;
     }, [selectedKeys, fieldByKey, chronoValues, transform, isAnnual, commonBaseKey, repOverride]);
 
     const primarySeries = prepared[0];
@@ -420,7 +486,7 @@ export function FinancialChartPro({
     // axis and in absolute mode. Otherwise we silently fall back to "off".
     const stackEligible = useMemo(
         () => transform === 'absolute'
-            && prepared.filter(s => s.axis === 'primary' && s.rep !== 'ironBars').length >= 2,
+            && prepared.filter(s => s.axis === 'primary' && s.rep !== 'ironBars' && isFlowUnit(s.unit)).length >= 2,
         [transform, prepared],
     );
     const effectiveStack = stackEligible ? stackMode : 'off';

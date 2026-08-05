@@ -13,6 +13,8 @@ export interface OverlaySeriesPayload {
     key: string;
     label: string;
     dataType?: string;
+    /** See ChartSeriesField.percentScale — defaults to 'fraction'. */
+    percentScale?: 'fraction' | 'points';
     balance?: 'debit' | 'credit' | null;
     periods: string[];          // source periods (newest-first)
     values: (number | null)[];  // aligned to `periods`

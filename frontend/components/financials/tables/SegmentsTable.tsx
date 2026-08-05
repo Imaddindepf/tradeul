@@ -208,27 +208,41 @@ export function SegmentsTable({ symbol, currency = 'USD', period = 'annual', loc
       if (sectionIsKpi && !metaFor(name)) return inferDataType(name, { is_currency: false });
       return inferDataType(name, metaFor(name));
     };
+    // Segment percentages have no fixed scale (some payloads carry 0.23, others
+    // 23). `formatValue` above decides per cell; a chart needs one scale for the
+    // whole series, so decide once over its values with the same threshold.
+    const percentScaleFor = (vals: (number | null)[]): 'fraction' | 'points' => {
+      const finite = vals.filter((v): v is number => v !== null && !Number.isNaN(v));
+      if (finite.length === 0) return 'fraction';
+      return finite.every(v => Math.abs(v) <= 1.5) ? 'fraction' : 'points';
+    };
 
     if (lockOverlay && dashboardId) {
+      const overlayValues = buildValues(revenueData, segmentName);
       const delivered = pushOverlaySeries(dashboardId, {
         key: segmentName,
         label: segmentName,
         dataType: typeFor(segmentName),
+        percentScale: percentScaleFor(overlayValues),
         balance: null,
         periods: years,
-        values: buildValues(revenueData, segmentName),
+        values: overlayValues,
       });
       if (delivered) return;
     }
 
-    const fields: ChartSeriesField[] = Object.keys(revenueData).map(name => ({
-      key: name,
-      label: name,
-      values: buildValues(revenueData, name),
-      dataType: typeFor(name),
-      unitLabel: unitLabelFor(name, metaFor(name)),
-      section: sectionIsKpi ? 'Operating KPIs' : 'Segments',
-    }));
+    const fields: ChartSeriesField[] = Object.keys(revenueData).map(name => {
+      const values = buildValues(revenueData, name);
+      return {
+        key: name,
+        label: name,
+        values,
+        dataType: typeFor(name),
+        percentScale: percentScaleFor(values),
+        unitLabel: unitLabelFor(name, metaFor(name)),
+        section: sectionIsKpi ? 'Operating KPIs' : 'Segments',
+      };
+    });
 
     if (useOpIncome) {
       for (const name of Object.keys(useOpIncome)) {
