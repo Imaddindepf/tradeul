@@ -23,6 +23,7 @@ import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { TradeulDatafeed } from './datafeed';
 import { drawTradeulLogoOnCanvas, injectTradeulLogo } from './TradeulLogo';
 import { buildCustomIndicatorsGetter } from './tvCustomIndicators';
+import { useReplayClockStore } from '@/stores/useReplayClockStore';
 
 // En dev el gateway no permite CORS desde el puerto 3002: pasar por el
 // rewrite same-origin /tvproxy (ver next.config.mjs). En prod, directo.
@@ -41,6 +42,23 @@ const MAX_CELL_ATTEMPTS = 3;
 const READY_TIMEOUT_SECS = 20;
 /** Segundos visibles antes de chequear si el CSS del iframe murió (celda blanca). */
 const CSS_CHECK_SECS = 4;
+
+/** Etiqueta de la vela apuntada al elegir el arranque de una reproducción. */
+/** Segundos que abarca una vela de esa resolución (para encuadrar al entrar). */
+function resolutionSpanSecs(res: string): number {
+    if (/^\d+S$/.test(res)) return parseInt(res, 10);
+    if (res === '1D' || res === 'D') return 86400;
+    if (res === '1W' || res === 'W') return 604800;
+    if (/^\d+M$/.test(res)) return parseInt(res, 10) * 2592000;
+    const n = parseInt(res, 10);
+    return Number.isFinite(n) && n > 0 ? n * 60 : 300;
+}
+
+const pickLabelFmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/New_York',
+    weekday: 'short', day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+});
 
 declare global {
     interface Window {
@@ -257,6 +275,37 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
             }
         });
 
+    // Abrir o cerrar una reproducción cambia lo que significa "toda la
+    // historia": el datafeed empieza (o deja) de cortar en el reloj. Hay que
+    // obligar a la librería a repedir, o el gráfico se queda con las barras de
+    // antes y no pasa nada visible — que era justo el sintoma.
+    useEffect(() => {
+        let prev = useReplayClockStore.getState().active;
+        return useReplayClockStore.subscribe((s) => {
+            if (s.active === prev) return;
+            prev = s.active;
+            const w = widgetRef.current;
+            if (!w || !readyRef.current) return;
+            try {
+                w.activeChart().resetData();
+                // El viewport de la CL apunta al presente; al entrar en
+                // reproducción las velas viven en el pasado y se veria vacio.
+                if (s.active) {
+                    const nowSec = (s.originMs + s.now()) / 1000;
+                    const span = resolutionSpanSecs(w.activeChart().resolution()) * 120;
+                    setTimeout(() => {
+                        try {
+                            w.activeChart().setVisibleRange(
+                                { from: nowSec - span, to: nowSec + span * 0.15 },
+                                { applyDefaultRightMargin: false },
+                            );
+                        } catch { /* aun sin barras */ }
+                    }, 250);
+                }
+            } catch { /* widget no listo */ }
+        });
+    }, []);
+
     useImperativeHandle(ref, (): TVChartCellApi => ({
         setSymbol: (symbol: string) => {
             const w = widgetRef.current;
@@ -340,26 +389,61 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
             if (!w || !readyRef.current) return () => { };
             // `mouse_down` solo trae píxeles; el instante lo da la cruz. Se
             // combinan: la cruz mantiene la última vela apuntada y el clic la
-            // confirma. Es como se comporta la selección de barra estándar.
+            // confirma. Y mientras, se pinta una línea vertical con la fecha de
+            // esa vela: sin ella no se sabe qué se está a punto de elegir.
             let hovered: number | null = null;
+            let markId: unknown = null;
             let sub: { unsubscribe: (obj: unknown, cb: unknown) => void } | null = null;
+
+            const borrarMarca = () => {
+                if (markId == null) return;
+                try { w.activeChart().removeEntity(markId as never); } catch { /* ya no está */ }
+                markId = null;
+            };
+
             const onCross = (p: { time?: number }) => {
-                if (typeof p?.time === 'number') hovered = p.time;
+                if (typeof p?.time !== 'number' || p.time === hovered) return;
+                hovered = p.time;
+                borrarMarca();
+                try {
+                    markId = w.activeChart().createShape(
+                        { time: p.time },
+                        {
+                            shape: 'vertical_line',
+                            lock: true,
+                            disableSelection: true,
+                            disableSave: true,
+                            disableUndo: true,
+                            text: pickLabelFmt.format(new Date(p.time * 1000)),
+                            overrides: {
+                                linecolor: '#2962FF',
+                                linewidth: 2,
+                                showTime: true,
+                                textcolor: '#FFFFFF',
+                            },
+                        } as never,
+                    );
+                } catch { /* la CL aún no acepta formas */ }
             };
+
             const onDown = () => {
-                if (hovered != null) { const t = hovered; cancel(); onPick(t); }
+                if (hovered == null) return;
+                const t = hovered;
+                cancel();
+                onPick(t);
             };
+
             const cancel = () => {
+                borrarMarca();
                 try { sub?.unsubscribe(null, onCross); } catch { /* ya suelto */ }
                 try { w.unsubscribe('mouse_down', onDown); } catch { /* ya suelto */ }
-                try { document.body.style.cursor = ''; } catch { /* sin DOM */ }
             };
+
             try {
                 sub = w.activeChart().crossHairMoved() as typeof sub;
                 (sub as unknown as { subscribe: (o: unknown, c: unknown) => void })
                     .subscribe(null, onCross);
                 w.subscribe('mouse_down', onDown);
-                document.body.style.cursor = 'crosshair';
             } catch {
                 cancel();
                 return () => { };
