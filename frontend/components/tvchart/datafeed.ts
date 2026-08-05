@@ -22,6 +22,7 @@ import {
     type ChartBar,
 } from '@/lib/barAggregation';
 import { acquireStream, releaseStream, resubscribeAllStreams } from '@/lib/chartStreams';
+import { useReplayClockStore } from '@/stores/useReplayClockStore';
 
 // ---------------------------------------------------------------------------
 // Tipos mínimos de la Datafeed API (subset de datafeed-api.d.ts v31).
@@ -282,9 +283,24 @@ export class TradeulDatafeed {
      */
     private readonly lastHistoryBars = new Map<string, ChartBar>();
 
+    /**
+     * Suscripciones al reloj de reproducción, por listenerGuid. En modo replay
+     * la vela viva NO viene del socket: se forma con las mismas impresiones que
+     * alimentan el libro y la cinta, para que las tres ventanas no puedan
+     * contar historias distintas del mismo instante.
+     */
+    private readonly replaySubs = new Map<string, () => void>();
+
     constructor(opts: { apiUrl: string; ws: TVWsBridge }) {
         this.apiUrl = opts.apiUrl;
         this.ws = opts.ws;
+    }
+
+    /** Instante de reproducción en segundos epoch, o null si no hay sesión. */
+    private replayNowSec(): number | null {
+        const s = useReplayClockStore.getState();
+        if (!s.active) return null;
+        return Math.floor((s.originMs + s.now()) / 1000);
     }
 
     // -- IExternalDatafeed ---------------------------------------------------
@@ -508,7 +524,14 @@ export class TradeulDatafeed {
 
         const limit = Math.min(Math.max(periodParams.countBack || 300, 100), 5000);
         let url = `${this.apiUrl}/api/v1/chart/${encodeURIComponent(symbol)}?interval=${interval}&limit=${limit}`;
-        if (!periodParams.firstDataRequest) {
+        // En reproducción la historia se corta en el instante del reloj: para la
+        // librería, el pasado del replay ES toda la historia que existe. El
+        // backend devuelve las barras completas previas mas un colchon por
+        // delante, que aqui se descarta — el futuro lo destapa el reloj.
+        const replaySec = this.replayNowSec();
+        if (replaySec !== null) {
+            url += `&to=${replaySec}`;
+        } else if (!periodParams.firstDataRequest) {
             url += `&before=${periodParams.to}`;
         }
 
@@ -522,6 +545,18 @@ export class TradeulDatafeed {
                 }
                 // El endpoint devuelve ascendente; garantizarlo por contrato TV.
                 raw.sort((a, b) => a.time - b.time);
+
+                // Colchón fuera: una barra solo entra si TERMINA en o antes del
+                // instante. La que lo contiene se está formando y la construye
+                // subscribeBars con las impresiones que va soltando el reloj.
+                if (replaySec !== null) {
+                    const dur = resolutionToSeconds(resolution);
+                    for (let i = raw.length - 1; i >= 0; i--) {
+                        if (raw[i].time + dur <= replaySec) { raw.length = i + 1; break; }
+                        if (i === 0) raw.length = 0;
+                    }
+                    if (raw.length === 0) { onResult([], { noData: true }); return; }
+                }
 
                 if (periodParams.firstDataRequest) {
                     const newest = raw[raw.length - 1];
@@ -576,6 +611,46 @@ export class TradeulDatafeed {
         };
         this.subs.set(listenerGuid, sub);
 
+        // -- Reproducción -----------------------------------------------------
+        // Se engancha SIEMPRE, no solo si ya hay sesión abierta: la ventana de
+        // Level 2 puede abrirse después de que el gráfico se suscriba, y el
+        // gráfico tiene que seguir al reloj sin depender del orden. Mientras no
+        // haya sesión, el bus no emite nada y esto no cuesta.
+        let rBar: TVBar | null = null;
+        let rDirty = false;
+
+        const offPrint = useReplayClockStore.getState().onPrint(([tRel, px, size]) => {
+            const origin = useReplayClockStore.getState().originMs;
+            const t0 = Math.floor(Math.floor((origin + tRel) / 1000) / intervalSecs) * intervalSecs;
+            if (!rBar || t0 > rBar.time) {
+                // Sellar la que cierra ANTES de abrir la nueva: a velocidad alta
+                // puede cruzarse más de una frontera en el mismo frame y,
+                // emitiendo solo la última, quedarían huecos.
+                if (rBar) onTick({ ...rBar });
+                rBar = { time: t0 * 1000, open: px, high: px, low: px, close: px, volume: size };
+            } else {
+                rBar.high = Math.max(rBar.high, px);
+                rBar.low = Math.min(rBar.low, px);
+                rBar.close = px;
+                rBar.volume = (rBar.volume ?? 0) + size;
+            }
+            rDirty = true;
+        });
+
+        // Conflación: un onTick por frame, no uno por impresión.
+        const offFrame = useReplayClockStore.getState().onFrame(() => {
+            if (rDirty && rBar) { onTick({ ...rBar }); rDirty = false; }
+        });
+
+        // Un salto reinicia la vela y obliga a la librería a repedir la historia.
+        // Sin esto le llegarían ticks hacia atrás, que la corrompen.
+        const offSeek = useReplayClockStore.getState().onSeek(() => {
+            rBar = null; rDirty = false;
+            onResetCacheNeededCallback();
+        });
+
+        this.replaySubs.set(listenerGuid, () => { offPrint(); offFrame(); offSeek(); });
+
         // Refcount GLOBAL (lib/chartStreams): el WS es compartido por toda la
         // app y el servidor no lleva contador por símbolo — un unsubscribe
         // local mataría el stream de las demás celdas/ventanas con el símbolo.
@@ -583,6 +658,8 @@ export class TradeulDatafeed {
     }
 
     unsubscribeBars(listenerGuid: string): void {
+        const offReplay = this.replaySubs.get(listenerGuid);
+        if (offReplay) { this.replaySubs.delete(listenerGuid); offReplay(); }
         const sub = this.subs.get(listenerGuid);
         if (!sub) return;
         this.subs.delete(listenerGuid);
@@ -621,6 +698,11 @@ export class TradeulDatafeed {
     // -- Interno -----------------------------------------------------------------
 
     private handleWsMessage(listenerGuid: string, msg: any): void {
+        // Durante una reproducción el presente se calla: la vela viva la forman
+        // las impresiones del reloj. Colar un tick de ahora sobre un gráfico
+        // parado en el pasado lo dispara al futuro y rompe la sincronía con el
+        // libro y la cinta.
+        if (useReplayClockStore.getState().active) return;
         const sub = this.subs.get(listenerGuid);
         if (!sub || !msg || msg.symbol !== sub.symbol) return;
 

@@ -58,6 +58,19 @@ type FrameSub = (tMs: number) => void;
 /** Suscriptor al tick cuantizado. Recibe el tiempo redondeado en ms. */
 type TickSub = (tQuantMs: number) => void;
 
+/**
+ * Impresión reproducida: `[ms relativos al origen, precio, tamaño]`.
+ *
+ * Es el mismo flujo que alimenta la cinta y el libro. El gráfico forma su vela
+ * viva de aquí y no de otro sitio: si cada ventana construyera la suya por su
+ * cuenta podrían contar historias distintas del mismo instante.
+ */
+export type ReplayPrint = [number, number, number];
+type PrintSub = (p: ReplayPrint) => void;
+
+/** Aviso de salto. Quien tenga estado acumulado debe reconstruirlo. */
+type SeekSub = (tMs: number) => void;
+
 export interface ReplayClockState {
     /** Hay una sesión de reproducción abierta. */
     active: boolean;
@@ -110,6 +123,10 @@ export interface ReplayClockState {
     // --- suscripción ---
     onFrame: (fn: FrameSub) => () => void;
     onTick: (fn: TickSub) => () => void;
+    /** Publica una impresión reproducida a todas las ventanas. */
+    emitPrint: (p: ReplayPrint) => void;
+    onPrint: (fn: PrintSub) => () => void;
+    onSeek: (fn: SeekSub) => () => void;
 }
 
 // ============================================================================
@@ -134,6 +151,8 @@ const METRONOME_MS = 100;
 
 const frameSubs = new Set<FrameSub>();
 const tickSubs = new Set<TickSub>();
+const printSubs = new Set<PrintSub>();
+const seekSubs = new Set<SeekSub>();
 
 let anchorWall = 0;      // performance.now() del último anclaje
 let anchorSim = 0;       // tiempo simulado en ese anclaje
@@ -249,6 +268,8 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
         stopLoop();
         frameSubs.clear();
         tickSubs.clear();
+        printSubs.clear();
+        seekSubs.clear();
         set({ active: false, playing: false, stalled: false, sessionDate: null, originMs: 0, loadedMs: 0, tMs: 0 });
     },
 
@@ -275,6 +296,10 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
         anchor(clamped);
         lastTick = -1;                  // fuerza un tick tras el salto
         set({ tMs: clamped, stalled: false });
+        // Primero el aviso de salto: quien acumule estado (velas, libro, cinta)
+        // tiene que reconstruirlo ANTES de recibir el nuevo instante, o mezclaría
+        // lo viejo con lo nuevo.
+        for (const fn of seekSubs) fn(clamped);
         for (const fn of frameSubs) fn(clamped);
         for (const fn of tickSubs) fn(Math.floor(clamped / QUANTUM_MS) * QUANTUM_MS);
     },
@@ -313,4 +338,7 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
 
     onFrame: (fn) => { frameSubs.add(fn); return () => { frameSubs.delete(fn); }; },
     onTick: (fn) => { tickSubs.add(fn); return () => { tickSubs.delete(fn); }; },
+    emitPrint: (p) => { for (const fn of printSubs) fn(p); },
+    onPrint: (fn) => { printSubs.add(fn); return () => { printSubs.delete(fn); }; },
+    onSeek: (fn) => { seekSubs.add(fn); return () => { seekSubs.delete(fn); }; },
 }));

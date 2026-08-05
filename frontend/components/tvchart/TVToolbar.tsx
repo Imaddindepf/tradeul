@@ -13,6 +13,8 @@ import { useTranslation } from 'react-i18next';
 import { TVLayoutIcon } from './TVLayoutIcon';
 import { TV_ICONS } from './tvIcons';
 import { useTVPopover } from './tvPopovers';
+import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { useReplayClockStore } from '@/stores/useReplayClockStore';
 
 export interface TVToolbarActions {
     exec: (actionId: string) => void;
@@ -177,6 +179,84 @@ function TbDropdown<T>({
     );
 }
 
+/**
+ * Botón de reproducción con su desplegable.
+ *
+ * El alcance (este gráfico / todos) sigue la convención de la barra: es lo que
+ * el usuario espera encontrar ahí. La opción de Level 2 abre la ventana del
+ * libro, que es quien pide el flujo; a partir de ahí gráfico, libro y cinta
+ * comparten reloj y no hace falta sincronizarlos a mano.
+ */
+function ReplayControl({ symbol, lang }: { symbol: string; lang: keyof Bi }) {
+    const [open, setOpen] = useState(false);
+    const rootRef = useRef<HTMLDivElement>(null);
+    // Se reusa el camino del comando L2R: asi la ventana nace con el mismo
+    // tamano, posicion y titulo que si se abriera desde el terminal, y el
+    // restore del workspace la reconoce por su titulo.
+    const { executeTickerCommand } = useCommandExecutor();
+    const active = useReplayClockStore((s) => s.active);
+    const L = (b: Bi) => b[lang];
+
+    useTVPopover(open, () => setOpen(false), (t) => rootRef.current?.contains(t) ?? false);
+
+    const abrirL2 = () => {
+        setOpen(false);
+        if (symbol) executeTickerCommand(symbol, 'l2replay');
+    };
+
+    return (
+        <div ref={rootRef} className="relative">
+            <button
+                title={L(bi('Replay', 'Reproducción'))}
+                onClick={() => setOpen((v) => !v)}
+                className={`flex h-8 items-center gap-0.5 rounded px-1 text-sm hover:bg-black/10 dark:hover:bg-white/10 ${
+                    active ? 'text-primary' : ''
+                }`}
+            >
+                <Icon name="replay" />
+                <Caret />
+            </button>
+            {open && (
+                <div
+                    className="absolute left-0 top-9 z-50 rounded border py-1 shadow-lg"
+                    style={{
+                        background: 'var(--color-bg, #fff)',
+                        borderColor: 'var(--color-border, rgba(128,128,128,0.3))',
+                        minWidth: 190,
+                    }}
+                >
+                    <button
+                        onClick={abrirL2}
+                        disabled={!symbol}
+                        className="block w-full px-3 py-1.5 text-left text-xs font-medium hover:bg-black/10 dark:hover:bg-white/10"
+                    >
+                        {L(bi('Replay with Level 2', 'Reproducción con Level 2'))}
+                    </button>
+                    <div
+                        className="my-1 h-px"
+                        style={{ background: 'var(--color-border, rgba(128,128,128,0.25))' }}
+                    />
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider opacity-50">
+                        {L(bi('Scope', 'Alcance'))}
+                    </div>
+                    {(['single', 'all'] as const).map((k) => (
+                        <button
+                            key={k}
+                            disabled
+                            title={L(bi('Available with Level 2 replay', 'Disponible con la reproducción con Level 2'))}
+                            className="block w-full cursor-default px-3 py-1.5 text-left text-xs opacity-40"
+                        >
+                            {k === 'single'
+                                ? L(bi('This chart', 'Este gráfico'))
+                                : L(bi('All charts', 'Todos los gráficos'))}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 const Sep = () => (
     <div
         className="mx-1 h-5 w-px shrink-0"
@@ -216,6 +296,11 @@ export function TVToolbar({
             <TbButton title={L(bi('Compare Symbol', 'Comparar símbolo'))} onClick={() => actions.exec('compareOrAdd')}>
                 <Icon name="comparePlus" />
             </TbButton>
+
+            {/* Reproducción. El desplegable elige el alcance; con Level 2 abre
+                la ventana del libro, que es la que sirve el flujo y arrastra al
+                gráfico y a la cinta por el reloj compartido. */}
+            <ReplayControl symbol={symbol} lang={lang} />
 
             <Sep />
 

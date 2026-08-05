@@ -453,14 +453,19 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
             }
             e.cursor++;
         }
+        const emit = clock.getState().emitPrint;
         while (e.tapeCursor < p.tape.length && p.tape[e.tapeCursor][0] <= e.clock) {
             const pr = p.tape[e.tapeCursor];
             e.prevPx = e.lastPx; e.lastPx = pr[1];
             e.tape.unshift(pr);
             if (e.tape.length > TAPE_BUFFER) e.tape.pop();
+            // Se publica al reloj compartido: el gráfico forma su vela viva con
+            // ESTAS impresiones, las mismas que ve la cinta. Así no pueden
+            // contar historias distintas del mismo instante.
+            emit([pr[0], pr[1], pr[2]]);
             e.tapeCursor++;
         }
-    }, []);
+    }, [clock]);
 
     // ---- encadenado del siguiente bloque --------------------------------
     const fetchBlock = useCallback(async (
