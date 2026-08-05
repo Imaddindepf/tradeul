@@ -44,6 +44,7 @@ import { Play, Pause, Coins, EyeOff, Settings2 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useWindowState } from '@/contexts/FloatingWindowContext';
 import { useLinkGroupSubscription } from '@/hooks/useLinkGroup';
+import { useReplayClockStore } from '@/stores/useReplayClockStore';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 
 // ============================================================================
@@ -121,14 +122,18 @@ const PALETTES: Record<PaletteKey, Palette> = {
 // ============================================================================
 
 const COMMIT_MS = 50;          // conflación de UI: ≤20 commits/s hacia React
-const MAX_FRAME_DT = 250;      // tope de avance por frame (parones del navegador)
 const FLASH_PX_MS = 450;       // destello de cambio de precio (aclara su banda)
 const FLASH_SZ_MS = 300;       // tinte del texto del size
 const STALE_MS = 8000;         // venue sin cotizar ⇒ fila atenuada
 const TAPE_BUFFER = 250;       // buffer circular del tape visible
 const TAPE_ROW_H = 20;         // fila fija (estándar de ventanas: datos 20px)
 const FIRST_BLOCK_SEC = 30;    // primer bloque corto: primer pintado antes
-const PREFETCH_MS = 90_000;    // mantener >=90 s de datos por delante del reloj
+// Precarga por COLCHÓN DE PARED, no por tiempo de mercado restante. 90 s de
+// mercado dan 90 s reales para pedir a 1×, pero solo 18 s a 5×: un umbral fijo
+// en ms de mercado dispara tarde justo cuando menos margen hay. Se pide cuando
+// el tiempo real que queda baja de lo que tarda una petición, medido.
+const PREFETCH_K = 2.5;        // factor sobre la latencia medida
+const PREFETCH_FLOOR_MS = 8000; // suelo: nunca esperar a tener menos que esto
 const HIST_START = '2018-05-01';
 
 const fmtPx = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(2));
@@ -396,21 +401,17 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
     const eng = useRef<Engine>(freshEngine());
     const [, bump] = useReducer((x: number) => x + 1, 0);
     const lastCommit = useRef(0);
-    const rafId = useRef(0);
-    const lastRaf = useRef(0);
-    const playingRef = useRef(false);
     const genRef = useRef(0);            // invalida fetches al recargar/cerrar
+    const latencyRef = useRef(1500);     // EMA de lo que tarda un bloque
 
-    // El bucle rAF se auto-reprograma, así que capturaría para siempre el
-    // primer cierre. Trampolín + refs: el frame llama SIEMPRE a la versión
-    // más reciente, y la velocidad se lee de un ref (cambiarla en el select
-    // surte efecto en el frame siguiente, no en la próxima carga).
-    const speedRef = useRef(speed);
-    useEffect(() => { speedRef.current = speed; }, [speed]);
-    const tickRef = useRef<(now: number) => void>(() => { });
-    const loop = useCallback((now: number) => tickRef.current(now), []);
-
-    const [playing, setPlaying] = useState(false);
+    // El tiempo NO vive aquí: lo lleva el reloj compartido, para que esta
+    // ventana pueda ir sincronizada con el gráfico y la cinta. Aquí solo se
+    // reacciona a él. El trampolín por ref sigue haciendo falta porque el
+    // suscriptor se registra una vez y capturaría el primer cierre.
+    const clock = useReplayClockStore;
+    const playing = useReplayClockStore((s) => s.playing);
+    const stalled = useReplayClockStore((s) => s.stalled);
+    const onFrameRef = useRef<(t: number) => void>(() => { });
     const [status, setStatus] = useState<{ kind: 'idle' | 'loading' | 'ready' | 'error'; msg: string }>(
         { kind: 'idle', msg: '' });
     const [progress, setProgress] = useState(0);        // 0..1 mientras prepara
@@ -419,10 +420,16 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
     const [showPrefs, setShowPrefs] = useState(false);
 
     const setPlay = useCallback((on: boolean) => {
-        playingRef.current = on;
-        setPlaying(on);
-        if (on) { lastRaf.current = performance.now(); rafId.current = requestAnimationFrame(loop); }
-    }, [loop]);
+        if (on) clock.getState().play(); else clock.getState().pause();
+    }, [clock]);
+
+    // Un único suscriptor al reloj compartido: aplica los frames pendientes y
+    // deja que React repinte conflado. Se registra una vez y llama siempre a
+    // la versión más reciente del handler.
+    useEffect(() => {
+        const off = clock.getState().onFrame((t) => onFrameRef.current(t));
+        return off;
+    }, [clock]);
 
     // ---- avance del reloj + aplicación de frames (fuera de React) -------
     const advance = useCallback(() => {
@@ -493,15 +500,19 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
             const nextUtc = new Date(e.startUtcMs + e.durationMs);
             const parts = etDateFmt.formatToParts(nextUtc)
                 .reduce<Record<string, string>>((a, x) => (a[x.type] = x.value, a), {});
+            const t0 = performance.now();
             const p = await fetchBlock(
                 `${parts.year}-${parts.month}-${parts.day}`,
                 `${parts.hour}:${parts.minute}:${parts.second}`, gen, minutes);
+            // Media móvil de la latencia real: es la que dimensiona el colchón.
+            latencyRef.current = latencyRef.current * 0.7 + (performance.now() - t0) * 0.3;
             if (!p || gen !== genRef.current) return;
             if (!p.frames.length && !p.tape.length) { e.exhausted = true; return; }
             const off = e.durationMs;
             for (const f of p.frames) e.payload.frames.push([f[0] + off, f[1]]);
             for (const tp of p.tape) e.payload.tape.push([tp[0] + off, tp[1], tp[2], tp[3]]);
             e.durationMs += p.durationMs;
+            clock.getState().setLoaded(e.durationMs);   // reanuda si esperaba
         } catch {
             e.exhausted = true;
         } finally {
@@ -510,24 +521,24 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
     }, [fetchBlock, minutes]);
 
     // ---- bucle rAF (cuerpo reasignado en cada render: cierres frescos) --
-    tickRef.current = (now: number) => {
-        if (!playingRef.current) return;
+    onFrameRef.current = (t: number) => {
         const e2 = eng.current;
-        const dt = Math.min(MAX_FRAME_DT, now - lastRaf.current);
-        lastRaf.current = now;
-        e2.clock += dt * speedRef.current;
-        if (e2.clock >= e2.durationMs) {
-            e2.clock = e2.durationMs;
-            if (!e2.exhausted) void extend();
-        } else if (e2.durationMs - e2.clock < PREFETCH_MS) {
-            void extend();          // pipeline: rellenar por delante sin parar
-        }
+        e2.clock = t;               // el tiempo lo dicta el reloj compartido
         advance();
+
+        // Se pide cuando el colchón de PARED baja del que cuesta una petición.
+        // Así, a 10× dispara diez veces antes que a 1× sin tocar constantes, y
+        // si la red se degrada la latencia medida sube y pide todavía antes.
+        if (!e2.exhausted) {
+            const umbral = Math.max(PREFETCH_FLOOR_MS, latencyRef.current * PREFETCH_K);
+            if (clock.getState().bufferWallMs() < umbral) void extend();
+        }
+
+        const now = performance.now();
         if (now - lastCommit.current >= COMMIT_MS) {
             lastCommit.current = now;
             bump();
         }
-        rafId.current = requestAnimationFrame(loop);
     };
 
     // ---- carga inicial --------------------------------------------------
@@ -550,6 +561,14 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
             for (const [vi, bp, bs, ap, asz] of p.initial) {
                 e.book[vi] = { bp, bs, ap, as: asz, tBid: -1e12, tAsk: -1e12, dirBid: null, dirAsk: null };
             }
+            // Abre la sesión de reproducción compartida. A partir de aquí el
+            // tiempo lo lleva el reloj, no esta ventana.
+            clock.getState().open({
+                sessionDate: dateStr,
+                originMs: e.startUtcMs,
+                loadedMs: e.durationMs,
+            });
+            clock.getState().setSpeed(speed);   // la guardada en la ventana
             setProgress(1);
             setStatus({ kind: 'ready', msg: '' });
             bump();
@@ -583,10 +602,9 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
         return () => {
             document.removeEventListener('visibilitychange', onVis);
             genRef.current++;                       // aborta sondeos en vuelo
-            playingRef.current = false;
-            cancelAnimationFrame(rafId.current);
+            clock.getState().close();               // para el reloj compartido
         };
-    }, []);
+    }, [clock]);
 
     // fin de semana: saltar al viernes anterior
     const onDateChange = useCallback((v: string) => {
@@ -870,13 +888,26 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
                             }
                             e.cursor = 0; e.tapeCursor = 0; e.tape = []; e.lastPx = null; e.prevPx = null;
                         }
-                        e.clock = target;
+                        // El salto lo publica el reloj compartido, que reancla
+                        // y avisa a todas las ventanas: el gráfico y la cinta
+                        // saltan con el libro, no cada uno por su cuenta.
+                        clock.getState().seek(target);
                         advance();
                         bump();
                     }}
                     disabled={!e.payload}
                     className="flex-1" style={{ accentColor: 'var(--color-primary)' }} />
-                <select value={speed} onChange={ev => updateState({ speed: Number(ev.target.value) })} className={sel}>
+                {stalled && (
+                    <span className="text-[9px] font-semibold tracking-wider text-warning animate-pulse">
+                        {t('l2replay.buffering')}
+                    </span>
+                )}
+                <select value={speed}
+                    onChange={ev => {
+                        const v = Number(ev.target.value);
+                        updateState({ speed: v });
+                        clock.getState().setSpeed(v);
+                    }} className={sel}>
                     {[0.5, 1, 2, 5, 10, 30].map(s => <option key={s} value={s}>{s}×</option>)}
                 </select>
             </div>
