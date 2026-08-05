@@ -300,40 +300,20 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
     // historia": el datafeed empieza (o deja) de cortar en el reloj. Hay que
     // obligar a la librería a repedir, o el gráfico se queda con las barras de
     // antes y no pasa nada visible — que era justo el sintoma.
-    const cutLineRef = useRef<unknown>(null);
     useEffect(() => {
-        let prev = useReplayClockStore.getState().active;
+        // Se vigila el INSTANTE, no solo si hay sesión. Vigilando únicamente
+        // `active` el gráfico se recortaba en el primer clic y se quedaba
+        // sordo a los siguientes: como la sesión ya estaba abierta, señalar
+        // otra vela no cambiaba nada y las velas futuras seguían ahí.
+        let prev = `${useReplayClockStore.getState().active}|${useReplayClockStore.getState().originMs}`;
         return useReplayClockStore.subscribe((s) => {
-            if (s.active === prev) return;
-            prev = s.active;
+            const ahora = `${s.active}|${s.originMs}`;
+            if (ahora === prev) return;
+            prev = ahora;
             const w = widgetRef.current;
             if (!w || !readyRef.current) return;
             try {
                 w.activeChart().resetData();
-                // Marca del corte: UNA línea en el instante, con la fecha. Es
-                // el "hasta aquí" del replay, y se queda mientras dure la
-                // sesión. (La del cursor la pinta la cruz sola; esta es la que
-                // persiste, como el ✂ de la referencia.)
-                if (cutLineRef.current != null) {
-                    try { w.activeChart().removeEntity(cutLineRef.current as never); } catch { /* ya no está */ }
-                    cutLineRef.current = null;
-                }
-                if (s.active) {
-                    try {
-                        cutLineRef.current = w.activeChart().createShape(
-                            { time: Math.floor(s.originMs / 1000) },
-                            {
-                                shape: 'vertical_line', lock: true, disableSelection: true,
-                                disableSave: true, disableUndo: true,
-                                text: '\u2702',
-                                overrides: {
-                                    linecolor: '#2962FF', linewidth: 2, linestyle: 0,
-                                    showTime: true, textcolor: '#FFFFFF', fontsize: 12,
-                                },
-                            } as never,
-                        );
-                    } catch { /* la CL aún no acepta formas */ }
-                }
                 if (s.active) {
                     const nowSec = (s.originMs + s.now()) / 1000;
                     const span = resolutionSpanSecs(w.activeChart().resolution()) * 120;
