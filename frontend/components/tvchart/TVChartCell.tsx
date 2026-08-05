@@ -54,11 +54,26 @@ function resolutionSpanSecs(res: string): number {
     return Number.isFinite(n) && n > 0 ? n * 60 : 300;
 }
 
-const pickLabelFmt = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'America/New_York',
-    weekday: 'short', day: '2-digit', month: 'short',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-});
+/**
+ * Barre las líneas verticales sueltas.
+ *
+ * Una versión del selector de vela dibujaba una forma por cada movimiento del
+ * cursor y no lograba borrarlas: llegaban a cientos y tapaban el gráfico. Ya no
+ * se dibuja nada (la cruz de la librería basta), pero esto limpia las que
+ * quedaran guardadas en un diseño.
+ */
+function clearPickLeftovers(w: any, ready: boolean): number {
+    if (!w || !ready) return 0;
+    let n = 0;
+    try {
+        const chart = w.activeChart();
+        for (const info of chart.getAllShapes() ?? []) {
+            if (info?.name !== 'vertical_line') continue;
+            try { chart.removeEntity(info.id); n++; } catch { /* ya no está */ }
+        }
+    } catch { /* widget no listo */ }
+    return n;
+}
 
 declare global {
     interface Window {
@@ -135,6 +150,8 @@ export interface TVChartCellApi {
      * Devuelve una función para cancelar el modo.
      */
     pickBar: (onPick: (timeSec: number) => void) => () => void;
+    /** Limpieza de las líneas que dejó la versión rota del selector. */
+    clearPickLeftovers: () => number;
     /** Lista de estudios disponibles (nativos + custom) para el diálogo único. */
     listStudies: () => string[];
     /** Añade un indicador por nombre al chart de la celda. */
@@ -387,58 +404,24 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
         pickBar: (onPick: (timeSec: number) => void) => {
             const w = widgetRef.current;
             if (!w || !readyRef.current) return () => { };
-            // `mouse_down` solo trae píxeles; el instante lo da la cruz. Se
-            // combinan: la cruz mantiene la última vela apuntada y el clic la
-            // confirma. Y mientras, se pinta una línea vertical con la fecha de
-            // esa vela: sin ella no se sabe qué se está a punto de elegir.
+            // NO se dibuja nada: la cruz de la propia libreria ya pinta la
+            // linea vertical y la etiqueta de tiempo en el eje. Crear formas
+            // por cada movimiento del cursor las acumulaba a cientos.
             let hovered: number | null = null;
-            let markId: unknown = null;
             let sub: { unsubscribe: (obj: unknown, cb: unknown) => void } | null = null;
-
-            const borrarMarca = () => {
-                if (markId == null) return;
-                try { w.activeChart().removeEntity(markId as never); } catch { /* ya no está */ }
-                markId = null;
-            };
-
             const onCross = (p: { time?: number }) => {
-                if (typeof p?.time !== 'number' || p.time === hovered) return;
-                hovered = p.time;
-                borrarMarca();
-                try {
-                    markId = w.activeChart().createShape(
-                        { time: p.time },
-                        {
-                            shape: 'vertical_line',
-                            lock: true,
-                            disableSelection: true,
-                            disableSave: true,
-                            disableUndo: true,
-                            text: pickLabelFmt.format(new Date(p.time * 1000)),
-                            overrides: {
-                                linecolor: '#2962FF',
-                                linewidth: 2,
-                                showTime: true,
-                                textcolor: '#FFFFFF',
-                            },
-                        } as never,
-                    );
-                } catch { /* la CL aún no acepta formas */ }
+                if (typeof p?.time === 'number') hovered = p.time;
             };
-
             const onDown = () => {
                 if (hovered == null) return;
                 const t = hovered;
                 cancel();
                 onPick(t);
             };
-
             const cancel = () => {
-                borrarMarca();
                 try { sub?.unsubscribe(null, onCross); } catch { /* ya suelto */ }
                 try { w.unsubscribe('mouse_down', onDown); } catch { /* ya suelto */ }
             };
-
             try {
                 sub = w.activeChart().crossHairMoved() as typeof sub;
                 (sub as unknown as { subscribe: (o: unknown, c: unknown) => void })
@@ -450,6 +433,7 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
             }
             return cancel;
         },
+        clearPickLeftovers: () => clearPickLeftovers(widgetRef.current, readyRef.current),
         listStudies: () => {
             try {
                 return widgetRef.current?.getStudiesList() ?? [];
@@ -705,6 +689,7 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                 widget.onChartReady(() => {
                     if (disposed) return;
                     readyRef.current = true;
+                    clearPickLeftovers(widget, true);
                     attemptsRef.current = 0;
                     stopWatchdog();
                     setFailed(false);
