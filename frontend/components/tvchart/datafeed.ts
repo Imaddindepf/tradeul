@@ -529,11 +529,12 @@ export class TradeulDatafeed {
         // backend devuelve las barras completas previas mas un colchon por
         // delante, que aqui se descarta — el futuro lo destapa el reloj.
         const replaySec = this.replayNowSec();
-        if (replaySec !== null) {
-            url += `&to=${replaySec}`;
-        } else if (!periodParams.firstDataRequest) {
-            url += `&before=${periodParams.to}`;
-        }
+        if (replaySec !== null) url += `&to=${replaySec}`;
+        // El cursor de paginación se envía IGUAL en reproducción. Sin él, cada
+        // petición de historia antigua devolvía la misma ventana y la librería
+        // volvía a pedir sin avanzar nunca: 32 peticiones seguidas por un solo
+        // corte. El recorte lo sigue haciendo `to`; esto solo dice por dónde va.
+        if (!periodParams.firstDataRequest) url += `&before=${periodParams.to}`;
 
         fetch(url)
             .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`chart ${r.status}`))))

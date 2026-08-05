@@ -79,6 +79,8 @@ type SeekSub = (tMs: number) => void;
  */
 export interface ReplayRequest {
     symbol: string;
+    /** Epoch ms de la vela señalada: es el instante cero de la reproducción. */
+    originMs: number;
     /** Día de la vela señalada, ISO `YYYY-MM-DD` en hora de Nueva York. */
     date: string;
     /** Hora de la vela señalada, `HH:MM:SS` en hora de Nueva York. */
@@ -282,9 +284,25 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
     tMs: 0,
 
     requestSession: (r) => {
-        // El nonce distingue dos clics sobre la misma vela: sin él, volver a
-        // señalar el mismo instante no dispararia nada.
-        set({ request: { ...r, nonce: Date.now() } });
+        // El corte es INMEDIATO. La sesión se abre aquí, al señalar, no cuando
+        // el libro termina de cargar: el gráfico debe recortarse en el acto y
+        // el libro incorporarse cuando llegue. Esperar a los datos para mover
+        // el gráfico deja al usuario mirando un panel que no reacciona.
+        anchorSim = 0;
+        anchorWall = performance.now();
+        lastTick = -1;
+        set({
+            request: { ...r, nonce: Date.now() },
+            active: true,
+            playing: false,
+            // Sin datos todavía: el reloj nace detenido. Puede cortar, no correr.
+            stalled: true,
+            sessionDate: r.date,
+            originMs: r.originMs,
+            loadedMs: 0,
+            tMs: 0,
+        });
+        startLoop();
     },
 
     open: ({ sessionDate, originMs, loadedMs = 0 }) => {

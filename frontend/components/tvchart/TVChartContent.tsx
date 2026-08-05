@@ -797,6 +797,12 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
                 // al reloj compartido, que es quien lo reparte al libro y a la
                 // cinta. Se cancela una selección previa si la hubiera.
                 cancelPickRef.current?.();
+                // Cierre del último día hábil: el libro histórico llega a T+1,
+                // así que más allá no hay nada que reproducir.
+                const lim = new Date();
+                lim.setDate(lim.getDate() - 1);
+                while (lim.getDay() === 0 || lim.getDay() === 6) lim.setDate(lim.getDate() - 1);
+                lim.setHours(23, 59, 0, 0);
                 cancelPickRef.current = active()?.pickBar((timeSec) => {
                     cancelPickRef.current = null;
                     const d = new Date(timeSec * 1000);
@@ -807,8 +813,9 @@ export function TVChartContent({ initialSymbol }: TVChartContentProps) {
                         symbol: String(cell?.symbol ?? '').toUpperCase(),
                         date: `${p.year}-${p.month}-${p.day}`,
                         time: `${p.hour}:${p.minute}:${p.second}`,
+                        originMs: timeSec * 1000,
                     });
-                }) ?? null;
+                }, Math.floor(lim.getTime() / 1000)) ?? null;
             },
             setInterval: (resolution) => {
                 active()?.setInterval(resolution);

@@ -552,6 +552,15 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
         setPlay(false);
         setCost(null);
         setProgress(0);
+        // El libro histórico llega con un día de retraso: la sesión en curso no
+        // existe todavía. Sin esta guarda, señalar una vela de hoy en el gráfico
+        // —que es lo natural, porque abre mostrando lo más reciente— acababa en
+        // un error genérico que no explicaba nada.
+        const tope = lastTradingDay();
+        if (dateStr > tope) {
+            setStatus({ kind: 'error', msg: t('l2replay.noBookYet', { date: tope }) });
+            return;
+        }
         setStatus({ kind: 'loading', msg: t('l2replay.preparing') });
         try {
             const p = await fetchBlock(dateStr, timeStr, gen, 1, FIRST_BLOCK_SEC);
@@ -566,13 +575,16 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
             for (const [vi, bp, bs, ap, asz] of p.initial) {
                 e.book[vi] = { bp, bs, ap, as: asz, tBid: -1e12, tAsk: -1e12, dirBid: null, dirAsk: null };
             }
-            // Abre la sesión de reproducción compartida. A partir de aquí el
-            // tiempo lo lleva el reloj, no esta ventana.
-            clock.getState().open({
-                sessionDate: dateStr,
-                originMs: e.startUtcMs,
-                loadedMs: e.durationMs,
-            });
+            // Si el gráfico ya abrió la sesión al señalar la vela, aquí SOLO se
+            // amplía el horizonte: reabrirla movería el instante cero y el
+            // gráfico daría un salto. Solo se abre si nadie lo hizo antes (la
+            // ventana usada por su cuenta, sin pasar por el gráfico).
+            const cs = clock.getState();
+            if (cs.active && Math.abs(cs.originMs - e.startUtcMs) < 60_000) {
+                cs.setLoaded(e.durationMs);
+            } else {
+                cs.open({ sessionDate: dateStr, originMs: e.startUtcMs, loadedMs: e.durationMs });
+            }
             clock.getState().setSpeed(speed);   // la guardada en la ventana
             setProgress(1);
             setStatus({ kind: 'ready', msg: '' });
@@ -584,7 +596,14 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
             // El detalle técnico va a la consola; al usuario, una frase útil.
             console.warn('[L2 Replay]', err);
             setProgress(0);
-            setStatus({ kind: 'error', msg: t('l2replay.loadError') });
+            // "bloque incompleto" con TODAS las plazas = no hay libro ese día.
+            // Decirlo, en vez de mandar a reintentar algo que nunca funcionará.
+            const txt = String((err as Error)?.message ?? '');
+            const sinLibro = /bloque incompleto/i.test(txt) && txt.split(',').length >= 10;
+            setStatus({
+                kind: 'error',
+                msg: sinLibro ? t('l2replay.noBookDay') : t('l2replay.loadError'),
+            });
         }
     }, [dateStr, timeStr, fetchBlock, extend, setPlay, t, clock]);
 

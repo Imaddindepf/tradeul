@@ -1625,6 +1625,8 @@
     "loadError": "no se pudo cargar esa ventana, inténtalo de nuevo",
     "prefs": "Preferencias de la ventana",
     "palette": "Paleta",
-    "depthHint": "la profundidad va en la luminosidad: el toque es la banda más clara"
+    "depthHint": "la profundidad va en la luminosidad: el toque es la banda más clara",
+    "noBookYet": "El libro histórico llega hasta el {{date}}. La sesión de hoy aún no está disponible.",
+    "noBookDay": "No hay libro histórico para ese día. Prueba con otra fecha."
   }
 }

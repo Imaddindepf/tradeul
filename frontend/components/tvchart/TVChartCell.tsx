@@ -149,7 +149,11 @@ export interface TVChartCellApi {
      * el gráfico, que es donde se ve el contexto y se decide dónde ir.
      * Devuelve una función para cancelar el modo.
      */
-    pickBar: (onPick: (timeSec: number) => void) => () => void;
+    /**
+     * @param maxTimeSec  Último instante con libro disponible: se marca en el
+     *                    gráfico para no señalar donde no hay datos.
+     */
+    pickBar: (onPick: (timeSec: number) => void, maxTimeSec?: number) => () => void;
     /** Limpieza de las líneas que dejó la versión rota del selector. */
     clearPickLeftovers: () => number;
     /** Lista de estudios disponibles (nativos + custom) para el diálogo único. */
@@ -296,6 +300,7 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
     // historia": el datafeed empieza (o deja) de cortar en el reloj. Hay que
     // obligar a la librería a repedir, o el gráfico se queda con las barras de
     // antes y no pasa nada visible — que era justo el sintoma.
+    const cutLineRef = useRef<unknown>(null);
     useEffect(() => {
         let prev = useReplayClockStore.getState().active;
         return useReplayClockStore.subscribe((s) => {
@@ -305,8 +310,30 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
             if (!w || !readyRef.current) return;
             try {
                 w.activeChart().resetData();
-                // El viewport de la CL apunta al presente; al entrar en
-                // reproducción las velas viven en el pasado y se veria vacio.
+                // Marca del corte: UNA línea en el instante, con la fecha. Es
+                // el "hasta aquí" del replay, y se queda mientras dure la
+                // sesión. (La del cursor la pinta la cruz sola; esta es la que
+                // persiste, como el ✂ de la referencia.)
+                if (cutLineRef.current != null) {
+                    try { w.activeChart().removeEntity(cutLineRef.current as never); } catch { /* ya no está */ }
+                    cutLineRef.current = null;
+                }
+                if (s.active) {
+                    try {
+                        cutLineRef.current = w.activeChart().createShape(
+                            { time: Math.floor(s.originMs / 1000) },
+                            {
+                                shape: 'vertical_line', lock: true, disableSelection: true,
+                                disableSave: true, disableUndo: true,
+                                text: '\u2702',
+                                overrides: {
+                                    linecolor: '#2962FF', linewidth: 2, linestyle: 0,
+                                    showTime: true, textcolor: '#FFFFFF', fontsize: 12,
+                                },
+                            } as never,
+                        );
+                    } catch { /* la CL aún no acepta formas */ }
+                }
                 if (s.active) {
                     const nowSec = (s.originMs + s.now()) / 1000;
                     const span = resolutionSpanSecs(w.activeChart().resolution()) * 120;
@@ -401,9 +428,25 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                 widgetRef.current?.activeChart().zoomOut();
             } catch { /* no listo */ }
         },
-        pickBar: (onPick: (timeSec: number) => void) => {
+        pickBar: (onPick: (timeSec: number) => void, maxTimeSec?: number) => {
             const w = widgetRef.current;
             if (!w || !readyRef.current) return () => { };
+            // Marca de "hasta aquí hay libro": una sola línea fija, no una por
+            // movimiento del cursor. Enseña el limite ANTES de que el usuario
+            // señale mas alla y se coma un error.
+            let limite: unknown = null;
+            if (maxTimeSec) {
+                try {
+                    limite = w.activeChart().createShape(
+                        { time: maxTimeSec },
+                        {
+                            shape: 'vertical_line', lock: true, disableSelection: true,
+                            disableSave: true, disableUndo: true,
+                            overrides: { linecolor: '#e5a50a', linewidth: 1, linestyle: 1, showTime: false },
+                        } as never,
+                    );
+                } catch { /* la CL no acepta formas todavía */ }
+            }
             // NO se dibuja nada: la cruz de la propia libreria ya pinta la
             // linea vertical y la etiqueta de tiempo en el eje. Crear formas
             // por cada movimiento del cursor las acumulaba a cientos.
@@ -419,6 +462,10 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                 onPick(t);
             };
             const cancel = () => {
+                if (limite != null) {
+                    try { w.activeChart().removeEntity(limite as never); } catch { /* ya no está */ }
+                    limite = null;
+                }
                 try { sub?.unsubscribe(null, onCross); } catch { /* ya suelto */ }
                 try { w.unsubscribe('mouse_down', onDown); } catch { /* ya suelto */ }
             };

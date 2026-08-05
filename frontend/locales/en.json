@@ -1625,6 +1625,8 @@
     "loadError": "couldn't load that window, please try again",
     "prefs": "Window preferences",
     "palette": "Palette",
-    "depthHint": "depth is encoded in lightness: the touch is the brightest band"
+    "depthHint": "depth is encoded in lightness: the touch is the brightest band",
+    "noBookYet": "Historical book is available through {{date}}. Today's session isn't ready yet.",
+    "noBookDay": "No historical book for that day. Try another date."
   }
 }

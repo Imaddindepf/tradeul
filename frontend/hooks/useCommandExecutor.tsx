@@ -73,7 +73,7 @@ export interface WindowRect {
  */
 export function useCommandExecutor() {
     const { t } = useTranslation();
-    const { openWindow, closeWindow, getLastTicker } = useFloatingWindowActions();
+    const { openWindow, closeWindow, getLastTicker, updateWindow, bringToFront } = useFloatingWindowActions();
     const windows = useFloatingWindowsList();
 
     // Obtener categorías del scanner con traducciones
@@ -927,7 +927,7 @@ export function useCommandExecutor() {
 
         console.warn(`Unknown command: ${commandId}`);
         return null;
-    }, [openWindow, openScannerTable, getScannerCategory, openEventTable, getEventCategory, t, windows, getLastTicker]);
+    }, [openWindow, updateWindow, bringToFront, openScannerTable, getScannerCategory, openEventTable, getEventCategory, t, windows, getLastTicker]);
 
     /**
      * Ejecutar un comando con ticker específico
@@ -985,7 +985,20 @@ export function useCommandExecutor() {
                 });
                 break;
 
-            case 'l2replay':
+            case 'l2replay': {
+                // SOLO UNA ventana de Level 2 por escritorio. Es una sesión de
+                // reproducción, no un panel más: dos a la vez competirían por
+                // el mismo reloj compartido. Si ya hay una, se le cambia el
+                // símbolo y se trae al frente en vez de abrir otra.
+                const abierta = windows.find(w => w.title?.startsWith('L2 Replay'));
+                if (abierta) {
+                    updateWindow(abierta.id, {
+                        title: `L2 Replay: ${normalizedTicker}`,
+                        content: <L2ReplayContent initialSymbol={normalizedTicker} />,
+                    } as never);
+                    bringToFront(abierta.id);
+                    break;
+                }
                 openWindow({
                     title: `L2 Replay: ${normalizedTicker}`,
                     content: <L2ReplayContent initialSymbol={normalizedTicker} />,
@@ -997,6 +1010,7 @@ export function useCommandExecutor() {
                     minHeight: 460,
                 });
                 break;
+            }
 
             case 'tvchart': {
                 const linkGroup = pickActiveLinkGroup(windows);
