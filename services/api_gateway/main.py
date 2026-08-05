@@ -3758,6 +3758,11 @@ async def get_insider_clusters(
 # - Daily: FMP API (10+ años)
 #
 
+# Barras que se envian POR DELANTE del instante de replay. Son el colchon que
+# permite avanzar sin una peticion por paso; el cliente no las pinta hasta que
+# su reloj llega a ellas.
+REPLAY_LOOKAHEAD_BARS = 300
+
 CHART_INTERVALS = {
     "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 30, "bars_per_page": 1500},
     "2min": {"polygon_timespan": "minute", "polygon_multiplier": 2, "cache_ttl": 60, "bars_per_page": 2000},
@@ -3784,7 +3789,9 @@ async def fetch_polygon_chunk(
     timespan: str,
     to_date: str,
     limit: int = 500,
-    before_timestamp: Optional[int] = None
+    before_timestamp: Optional[int] = None,
+    to_timestamp: Optional[int] = None,
+    lookahead: int = 0
 ) -> tuple[List[dict], Optional[int]]:
     """
     Fetch chart data from Polygon - optimized for speed.
@@ -3871,9 +3878,26 @@ async def fetch_polygon_chunk(
             "volume": int(bar["v"])
         })
     
-    # Take only the last 'limit' bars (most recent of the filtered set) if we got more
     full_count = len(all_bars)
-    if len(all_bars) > limit:
+    if to_timestamp is not None:
+        # Replay: la ventana se ancla en el INSTANTE pedido, no en el cierre de
+        # la sesion. Sin esto el recorte de abajo se queda con la cola del dia y
+        # el grafico nace SIN pasado: medido, 0 barras previas incluso con
+        # limit=500 (devolvia 11:30-19:59 para un replay que arranca a las 9:35).
+        # Se devuelven las `limit` barras previas al instante mas un colchon
+        # posterior, que es el que permite avanzar sin pedir en cada paso.
+        # Una barra cubre [time, time+duracion). Solo esta COMPLETA si termina
+        # en o antes del instante: la que lo contiene se esta formando todavia,
+        # y su cierre seria informacion del futuro. Medido: con el corte por
+        # `time` la barra de 09:35 (que llega hasta 09:35:59) entraba como
+        # pasado y cerraba 12 centimos por delante del ultimo precio real.
+        _bar_s = {"minute": 60, "hour": 3600, "day": 86400,
+                  "week": 604800, "month": 2592000, "year": 31536000}
+        dur = _bar_s.get(timespan, 60) * max(1, multiplier)
+        past = [b for b in all_bars if b["time"] + dur <= to_timestamp]
+        ahead = [b for b in all_bars if b["time"] + dur > to_timestamp]
+        all_bars = past[-limit:] + (ahead[:lookahead] if lookahead > 0 else [])
+    elif len(all_bars) > limit:
         all_bars = all_bars[-limit:]
     
     # Determine if there's more data available (for lazy loading).
@@ -4788,7 +4812,9 @@ async def get_chart_data(
                 config["polygon_timespan"],
                 to_date,
                 bars_limit,
-                before_timestamp=before
+                before_timestamp=before,
+                to_timestamp=to,
+                lookahead=REPLAY_LOOKAHEAD_BARS if to else 0
             )
             # No chain in play: trim any bars predating the date this symbol's
             # current issuer took it. Harmless for normal tickers; removes a
@@ -4813,10 +4839,10 @@ async def get_chart_data(
 
         if after and chart_data:
             chart_data = [b for b in chart_data if b["time"] > after]
-        # Note: we intentionally do NOT filter chart_data by `to` here.
-        # The `to` param sets the Polygon to_date so data is centred around
-        # that date, but the frontend needs bars AFTER the replay point so
-        # the replay can advance.  Positioning is handled client-side.
+        # El recorte por `to` NO se hace aqui: lo hace fetch_polygon_chunk, que
+        # ancla la ventana en el instante y devuelve las barras previas mas un
+        # colchon posterior (REPLAY_LOOKAHEAD_BARS). Antes no se anclaba en
+        # ningun sitio y el replay recibia la cola de la sesion: cero pasado.
         
         has_more = oldest_time is not None
         if has_more_override is not None:
