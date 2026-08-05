@@ -60,6 +60,7 @@ import { UserScanTableContent } from '@/components/scanner/UserScanTableContent'
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { BugReportsAdminContent } from '@/components/dashboard-toolbar/BugReportsAdminContent';
 import { TimeAndSalesContent } from '@/components/tape/TimeAndSalesContent';
+import { L2ReplayContent } from '@/components/l2replay';
 import { TVChartContent } from '@/components/tvchart';
 import { FuturesMonitorContent } from '@/components/markets/FuturesMonitorContent';
 import { ForexMonitorContent } from '@/components/markets/ForexMonitorContent';
@@ -196,6 +197,8 @@ export default function ScannerPage() {
     if (title === 'Openul — Breaking News') return <OpenULContent />;
     if (title === 'Bug Reports Admin') return <BugReportsAdminContent />;
     if (title === 'Time & Sales') return <TimeAndSalesContent />;
+    if (title === 'L2 Replay') return <L2ReplayContent />;
+    if (title.startsWith('L2 Replay: ')) return <L2ReplayContent initialSymbol={title.replace('L2 Replay: ', '')} />;
     if (title === 'TradingView') return <TVChartContent />;
     if (title === 'Futures' || title === 'Futuros') return <FuturesMonitorContent />;
     if (title === 'Forex') return <ForexMonitorContent />;

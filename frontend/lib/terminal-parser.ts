@@ -97,6 +97,13 @@ export const TICKER_COMMANDS = {
         descriptionKey: 'terminalCommands.tickerCommands.TAS.description',
         shortcut: null
     },
+    L2R: {
+        id: 'l2replay',
+        label: 'L2R',
+        name: 'L2 Replay',
+        descriptionKey: 'terminalCommands.tickerCommands.L2R.description',
+        shortcut: null
+    },
     TC: {
         id: 'tvchart',
         label: 'TC',
@@ -176,6 +183,13 @@ export const GLOBAL_COMMANDS = {
         label: 'TAS',
         name: 'Time & Sales',
         descriptionKey: 'terminalCommands.globalCommands.TAS.description',
+        shortcut: null
+    },
+    L2R: {
+        id: 'l2r',
+        label: 'L2R',
+        name: 'L2 Replay',
+        descriptionKey: 'terminalCommands.globalCommands.L2R.description',
         shortcut: null
     },
     TC: {

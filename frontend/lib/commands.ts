@@ -58,6 +58,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'news', label: 'N', description: 'commands.news.description', icon: Newspaper, shortcut: 'Ctrl+N' },
   { id: 'top', label: 'TOP', description: 'commands.top.description', icon: Radio, isNew: true },
   { id: 'fut', label: 'FUT', description: 'commands.fut.description', icon: TrendingUp, isNew: true },
+  { id: 'l2r', label: 'L2R', description: 'commands.l2r.description', icon: Rows3, isNew: true },
   { id: 'fx', label: 'FX', description: 'commands.fx.description', icon: Globe, isNew: true },
   { id: 'ins', label: 'INS', description: 'commands.ins.description', icon: FileText, isNew: true },
   { id: 'alerts', label: 'ALERTS', description: 'commands.alerts.description', icon: Zap },

@@ -603,6 +603,8 @@ services:
         condition: service_healthy
       financials:
         condition: service_started
+    environment:
+      - L2REPLAY_CACHE_DIR=/data/l2replay_cache
     restart: unless-stopped
     networks:
       - tradeul_network
@@ -610,6 +612,7 @@ services:
       - "127.0.0.1:8000:8000" # Solo accesible via Caddy
     volumes:
       - ./data/bug_reports:/data/bug_reports # Persist bug report screenshots across container recreation
+      - ./data/l2replay_cache:/data/l2replay_cache # Cache Databento L2 Replay (las descargas SE PAGAN: persistir entre rebuilds)
     deploy:
       resources:
         limits:

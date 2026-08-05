@@ -338,6 +338,10 @@
     "tvc": {
       "name": "Tradeul Chart",
       "description": "Gráfico avanzado: +100 indicadores, herramientas de dibujo, datos en vivo"
+    },
+    "l2r": {
+      "name": "L2 Replay",
+      "description": "Level 2 Replay — libro por venue histórico"
     }
   },
   "scanner": {
@@ -769,6 +773,9 @@
       },
       "TC": {
         "description": "Gráfico avanzado del ticker"
+      },
+      "L2R": {
+        "description": "Replay histórico de Level 2 del ticker"
       }
     },
     "globalCommands": {
@@ -897,6 +904,9 @@
       },
       "TC": {
         "description": "Gráfico avanzado — +100 indicadores y herramientas de dibujo"
+      },
+      "L2R": {
+        "description": "Replay histórico de Level 2 por venue"
       }
     }
   },
@@ -1588,5 +1598,33 @@
       "entries_truncated": "Disparos truncados: afina los filtros",
       "short_borrow_ignored": "Cortos sin coste ni disponibilidad de borrow"
     }
+  },
+  "l2replay": {
+    "symbol": "Símbolo",
+    "load": "Cargar",
+    "costTip": "Ver coste estimado",
+    "idle": "en espera",
+    "starting": "iniciando…",
+    "ready": "listo",
+    "weekend": "Fin de semana: mercado cerrado, movido al viernes",
+    "tick": "Tick a tick",
+    "sec1": "1 seg (económico)",
+    "palNeutral": "Neutra",
+    "palSafe": "Azul / Ámbar",
+    "palClassic": "Verde / Rojo",
+    "spread": "Spread",
+    "venuesLive": "Venues vivos",
+    "hiddenPaused": "pausado en segundo plano",
+    "venue": "Venue",
+    "size": "Size",
+    "tape": "Time & Sales",
+    "noData": "Carga una ventana para empezar",
+    "buffering": "descargando el siguiente bloque…",
+    "preparing": "preparando el libro…",
+    "venuesWord": "venues",
+    "loadError": "no se pudo cargar esa ventana, inténtalo de nuevo",
+    "prefs": "Preferencias de la ventana",
+    "palette": "Paleta",
+    "depthHint": "la profundidad va en la luminosidad: el toque es la banda más clara"
   }
 }

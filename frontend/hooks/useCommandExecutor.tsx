@@ -13,6 +13,7 @@ import { ForexMonitorContent } from '@/components/markets/ForexMonitorContent';
 import { CatalystAlertsConfig } from '@/components/catalyst-alerts';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { TimeAndSalesContent } from '@/components/tape';
+import { L2ReplayContent } from '@/components/l2replay';
 import { TVChartContent } from '@/components/tvchart';
 import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
@@ -438,6 +439,19 @@ export function useCommandExecutor() {
                     y: screenHeight / 2 - 280,
                     minWidth: 280,
                     minHeight: 320,
+                });
+                return null;
+
+            case 'l2r':
+                openWindow({
+                    title: 'L2 Replay',
+                    content: <L2ReplayContent />,
+                    width: 900,
+                    height: 640,
+                    x: Math.max(40, screenWidth / 2 - 450),
+                    y: Math.max(70, screenHeight / 2 - 320),
+                    minWidth: 640,
+                    minHeight: 460,
                 });
                 return null;
 
@@ -968,6 +982,19 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 280),
                     minWidth: 280,
                     minHeight: 320,
+                });
+                break;
+
+            case 'l2replay':
+                openWindow({
+                    title: `L2 Replay: ${normalizedTicker}`,
+                    content: <L2ReplayContent initialSymbol={normalizedTicker} />,
+                    width: 900,
+                    height: 640,
+                    x: Math.max(40, screenWidth / 2 - 450),
+                    y: Math.max(70, screenHeight / 2 - 320),
+                    minWidth: 640,
+                    minHeight: 460,
                 });
                 break;
 

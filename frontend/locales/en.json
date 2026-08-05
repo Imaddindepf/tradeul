@@ -338,6 +338,10 @@
     "tvc": {
       "name": "Tradeul Chart",
       "description": "Advanced chart: 100+ indicators, drawing tools, live data"
+    },
+    "l2r": {
+      "name": "L2 Replay",
+      "description": "Level 2 Replay — historical per-venue book"
     }
   },
   "scanner": {
@@ -769,6 +773,9 @@
       },
       "TC": {
         "description": "Advanced chart for ticker"
+      },
+      "L2R": {
+        "description": "Historical Level 2 replay for the ticker"
       }
     },
     "globalCommands": {
@@ -897,6 +904,9 @@
       },
       "TC": {
         "description": "Advanced chart — 100+ indicators & drawing tools"
+      },
+      "L2R": {
+        "description": "Historical per-venue Level 2 replay"
       }
     }
   },
@@ -1588,5 +1598,33 @@
       "entries_truncated": "Triggers truncated: tighten the strategy filters",
       "short_borrow_ignored": "Shorts simulated without borrow cost or availability"
     }
+  },
+  "l2replay": {
+    "symbol": "Symbol",
+    "load": "Load",
+    "costTip": "Estimate cost",
+    "idle": "idle",
+    "starting": "starting…",
+    "ready": "ready",
+    "weekend": "Weekend: market closed, moved to Friday",
+    "tick": "Tick by tick",
+    "sec1": "1 sec (economy)",
+    "palNeutral": "Neutral",
+    "palSafe": "Blue / Amber",
+    "palClassic": "Green / Red",
+    "spread": "Spread",
+    "venuesLive": "Live venues",
+    "hiddenPaused": "paused in background",
+    "venue": "Venue",
+    "size": "Size",
+    "tape": "Time & Sales",
+    "noData": "Load a window to start",
+    "buffering": "downloading next block…",
+    "preparing": "preparing the book…",
+    "venuesWord": "venues",
+    "loadError": "couldn't load that window, please try again",
+    "prefs": "Window preferences",
+    "palette": "Palette",
+    "depthHint": "depth is encoded in lightness: the touch is the brightest band"
   }
 }

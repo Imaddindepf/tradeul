@@ -47,3 +47,5 @@ cryptography==41.0.7
 # Analyst Ratings (Perplexity proxy - TLS fingerprint impersonation)
 curl_cffi>=0.7.0
 
+zstandard>=0.22
+databento-dbn>=0.20

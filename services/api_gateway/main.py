@@ -55,6 +55,7 @@ from routes.scanner import router as scanner_router, set_redis_client as set_sca
 from routes.institutional import router as institutional_router, set_sec_api_client as set_institutional_sec_client, warmup_sec_api_connection
 from routes.earnings import router as earnings_router
 from routes.halts import router as halts_router
+from routes.l2replay import router as l2replay_router
 from routes.alerts import router as alerts_router
 from routes.alert_strategies import router as alert_strategies_router, set_timescale_client as set_alert_strategies_timescale_client
 from routes.performance import router as performance_router, set_redis_client as set_performance_redis, set_timescale_client as set_performance_timescale
@@ -272,6 +273,7 @@ app.include_router(institutional_router)  # Form 13F institutional holdings
 app.include_router(notes_router)  # User notes with TipTap content
 app.include_router(earnings_router)  # Benzinga Earnings calendar
 app.include_router(halts_router)  # Trading halts from LULD stream
+app.include_router(l2replay_router)  # L2 Replay historico por venue (Databento)
 app.include_router(alerts_router)  # Alert catalog and categories
 app.include_router(alert_strategies_router)  # User alert strategies (CRUD)
 app.include_router(performance_router)  # Market performance aggregation (sectors, industries, themes)

@@ -129,3 +129,8 @@ backups/*/
 
 # Workspace del deploy rapido de frontend (no es fuente)
 frontend-staging/
+
+# Cache de Databento del L2 Replay: son datos historicos comprados que se
+# re-descargan solos. 404 ficheros .dbnz / 30 MB hoy, y crece con cada ventana
+# que abra un usuario. Al repo no van: git no olvida y esto no es fuente.
+data/l2replay_cache/
