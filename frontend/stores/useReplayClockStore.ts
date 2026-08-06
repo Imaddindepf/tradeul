@@ -68,8 +68,13 @@ type TickSub = (tQuantMs: number) => void;
 export type ReplayPrint = [number, number, number];
 type PrintSub = (p: ReplayPrint) => void;
 
-/** Aviso de salto. Quien tenga estado acumulado debe reconstruirlo. */
-type SeekSub = (tMs: number) => void;
+/**
+ * Aviso de salto: instante nuevo e instante en el que estaba el reloj. La
+ * dirección importa: hacia delante las impresiones de alcance son ticks
+ * válidos y el gráfico avanza sin re-pedir; hacia atrás hay que rehacer la
+ * historia (una serie de velas no puede retroceder por ticks).
+ */
+type SeekSub = (tMs: number, prevTMs: number) => void;
 
 /**
  * Instante pedido DESDE EL GRÁFICO, señalando una vela.
@@ -111,6 +116,13 @@ export interface ReplayClockState {
 
     /** Día de la sesión en curso, ISO `YYYY-MM-DD` en hora de Nueva York. */
     sessionDate: string | null;
+    /**
+     * Símbolo de la sesión en curso. El bus de impresiones no lleva símbolo,
+     * así que quien construya velas con él DEBE comparar contra esto: un
+     * gráfico en otro ticker que se trague impresiones ajenas fabrica velas
+     * que no existen (y las cachea).
+     */
+    sessionSymbol: string | null;
     /** Epoch en ms del instante cero del replay. `now()` es relativo a él. */
     originMs: number;
 
@@ -127,7 +139,7 @@ export interface ReplayClockState {
     // --- acciones ---
     /** El gráfico señala una vela: pide reproducir desde ese instante. */
     requestSession: (r: Omit<ReplayRequest, 'nonce'>) => void;
-    open: (opts: { sessionDate: string; originMs: number; loadedMs?: number }) => void;
+    open: (opts: { sessionDate: string; originMs: number; loadedMs?: number; symbol?: string }) => void;
     close: () => void;
     play: () => void;
     pause: () => void;
@@ -279,6 +291,7 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
     stalled: false,
     speed: 1,
     sessionDate: null,
+    sessionSymbol: null,
     originMs: 0,
     loadedMs: 0,
     tMs: 0,
@@ -298,6 +311,7 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
             // Sin datos todavía: el reloj nace detenido. Puede cortar, no correr.
             stalled: true,
             sessionDate: r.date,
+            sessionSymbol: r.symbol ? r.symbol.toUpperCase() : null,
             originMs: r.originMs,
             loadedMs: 0,
             tMs: 0,
@@ -305,23 +319,27 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
         startLoop();
     },
 
-    open: ({ sessionDate, originMs, loadedMs = 0 }) => {
+    open: ({ sessionDate, originMs, loadedMs = 0, symbol }) => {
         anchorSim = 0;
         anchorWall = performance.now();
         lastTick = -1;
-        set({ active: true, playing: false, stalled: false, sessionDate, originMs, loadedMs, tMs: 0 });
+        set({
+            active: true, playing: false, stalled: false, sessionDate,
+            sessionSymbol: symbol ? symbol.toUpperCase() : get().sessionSymbol,
+            originMs, loadedMs, tMs: 0,
+        });
         startLoop();
     },
 
     close: () => {
         stopLoop();
-        frameSubs.clear();
-        tickSubs.clear();
-        printSubs.clear();
-        seekSubs.clear();
+        // Las suscripciones NO se borran: pertenecen a quien las registró
+        // (datafeed, gráfico, cinta) y viven más que la sesión. Borrarlas aquí
+        // dejaba sordo al gráfico en la SIGUIENTE reproducción — el datafeed
+        // solo se engancha en subscribeBars, que no vuelve a ejecutarse.
         set({
             active: false, request: null, playing: false, stalled: false,
-            sessionDate: null, originMs: 0, loadedMs: 0, tMs: 0,
+            sessionDate: null, sessionSymbol: null, originMs: 0, loadedMs: 0, tMs: 0,
         });
     },
 
@@ -344,14 +362,16 @@ export const useReplayClockStore = create<ReplayClockState>((set, get) => ({
     },
 
     seek: (tMs) => {
-        const clamped = Math.max(0, Math.min(get().loadedMs, tMs));
+        const s = get();
+        const prevT = computeNow(s.playing, s.stalled, s.loadedMs);
+        const clamped = Math.max(0, Math.min(s.loadedMs, tMs));
         anchor(clamped);
         lastTick = -1;                  // fuerza un tick tras el salto
         set({ tMs: clamped, stalled: false });
         // Primero el aviso de salto: quien acumule estado (velas, libro, cinta)
         // tiene que reconstruirlo ANTES de recibir el nuevo instante, o mezclaría
         // lo viejo con lo nuevo.
-        for (const fn of seekSubs) fn(clamped);
+        for (const fn of seekSubs) fn(clamped, prevT);
         for (const fn of frameSubs) fn(clamped);
         for (const fn of tickSubs) fn(Math.floor(clamped / QUANTUM_MS) * QUANTUM_MS);
     },

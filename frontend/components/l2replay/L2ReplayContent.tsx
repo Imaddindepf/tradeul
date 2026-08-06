@@ -45,6 +45,7 @@ import { TickerSearch } from '@/components/common/TickerSearch';
 import { useWindowState } from '@/contexts/FloatingWindowContext';
 import { useLinkGroupSubscription } from '@/hooks/useLinkGroup';
 import { useReplayClockStore } from '@/stores/useReplayClockStore';
+import { etMidnightUtcSeconds } from '@/lib/marketTime';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
 
 // ============================================================================
@@ -128,6 +129,12 @@ const STALE_MS = 8000;         // venue sin cotizar ⇒ fila atenuada
 const TAPE_BUFFER = 250;       // buffer circular del tape visible
 const TAPE_ROW_H = 20;         // fila fija (estándar de ventanas: datos 20px)
 const FIRST_BLOCK_SEC = 30;    // primer bloque corto: primer pintado antes
+// El coste de un bloque es casi todo FIJO (viajes por venue + parseo), no
+// proporcional a su tamaño — medido en prod: 60 s de mercado ≈ 30 s de pared,
+// 30 s ≈ 50 s. A velocidad alta, los bloques pequeños NO dan el caudal (a 5×
+// hacen falta 5 s de mercado por segundo de pared): se amortiza el coste fijo
+// pidiendo bloques más grandes cuanto más rápido se reproduce.
+const BLOCK_CAP_MIN = 15;      // tope de cordura por petición
 // Precarga por COLCHÓN DE PARED, no por tiempo de mercado restante. 90 s de
 // mercado dan 90 s reales para pedir a 1×, pero solo 18 s a 5×: un umbral fijo
 // en ms de mercado dispara tarde justo cuando menos margen hay. Se pide cuando
@@ -377,7 +384,21 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
     const broadcast = useLinkGroupSubscription();
 
     // ---- ajustes persistidos por ventana --------------------------------
-    const symbol = (initialSymbol ?? state.symbol ?? 'NVDA').toUpperCase();
+    // El ESTADO manda; la prop es solo el arranque. Con la prop delante, la
+    // ventana quedaba clavada en su símbolo de nacimiento: ni la búsqueda
+    // manual, ni el link-group, ni señalar una vela en otro ticker podían
+    // cambiarlo (todos escriben state.symbol, que la prop pisaba).
+    const symbol = (state.symbol ?? initialSymbol ?? 'NVDA').toUpperCase();
+    // Un L2R desde el terminal con la ventana ya abierta llega como CAMBIO de
+    // prop (el executor reemplaza el elemento; React actualiza, no remonta):
+    // sincronizarlo al estado para que también mande.
+    const lastInitialRef = useRef(initialSymbol);
+    useEffect(() => {
+        if (initialSymbol && initialSymbol !== lastInitialRef.current) {
+            lastInitialRef.current = initialSymbol;
+            updateState({ symbol: initialSymbol.toUpperCase() });
+        }
+    }, [initialSymbol, updateState]);
     const minutes = state.minutes ?? 5;
     const schema = state.schema ?? 'mbp-1';
     const paletteKey: PaletteKey = state.palette ?? 'neutral';
@@ -505,10 +526,12 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
             const nextUtc = new Date(e.startUtcMs + e.durationMs);
             const parts = etDateFmt.formatToParts(nextUtc)
                 .reduce<Record<string, string>>((a, x) => (a[x.type] = x.value, a), {});
+            const vel = clock.getState().speed || 1;
+            const effMin = Math.min(BLOCK_CAP_MIN, Math.max(minutes, Math.ceil(vel) * 2));
             const t0 = performance.now();
             const p = await fetchBlock(
                 `${parts.year}-${parts.month}-${parts.day}`,
-                `${parts.hour}:${parts.minute}:${parts.second}`, gen, minutes);
+                `${parts.hour}:${parts.minute}:${parts.second}`, gen, effMin);
             // Media móvil de la latencia real: es la que dimensiona el colchón.
             latencyRef.current = latencyRef.current * 0.7 + (performance.now() - t0) * 0.3;
             if (!p || gen !== genRef.current) return;
@@ -562,9 +585,29 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
             return;
         }
         setStatus({ kind: 'loading', msg: t('l2replay.preparing') });
+        // El corte es INMEDIATO también desde este botón: la sesión se abre
+        // ANTES de pedir un solo byte, con el instante calculado aquí, y el
+        // gráfico se recorta en el acto. El libro y la cinta se incorporan
+        // cuando llegue el primer bloque; mientras, el reloj espera parado.
+        {
+            const [hh = 0, mm = 0, ss = 0] = timeStr.split(':').map(Number);
+            const originGuess = etMidnightUtcSeconds(dateStr) * 1000
+                + ((hh * 60 + mm) * 60 + ss) * 1000;
+            const cs0 = clock.getState();
+            if (!(cs0.active && Math.abs(cs0.originMs - originGuess) < 1000)) {
+                cs0.open({ sessionDate: dateStr, originMs: originGuess, loadedMs: 0, symbol });
+            }
+        }
         try {
+            const t0 = performance.now();
             const p = await fetchBlock(dateStr, timeStr, gen, 1, FIRST_BLOCK_SEC);
             if (!p || gen !== genRef.current) return;
+            // SEMBRAR la latencia con el bloque inicial, escalada al tamaño de
+            // los bloques grandes (más datos ≈ más espera). Sin sembrar, la EMA
+            // nace optimista (1,5 s) y el primer encadenado dispara tarde —
+            // exactamente el "pedí 5 minutos y se paró a los 30 segundos".
+            const escala = Math.max(1, (minutes * 60) / FIRST_BLOCK_SEC);
+            latencyRef.current = Math.min(60_000, (performance.now() - t0) * Math.sqrt(escala));
             const e = eng.current = freshEngine();
             e.payload = p;
             e.startUtcMs = new Date(p.startUtc).getTime();
@@ -583,7 +626,7 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
             if (cs.active && Math.abs(cs.originMs - e.startUtcMs) < 60_000) {
                 cs.setLoaded(e.durationMs);
             } else {
-                cs.open({ sessionDate: dateStr, originMs: e.startUtcMs, loadedMs: e.durationMs });
+                cs.open({ sessionDate: dateStr, originMs: e.startUtcMs, loadedMs: e.durationMs, symbol });
             }
             clock.getState().setSpeed(speed);   // la guardada en la ventana
             setProgress(1);
@@ -605,7 +648,7 @@ export function L2ReplayContent({ initialSymbol }: L2ReplayContentProps) {
                 msg: sinLibro ? t('l2replay.noBookDay') : t('l2replay.loadError'),
             });
         }
-    }, [dateStr, timeStr, fetchBlock, extend, setPlay, t, clock]);
+    }, [symbol, dateStr, timeStr, minutes, fetchBlock, extend, setPlay, t, clock]);
 
     // ---- petición del gráfico: señalar una vela manda aquí ---------------
     // Manda el gráfico. Cuando el usuario señala una vela, esta ventana adopta

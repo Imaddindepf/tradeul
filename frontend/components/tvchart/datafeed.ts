@@ -107,6 +107,14 @@ interface LiveSubscription {
     onTick: (bar: TVBar) => void;
     onResetCacheNeeded: () => void;
     rxSub: { unsubscribe: () => void };
+    /**
+     * Descongela los ticks de reproducción tras un salto hacia atrás. Entre el
+     * salto y la re-petición de historia la librería aún enseña la serie
+     * VIEJA: cualquier tick del instante nuevo sería "hacia atrás" para ella
+     * (time violation, serie corrupta). getBars lo llama al servir historia
+     * fresca en modo replay.
+     */
+    thawReplay?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +298,49 @@ export class TradeulDatafeed {
      * contar historias distintas del mismo instante.
      */
     private readonly replaySubs = new Map<string, () => void>();
+
+    /**
+     * Barras ya vistas durante la reproducción, por `symbol#resolution`
+     * (ASC por time). Es lo que permite que un rebobinado se sirva SÍNCRONO
+     * desde memoria en vez de irse a red: el usuario tiene razón cuando dice
+     * "está todo cargado, no debería parpadear". Se alimenta de cada
+     * respuesta de getBars y de cada vela sellada por impresiones.
+     */
+    private readonly replayBars = new Map<string, ChartBar[]>();
+
+    /**
+     * true cuando el último salto exige rehacer la serie de la librería
+     * (retroceso que cruza velas: una serie no puede encoger por ticks).
+     * El dueño del widget lo consume y decide si llama a resetData; los
+     * retrocesos DENTRO de la vela viva no lo levantan y salen gratis.
+     */
+    private replayResetRequired = false;
+
+    /** Consume (y limpia) la señal de "hace falta resetData". */
+    consumeReplayResetNeeded(): boolean {
+        const v = this.replayResetRequired;
+        this.replayResetRequired = false;
+        return v;
+    }
+
+    private rememberReplayBars(key: string, bars: ChartBar[], overwrite: boolean): void {
+        if (!bars.length) return;
+        const cur = this.replayBars.get(key);
+        if (!cur) {
+            this.replayBars.set(key, [...bars].sort((a, b) => a.time - b.time));
+            return;
+        }
+        const byTime = new Map<number, ChartBar>();
+        for (const b of cur) byTime.set(b.time, b);
+        for (const b of bars) {
+            // Las barras del servidor pisan; las selladas por impresiones solo
+            // rellenan huecos (pueden venir cortas de volumen tras un salto).
+            if (overwrite || !byTime.has(b.time)) byTime.set(b.time, b);
+        }
+        let merged = [...byTime.values()].sort((a, b) => a.time - b.time);
+        if (merged.length > 3000) merged = merged.slice(merged.length - 3000);
+        this.replayBars.set(key, merged);
+    }
 
     constructor(opts: { apiUrl: string; ws: TVWsBridge }) {
         this.apiUrl = opts.apiUrl;
@@ -530,6 +581,56 @@ export class TradeulDatafeed {
         // delante, que aqui se descarta — el futuro lo destapa el reloj.
         const replaySec = this.replayNowSec();
         if (replaySec !== null) url += `&to=${replaySec}`;
+
+        // Rebobinar NO debería ir a red: todo lo que puede necesitar la
+        // librería ya pasó por aquí (respuestas anteriores + velas selladas).
+        // Servir de memoria hace el salto atrás síncrono — sin el blanco de
+        // "resetData y a esperar el fetch", que era el parpadeo que se veía.
+        // Solo la primera petición tras el reset: la paginación de historia
+        // más antigua (scroll a la izquierda) sigue yendo a red.
+        if (replaySec !== null && periodParams.firstDataRequest && !isDailyOrAboveResolution(resolution)) {
+            const cached = this.replayBars.get(`${symbol}#${resolution}`);
+            if (cached?.length) {
+                const dur = resolutionToSeconds(resolution);
+                let hi = -1;
+                for (let i = cached.length - 1; i >= 0; i--) {
+                    if (cached[i].time + dur <= replaySec) { hi = i; break; }
+                }
+                // Cobertura real: el corte tiene que caer dentro del tramo
+                // cacheado O en la vela viva inmediatamente posterior a la
+                // última sellada (esa la reconstruye el catch-up con las
+                // impresiones). Si no, a red.
+                const newest = cached[cached.length - 1];
+                const cubierto = hi >= 0 && newest.time + dur * 2 > replaySec;
+                if (cubierto) {
+                    const slice = cached.slice(Math.max(0, hi + 1 - limit), hi + 1);
+                    // CONTINUIDAD: la caché mezcla barras del servidor y
+                    // selladas por impresiones, y esa unión puede tener
+                    // agujeros. Servir un tramo agujereado lo perpetúa en
+                    // pantalla (el hueco que "se curaba solo" al volver a la
+                    // pestaña, cuando el resync de visibilidad iba a red). Ante
+                    // la duda — hueco interno grande o tramo raquítico — a red,
+                    // que es lenta pero completa.
+                    let sano = slice.length >= Math.min(limit, 30);
+                    for (let i = 1; sano && i < slice.length; i++) {
+                        if (slice[i].time - slice[i - 1].time > dur * 3) sano = false;
+                    }
+                    if (sano) {
+                        const newestBar = slice[slice.length - 1];
+                        this.lastHistoryBars.set(`${symbol}#${resolution}`, newestBar);
+                        for (const sub of this.subs.values()) {
+                            if (sub.symbol === symbol && sub.resolution === resolution) {
+                                sub.lastBar = newestBar;
+                                sub.thawReplay?.();
+                            }
+                        }
+                        onResult(slice.map((b) => toTVBar(b, false)), { noData: false });
+                        return;
+                    }
+                }
+            }
+        }
+
         // El cursor de paginación se envía IGUAL en reproducción. Sin él, cada
         // petición de historia antigua devolvía la misma ventana y la librería
         // volvía a pedir sin avanzar nunca: 32 peticiones seguidas por un solo
@@ -539,6 +640,15 @@ export class TradeulDatafeed {
         fetch(url)
             .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`chart ${r.status}`))))
             .then((json) => {
+                // Descongelar SOLO con la respuesta que sigue al reset
+                // (firstDataRequest). Las cargas que dispara el encuadre son
+                // paginación: si su respuesta llega antes que la del reset y
+                // deshiela, los ticks entran sobre una serie a medio limpiar.
+                if (replaySec !== null && periodParams.firstDataRequest) {
+                    for (const sub of this.subs.values()) {
+                        if (sub.symbol === symbol && sub.resolution === resolution) sub.thawReplay?.();
+                    }
+                }
                 const raw: ChartBar[] = Array.isArray(json?.data) ? json.data : [];
                 if (raw.length === 0) {
                     onResult([], { noData: json?.has_more !== true });
@@ -556,7 +666,18 @@ export class TradeulDatafeed {
                         if (raw[i].time + dur <= replaySec) { raw.length = i + 1; break; }
                         if (i === 0) raw.length = 0;
                     }
-                    if (raw.length === 0) { onResult([], { noData: true }); return; }
+                    // OJO: aquí noData NO puede ser true a la ligera. Tras un
+                    // salto atrás, la primera re-petición cubre el rango visible
+                    // VIEJO (posterior al corte) y el recorte la vacía: con
+                    // noData:true la librería da la serie por agotada y no
+                    // vuelve a pedir — gráfico en blanco para siempre. Mientras
+                    // el servidor tenga más historia, que siga preguntando.
+                    if (raw.length === 0) { onResult([], { noData: json?.has_more === false }); return; }
+                    // A memoria: el siguiente rebobinado hacia este tramo se
+                    // servirá síncrono, sin blanco de red.
+                    if (!isDailyOrAboveResolution(resolution)) {
+                        this.rememberReplayBars(`${symbol}#${resolution}`, raw, true);
+                    }
                 }
 
                 if (periodParams.firstDataRequest) {
@@ -579,7 +700,17 @@ export class TradeulDatafeed {
                 const dailyOrAbove = isDailyOrAboveResolution(resolution);
                 onResult(raw.map((b) => toTVBar(b, dailyOrAbove)), { noData: false });
             })
-            .catch((err) => onError(String(err?.message ?? err)));
+            .catch((err) => {
+                // Descongelar también en error (solo el post-reset): mejor un
+                // tick raro que un gráfico mudo hasta un fetch que quizá no
+                // llegue.
+                if (replaySec !== null && periodParams.firstDataRequest) {
+                    for (const sub of this.subs.values()) {
+                        if (sub.symbol === symbol && sub.resolution === resolution) sub.thawReplay?.();
+                    }
+                }
+                onError(String(err?.message ?? err));
+            });
     }
 
     // -- Tiempo real -------------------------------------------------------------
@@ -619,15 +750,42 @@ export class TradeulDatafeed {
         // haya sesión, el bus no emite nada y esto no cuesta.
         let rBar: TVBar | null = null;
         let rDirty = false;
+        // true entre un salto HACIA ATRÁS y la historia fresca: la librería
+        // aún enseña la serie vieja y un tick del instante nuevo sería
+        // "hacia atrás" para ella (time violation → serie corrupta).
+        let rFrozen = false;
+        sub.thawReplay = () => {
+            rFrozen = false;
+            // La vela viva acumulada en silencio durante el catch-up sale
+            // ahora, con la historia fresca ya en pantalla: mismo timestamp o
+            // posterior al último sellado, tick válido.
+            rDirty = rBar !== null;
+        };
 
         const offPrint = useReplayClockStore.getState().onPrint(([tRel, px, size]) => {
-            const origin = useReplayClockStore.getState().originMs;
+            const rs = useReplayClockStore.getState();
+            // VETO POR SÍMBOLO: el bus no lleva ticker. Un gráfico en otro
+            // símbolo que se trague impresiones ajenas fabrica velas que no
+            // existen — y las cachea, envenenando los rebobinados futuros.
+            if (rs.sessionSymbol && rs.sessionSymbol !== symbol) return;
+            const origin = rs.originMs;
             const t0 = Math.floor(Math.floor((origin + tRel) / 1000) / intervalSecs) * intervalSecs;
-            if (!rBar || t0 > rBar.time) {
-                // Sellar la que cierra ANTES de abrir la nueva: a velocidad alta
-                // puede cruzarse más de una frontera en el mismo frame y,
-                // emitiendo solo la última, quedarían huecos.
-                if (rBar) onTick({ ...rBar });
+            if (!rBar || t0 * 1000 > rBar.time) {
+                if (rBar) {
+                    // Sellar la que cierra ANTES de abrir la nueva: a velocidad
+                    // alta puede cruzarse más de una frontera en el mismo frame
+                    // y, emitiendo solo la última, quedarían huecos. Congelado
+                    // NO se emite (la librería aún enseña la serie vieja), pero
+                    // la sellada sí se guarda: es una barra legítima que un
+                    // rebobinado posterior servirá de memoria.
+                    if (!rFrozen) onTick({ ...rBar });
+                    if (!isDailyOrAbove) {
+                        this.rememberReplayBars(`${symbol}#${resolution}`, [{
+                            time: rBar.time / 1000, open: rBar.open, high: rBar.high,
+                            low: rBar.low, close: rBar.close, volume: rBar.volume ?? 0,
+                        } as ChartBar], false);
+                    }
+                }
                 rBar = { time: t0 * 1000, open: px, high: px, low: px, close: px, volume: size };
             } else {
                 rBar.high = Math.max(rBar.high, px);
@@ -635,7 +793,11 @@ export class TradeulDatafeed {
                 rBar.close = px;
                 rBar.volume = (rBar.volume ?? 0) + size;
             }
-            rDirty = true;
+            // Congelado se ACUMULA pero no se publica: así, cuando el catch-up
+            // de un salto reaplica las impresiones desde el principio, la vela
+            // viva queda EXACTA (antes se descartaban y la vela salía más
+            // pequeña unas veces sí y otras no, según qué prints pillara).
+            if (!rFrozen) rDirty = true;
         });
 
         // Conflación: un onTick por frame, no uno por impresión.
@@ -643,11 +805,30 @@ export class TradeulDatafeed {
             if (rDirty && rBar) { onTick({ ...rBar }); rDirty = false; }
         });
 
-        // Un salto reinicia la vela y obliga a la librería a repedir la historia.
-        // Sin esto le llegarían ticks hacia atrás, que la corrompen.
-        const offSeek = useReplayClockStore.getState().onSeek(() => {
-            rBar = null; rDirty = false;
-            onResetCacheNeededCallback();
+        // Dirección y alcance del salto deciden el coste:
+        //   · delante → nada: las impresiones de alcance son ticks válidos y
+        //     el gráfico avanza en el acto, sin re-petición ni parpadeo.
+        //   · atrás DENTRO de la vela viva → la vela solo encoge, y un tick
+        //     con el mismo timestamp es legal: se reconstruye en silencio con
+        //     el catch-up y se publica al soltar el hilo. Cero resetData.
+        //   · atrás cruzando velas → la serie tiene que perder barras, y eso
+        //     solo lo hace un resetData: congelar, invalidar y avisar al
+        //     dueño del widget (replayResetRequired).
+        const offSeek = useReplayClockStore.getState().onSeek((tMs, prevTMs) => {
+            if (tMs >= prevTMs) return;
+            const absMs = useReplayClockStore.getState().originMs + tMs;
+            const dentroDeVela = rBar !== null && absMs >= rBar.time;
+            rBar = null;
+            rDirty = false;
+            rFrozen = true;
+            if (dentroDeVela) {
+                // El catch-up corre síncrono dentro de seek(); este timeout se
+                // ejecuta justo después, con la vela ya reconstruida entera.
+                setTimeout(() => { rFrozen = false; rDirty = rBar !== null; }, 0);
+            } else {
+                this.replayResetRequired = true;
+                onResetCacheNeededCallback();
+            }
         });
 
         this.replaySubs.set(listenerGuid, () => { offPrint(); offFrame(); offSeek(); });

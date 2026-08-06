@@ -992,6 +992,10 @@ export function useCommandExecutor() {
                 // símbolo y se trae al frente en vez de abrir otra.
                 const abierta = windows.find(w => w.title?.startsWith('L2 Replay'));
                 if (abierta) {
+                    // Reemplazar el contenido NO remonta el componente (mismo
+                    // tipo React en la misma posición ⇒ actualización de props,
+                    // el desmontaje jamás corre): la sesión y el estado viven.
+                    // El componente sincroniza el cambio de prop a su estado.
                     updateWindow(abierta.id, {
                         title: `L2 Replay: ${normalizedTicker}`,
                         content: <L2ReplayContent initialSymbol={normalizedTicker} />,

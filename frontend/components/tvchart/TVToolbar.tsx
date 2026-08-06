@@ -7,7 +7,7 @@
  * nativos (símbolo, indicadores, ajustes…) se abren dentro de esa celda.
  */
 
-import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 // El gestor de diseños se inyecta desde el contenedor (prop designManager).
 import { TVLayoutIcon } from './TVLayoutIcon';
@@ -197,29 +197,49 @@ function ReplayControl({ symbol, lang, actions }: { symbol: string; lang: keyof 
     // restore del workspace la reconoce por su titulo.
     const { executeTickerCommand } = useCommandExecutor();
     const active = useReplayClockStore((s) => s.active);
+    const request = useReplayClockStore((s) => s.request);
     const L = (b: Bi) => b[lang];
 
     useTVPopover(open, () => setOpen(false), (t) => rootRef.current?.contains(t) ?? false);
 
-    // Señalar la vela ES el arranque: se entra en modo selección y, al hacer
-    // clic, el gráfico publica el instante y abre la ventana del libro.
+    // Como TradingView: pulsar el botón ENTRA en el modo selección — tijeras
+    // sobre el gráfico, sin diálogos por medio y con el gráfico despejado.
+    // La ventana del libro se abre DESPUÉS, cuando la vela ya está señalada:
+    // abrirla antes tapaba justo la zona donde se iba a hacer clic.
+    const pickingRef = useRef(false);
     const empezar = () => {
         setOpen(false);
         if (!symbol) return;
-        executeTickerCommand(symbol, 'l2replay');
+        pickingRef.current = true;
         actions.pickReplayBar();
     };
 
+    // La vela señalada llega por el reloj compartido; solo el control que
+    // inició la selección abre la ventana (con varios gráficos abiertos, cada
+    // uno tiene su botón y no deben abrirla todos).
+    useEffect(() => {
+        if (!request || !pickingRef.current) return;
+        pickingRef.current = false;
+        executeTickerCommand(request.symbol, 'l2replay');
+    }, [request, executeTickerCommand]);
+
     return (
-        <div ref={rootRef} className="relative">
+        <div ref={rootRef} className="relative flex items-center">
             <button
                 title={L(bi('Replay', 'Reproducción'))}
-                onClick={() => setOpen((v) => !v)}
-                className={`flex h-8 items-center gap-0.5 rounded px-1 text-sm hover:bg-black/10 dark:hover:bg-white/10 ${
+                onClick={empezar}
+                disabled={!symbol}
+                className={`flex h-8 items-center rounded px-1 text-sm hover:bg-black/10 dark:hover:bg-white/10 ${
                     active ? 'text-primary' : ''
                 }`}
             >
                 <Icon name="replay" />
+            </button>
+            <button
+                title={L(bi('Replay options', 'Opciones de reproducción'))}
+                onClick={() => setOpen((v) => !v)}
+                className="flex h-8 items-center rounded px-0.5 text-sm hover:bg-black/10 dark:hover:bg-white/10"
+            >
                 <Caret />
             </button>
             {open && (

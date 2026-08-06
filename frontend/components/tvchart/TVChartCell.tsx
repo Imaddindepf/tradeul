@@ -43,7 +43,17 @@ const READY_TIMEOUT_SECS = 20;
 /** Segundos visibles antes de chequear si el CSS del iframe murió (celda blanca). */
 const CSS_CHECK_SECS = 4;
 
-/** Etiqueta de la vela apuntada al elegir el arranque de una reproducción. */
+/**
+ * Cursor de tijeras del modo selección de reproducción (como TradingView).
+ * Dos trazos, oscuro grueso debajo y claro fino encima: visible sobre velas
+ * de cualquier color y en ambos temas.
+ */
+const SCISSORS_SVG =
+    `<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'>` +
+    `<g stroke='#000' stroke-width='4' opacity='0.9'><circle cx='6' cy='6' r='3'/><circle cx='6' cy='18' r='3'/><path d='M20 4 8.12 15.88'/><path d='M14.47 14.48 20 20'/><path d='M8.12 8.12 12 12'/></g>` +
+    `<g stroke='#fff' stroke-width='1.8'><circle cx='6' cy='6' r='3'/><circle cx='6' cy='18' r='3'/><path d='M20 4 8.12 15.88'/><path d='M14.47 14.48 20 20'/><path d='M8.12 8.12 12 12'/></g>` +
+    `</svg>`;
+
 /** Segundos que abarca una vela de esa resolución (para encuadrar al entrar). */
 function resolutionSpanSecs(res: string): number {
     if (/^\d+S$/.test(res)) return parseInt(res, 10);
@@ -313,21 +323,86 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
             const w = widgetRef.current;
             if (!w || !readyRef.current) return;
             try {
-                w.activeChart().resetData();
+                // ORDEN CRÍTICO con request_only_visible_range_on_reset: tras
+                // resetData la librería re-pide SOLO su rango visible. Si el
+                // encuadre se hace después, pregunta por la ventana VIEJA (el
+                // presente) y el tramo pegado al corte se queda sin pedir — un
+                // hueco que solo tapaba el resync de visibilidad al volver a
+                // la pestaña. Primero mirar a donde va a estar el dato, luego
+                // invalidar (resyncAll) y solo entonces resetData.
                 if (s.active) {
                     const nowSec = (s.originMs + s.now()) / 1000;
                     const span = resolutionSpanSecs(w.activeChart().resolution()) * 120;
-                    setTimeout(() => {
+                    const encuadre = () => {
                         try {
                             w.activeChart().setVisibleRange(
                                 { from: nowSec - span, to: nowSec + span * 0.15 },
                                 { applyDefaultRightMargin: false },
                             );
                         } catch { /* aun sin barras */ }
-                    }, 250);
+                    };
+                    encuadre();
+                    datafeedRef.current?.resyncAll();
+                    w.activeChart().resetData();
+                    setTimeout(encuadre, 250);
+                } else {
+                    datafeedRef.current?.resyncAll();
+                    w.activeChart().resetData();
                 }
             } catch { /* widget no listo */ }
         });
+    }, []);
+
+    // Un salto del reloj (la barra de la ventana L2) tiene que mover el
+    // gráfico ENTERO, no solo la vela viva — y la dirección decide el cómo:
+    //   · atrás  → rehacer la historia (resyncAll+resetData, con debounce:
+    //              arrastrar dispara un seek por movimiento y cada resetData
+    //              es un fetch) y reencuadrar al aterrizar.
+    //   · delante → nada que re-pedir: las impresiones de alcance son ticks
+    //              válidos y la vela avanza sola. Solo reencuadre, para que
+    //              el instante no se salga de la pantalla.
+    useEffect(() => {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const reframe = (w: NonNullable<typeof widgetRef.current>, s: ReturnType<typeof useReplayClockStore.getState>) => {
+            const nowSec = (s.originMs + s.now()) / 1000;
+            const span = resolutionSpanSecs(w.activeChart().resolution()) * 120;
+            try {
+                w.activeChart().setVisibleRange(
+                    { from: nowSec - span, to: nowSec + span * 0.15 },
+                    { applyDefaultRightMargin: false },
+                );
+            } catch { /* aun sin barras */ }
+        };
+        // Quién decide si hay que rehacer la serie: el DATAFEED, que es quien
+        // sabe si el retroceso cruzó velas (obliga a resetData) o se quedó
+        // dentro de la viva (la vela encoge por tick y no cuesta nada). La
+        // señal es pegajosa hasta consumirse: aunque el último movimiento del
+        // arrastre fuera hacia delante, un retroceso con congelación previa
+        // exige su resetData o el gráfico se queda mudo.
+        const off = useReplayClockStore.getState().onSeek((tMs, prevTMs) => {
+            if (timer) clearTimeout(timer);
+            const atras = tMs < prevTMs;
+            timer = setTimeout(() => {
+                timer = null;
+                const w = widgetRef.current;
+                const s = useReplayClockStore.getState();
+                if (!w || !readyRef.current || !s.active) return;
+                try {
+                    if (datafeedRef.current?.consumeReplayResetNeeded()) {
+                        // Encuadrar ANTES del reset: la re-petición cubre solo
+                        // el rango visible, así que primero hay que mirar al
+                        // instante de aterrizaje (mismo motivo que al abrir).
+                        reframe(w, s);
+                        datafeedRef.current.resyncAll();
+                        w.activeChart().resetData();
+                        setTimeout(() => { try { reframe(w, s); } catch { /* no listo */ } }, 250);
+                    } else {
+                        reframe(w, s);
+                    }
+                } catch { /* widget no listo */ }
+            }, atras ? 150 : 80);
+        });
+        return () => { if (timer) clearTimeout(timer); off(); };
     }, []);
 
     useImperativeHandle(ref, (): TVChartCellApi => ({
@@ -432,6 +507,20 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
             // por cada movimiento del cursor las acumulaba a cientos.
             let hovered: number | null = null;
             let sub: { unsubscribe: (obj: unknown, cb: unknown) => void } | null = null;
+            // Cursor de tijeras dentro del iframe de la CL (mismo origen: la
+            // librería se sirve desde nuestro dominio). Una hoja de estilo
+            // inyectada pisa los cursores de los paneles; se retira al salir.
+            let cursorCss: HTMLStyleElement | null = null;
+            let iframeDoc: Document | null = null;
+            try {
+                iframeDoc = containerRef.current?.querySelector('iframe')?.contentDocument ?? null;
+                if (iframeDoc) {
+                    cursorCss = iframeDoc.createElement('style');
+                    cursorCss.textContent =
+                        `* { cursor: url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(SCISSORS_SVG)}") 11 11, crosshair !important; }`;
+                    iframeDoc.head.appendChild(cursorCss);
+                }
+            } catch { /* iframe inaccesible: se queda la cruz normal */ }
             const onCross = (p: { time?: number }) => {
                 if (typeof p?.time === 'number') hovered = p.time;
             };
@@ -441,14 +530,22 @@ export const TVChartCell = forwardRef<TVChartCellApi, TVChartCellProps>(function
                 cancel();
                 onPick(t);
             };
+            const onKey = (ev: KeyboardEvent) => {
+                if (ev.key === 'Escape') cancel();
+            };
             const cancel = () => {
                 if (limite != null) {
                     try { w.activeChart().removeEntity(limite as never); } catch { /* ya no está */ }
                     limite = null;
                 }
+                if (cursorCss) { try { cursorCss.remove(); } catch { /* ya fuera */ } cursorCss = null; }
+                try { document.removeEventListener('keydown', onKey); } catch { /* ya suelto */ }
+                try { iframeDoc?.removeEventListener('keydown', onKey); } catch { /* ya suelto */ }
                 try { sub?.unsubscribe(null, onCross); } catch { /* ya suelto */ }
                 try { w.unsubscribe('mouse_down', onDown); } catch { /* ya suelto */ }
             };
+            document.addEventListener('keydown', onKey);
+            try { iframeDoc?.addEventListener('keydown', onKey); } catch { /* sin iframe */ }
             try {
                 sub = w.activeChart().crossHairMoved() as typeof sub;
                 (sub as unknown as { subscribe: (o: unknown, c: unknown) => void })
